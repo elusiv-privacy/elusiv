@@ -1,0 +1,10 @@
+{
+    "scripts": {
+        "build": "cargo build-bpf --manifest-path=Cargo.toml --bpf-out-dir=dist/program",
+        "redeploy": "solana program deploy --program-id dist/program/elusiv-keypair.json dist/program/elusiv.so",
+        "deploy": "solana program deploy dist/program/elusiv.so",
+        "cluster": "cd ../ && solana-test-validator",
+
+        "program": "npm run build && npm run redeploy"
+    }
+}
