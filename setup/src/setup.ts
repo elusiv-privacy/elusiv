@@ -15,14 +15,14 @@ import {
 export async function setup_program_account(program_id: PublicKey, size: number): Promise<PublicKey> {
     const payer = await getPayer();
     const connection = await establish_connection();
-    const seed = size.toString();
+    const seed = Date.now().toString();
     const account_pubkey = await PublicKey.createWithSeed(payer.publicKey, seed, program_id);
 
     if (await connection.getAccountInfo(account_pubkey) != null) {
         return account_pubkey;
     }
 
-    const rent = await connection.getMinimumBalanceForRentExemption(100);
+    const rent = await connection.getMinimumBalanceForRentExemption(size);
 
     // Airdrop the fee_payer sufficient funds
     const { feeCalculator } = await connection.getRecentBlockhash();

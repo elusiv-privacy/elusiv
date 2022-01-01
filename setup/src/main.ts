@@ -5,7 +5,7 @@ import {
 } from './utils';
 
 async function main() {
-    const SIZE = 1000;
+    const SIZE = 99;
     const program = await createKeypairFromFile("dist/program/elusiv-keypair.json");
     const bank_account = await setup_program_account(program.publicKey, SIZE);
     exportPubKeys(program.publicKey, bank_account);

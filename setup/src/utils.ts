@@ -32,11 +32,10 @@ export async function getPayer(): Promise<Keypair> {
 
 
 export async function exportPubKeys(program_id: PublicKey, bank_account: PublicKey) {
-    const data = JSON.stringify({
+    const data = {
       "program_id": program_id.toBase58(),
-      "bank_account": bank_account.toBase58(),
-    });
-    const value = "export KEYS = " + data + ";";
+      "main_account": bank_account.toBase58(),
+    };
   
-    await fs.writeFile("dist/program/pubkeys.json", value);
+    await fs.writeFileSync("dist/program/pubkeys.json", JSON.stringify(data), { encoding:'utf8', flag:'w' });
 }
