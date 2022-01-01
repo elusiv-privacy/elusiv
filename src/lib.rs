@@ -39,11 +39,7 @@ mod test {
     async fn test_transaction() {
         let program_id = Pubkey::new_unique();
 
-        let (mut banks_client, payer, recent_blockhash) = ProgramTest::new(
-            "bpf_program_template",
-            program_id,
-            processor!(process_instruction),
-        )
+        let (mut banks_client, payer, recent_blockhash) = ProgramTest::new("bpf_program_template", program_id, processor!(process_instruction))
         .start()
         .await;
 
