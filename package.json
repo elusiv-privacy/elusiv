@@ -7,7 +7,8 @@
         "redeploy": "solana program deploy --program-id dist/program/elusiv-keypair.json dist/program/elusiv.so",
         "program": "npm run build && npm run redeploy",
 
-        "setup": "ts-node setup/src/main.ts"
+        "setup": "ts-node setup/src/main.ts",
+        "ui": "sh setup/shell/ui.sh"
     },
     "dependencies": {
         "@types/node": "^17.0.6",
