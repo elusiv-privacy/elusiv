@@ -13,7 +13,6 @@ use solana_program::{
         IncorrectProgramId
     },
     account_info::next_account_info,
-    msg,
     system_instruction::transfer,
     program::invoke_signed,
     system_program
@@ -34,8 +33,6 @@ impl Processor {
     }
 
     fn deposit(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) -> ProgramResult {
-        msg!("DEPOSIT");
-
         let account_info_iter = &mut accounts.iter();
 
         // 0. [signer, writable] Signer and Sender
@@ -50,6 +47,10 @@ impl Processor {
         // 2. System program
         let system_program = next_account_info(account_info_iter)?;
         if *system_program.key != system_program::id() { return Err(IncorrectProgramId); }
+
+        // TODO: Check if commitment is unique
+
+        // TODO: Insert commitment in merkle tree
 
         // Transfer funds using system program
         let instruction = transfer(&sender.key, &bank.key, amount);
@@ -67,8 +68,6 @@ impl Processor {
     }
 
     fn withdraw(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) -> ProgramResult {
-        msg!("WITHDRAW");
-
         let account_info_iter = &mut accounts.iter();
 
         // 0. [signer] Signer
@@ -82,6 +81,14 @@ impl Processor {
         // 2. [owned, writable] Program main account
         let bank = next_account_info(account_info_iter)?;
         if bank.owner != program_id { return Err(IllegalOwner); }
+
+        // TODO: Check if nullifier does not already exist
+
+        // TODO: Validate proof
+
+        // TODO: Check if new commitment does not already exist
+
+        // TODO: Save nullifier and commitment
 
         // Transfer funds using owned bank account
         **bank.try_borrow_mut_lamports()? -= amount;
