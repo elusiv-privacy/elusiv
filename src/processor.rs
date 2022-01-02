@@ -60,6 +60,7 @@ impl Processor {
             &[
                 sender.clone(),
                 bank.clone(),
+                system_program.clone(),
             ],
             &[&[&b"deposit"[..], &[bump_seed]]],
         )?;
