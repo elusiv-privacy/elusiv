@@ -75,12 +75,12 @@ impl Processor {
         let system_program = next_account_info(account_info_iter)?;
         if *system_program.key != system_program::id() { return Err(IncorrectProgramId); }
 
+        // Check the amount
+        if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
+
         {
             let data = &mut bank.data.borrow_mut()[..];
             let mut storage = StorageAccount::from(data)?;
-
-            // Check the amount
-            if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
 
             // Check if commitment is unique and insert commitment in merkle tree
             storage.try_add_commitment(commitment)?;
@@ -138,8 +138,8 @@ impl Processor {
         // Validate proof
         let pvk = prepare_verifying_key(&verifier::verification_key());
         let inputs: Vec<Scalar> = vec![
-            scalar::from_limbs(&nullifier_hash),
             scalar::from_limbs(&root),
+            scalar::from_limbs(&nullifier_hash),
         ];
         let result = verify_proof(&pvk, &proof, &inputs[..]);
         match result {
