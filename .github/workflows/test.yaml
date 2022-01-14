@@ -27,4 +27,3 @@ jobs:
         ssh-add
         cargo install cargo-tarpaulin
         cargo tarpaulin --out Xml
-        bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
