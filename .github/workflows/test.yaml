@@ -15,10 +15,10 @@ jobs:
     - uses: actions/checkout@v2
       with:
         fetch-depth: 0
-    - name: webfactory/ssh-agent
     - uses: webfactory/ssh-agent@v0.5.4
       with:
-            ssh-private-key: "-----BEGIN OPENSSH PRIVATE KEY-----b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQyNTUxOQAAACCdie/+3IYHI9g3mo0xLF9sN219xgBYFAcBzMBQ33LonwAAAJC0u+BYtLvgWAAAAAtzc2gtZWQyNTUxOQAAACCdie/+3IYHI9g3mo0xLF9sN219xgBYFAcBzMBQ33LonwAAAECYzfV2PGeXipKjmkl7DVrvbb6MLK7HXuCunySZcNh/rZ2J7/7chgcj2DeajTEsX2w3bX3GAFgUBwHMwFDfcuifAAAACUVsdXNpdi1DSQECAwQ=-----END OPENSSH PRIVATE KEY-----"
+        ssh-private-key: "-----BEGIN OPENSSH PRIVATE KEY-----b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQyNTUxOQAAACCdie/+3IYHI9g3mo0xLF9sN219xgBYFAcBzMBQ33LonwAAAJC0u+BYtLvgWAAAAAtzc2gtZWQyNTUxOQAAACCdie/+3IYHI9g3mo0xLF9sN219xgBYFAcBzMBQ33LonwAAAECYzfV2PGeXipKjmkl7DVrvbb6MLK7HXuCunySZcNh/rZ2J7/7chgcj2DeajTEsX2w3bX3GAFgUBwHMwFDfcuifAAAACUVsdXNpdi1DSQECAwQ=-----END OPENSSH PRIVATE KEY-----"
+
     - name: Push to codecov.io
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV }}
