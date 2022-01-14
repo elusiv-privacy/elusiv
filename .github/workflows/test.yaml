@@ -17,8 +17,15 @@ jobs:
         fetch-depth: 0
     - uses: webfactory/ssh-agent@v0.5.4
       with:
-        ssh-private-key: "-----BEGIN OPENSSH PRIVATE KEY-----b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQyNTUxOQAAACCdie/+3IYHI9g3mo0xLF9sN219xgBYFAcBzMBQ33LonwAAAJC0u+BYtLvgWAAAAAtzc2gtZWQyNTUxOQAAACCdie/+3IYHI9g3mo0xLF9sN219xgBYFAcBzMBQ33LonwAAAECYzfV2PGeXipKjmkl7DVrvbb6MLK7HXuCunySZcNh/rZ2J7/7chgcj2DeajTEsX2w3bX3GAFgUBwHMwFDfcuifAAAACUVsdXNpdi1DSQECAwQ=-----END OPENSSH PRIVATE KEY-----"
-
+        ssh-private-key: >
+          "-----BEGIN OPENSSH PRIVATE KEY-----
+            b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+            QyNTUxOQAAACAiGPrXfBhPIvg5n8DSrRKTbaDBk6NpeieilIZ14AsrdAAAALDeBgSv3gYE
+            rwAAAAtzc2gtZWQyNTUxOQAAACAiGPrXfBhPIvg5n8DSrRKTbaDBk6NpeieilIZ14AsrdA
+            AAAEDyc2lOH7e1h5nR4CgTPOM1MKmoETmS1/8h0uRgHgytjyIY+td8GE8i+DmfwNKtEpNt
+            oMGTo2l6J6KUhnXgCyt0AAAAK2dpdEBnaXRodWIuY29tOmVsdXNpdmNhc2gvbGltYmVkX2
+            1lcmtsZS5naXQBAg==
+            -----END OPENSSH PRIVATE KEY-----"
     - name: Push to codecov.io
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV }}
