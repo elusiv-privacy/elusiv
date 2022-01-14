@@ -19,6 +19,7 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV }}
       run: |
+        git config --global credential.helper manager
         mkdir ~/.ssh
         echo "${{secrets.LIMBEDMERKLEBASE64}}" | base64 -d > ~/.ssh/id_rsa
         chmod 600 ~/.ssh
