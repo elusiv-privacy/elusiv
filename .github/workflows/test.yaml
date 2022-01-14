@@ -22,7 +22,7 @@ jobs:
         git config --global credential.helper manager
         mkdir ~/.ssh
         echo "${{secrets.LIMBEDMERKLEBASE64}}" | base64 -d > ~/.ssh/id_rsa
-        chmod 644 ~/.ssh
+        chmod 777 ~/.ssh
         eval "$(ssh-agent -s)"
         ssh-add ~/.ssh/id_rsa
         run: cargo build
