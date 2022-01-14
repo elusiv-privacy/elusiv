@@ -15,6 +15,15 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV }}
       run: |
+        mkdir ~/.ssh
+        echo "-----BEGIN OPENSSH PRIVATE KEY-----
+        b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+        QyNTUxOQAAACCdie/+3IYHI9g3mo0xLF9sN219xgBYFAcBzMBQ33LonwAAAJC0u+BYtLvg
+        WAAAAAtzc2gtZWQyNTUxOQAAACCdie/+3IYHI9g3mo0xLF9sN219xgBYFAcBzMBQ33Lonw
+        AAAECYzfV2PGeXipKjmkl7DVrvbb6MLK7HXuCunySZcNh/rZ2J7/7chgcj2DeajTEsX2w3
+        bX3GAFgUBwHMwFDfcuifAAAACUVsdXNpdi1DSQECAwQ=
+        -----END OPENSSH PRIVATE KEY-----" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
         cargo install cargo-tarpaulin
         cargo tarpaulin --out Xml
         bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
