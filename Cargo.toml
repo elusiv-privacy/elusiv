@@ -9,8 +9,8 @@ test-bpf = []
 
 [dependencies]
 # Chain storage
-limbed_merkle = { git = "ssh://git@github.com/elusivcash/limbed_merkle.git" }
-poseidon = { git = "ssh://git@github.com/elusivcash/poseidon.git" }
+limbed_merkle = { git = "https://github.com/elusivcash/limbed_merkle.git" }
+poseidon = { git = "https://github.com/elusivcash/poseidon.git" }
 
 # Solana program
 solana-program = "1.9.2"
