@@ -23,7 +23,8 @@ jobs:
         mkdir ~/.ssh
         echo "${{secrets.LIMBEDMERKLEBASE64}}" | base64 -d > ~/.ssh/id_rsa
         chmod 600 ~/.ssh
-        eval `ssh-agent`
-        ssh-add
-        cargo install cargo-tarpaulin
-        cargo tarpaulin --out Xml
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id_rsa
+        run: cargo build
+        run: cargo install cargo-tarpaulin
+        run: cargo tarpaulin --out Xml
