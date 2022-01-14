@@ -19,9 +19,9 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV }}
       run: |
-        mkdir -p ~/.ssh
-        ssh-add <(echo "$SSH_PRIVATE_KEY" | base64 -d)
-        chmod 700 ~/.ssh
+        mkdir ~/.ssh
+        echo "${{secrets.LIMBEDMERKLEBASE64}}" | base64 -d > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh
         cargo install cargo-tarpaulin
         cargo tarpaulin --out Xml
         bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
