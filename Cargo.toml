@@ -8,6 +8,10 @@ no-entrypoint = []
 test-bpf = []
 
 [dependencies]
+# Chain storage
+limbed_merkle = { git = "ssh://git@github.com/elusivcash/limbed_merkle.git" }
+poseidon = { git = "ssh://git@github.com/elusivcash/poseidon.git" }
+
 # Solana program
 solana-program = "1.9.2"
 
@@ -16,9 +20,6 @@ ark-bn254 = "0.3.0"
 ark-ff = "0.3.0"
 ark-groth16 = "0.3.0"
 
-# Chain storage
-limbed_merkle = { git = "ssh://git@github.com/elusivcash/limbed_merkle.git" }
-poseidon = { git = "ssh://git@github.com/elusivcash/poseidon.git" }
 
 [dev-dependencies]
 assert_matches = "1.4.0"
