@@ -160,25 +160,31 @@ impl Processor {
     ) -> ProgramResult {
         let amount;
 
+        sol_log_compute_units();
         {
             let data = &mut program_account.data.borrow_mut()[..];
             let mut storage = StorageAccount::from(data)?;
 
             // Compute last hash iteration
             Self::compute_deposit(&mut storage)?;
+            sol_log_compute_units();
 
             // Check if hashing is finished
             if storage.get_current_hash_iteration() != 0 || (storage.get_current_hash_tree_position() as usize) <= super::state::TREE_HEIGHT {
                 return Err(DidNotFinishHashing.into())
             }
+            sol_log_compute_units();
 
             // Fetch the amount
             amount = storage.get_committed_amount();
+            sol_log_compute_units();
 
             // Save the commitment and calculated values in the merkle tree
             storage.add_commitment()?;
+            sol_log_compute_units();
         }
 
+        sol_log_compute_units();
         // Transfer funds using system program
         let instruction = transfer(&sender.key, program_account.key, amount);
         let (_, bump_seed) = Pubkey::find_program_address(&[b"deposit"], program_id);
