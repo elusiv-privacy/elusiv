@@ -48,7 +48,6 @@ impl Processor {
 
         // 0. [signer] Signer
         let sender = next_account_info(account_info_iter)?;
-        if !sender.is_signer { return Err(SenderIsNotSigner.into()); }
 
         // 1. [owned, writable] Program main account
         // TODO: Add program id verification
@@ -59,12 +58,16 @@ impl Processor {
 
         match instruction {
             InitDeposit { amount, commitment } =>  {
+                if !sender.is_signer { return Err(SenderIsNotSigner.into()); }
+
                 Self::init_deposit(&mut storage, amount, commitment)
             },
             ComputeDeposit => {
                 Self::compute_deposit(&mut storage)
             },
             FinishDeposit => {
+                if !sender.is_signer { return Err(SenderIsNotSigner.into()); }
+
                 // 2. [] System program
                 let system_program = next_account_info(account_info_iter)?;
                 if *system_program.key != system_program::id() { return Err(IncorrectProgramId); }
@@ -72,6 +75,8 @@ impl Processor {
                 Self::finish_deposit(program_id, program_account, sender, system_program)
             },
             Withdraw { amount, proof, nullifier_hash, root } => {
+                if !sender.is_signer { return Err(SenderIsNotSigner.into()); }
+
                 // 2. [writable] Recipient
                 let recipient = next_account_info(account_info_iter)?;
                 if !recipient.is_writable { return Err(InvalidAccountData); }
@@ -166,7 +171,7 @@ impl Processor {
             let mut storage = StorageAccount::from(data)?;
 
             // Compute last hash iteration
-            Self::compute_deposit(&mut storage)?;
+            //Self::compute_deposit(&mut storage)?;
             sol_log_compute_units();
 
             // Check if hashing is finished
