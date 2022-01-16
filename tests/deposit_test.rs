@@ -13,6 +13,7 @@ use {
 use common::*;
 
 #[tokio::test]
+#[ignore]
 /// Test valid deposit
 async fn test_deposit() {
     let (mut banks_client, payer, recent_blockhash) = start_program_with_storage(storage_id()).await;
