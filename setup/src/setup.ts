@@ -8,9 +8,8 @@ import {
     SystemProgram,
     sendAndConfirmTransaction
 } from '@solana/web3.js';
-import {
-    establish_connection
-} from 'elusiv_client';
+import { establish_connection } from 'elusiv_client/client';
+import { STORAGE_SIZE } from 'elusiv_client/storageAccount';
 
 export async function setup_program_account(program_id: PublicKey, size: number): Promise<PublicKey> {
     const payer = await getPayer();

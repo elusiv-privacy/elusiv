@@ -11,13 +11,14 @@ test-bpf = []
 # Solana program
 solana-program = "1.9.2"
 
+byteorder = "1.4.3"
 # Groth16 verification
 ark-bn254 = "0.3.0"
 ark-ff = "0.3.0"
-ark-groth16 = "0.3.0"
+ark-groth16 = { version = "^0.3.0", default-features = false }
 
 # Chain storage
-limbed_merkle = { git = "ssh://git@github.com/elusivcash/limbed_merkle.git" }
+#limbed_merkle = { git = "ssh://git@github.com/elusivcash/limbed_merkle.git" }
 poseidon = { git = "ssh://git@github.com/elusivcash/poseidon.git" }
 
 [dev-dependencies]
@@ -27,9 +28,9 @@ solana-sdk = "1.9.2"
 solana-validator = "1.9.2"
 rand = "0.8.4"
 base64 = "0.13.0"
+num-bigint = "0.4"
 
 # circom_verifier_key test dev-dependencies
-num-bigint = "0.4"
 num-traits = "0.2.0"
 
 [lib]

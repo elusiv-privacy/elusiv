@@ -1,36 +1,35 @@
-use limbed_merkle::tree::LimbedMerkleTree;
+use super::merkle::*;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use super::error::ElusivError::{
     InvalidStorageAccountSize,
-    CouldNotCreateMerkleTree,
     NullifierAlreadyUsed,
     NoRoomForNullifier,
     CommitmentAlreadyUsed,
     NoRoomForCommitment,
 };
-use poseidon::scalar;
-use poseidon::poseidon::Poseidon;
-use poseidon::scalar::Scalar;
-use poseidon::scalar::ScalarLimbs;
+use poseidon::Scalar;
+use poseidon::ScalarLimbs;
+use poseidon;
 
-const TREE_HEIGHT: usize = 12;
-const TREE_SIZE: usize = ((2 as usize).pow(TREE_HEIGHT as u32 + 1) - 1) * 32; //((1 << (TREE_HEIGHT + 1)) - 1) * 32;
-const TREE_LEAF_START: usize = (2 as usize).pow(TREE_HEIGHT as u32) - 1;
-const TREE_LEAF_COUNT: usize = (2 as usize).pow(TREE_HEIGHT as u32);
+pub const TREE_HEIGHT: usize = 12;
+pub const TREE_SIZE: usize = ((2 as usize).pow(TREE_HEIGHT as u32 + 1) - 1) * 32;
+
+pub const TREE_LEAF_START: usize = (2 as usize).pow(TREE_HEIGHT as u32) - 1;
+pub const TREE_LEAF_COUNT: usize = (2 as usize).pow(TREE_HEIGHT as u32);
 
 const NULLIFIERS_COUNT: usize = 1 << (TREE_HEIGHT);
 const NULLIFIERS_SIZE: usize = NULLIFIERS_COUNT * 32;
 
 const HISTORY_ARRAY_COUNT: usize = 10;
-const HISTORY_ARRAY_SIZE: usize = HISTORY_ARRAY_COUNT ;
+const HISTORY_ARRAY_SIZE: usize = HISTORY_ARRAY_COUNT * 32;
 
-pub const TOTAL_SIZE: usize = TREE_SIZE + NULLIFIERS_SIZE + HISTORY_ARRAY_SIZE + 4 + 4;
+pub const TOTAL_SIZE: usize = TREE_SIZE + NULLIFIERS_SIZE + HISTORY_ARRAY_SIZE + 4 + 4 + (3 + TREE_HEIGHT + 1) * 32 + 8 + 2 + 2;
 
 pub struct StorageAccount<'a> {
     /// Merkle tree or arity 2
     /// - (elements: 32 u8 limbs)
-    merkle_tree: &'a mut [u8],
+    pub merkle_tree: &'a mut [u8],
 
     /// Nullifier hashes
     /// - (elements: 32 u8 limbs)
@@ -43,14 +42,33 @@ pub struct StorageAccount<'a> {
     /// Next Leaf Pointer
     /// - (u32 represented as 4 bytes)
     /// - multiply by 32 to point at the exact leaf
-    /// - range: [0; 2^{TREE_HEIGHT})
+    /// - range: [0; 2^{TREE_HEIGHT}]
     next_leaf_pointer: &'a mut [u8],
 
     /// Next Nullifier Pointer
     /// - (u32 represented as 4 bytes)
     /// - multiply by 32 to point at the exact nullifier
-    /// - range: [0; NULLIFIERS_COUNT)
+    /// - range: [0; NULLIFIERS_COUNT]
     next_nullifier_pointer: &'a mut [u8],
+    
+    /// Hash working storage
+    /// - (elements: 32 u8 limbs)
+    /// - containts 3 
+    hashing_state_storage: &'a mut [u8],
+
+    /// Finished tree nodes
+    /// - (elements: 32 u8 limbs)
+    /// - containts TREE_HEIGHT + 1 elements
+    finished_hashes_storage: &'a mut [u8],
+
+    /// - (u64 represented as 8 bytes)
+    committed_amount: &'a mut [u8],
+
+    /// - (u16 represented as 2 bytes)
+    current_hash_iteration: &'a mut [u8],
+
+    /// - (u16 represented as 2 bytes)
+    current_hash_tree_position: &'a mut [u8],
 }
 
 impl<'a> StorageAccount<'a> {
@@ -61,15 +79,86 @@ impl<'a> StorageAccount<'a> {
         let (nullifier_hashes, rest) = rest.split_at_mut(NULLIFIERS_SIZE);
         let (root_history, rest) = rest.split_at_mut(HISTORY_ARRAY_SIZE);
         let (next_leaf_pointer, rest) = rest.split_at_mut(4);
-        let (next_nullifier_pointer, _) = rest.split_at_mut(4);
+        let (next_nullifier_pointer, rest) = rest.split_at_mut(4);
+        let (hashing_state_storage, rest) = rest.split_at_mut(3 * 32);
+        let (finished_hashes_storage, rest) = rest.split_at_mut((TREE_HEIGHT + 1) * 32);
+        let (committed_amount, rest) = rest.split_at_mut(8);
+        let (current_hash_iteration, rest) = rest.split_at_mut(2);
+        let (current_hash_tree_position, _) = rest.split_at_mut(2);
 
         Ok(StorageAccount {
             merkle_tree,
             nullifier_hashes,
             root_history,
             next_leaf_pointer,
-            next_nullifier_pointer
+            next_nullifier_pointer,
+            hashing_state_storage,
+            finished_hashes_storage,
+            committed_amount,
+            current_hash_iteration,
+            current_hash_tree_position,
         })
+    }
+
+    // Hashing
+    pub fn get_hashing_state(&self) -> [Scalar; 3] {
+        [
+            poseidon::from_bytes_le(&self.hashing_state_storage[..32]),
+            poseidon::from_bytes_le(&self.hashing_state_storage[32..64]),
+            poseidon::from_bytes_le(&self.hashing_state_storage[64..]),
+        ]
+    }
+    pub fn set_hashing_state(&mut self, state: [Scalar; 3]) {
+        let mut bytes: Vec<u8> = poseidon::to_bytes_le(state[0]);
+        bytes.append(&mut poseidon::to_bytes_le(state[1]));
+        bytes.append(&mut poseidon::to_bytes_le(state[2]));
+
+        for (i, &byte) in bytes.iter().enumerate() {
+            self.hashing_state_storage[i] = byte;
+        }
+    }
+
+    pub fn get_finished_hashes_storage(&self) -> [[u8; 32]; TREE_HEIGHT + 1] {
+        let mut a = [[0; 32]; TREE_HEIGHT + 1];
+        for i in 0..TREE_HEIGHT + 1 {
+            let slice = &self.finished_hashes_storage[i * 32..(i + 1) * 32];
+            for (j, &byte) in slice.iter().enumerate() {
+                a[i][j] = byte;
+            }
+        }
+        a
+    }
+    pub fn set_finished_hash(&mut self, position: usize, value: Scalar) {
+        for (i, &byte) in poseidon::to_bytes_le(value).iter().enumerate() {
+            self.finished_hashes_storage[position * 32 + i] = byte;
+        }
+    }
+
+    pub fn get_committed_amount(&self) -> u64 { bytes_to_u64(self.committed_amount) }
+    pub fn set_committed_amount(&mut self, amount: u64) {
+        let bytes = amount.to_le_bytes();
+        self.committed_amount[0] = bytes[0];
+        self.committed_amount[1] = bytes[1];
+        self.committed_amount[2] = bytes[2];
+        self.committed_amount[3] = bytes[3];
+        self.committed_amount[4] = bytes[4];
+        self.committed_amount[5] = bytes[5];
+        self.committed_amount[6] = bytes[6];
+        self.committed_amount[7] = bytes[7];
+    }
+
+    pub fn get_current_hash_iteration(&self) -> u16 { bytes_to_u16(self.current_hash_iteration) }
+    pub fn set_current_hash_iteration(&mut self, round: u16) {
+        let bytes = round.to_le_bytes();
+        self.current_hash_iteration[0] = bytes[0];
+        self.current_hash_iteration[1] = bytes[1];
+    }
+
+    pub fn get_current_hash_tree_position(&self) -> u16 { bytes_to_u16(self.current_hash_tree_position) }
+    pub fn set_current_hash_tree_position(&mut self, position: u16) {
+        let bytes = position.to_le_bytes();
+        self.current_hash_tree_position[0] = bytes[0];
+        self.current_hash_tree_position[1] = bytes[1];
     }
 
     /// Checks whether the nullifier hash can be inserted
@@ -97,7 +186,7 @@ impl<'a> StorageAccount<'a> {
 
         // Insert
         let mut pointer = bytes_to_u32(&self.next_nullifier_pointer) as usize;
-        let bytes = scalar::limbs_to_bytes(&nullifier_hash);
+        let bytes = poseidon::limbs_to_bytes(&nullifier_hash);
         Self::set(self.nullifier_hashes, pointer, 4, &bytes)?;
 
         // Increment pointer
@@ -107,35 +196,33 @@ impl<'a> StorageAccount<'a> {
         Ok(())
     }
 
-    /// Inserts the commitment into the tree if there is room for it
-    /// 
-    /// ### Arguments
-    /// 
-    /// * `commitment` - commitment hash as 4 u64 limbs
-    pub fn try_add_commitment(&mut self, commitment: ScalarLimbs) -> ProgramResult {
+    pub fn can_insert_commitment(&self, commitment: ScalarLimbs) -> ProgramResult {
         // Checks if there is room
-        let mut pointer = bytes_to_u32(&self.next_leaf_pointer) as usize;
+        let pointer = self.leaf_pointer() as usize;
         if pointer >= TREE_LEAF_COUNT { return Err(NoRoomForCommitment.into()); }
 
         // Checks if the commitment already exists
-        let commitment_slice = &self.merkle_tree[TREE_LEAF_START..(TREE_LEAF_START + TREE_LEAF_COUNT)];
+        let commitment_slice = &self.merkle_tree[TREE_LEAF_START..(TREE_LEAF_START + pointer)];
         if contains_limbs(commitment, &commitment_slice) { return Err(CommitmentAlreadyUsed.into()); }
 
-        // Insert commitment into merkle tree
-        let commitment = scalar::from_limbs(&commitment);
-        let limbs_to_value = |limbs: &[u8]| { scalar::from_bytes_le(limbs) };
-        let value_to_limbs = |value: Scalar| { scalar::to_bytes_le(value) };
-        let poseidon = Poseidon::new();
-        let hash = |left: Scalar, right: Scalar| { poseidon.hash(vec![left, right]).unwrap() };
-        let mut tree = LimbedMerkleTree::new(
-            TREE_HEIGHT,    // height
-            &mut self.merkle_tree,   // store
-            5,   //limbing_power
-            hash, // hash
-            limbs_to_value, // limbs_to_value
-            value_to_limbs  // value_to_limbs
-        ).or(Err(ProgramError::from(CouldNotCreateMerkleTree)))?;
-        tree.set_leaf(pointer, commitment);
+        Ok(())
+    }
+
+    /// Inserts the commitment into the tree
+    pub fn add_commitment(&mut self) -> ProgramResult {
+        let mut pointer = self.leaf_pointer() as usize;
+        let values = self.get_finished_hashes_storage();
+
+        // Additional commitment security check
+        let commitment = values[0];
+        self.can_insert_commitment(poseidon::bytes_to_limbs(&commitment))?;
+
+        // Save last root
+        let root = &self.merkle_tree[..32];
+        Self::set(self.root_history, (pointer % HISTORY_ARRAY_COUNT) * 32, 32, root)?;
+
+        // Insert values into the tree
+        insert_hashes(&mut self.merkle_tree, values, pointer);
 
         // Increment pointer
         pointer += 1;
@@ -149,7 +236,7 @@ impl<'a> StorageAccount<'a> {
     /// ### Arguments
     /// 
     /// * `root` - merkle root provided as 4 u64 limbs
-    pub fn is_root_valid(&self, root: ScalarLimbs) -> bool {
+    pub fn is_root_valid(&mut self, root: ScalarLimbs) -> bool {
         // Checks for root equality with tree root
         if contains_limbs(root, &self.merkle_tree[..32]) { return true; }
 
@@ -172,6 +259,14 @@ impl<'a> StorageAccount<'a> {
 
         Ok(())
     }
+
+    pub fn leaf_pointer(&self) -> u32 {
+        bytes_to_u32(&self.next_leaf_pointer)
+    }
+
+    pub fn nullifier_pointer(&self) -> u32 {
+        bytes_to_u32(&self.next_nullifier_pointer)
+    }
 }
 
 /// Checks whether a word represented by 4 u64 limbs is contained inside a byte array
@@ -181,7 +276,7 @@ impl<'a> StorageAccount<'a> {
 /// * `limbs` - 4 u64 limbs
 /// * `buffer` - bytes to search in
 fn contains_limbs(limbs: ScalarLimbs, buffer: &[u8]) -> bool {
-    let bytes: [u8; 32] = scalar::limbs_to_bytes(&limbs);
+    let bytes: [u8; 32] = poseidon::limbs_to_bytes(&limbs);
     let length = buffer.len() >> 5;
     for i in 0..length {
         let index = i << 5;
@@ -195,9 +290,19 @@ fn contains_limbs(limbs: ScalarLimbs, buffer: &[u8]) -> bool {
     false
 }
 
+fn bytes_to_u64(bytes: &[u8]) -> u64 {
+    let a: [u8; 8] = [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
+    u64::from_le_bytes(a)
+}
+
 fn bytes_to_u32(bytes: &[u8]) -> u32 {
     let a: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
     u32::from_le_bytes(a)
+}
+
+fn bytes_to_u16(bytes: &[u8]) -> u16 {
+    let a: [u8; 2] = [bytes[0], bytes[1]];
+    u16::from_le_bytes(a)
 }
 
 #[cfg(test)]
@@ -214,7 +319,7 @@ mod tests {
     #[test]
     fn test_contains_limbs() {
         let limbs: [u64; 4] = [18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615];
-        let lb = scalar::limbs_to_bytes(&limbs);
+        let lb = poseidon::limbs_to_bytes(&limbs);
         let mut bytes: [u8; 32 * 10] = [0; 32 * 10];
         for i in 0..32 {
             bytes[7 * 32 + i] = lb[i];

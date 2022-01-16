@@ -2,80 +2,79 @@ mod common;
 
 use {
     assert_matches::*,
-    solana_program::{
-        instruction::AccountMeta,
-        instruction::Instruction,
-        native_token::LAMPORTS_PER_SOL,
-        system_program,
-    },
     solana_program_test::*,
-    solana_sdk::{
-        signature::Signer,
-        transaction::Transaction,
-    },
-    poseidon::scalar,
+    solana_program::native_token::LAMPORTS_PER_SOL,
+    /*solana_sdk::{
+        signature::Keypair,
+        signer::Signer
+    },*/
+    elusiv::state::StorageAccount,
 };
 use common::*;
 
 #[tokio::test]
+/// Test valid deposit
 async fn test_deposit() {
-    // Setup program and storage account
-    let program_id = elusiv::id();
-    let storage_id = storage_account_id();
-    let (mut banks_client, payer, recent_blockhash) = start_program_with_storage(storage_id).await;
+    let (mut banks_client, payer, recent_blockhash) = start_program_with_storage(storage_id()).await;
 
-    // Generate commitment
-    let commitment = valid_commitment();
-
-    // Generate instruction data
-    let mut data = vec![0];
-    let amount: u64 = LAMPORTS_PER_SOL;
-    data.extend_from_slice(&amount.to_le_bytes());
-    data.extend_from_slice(&scalar::to_bytes_le(commitment));
-
-    let mut transaction = Transaction::new_with_payer(
-        &[Instruction {
-            program_id,
-            accounts: vec!
-            [
-                AccountMeta::new(payer.pubkey(), true),    // 0. [signer, writable] Depositor account
-                AccountMeta::new(storage_id, false) ,    // 1. [owned, writable] Bank and storage account
-                AccountMeta::new(system_program::id(), false),    // 2. [static] System program
-            ],
-            data,
-        }],
-        Some(&payer.pubkey()),
-    );
-    transaction.sign(&[&payer], recent_blockhash);
-
-    assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+    for _ in 0..1 {
+        let t = send_deposit_transaction(elusiv::id(), storage_id(), &payer, recent_blockhash, deposit_data(valid_commitment())).await;
+        assert_matches!(banks_client.process_transaction(t).await, Ok(()));
+    }
 }
 
 #[tokio::test]
 #[should_panic]
+#[ignore]
+/// Test deposit with different kinds of wrong data
 async fn test_deposit_no_data() {
-    // Setup program and storage account
-    let program_id = elusiv::id();
-    let storage_id = storage_account_id();
-    let (mut banks_client, payer, recent_blockhash) = start_program_with_storage(storage_id).await;
+    let (mut banks_client, payer, recent_blockhash) = start_program_with_storage(storage_id()).await;
 
-    // Generate invalid instruction data
     let data = vec![0];
 
-    let mut transaction = Transaction::new_with_payer(
-        &[Instruction {
-            program_id,
-            accounts: vec!
-            [
-                AccountMeta::new(payer.pubkey(), true),    // 0. [signer, writable] Depositor account
-                AccountMeta::new(storage_id, false) ,    // 1. [owned, writable] Bank and storage account
-                AccountMeta::new(solana_program::sysvar::ID, false),    // 2. [static] System program
-            ],
-            data,
-        }],
-        Some(&payer.pubkey()),
-    );
-    transaction.sign(&[&payer], recent_blockhash);
+    let t = send_deposit_transaction(elusiv::id(), storage_id(), &payer, recent_blockhash, data).await;
+    banks_client.process_transaction(t).await.unwrap()
+}
 
-    banks_client.process_transaction(transaction).await.unwrap()
+#[tokio::test]
+#[ignore]
+/// Tests for changes in the storage after two deposits
+async fn test_two_valid_deposits() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_with_storage(storage_id()).await;
+
+    let mut account_data_old = get_storage_data(&mut banks_client).await;
+    let storage_balance = get_balance(&mut banks_client, storage_id()).await;
+
+    let commitment1 = send_valid_deposit(&payer, &mut banks_client, recent_blockhash).await;
+    let mut account_data1 = get_storage_data(&mut banks_client).await;
+
+    let commitment2 = send_valid_deposit(&payer, &mut banks_client, recent_blockhash).await;
+    let mut account_data2 = get_storage_data(&mut banks_client).await;
+
+    // Test for storage data changes
+    //assert_ne!(account_data_old, account_data1);
+    //assert_ne!(account_data_old, account_data2);
+    //assert_ne!(account_data1, account_data2);
+
+    // Test for increment of leaf pointer
+    let old_storage = StorageAccount::from(&mut account_data_old).unwrap();
+    let new_storage1 = StorageAccount::from(&mut account_data1).unwrap();
+    let new_storage2 = StorageAccount::from(&mut account_data2).unwrap();
+    assert_eq!(old_storage.leaf_pointer(), 0);
+    assert_eq!(new_storage1.leaf_pointer(), 1);
+    assert_eq!(new_storage2.leaf_pointer(), 2);
+
+    // Test for commitment storage
+    let commitments = get_commitments(&mut account_data1);
+    assert_eq!(commitments[0], commitment1);
+
+    let commitments = get_commitments(&mut account_data2);
+    assert_eq!(commitments[0], commitment1);
+    assert_eq!(commitments[1], commitment2);
+
+    // Test for balance changes
+    assert_eq!(
+        storage_balance + LAMPORTS_PER_SOL * 2,
+        get_balance(&mut banks_client, storage_id()).await
+    );
 }

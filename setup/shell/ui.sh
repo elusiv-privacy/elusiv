@@ -3,7 +3,7 @@
 if [ ! -d "../ui" ]; then
     value=$(<dist/program/pubkeys.json) &&
     cd ../ &&
-    git clone git@github.com:SolanaMixing/ui.git &&
+    git clone git@github.com:elusivcash/ui.git &&
     cd ui/ &&
     echo $value > "src/assets/pubkeys.json"
 else

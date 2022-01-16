@@ -21,6 +21,8 @@ pub enum ElusivError {
 
     CommitmentAlreadyUsed,
     NoRoomForCommitment,
+
+    DidNotFinishHashing,
 }
 
 impl From<ElusivError> for ProgramError {
@@ -60,6 +62,8 @@ impl fmt::Display for ElusivError {
                 write!(f, "CommitmentAlreadyUsed"),
             Self::NoRoomForCommitment =>
                 write!(f, "NoRoomForCommitment"),
+            Self::DidNotFinishHashing =>
+                write!(f, "DidNotFinishHashing"),
         }
     }
 }

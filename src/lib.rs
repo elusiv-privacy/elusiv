@@ -1,7 +1,7 @@
 mod instruction;
 mod error;
 mod processor;
-
+pub mod merkle;
 pub mod verifier;
 pub mod state;
 pub mod entrypoint;
