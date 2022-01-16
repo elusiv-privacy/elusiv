@@ -104,6 +104,7 @@ impl Processor {
         storage.set_hashing_state([commitment, Scalar::zero(), Scalar::zero()]);
 
         // Start first hash
+        sol_log_compute_units();
         Self::compute_deposit(storage)
     }
 
