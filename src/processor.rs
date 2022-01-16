@@ -138,8 +138,10 @@ impl Processor {
         }
 
         // Hash
+        sol_log_compute_units();
         let hash = Poseidon2::new().partial_hash(current_iteration as usize, state[0], state[1], state[2]);
         storage.set_hashing_state(hash);
+        sol_log_compute_units();
 
         // Save values
         current_iteration += 1;
