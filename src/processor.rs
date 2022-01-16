@@ -22,6 +22,7 @@ use solana_program::{
     program::invoke_signed,
     system_program,
     native_token::LAMPORTS_PER_SOL,
+    log::sol_log_compute_units,
 };
 use ark_groth16::{
     Proof,
@@ -42,6 +43,8 @@ pub struct Processor;
 impl Processor {
     pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: ElusivInstruction) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
+
+        sol_log_compute_units();
 
         // 0. [signer] Signer
         let sender = next_account_info(account_info_iter)?;

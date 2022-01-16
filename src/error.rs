@@ -1,5 +1,5 @@
-use solana_program::program_error::ProgramError;
 use std::fmt;
+use solana_program::program_error::ProgramError;
 
 #[derive(Copy, Clone)]
 pub enum ElusivError {
