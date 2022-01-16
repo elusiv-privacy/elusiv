@@ -46,27 +46,35 @@ impl Processor {
 
         sol_log_compute_units();
 
-        // 0. [signer] Signer
-        let sender = next_account_info(account_info_iter)?;
-
         // 1. [owned, writable] Program main account
         // TODO: Add program id verification
-        let program_account = next_account_info(account_info_iter)?;
-        if program_account.owner != program_id { return Err(InvalidStorageAccount.into()); }
-        let data = &mut program_account.data.borrow_mut()[..];
-        let mut storage = StorageAccount::from(data)?;
 
         match instruction {
             InitDeposit { amount, commitment } =>  {
+                let sender = next_account_info(account_info_iter)?;
                 if !sender.is_signer { return Err(SenderIsNotSigner.into()); }
+
+                let program_account = next_account_info(account_info_iter)?;
+                if program_account.owner != program_id { return Err(InvalidStorageAccount.into()); }
+                let data = &mut program_account.data.borrow_mut()[..];
+                let mut storage = StorageAccount::from(data)?;
 
                 Self::init_deposit(&mut storage, amount, commitment)
             },
             ComputeDeposit => {
+                let program_account = next_account_info(account_info_iter)?;
+                if program_account.owner != program_id { return Err(InvalidStorageAccount.into()); }
+                let data = &mut program_account.data.borrow_mut()[..];
+                let mut storage = StorageAccount::from(data)?;
+
                 Self::compute_deposit(&mut storage)
             },
             FinishDeposit => {
+                let sender = next_account_info(account_info_iter)?;
                 if !sender.is_signer { return Err(SenderIsNotSigner.into()); }
+
+                let program_account = next_account_info(account_info_iter)?;
+                if program_account.owner != program_id { return Err(InvalidStorageAccount.into()); }
 
                 // 2. [] System program
                 let system_program = next_account_info(account_info_iter)?;
@@ -75,7 +83,13 @@ impl Processor {
                 Self::finish_deposit(program_id, program_account, sender, system_program)
             },
             Withdraw { amount, proof, nullifier_hash, root } => {
+                let sender = next_account_info(account_info_iter)?;
                 if !sender.is_signer { return Err(SenderIsNotSigner.into()); }
+
+                let program_account = next_account_info(account_info_iter)?;
+                if program_account.owner != program_id { return Err(InvalidStorageAccount.into()); }
+                let data = &mut program_account.data.borrow_mut()[..];
+                let mut storage = StorageAccount::from(data)?;
 
                 // 2. [writable] Recipient
                 let recipient = next_account_info(account_info_iter)?;
