@@ -1,4 +1,4 @@
-mod common;
+/*mod common;
 
 use {
     assert_matches::*,
@@ -9,8 +9,9 @@ use {
 };
 use common::*;
 use ark_ff::*;
+*/
 
-fn withdraw_data(proof: ProofString, inputs: &[&str]) -> Vec<u8> {
+/*fn withdraw_data(proof: ProofString, inputs: &[&str]) -> Vec<u8> {
     let mut data = vec![1];
 
     let amount: u64 = LAMPORTS_PER_SOL;
@@ -23,9 +24,9 @@ fn withdraw_data(proof: ProofString, inputs: &[&str]) -> Vec<u8> {
     }
 
     data
-}
+}*/
 
-#[tokio::test]
+/*#[tokio::test]
 async fn test_withdraw() {
     // Setup program and storage account
     let (mut banks_client, payer, recent_blockhash) = start_program_with_storage(storage_id()).await;
@@ -77,3 +78,4 @@ async fn test_withdraw() {
         get_balance(&mut banks_client, storage_id()).await
     );
 }
+*/

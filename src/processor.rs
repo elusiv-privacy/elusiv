@@ -59,7 +59,7 @@ impl Processor {
                 Self::init_deposit(&mut storage, amount, commitment)
             },
             ComputeDeposit => {
-                Self::compute_tree(&mut storage)
+                Self::compute_deposit(&mut storage)
             },
             FinishDeposit => {
                 // 2. [] System program
@@ -101,11 +101,11 @@ impl Processor {
         storage.set_hashing_state([commitment, Scalar::zero(), Scalar::zero()]);
 
         // Start first hash
-        Self::compute_tree(storage)
+        Self::compute_deposit(storage)
     }
 
     /// Calculates the hash iterations
-    fn compute_tree(storage: &mut StorageAccount) -> ProgramResult {
+    fn compute_deposit(storage: &mut StorageAccount) -> ProgramResult {
         // Fetch values
         let mut current_tree_position = storage.get_current_hash_tree_position();
         let mut current_iteration = storage.get_current_hash_iteration();
@@ -159,7 +159,7 @@ impl Processor {
             let mut storage = StorageAccount::from(data)?;
 
             // Compute last hash iteration
-            Self::compute_tree(&mut storage)?;
+            Self::compute_deposit(&mut storage)?;
 
             // Check if hashing is finished
             if storage.get_current_hash_iteration() != 0 || (storage.get_current_hash_tree_position() as usize) <= super::state::TREE_HEIGHT {
@@ -234,82 +234,169 @@ impl Processor {
 mod tests {
     use super::*;
     use poseidon::{
-        from_bytes_le,
         from_str_16,
         bytes_to_limbs,
         to_bytes_le,
-        to_hex_string
     };
     use super::super::merkle::{
         get_node,
         insert_hashes,
         initialize_store,
     };
-    use super::super::state::TREE_HEIGHT;
+    use super::super::state::{
+        TREE_HEIGHT,
+        TOTAL_SIZE,
+    };
 
-    fn compute_full_merkle_tree(commitment: &str, root: &str, intermediary: Option<[&str; TREE_HEIGHT - 1]>) {
-        // Initialize Merkle tree with hashes of default value
-        let mut data = [0 as u8; super::super::state::TOTAL_SIZE];
+    fn init_merkle_tree<'a>(index: usize) -> [u8; TOTAL_SIZE] {
+        let mut data = [0 as u8; TOTAL_SIZE];
         let mut storage = StorageAccount::from(&mut data).unwrap();
         let hasher = poseidon::Poseidon2::new();
         let hash = |left: Scalar, right: Scalar| { hasher.full_hash(left, right) };
         initialize_store(&mut storage.merkle_tree, Scalar::zero(), hash);
-        let commitment = bytes_to_limbs(&to_bytes_le(from_str_16(commitment).unwrap()));
+        storage.increment_leaf_pointer(index).unwrap();
+        data
+    }
 
-        // Init deposit
+    fn test_compute_merkle_tree(commitment: &str, index: usize, hashes: [(usize, &str); TREE_HEIGHT + 1]) {
+        // Init Storage
+        let mut data = init_merkle_tree(index);
+        let mut storage = StorageAccount::from(&mut data).unwrap();
+
+        // Init Deposit
+        let commitment = bytes_to_limbs(&to_bytes_le(from_str_16(commitment).unwrap()));
         Processor::init_deposit(&mut storage, LAMPORTS_PER_SOL, commitment).unwrap();
 
-        // Computation
-        for _ in 0..poseidon::ITERATIONS * (TREE_HEIGHT + 1) - 1 {
-            Processor::compute_tree(&mut storage).unwrap();
+        // Deposit Computation
+        for _ in 0..poseidon::ITERATIONS * (TREE_HEIGHT + 1) - 2 {
+            Processor::compute_deposit(&mut storage).unwrap();
         }
         
-        // Complete by manually saving the data
+        // Finish Deposit
+        finish_deposit_mock(&mut storage);
+
+        // Check hashes
+        for (i, (index, str)) in hashes.iter().enumerate() {
+            assert_eq!(
+                from_str_16(str).unwrap(),
+                get_node(&storage.merkle_tree, TREE_HEIGHT - i, *index)
+            );
+        }
+    }
+
+    fn finish_deposit_mock(storage: &mut StorageAccount) {
+        Processor::compute_deposit(storage).unwrap();
+
         let hashes = storage.get_finished_hashes_storage();
         let leaf_index = storage.leaf_pointer() as usize;
         insert_hashes(&mut storage.merkle_tree, hashes, leaf_index);
-
-        // Check intermediary hashes
-        /*if let Some(intermediary) = intermediary {
-            for (i, bytes in hashes.iter().skip(1) {
-                assert_eq!(from_str_16(root).unwrap(), 
-                let value = from_bytes_le(&bytes);
-                println!("{}", to_hex_string(value));
-            }
-        }*/
-
-        assert_eq!(from_str_16(root).unwrap(), get_node(&storage.merkle_tree, 0, 0))
     }
 
     #[test]
     fn test_full_merkle_computation() {
-        compute_full_merkle_tree("0x201C9EE36252934C7C54843A0D47ADAA14102E63EED90EC080358C5F7BAFBAF8", "0x0BF672DB38CF8B4DC8BF212269A72972E1386C0270D1C37ACBADD856BF7E4F17", None);
-        compute_full_merkle_tree("0x20A67EA684881990392E60B9CFB67DD389C55BEACB171D41DD8ED26E4DC95366", "0x0BD26416A97B03FDE524D90341A8B2642E4CAB56C540B4267F2CDC7F93D8B2F8", None);
-        compute_full_merkle_tree("0x306184A154572C6025FF8CA6010A4575F914BAE9739D467EFC11F4BCA3611CDF", "0x2E01B47008405889E5A256D5760E01468EDC5936FEE389656399107293D98B95", None);
-        compute_full_merkle_tree("0x1998702D852608250CF3FE516A428D3C0173509B0884A03A919E45D2EEA7AA0E", "0x0C6122A7A6AAC76C59C10251110486EBD09E9C7F021FD4146E068356EF24B9EF", None);
-        compute_full_merkle_tree("0x11B72B69B816650B853B3A3E3A1260F08D0051B1742F165F48A01D4082A21260", "0x19FCB4FB8392F4BDDAF4F2EEAD29A8777FEC5461B0DF6C3FF4B7F4DC97A94AE9", None);
-        compute_full_merkle_tree("0x11C3A67A32FA85BE319938A1AB786875FDC78BF35076D3F580577FE7107B64FB", "0x1DB54339FA57D77C1A99474178BB2F4D32C11F8ED89794F61DB215384CE7EB0B", None);
-        compute_full_merkle_tree("0x0CC7E3DF9F18212DFCCB695FD5944D4FA838A64530D1EB51B9E1E61FFD436413", "0x2CD4C0391844FA35459B02AD2BB0E1C4566CE9E3179A7967241F9C8443ADF7D6", None);
-        compute_full_merkle_tree("0x1BCF981642D1D02CD8586F1CEA19A3B3562CC91C2EFBF2AA26B18A0DC20C8164", "0x2553D6AB70B0A91A667267E821AADA066F340B6CEA046C45B42CCAF9434CF8E7", None);
-    }
+        test_compute_merkle_tree(
+            "0x276A0A462A3D78551D2C5328E5723F062079EA04CEE957E97CE2A87D3559E5C4",
+            3,
+            [
+                (3, "0x276A0A462A3D78551D2C5328E5723F062079EA04CEE957E97CE2A87D3559E5C4"),
+                (1, "0x084FF51394066A9AC8AA73D2C82967079E448B993248B406EAD818E94E9D141C"),
+                (0, "0x08469DAFFB92934E35F017B41038B4DF6B14C4D035DD6808BE97E487C9A693B4"),
+                (0, "0x072176F247D1B74056D9CB0CD18E3A0B6538D95DADF47BE6F47B3606497C3505"),
+                (0, "0x0CB2B5FE10C7DFE6EA12BD77DE120B8F4BFE8965991FC8FF6FD8041D938F468D"),
+                (0, "0x0658BB65CD7775A0AD02C0E381146FF6B134F1D491E50893802EA833024CF95C"),
+                (0, "0x10E473EE0DF4C9567D74C77A29B10A5139A96466866274596B1631A2CC413A7B"),
+                (0, "0x2A364872AB8200187AB38E41A2DD38ECB3E006637AADAB6942EF44B7E6746631"),
+                (0, "0x0456562E21FBE9CFEF7A424466EE1D97130A04A8031E601796FA0B9A7646742F"),
+                (0, "0x1927261B8B0AD311B3D5DAD8BFD44FEC6641FB7A662DE899B0EE679CC67B28ED"),
+                (0, "0x0497F5187616DCD4EA0F3045C3C9D220A4F9E6BC3B77FE168012403CFA867411"),
+                (0, "0x2953F0C53377A2D78A6FC3F998D6B7F773061C56E2BD10F49EC8CA049F34672D"),
+                (0, "0x2DE70D1BD929B29AE81747B88B12CAE4A1811FB3FA564BCF137C4AA86CB97911"),
+            ]
+        );
 
-    #[test]
-    #[should_panic]
-    #[ignore]
-    fn test_full_merkle_computation_false() {
-        compute_full_merkle_tree("0x201C9EE36252934C7C54843A0D47ADAA14102E63EED90EC080358C5F7BAFBAF8", "0x0BF672DB38CF8B4DC8BF212269A72972E1386C0270D1C37ACBADD856BF7E4F18", None);
-        compute_full_merkle_tree("0x1BCF981642D1D02CD8586F1CEA19A3B3562CC91C2EFBF2AA26B18A0DC20C8164", "0x2553D6AB70B0A91A667267E821AADA066F340B6CEA046C45B42CCAF9434CF8F7", None);
-        compute_full_merkle_tree("0x1C8282B9AE1E51CCB6D73160D8ED5D7B85F958390DC33BE5C1B5EEE04E6B6198", "0x08AF92BEDC66FDA2D9BC40CED6038448E536E660954BB104C02B8A123478B0E9", None);
-        compute_full_merkle_tree("0x2084B29FC35D1EBAEF8C7FA6655594B977020CA0506C8D40D8629B6E9AD5222F", "0x2CA4B3F41656B597CCD4B6549E121C7ED5640D7D8BDF758325081057C587949E", None);
-    }
+        test_compute_merkle_tree(
+            "0x00AED8EB45CE696AE18A312CA7EF19EA0498794331D9A4262173E9970E06A488",
+            21,
+            [
+                (21, "0x00AED8EB45CE696AE18A312CA7EF19EA0498794331D9A4262173E9970E06A488"),
+                (10, "0x092CF079C53FE9FD62BF24F63937E7CB7066342ACD2EEF31E517514685C858C8"),
+                (5, "0x1D16A55D6726721ECE8AAED1160BC97AB8C54C6174FA858BC41795C20843DC95"),
+                (2, "0x1776B3164EF6C5E2C7EE5A72C438718D2D1CFB63D87BC8BFE1764CD4BEB6CA31"),
+                (1, "0x12068A6D69912EBED55E782FA9EEB0162242198DB85ABE6CBB97ABE057940078"),
+                (0, "0x2B2EBE8EBBE10224C5037D8F40A46E1ED616B424C0BAD4FA808635E5696CB6DC"),
+                (0, "0x28D23095F682CE8ADB779CC90F2F86727332217E296BAB1B3EB588552FE2DF44"),
+                (0, "0x07C53408D753982F985BD9D443062501ADF5F431B68C4ED2CC0F666C54ADACF8"),
+                (0, "0x2C112A620E957332956611A6CD573B1CAD51A7B531F2B796E7D19082C87F81A5"),
+                (0, "0x17882EB07E6A18070B5AB3D719994C68FFD33A894BD336CD2935B90BB4509701"),
+                (0, "0x17C258250F0E5164BD62907BFC83445051804C998D2E4FC18CC7A6624F320DF8"),
+                (0, "0x1B301FA32BD45F8F4ADEDFBCA570E403970553D52ED2E3FD8AF217F07A85363D"),
+                (0, "0x1AFCF43FF94DC437F1F0D656AE89AC7755E0A4E19D08A4BDD107E8BD1413730D"),
+            ]
+        );
 
-    #[test]
-    fn test_full_merkle_computation_with_intermediary() {
+        test_compute_merkle_tree(
+            "0x1F206986101D08702D563E37FD60D7687ED5BD52B35788B62C7948BF37715A44",
+            0,
+            [
+                (0, "0x1F206986101D08702D563E37FD60D7687ED5BD52B35788B62C7948BF37715A44"),
+                (0, "0x1EA0040FA4A1ECACE2627041E1B0691E0E671C8936575D7E5A62A473AB1C93A2"),
+                (0, "0x0AB92F3F5AE32E19A12E545E4FF97D05C77C021D0710740F85907546731034B4"),
+                (0, "0x16F0716422D27692282FFAC863BF630E933C15685FB814E8793B8CB0E13D57AB"),
+                (0, "0x2A1FB9024E9CC3C4FF18574ACBA59435B9D72CBF8AE51C682AF1AE2D423E34C8"),
+                (0, "0x1E9339A4431F07B965D13E44CD10CF779450219E0CAC8CEC009C698B668DDB11"),
+                (0, "0x1A1E6323CF14E130CB68B4B4DC5EAFECC73FD726F2DF5A571F71780ED774A2C1"),
+                (0, "0x2C346934449E9C8F82709907E5472F06014353D203D711AD7E608F7723777558"),
+                (0, "0x13696A21B68C2386813C30A839830CA0EAC776610D3F44FE2745C0629C531476"),
+                (0, "0x2E0BB596EE4648E776B9EDAE496DB0A5579E4DBCEC64F5164152D9A5089F0D49"),
+                (0, "0x087F2819E07163A0F451331D624AD5E6947D9956D54CADF31252BEF4E0B68D8A"),
+                (0, "0x1762B520B2B3A6D61076EB63AC04E5F2C1DEACC12101ED91578FAA59FC594F4F"),
+                (0, "0x2FA2FECA0F315B61C50BC96857AE4562EFD1DAC3B94D48EBDFFAEDECD020CC24"),
+            ]
+        );
 
+        test_compute_merkle_tree(
+            "0x121C2AF32EBBAB8932DFCBC77B3A942F5A4E1040EE7157C291131B002F387C00",
+            341,
+            [
+                (341, "0x121C2AF32EBBAB8932DFCBC77B3A942F5A4E1040EE7157C291131B002F387C00"),
+                (170, "0x010968E7FDB109D2305DDFEB1ACE34DCA79A88D300D9C25A10A7D2537EAF62AA"),
+                (85, "0x148F2C414B470D95E23649FAF65EC2A3B37324BA041248A15A0B063F400CA61F"),
+                (42, "0x1EB8F8F4AAF15E9A6F6F1984353BE185FC45C41D732FBF649FFE78D5B9E53FD0"),
+                (21, "0x0504E361ABC101E9959BAC10B354F190C45A1CFD82D436A6723B9DFFC3B5851E"),
+                (10, "0x16499C4041CFC662F4F9C71BE69D87FFFA6F7513FD5D39F3865770098485939D"),
+                (5, "0x0B94E7CC5168C80A08C25ADDB4AE4D302456B405877BFB11F1AC8958397FB461"),
+                (2, "0x1400EEA38ACB5C5C7DD0AB29A8C32F1CF84218904DC5E7D291276853D1887ED7"),
+                (1, "0x049F4CCD3E43200E1BAFECA4CBCCD824027D773EC103A9D1F110AE051FDF8541"),
+                (0, "0x295CBF7DFDFDED95E57A900C91DB01DCF180EB12871F60E3F5A621BDA10C2D9A"),
+                (0, "0x051BA348F2812E2788E1B8E3D64F8BEAA24D4AA6314ED5BD30E9D22E1A2E4833"),
+                (0, "0x2BDCEDBA3E35261D0F81F889594D7D00784865111D00C67EAD18033F26EB663A"),
+                (0, "0x0BEBA834603258CABE341CCB98453AC8A3FA28C63ED3C153B9E909FD74C8BCEA"),
+            ]
+        );
     }
 
     #[test]
     fn test_computation_does_not_affect_storage() {
+        fn clone_merkle(merkle: &mut [u8]) -> Vec<u8> {
+            let mut merk: Vec<u8> = Vec::new();
+            for byte in merkle { merk.push(*byte); }
+            merk
+        }
 
+        // Init Storage
+        let mut data = init_merkle_tree(0);
+        let mut storage = StorageAccount::from(&mut data).unwrap();
+        let original_merkle = clone_merkle(storage.merkle_tree);
+
+        // Init Deposit
+        let commitment = bytes_to_limbs(&to_bytes_le(from_str_16("0x121C2AF32EBBAB8932DFCBC77B3A942F5A4E1040EE7157C291131B002F387C00").unwrap()));
+        Processor::init_deposit(&mut storage, LAMPORTS_PER_SOL, commitment).unwrap();
+
+        // Deposit Computation
+        for _ in 0..poseidon::ITERATIONS * (TREE_HEIGHT + 1) - 2 {
+            Processor::compute_deposit(&mut storage).unwrap();
+        }
+
+        assert_eq!(original_merkle, clone_merkle(storage.merkle_tree));
     }
 }

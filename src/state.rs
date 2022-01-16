@@ -210,7 +210,7 @@ impl<'a> StorageAccount<'a> {
 
     /// Inserts the commitment into the tree
     pub fn add_commitment(&mut self) -> ProgramResult {
-        let mut pointer = self.leaf_pointer() as usize;
+        let pointer = self.leaf_pointer() as usize;
         let values = self.get_finished_hashes_storage();
 
         // Additional commitment security check
@@ -225,9 +225,15 @@ impl<'a> StorageAccount<'a> {
         insert_hashes(&mut self.merkle_tree, values, pointer);
 
         // Increment pointer
-        pointer += 1;
-        Self::set(self.next_leaf_pointer, 0, 4, &pointer.to_le_bytes())?;
+        self.increment_leaf_pointer(1)?;
 
+        Ok(())
+    }
+
+    pub fn increment_leaf_pointer(&mut self, count: usize) -> ProgramResult  {
+        let mut pointer = self.leaf_pointer() as usize;
+        pointer += count;
+        Self::set(self.next_leaf_pointer, 0, 4, &pointer.to_le_bytes())?;
         Ok(())
     }
 

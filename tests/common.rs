@@ -21,7 +21,7 @@ use {
     elusiv::state::{
         TOTAL_SIZE,
         TREE_SIZE,
-        TREE_HEIGHT,
+        //TREE_HEIGHT,
         TREE_LEAF_START,
         TREE_LEAF_COUNT,
     },
@@ -53,8 +53,8 @@ pub async fn get_storage_data(banks_client: &mut BanksClient) -> Vec<u8> {
 }
 
 pub fn new_storage_account_data() -> String {
-    let mut data: Vec<u8> = vec![0; TOTAL_SIZE];
-    let (mut merkle_store, _) = data.split_at_mut(TREE_SIZE);
+    let data: Vec<u8> = vec![0; TOTAL_SIZE];
+    //let (mut merkle_store, _) = data.split_at_mut(TREE_SIZE);
 
     // Setup Merkle tree
     /*let poseidon = Poseidon::new();
@@ -85,7 +85,7 @@ fn random_scalar() -> Scalar {
 
 #[allow(dead_code)]
 pub fn valid_commitment() -> Scalar {
-    let nullifier = random_scalar();
+    //let nullifier = random_scalar();
     let random = random_scalar();
     //Poseidon::new().hash_two(nullifier, random)
     random
