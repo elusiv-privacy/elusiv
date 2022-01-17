@@ -191,6 +191,8 @@ impl Processor {
             sol_log_compute_units();
 
             // Check if hashing is finished
+            msg!(&format!("Current hash iteration: {}", storage.get_current_hash_iteration()));
+            msg!(&format!("Current tree position: {}", storage.get_current_hash_tree_position()));
             if storage.get_current_hash_iteration() != 0 || (storage.get_current_hash_tree_position() as usize) <= super::state::TREE_HEIGHT {
                 return Err(DidNotFinishHashing.into())
             }
