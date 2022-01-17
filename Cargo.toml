@@ -18,7 +18,7 @@ ark-groth16 = { version = "^0.3.0", default-features = false }
 
 # Chain storage
 #limbed_merkle = { git = "ssh://git@github.com/elusivcash/limbed_merkle.git" }
-poseidon = { git = "ssh://git@github.com/elusivcash/poseidon.git" }
+#poseidon = { git = "ssh://git@github.com/elusivcash/poseidon.git" }
 
 [dev-dependencies]
 assert_matches = "1.4.0"

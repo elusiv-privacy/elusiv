@@ -1,4 +1,5 @@
-use poseidon::*;
+use super::poseidon::*;
+use super::scalar::*;
 use super::state::TREE_HEIGHT;
 
 fn get_store_index(layer: usize, index: usize) -> usize {

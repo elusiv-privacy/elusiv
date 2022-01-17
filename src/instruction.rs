@@ -12,7 +12,7 @@ use ark_bn254::{
     Fq2,
 };
 use ark_groth16::{ Proof };
-use poseidon::*;
+use super::scalar::*;
 use ark_ff::*;
 
 pub enum ElusivInstruction {
@@ -176,7 +176,7 @@ fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
 fn upnack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
     let (bytes, data) = unpack_32_bytes(data)?;
 
-    Ok((poseidon::bytes_to_limbs(bytes), data))
+    Ok((bytes_to_limbs(bytes), data))
 }
 
 fn unpack_single_byte_as_32_bytes(data: &[u8]) -> Result<([u8; 32], &[u8]), ProgramError> {
@@ -192,7 +192,7 @@ fn unpack_single_byte_as_32_bytes(data: &[u8]) -> Result<([u8; 32], &[u8]), Prog
 fn upnack_single_byte_as_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
     let (bytes, data) = unpack_single_byte_as_32_bytes(data)?;
 
-    Ok((poseidon::bytes_to_limbs(&bytes), data))
+    Ok((bytes_to_limbs(&bytes), data))
 }
 
 #[cfg(test)]

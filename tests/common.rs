@@ -1,4 +1,4 @@
-use {
+/*use {
     assert_matches::*,
     solana_program::{
         instruction::Instruction,
@@ -230,4 +230,4 @@ impl ProofString {
         v.extend(str_to_bytes(self.cy));
         v.push(if self.cz == "0" { 0 } else { 1 });
     }
-}
+}*/

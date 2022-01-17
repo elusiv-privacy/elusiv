@@ -8,9 +8,10 @@ use super::error::ElusivError::{
     CommitmentAlreadyUsed,
     NoRoomForCommitment,
 };
-use poseidon::Scalar;
-use poseidon::ScalarLimbs;
-use poseidon;
+use super::scalar::Scalar;
+use super::scalar::ScalarLimbs;
+use super::poseidon;
+use super::scalar;
 
 pub const TREE_HEIGHT: usize = 12;
 pub const TREE_SIZE: usize = ((2 as usize).pow(TREE_HEIGHT as u32 + 1) - 1) * 32;
@@ -103,15 +104,15 @@ impl<'a> StorageAccount<'a> {
     // Hashing
     pub fn get_hashing_state(&self) -> [Scalar; 3] {
         [
-            poseidon::from_bytes_le(&self.hashing_state_storage[..32]),
-            poseidon::from_bytes_le(&self.hashing_state_storage[32..64]),
-            poseidon::from_bytes_le(&self.hashing_state_storage[64..]),
+            scalar::from_bytes_le(&self.hashing_state_storage[..32]),
+            scalar::from_bytes_le(&self.hashing_state_storage[32..64]),
+            scalar::from_bytes_le(&self.hashing_state_storage[64..]),
         ]
     }
     pub fn set_hashing_state(&mut self, state: [Scalar; 3]) {
-        let mut bytes: Vec<u8> = poseidon::to_bytes_le(state[0]);
-        bytes.append(&mut poseidon::to_bytes_le(state[1]));
-        bytes.append(&mut poseidon::to_bytes_le(state[2]));
+        let mut bytes: Vec<u8> = scalar::to_bytes_le(state[0]);
+        bytes.append(&mut scalar::to_bytes_le(state[1]));
+        bytes.append(&mut scalar::to_bytes_le(state[2]));
 
         for (i, &byte) in bytes.iter().enumerate() {
             self.hashing_state_storage[i] = byte;
@@ -129,7 +130,7 @@ impl<'a> StorageAccount<'a> {
         a
     }
     pub fn set_finished_hash(&mut self, position: usize, value: Scalar) {
-        for (i, &byte) in poseidon::to_bytes_le(value).iter().enumerate() {
+        for (i, &byte) in scalar::to_bytes_le(value).iter().enumerate() {
             self.finished_hashes_storage[position * 32 + i] = byte;
         }
     }
@@ -186,7 +187,7 @@ impl<'a> StorageAccount<'a> {
 
         // Insert
         let mut pointer = bytes_to_u32(&self.next_nullifier_pointer) as usize;
-        let bytes = poseidon::limbs_to_bytes(&nullifier_hash);
+        let bytes = scalar::limbs_to_bytes(&nullifier_hash);
         Self::set(self.nullifier_hashes, pointer, 4, &bytes)?;
 
         // Increment pointer
@@ -215,7 +216,7 @@ impl<'a> StorageAccount<'a> {
 
         // Additional commitment security check
         let commitment = values[0];
-        self.can_insert_commitment(poseidon::bytes_to_limbs(&commitment))?;
+        self.can_insert_commitment(scalar::bytes_to_limbs(&commitment))?;
 
         // Save last root
         let root = &self.merkle_tree[..32];
@@ -282,7 +283,7 @@ impl<'a> StorageAccount<'a> {
 /// * `limbs` - 4 u64 limbs
 /// * `buffer` - bytes to search in
 fn contains_limbs(limbs: ScalarLimbs, buffer: &[u8]) -> bool {
-    let bytes: [u8; 32] = poseidon::limbs_to_bytes(&limbs);
+    let bytes: [u8; 32] = scalar::limbs_to_bytes(&limbs);
     let length = buffer.len() >> 5;
     for i in 0..length {
         let index = i << 5;
@@ -325,7 +326,7 @@ mod tests {
     #[test]
     fn test_contains_limbs() {
         let limbs: [u64; 4] = [18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615];
-        let lb = poseidon::limbs_to_bytes(&limbs);
+        let lb = scalar::limbs_to_bytes(&limbs);
         let mut bytes: [u8; 32 * 10] = [0; 32 * 10];
         for i in 0..32 {
             bytes[7 * 32 + i] = lb[i];

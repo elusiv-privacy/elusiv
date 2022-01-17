@@ -23,6 +23,7 @@ use solana_program::{
     system_program,
     native_token::LAMPORTS_PER_SOL,
     log::sol_log_compute_units,
+    msg,
 };
 use ark_groth16::{
     Proof,
@@ -31,9 +32,10 @@ use ark_groth16::{
 };
 use ark_bn254::*;
 use ark_ff::*;
-use poseidon::ScalarLimbs;
-use poseidon::Scalar;
-use poseidon::Poseidon2;
+use super::scalar::ScalarLimbs;
+use super::scalar::Scalar;
+use super::scalar;
+use super::poseidon::Poseidon2;
 
 use super::verifier;
 use super::state::StorageAccount;
@@ -114,11 +116,11 @@ impl Processor {
 
         // Reset values
         storage.set_committed_amount(amount);
-        storage.set_current_hash_iteration(poseidon::ITERATIONS as u16);
+        storage.set_current_hash_iteration(super::poseidon_constants::ITERATIONS as u16);
         storage.set_current_hash_tree_position(0);
 
         // Add commitment to hashing state and finished hash store
-        let commitment = poseidon::from_limbs(&commitment);
+        let commitment = super::scalar::from_limbs(&commitment);
         storage.set_finished_hash(0, commitment);
         storage.set_hashing_state([commitment, Scalar::zero(), Scalar::zero()]);
 
@@ -135,7 +137,7 @@ impl Processor {
         let mut state = storage.get_hashing_state();
 
         // Move to next tree level or finish 
-        if current_iteration as usize == poseidon::ITERATIONS {
+        if current_iteration as usize == super::poseidon_constants::ITERATIONS {
             // Save hash
             let previous_hash = state[0];
             storage.set_finished_hash(current_tree_position as usize, previous_hash);
@@ -241,8 +243,8 @@ impl Processor {
         // Validate proof
         let pvk = prepare_verifying_key(&verifier::verification_key());
         let inputs: Vec<Scalar> = vec![
-            poseidon::from_limbs(&root),
-            poseidon::from_limbs(&nullifier_hash),
+            scalar::from_limbs(&root),
+            scalar::from_limbs(&nullifier_hash),
         ];
         let result = verify_proof(&pvk, &proof, &inputs[..]);
         match result {
@@ -264,7 +266,8 @@ impl Processor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use poseidon::{
+    use super::super::poseidon_constants;
+    use super::super::scalar::{
         from_str_16,
         bytes_to_limbs,
         to_bytes_le,
@@ -278,6 +281,7 @@ mod tests {
         TREE_HEIGHT,
         TOTAL_SIZE,
     };
+    use super::super::poseidon;
 
     fn init_merkle_tree<'a>(index: usize) -> [u8; TOTAL_SIZE] {
         let mut data = [0 as u8; TOTAL_SIZE];
@@ -299,7 +303,7 @@ mod tests {
         Processor::init_deposit(&mut storage, LAMPORTS_PER_SOL, commitment).unwrap();
 
         // Deposit Computation
-        for _ in 0..poseidon::ITERATIONS * (TREE_HEIGHT + 1) - 2 {
+        for _ in 0..poseidon_constants::ITERATIONS * (TREE_HEIGHT + 1) - 2 {
             Processor::compute_deposit(&mut storage).unwrap();
         }
         
@@ -424,7 +428,7 @@ mod tests {
         Processor::init_deposit(&mut storage, LAMPORTS_PER_SOL, commitment).unwrap();
 
         // Deposit Computation
-        for _ in 0..poseidon::ITERATIONS * (TREE_HEIGHT + 1) - 2 {
+        for _ in 0..poseidon_constants::ITERATIONS * (TREE_HEIGHT + 1) - 2 {
             Processor::compute_deposit(&mut storage).unwrap();
         }
 
