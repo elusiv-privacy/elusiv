@@ -1,26 +1,28 @@
-use solana_program::program_error::ProgramError;
 use std::fmt;
+use solana_program::program_error::ProgramError;
 
 #[derive(Copy, Clone)]
 pub enum ElusivError {
-    InvalidInstruction,
+    InvalidInstruction, // 0
 
-    SenderIsNotSigner,
-    SenderIsNotWritable,
-    InvalidAmount,
-    InvalidProof,
-    CouldNotProcessProof,
-    InvalidMerkleRoot,
+    SenderIsNotSigner, // 1
+    SenderIsNotWritable, // 2
+    InvalidAmount, // 3
+    InvalidProof, // 4
+    CouldNotProcessProof, // 5
+    InvalidMerkleRoot, // 6
 
-    InvalidStorageAccount,
-    InvalidStorageAccountSize,
-    CouldNotCreateMerkleTree,
+    InvalidStorageAccount, // 7
+    InvalidStorageAccountSize, // 8
+    CouldNotCreateMerkleTree, // 9
 
-    NullifierAlreadyUsed,
-    NoRoomForNullifier,
+    NullifierAlreadyUsed, // 10
+    NoRoomForNullifier, // 11
 
-    CommitmentAlreadyUsed,
-    NoRoomForCommitment,
+    CommitmentAlreadyUsed, // 12
+    NoRoomForCommitment, // 13
+
+    DidNotFinishHashing, // 14
 }
 
 impl From<ElusivError> for ProgramError {
@@ -60,6 +62,8 @@ impl fmt::Display for ElusivError {
                 write!(f, "CommitmentAlreadyUsed"),
             Self::NoRoomForCommitment =>
                 write!(f, "NoRoomForCommitment"),
+            Self::DidNotFinishHashing =>
+                write!(f, "DidNotFinishHashing"),
         }
     }
 }
