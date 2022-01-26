@@ -1,8 +1,6 @@
 use ark_ff::*;
 use super::poseidon_constants::*;
 use super::scalar::Scalar;
-use solana_program::log::sol_log_compute_units;
-use solana_program::msg;
 
 /// Two input Poseidon hasher
 pub struct Poseidon2 {
@@ -26,11 +24,8 @@ impl Poseidon2 {
     /// The Poseidon2 consists of 65 rounds
     pub fn partial_hash(&self, iteration: usize, a: Scalar, b: Scalar, c: Scalar) -> [Scalar; 3] {
         let mut state = [a, b, c];
-        sol_log_compute_units();
-        msg!("Poseidon constants:");
         let c = generate_constants(iteration);
         let iteration = get_iteration_start_and_length(iteration);
-        sol_log_compute_units();
 
         for i in 0..iteration.1 {
             // Ark
@@ -80,6 +75,7 @@ impl Poseidon2 {
 mod test {
     use super::*;
     use super::super::scalar::to_hex_string;
+    use super::super::scalar::from_str_10;
 
     #[test]
     fn test_null_hash() {
@@ -87,6 +83,18 @@ mod test {
         let hash = p.full_hash(Scalar::zero(), Scalar::zero());
 
         assert_eq!("0x2098F5FB9E239EAB3CEAC3F27B81E481DC3124D55FFED523A839EE8446B64864", to_hex_string(hash));
+        assert_eq!(from_str_10("14744269619966411208579211824598458697587494354926760081771325075741142829156"), hash);
+    }
+
+    #[test]
+    fn test_hash() {
+        let p = Poseidon2::new();
+        let hash = p.full_hash(from_str_10("8144211214817430829349003215074481182100404296535680119964943950269151541972"), Scalar::zero());
+        assert_eq!(hash, from_str_10("3521277125107847192640759927250026508659373094488056016877049883968245990497"));
+
+        let p = Poseidon2::new();
+        let hash = p.full_hash(from_str_10("13552763967912093594457579779110052252941986640568606066796890732453878304904"), Scalar::zero());
+        assert_eq!(hash, from_str_10("2788832706231923317949979783323167016733265655607476807262415957398223972822"));
     }
 
     #[test]

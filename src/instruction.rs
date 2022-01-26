@@ -12,7 +12,7 @@ use ark_bn254::{
     Fq2,
 };
 use ark_groth16::{ Proof };
-use super::scalar::*;
+use poseidon::*;
 use ark_ff::*;
 
 pub enum ElusivInstruction {
@@ -67,7 +67,7 @@ pub enum ElusivInstruction {
 
         /// Merkle root
         root: ScalarLimbs,
-    }
+    },
 }
 
 impl ElusivInstruction {
@@ -87,30 +87,30 @@ impl ElusivInstruction {
 
     fn unpack_deposit(data: &[u8]) -> Result<Self, ProgramError> {
         // Unpack deposit amount
-        let (amount, data) = unpack_u64(&data, true)?;
+        let (amount, data) = unpack_u64(&data)?;
 
         // Unpack commitment
-        let (commitment, _) = upnack_limbs(&data)?;
+        let (commitment, _) = unpack_limbs(&data)?;
 
         Ok(ElusivInstruction::InitDeposit{ amount, commitment })
     }
 
     fn unpack_withdraw(data: &[u8]) -> Result<Self, ProgramError> {
         // Unpack withdrawal amount
-        let (amount, data) = unpack_u64(&data, true)?;
+        let (amount, data) = unpack_u64(&data)?;
 
         // Unpack zkSNARK proof
-        let (ax, data) = upnack_limbs(&data)?;
-        let (ay, data) = upnack_limbs(&data)?;
+        let (ax, data) = unpack_limbs(&data)?;
+        let (ay, data) = unpack_limbs(&data)?;
         let (az, data) = upnack_single_byte_as_limbs(&data)?;
-        let (b00, data) = upnack_limbs(&data)?;
-        let (b01, data) = upnack_limbs(&data)?;
-        let (b10, data) = upnack_limbs(&data)?;
-        let (b11, data) = upnack_limbs(&data)?;
+        let (b00, data) = unpack_limbs(&data)?;
+        let (b01, data) = unpack_limbs(&data)?;
+        let (b10, data) = unpack_limbs(&data)?;
+        let (b11, data) = unpack_limbs(&data)?;
         let (b20, data) = upnack_single_byte_as_limbs(&data)?;
         let (b21, data) = upnack_single_byte_as_limbs(&data)?;
-        let (cx, data) = upnack_limbs(&data)?;
-        let (cy, data) = upnack_limbs(&data)?;
+        let (cx, data) = unpack_limbs(&data)?;
+        let (cy, data) = unpack_limbs(&data)?;
         let (cz, data) = upnack_single_byte_as_limbs(&data)?;
 
         let proof: Proof<Bn254> = Proof {
@@ -147,20 +147,20 @@ impl ElusivInstruction {
         };
 
         // Unpack nullifier hash
-        let (nullifier_hash, data) = upnack_limbs(&data)?;
+        let (nullifier_hash, data) = unpack_limbs(&data)?;
 
         // Unpack merkle root
-        let (root, _) = upnack_limbs(&data)?;
+        let (root, _) = unpack_limbs(&data)?;
 
         Ok(ElusivInstruction::Withdraw{ amount, proof, nullifier_hash, root })
     }
 }
 
-fn unpack_u64(data: &[u8], little_endian: bool) -> Result<(u64, &[u8]), ProgramError> {
+fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
     let value = data
         .get(..8)
         .and_then(|slice| slice.try_into().ok())
-        .map(if little_endian { u64::from_le_bytes } else { u64::from_be_bytes })
+        .map(u64::from_le_bytes)
         .ok_or(InvalidArgument)?;
 
     Ok((value, &data[8..]))
@@ -173,8 +173,9 @@ fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
 }
 
 // TODO: Check if every value is < r/p
-fn upnack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
+fn unpack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
     let (bytes, data) = unpack_32_bytes(data)?;
+    //msg!(&format!("{:?}", bytes));
 
     Ok((bytes_to_limbs(bytes), data))
 }
@@ -209,12 +210,8 @@ mod tests {
         let d: [u8; 8] = [0b00000001, 0, 0, 0, 0, 0, 0, 0b00000000];
 
         // Test little endian interpretation
-        let (v, _) = unpack_u64(&d, true).unwrap();
+        let (v, _) = unpack_u64(&d).unwrap();
         assert_eq!(v, 1);
-
-        // Test big endian interpretation
-        let (v, _) = unpack_u64(&d, false).unwrap();
-        assert_eq!(v, 1 << 56);
     }
 
     #[test]

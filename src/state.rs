@@ -8,10 +8,7 @@ use super::error::ElusivError::{
     CommitmentAlreadyUsed,
     NoRoomForCommitment,
 };
-use super::scalar::Scalar;
-use super::scalar::ScalarLimbs;
-use super::poseidon;
-use super::scalar;
+use poseidon::*;
 
 pub const TREE_HEIGHT: usize = 12;
 pub const TREE_SIZE: usize = ((2 as usize).pow(TREE_HEIGHT as u32 + 1) - 1) * 32;
@@ -27,17 +24,19 @@ const HISTORY_ARRAY_SIZE: usize = HISTORY_ARRAY_COUNT * 32;
 
 pub const TOTAL_SIZE: usize = TREE_SIZE + NULLIFIERS_SIZE + HISTORY_ARRAY_SIZE + 4 + 4 + (3 + TREE_HEIGHT + 1) * 32 + 8 + 2 + 2;
 
+//solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
+
 pub struct StorageAccount<'a> {
     /// Merkle tree or arity 2
-    /// - (elements: 32 u8 limbs)
+    /// - 2^{TREE_HEIGHT + 1} - 1 32 byte words
     pub merkle_tree: &'a mut [u8],
 
     /// Nullifier hashes
-    /// - (elements: 32 u8 limbs)
+    /// - TREE_HEIGHT 32 byte words
     nullifier_hashes: &'a mut [u8],
 
     /// Root history
-    /// - (elements: 32 u8 limbs)
+    /// - HISTORY_ARRAY_COUNT 32 byte words
     root_history: &'a mut [u8],
 
     /// Next Leaf Pointer
@@ -52,22 +51,25 @@ pub struct StorageAccount<'a> {
     /// - range: [0; NULLIFIERS_COUNT]
     next_nullifier_pointer: &'a mut [u8],
     
-    /// Hash working storage
-    /// - (elements: 32 u8 limbs)
-    /// - containts 3 
+    /// Hash working storage of current deposit
+    /// - (element-size: 32 bytes)
+    /// - containts 3 elements
     hashing_state_storage: &'a mut [u8],
 
-    /// Finished tree nodes
-    /// - (elements: 32 u8 limbs)
-    /// - containts TREE_HEIGHT + 1 elements
+    /// Finished tree nodes of current deposit
+    /// - (element-size: 32 bytes)
+    /// - containts TREE_HEIGHT + 1 elements (every layer of the tree)
     finished_hashes_storage: &'a mut [u8],
 
+    /// Amount of current deposit
     /// - (u64 represented as 8 bytes)
     committed_amount: &'a mut [u8],
 
+    /// Hash iteraction of current deposit
     /// - (u16 represented as 2 bytes)
     current_hash_iteration: &'a mut [u8],
 
+    /// Hashing process tree position of current deposit
     /// - (u16 represented as 2 bytes)
     current_hash_tree_position: &'a mut [u8],
 }
@@ -104,15 +106,15 @@ impl<'a> StorageAccount<'a> {
     // Hashing
     pub fn get_hashing_state(&self) -> [Scalar; 3] {
         [
-            scalar::from_bytes_le(&self.hashing_state_storage[..32]),
-            scalar::from_bytes_le(&self.hashing_state_storage[32..64]),
-            scalar::from_bytes_le(&self.hashing_state_storage[64..]),
+            from_bytes_le(&self.hashing_state_storage[..32]),
+            from_bytes_le(&self.hashing_state_storage[32..64]),
+            from_bytes_le(&self.hashing_state_storage[64..]),
         ]
     }
     pub fn set_hashing_state(&mut self, state: [Scalar; 3]) {
-        let mut bytes: Vec<u8> = scalar::to_bytes_le(state[0]);
-        bytes.append(&mut scalar::to_bytes_le(state[1]));
-        bytes.append(&mut scalar::to_bytes_le(state[2]));
+        let mut bytes: Vec<u8> = to_bytes_le(state[0]);
+        bytes.append(&mut to_bytes_le(state[1]));
+        bytes.append(&mut to_bytes_le(state[2]));
 
         for (i, &byte) in bytes.iter().enumerate() {
             self.hashing_state_storage[i] = byte;
@@ -121,7 +123,7 @@ impl<'a> StorageAccount<'a> {
 
     pub fn get_finished_hashes_storage(&self) -> [[u8; 32]; TREE_HEIGHT + 1] {
         let mut a = [[0; 32]; TREE_HEIGHT + 1];
-        for i in 0..TREE_HEIGHT + 1 {
+        for i in 0..a.len() {
             let slice = &self.finished_hashes_storage[i * 32..(i + 1) * 32];
             for (j, &byte) in slice.iter().enumerate() {
                 a[i][j] = byte;
@@ -130,7 +132,7 @@ impl<'a> StorageAccount<'a> {
         a
     }
     pub fn set_finished_hash(&mut self, position: usize, value: Scalar) {
-        for (i, &byte) in scalar::to_bytes_le(value).iter().enumerate() {
+        for (i, &byte) in to_bytes_le(value).iter().enumerate() {
             self.finished_hashes_storage[position * 32 + i] = byte;
         }
     }
@@ -187,7 +189,7 @@ impl<'a> StorageAccount<'a> {
 
         // Insert
         let mut pointer = bytes_to_u32(&self.next_nullifier_pointer) as usize;
-        let bytes = scalar::limbs_to_bytes(&nullifier_hash);
+        let bytes = limbs_to_bytes(&nullifier_hash);
         Self::set(self.nullifier_hashes, pointer, 4, &bytes)?;
 
         // Increment pointer
@@ -216,13 +218,16 @@ impl<'a> StorageAccount<'a> {
 
         // Additional commitment security check
         let commitment = values[0];
-        self.can_insert_commitment(scalar::bytes_to_limbs(&commitment))?;
+        self.can_insert_commitment(bytes_to_limbs(&commitment))?;
 
         // Save last root
         let root = &self.merkle_tree[..32];
         Self::set(self.root_history, (pointer % HISTORY_ARRAY_COUNT) * 32, 32, root)?;
 
         // Insert values into the tree
+        /*for value in values {
+            msg!(&format!("{}", from_bytes_le(&value)));
+        }*/
         insert_hashes(&mut self.merkle_tree, values, pointer);
 
         // Increment pointer
@@ -283,7 +288,7 @@ impl<'a> StorageAccount<'a> {
 /// * `limbs` - 4 u64 limbs
 /// * `buffer` - bytes to search in
 fn contains_limbs(limbs: ScalarLimbs, buffer: &[u8]) -> bool {
-    let bytes: [u8; 32] = scalar::limbs_to_bytes(&limbs);
+    let bytes: [u8; 32] = limbs_to_bytes(&limbs);
     let length = buffer.len() >> 5;
     for i in 0..length {
         let index = i << 5;
@@ -326,12 +331,48 @@ mod tests {
     #[test]
     fn test_contains_limbs() {
         let limbs: [u64; 4] = [18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615];
-        let lb = scalar::limbs_to_bytes(&limbs);
+        let lb = limbs_to_bytes(&limbs);
         let mut bytes: [u8; 32 * 10] = [0; 32 * 10];
         for i in 0..32 {
             bytes[7 * 32 + i] = lb[i];
         } 
 
         assert_eq!(true, contains_limbs(limbs, &bytes))
+    }
+
+    #[test]
+    fn test_init_correct_size() {
+        let mut data: Vec<u8> = vec![0; TOTAL_SIZE];
+        StorageAccount::from(&mut data).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_init_wrong_size() {
+        let mut data: Vec<u8> = vec![0; TOTAL_SIZE - 1];
+        StorageAccount::from(&mut data).unwrap();
+    }
+
+    #[test]
+    fn test_get_finished_hashes() {
+        let mut data: Vec<u8> = vec![0; TOTAL_SIZE];
+        let start_offset = TREE_SIZE + NULLIFIERS_SIZE + HISTORY_ARRAY_SIZE + 4 + 4 + 3 * 32;
+        for i in 0..=TREE_HEIGHT {
+            let scalar = from_str_10(&format!("{}", i + 1));
+            let bytes = to_bytes_le(scalar);
+            for (j, &byte) in bytes.iter().enumerate() {
+                data[start_offset + i * 32 + j] = byte;
+            }
+        }
+        let storage = StorageAccount::from(&mut data).unwrap();
+
+        let hashes = storage.get_finished_hashes_storage();
+        for i in 0..=TREE_HEIGHT {
+            let scalar = from_str_10(&format!("{}", i + 1));
+            assert_eq!(
+                from_bytes_le(&hashes[i]),
+                scalar
+            )
+        }
     }
 }

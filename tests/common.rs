@@ -1,4 +1,6 @@
-/*use {
+#![allow(dead_code)]
+
+use {
     assert_matches::*,
     solana_program::{
         instruction::Instruction,
@@ -18,20 +20,25 @@
     std::str::FromStr,
     poseidon::*,
 
+    elusiv::merkle::*,
+    elusiv::entrypoint::process_instruction,
     elusiv::state::{
         TOTAL_SIZE,
         TREE_SIZE,
-        //TREE_HEIGHT,
         TREE_LEAF_START,
         TREE_LEAF_COUNT,
     },
-    elusiv::entrypoint::process_instruction,
+    elusiv::state::StorageAccount,
+    elusiv::state::TREE_HEIGHT,
+
+    poseidon::ITERATIONS,
     ark_ff::*,
     num_bigint::BigUint,
+    ark_groth16::Proof,
+    ark_bn254::*,
 };
-use ark_groth16::Proof;
-use ark_bn254::*;
 
+// String number conversions
 pub fn str_to_bytes(str: &str) -> Vec<u8> {
     let mut writer: Vec<u8> = vec![];
     str_to_bigint(str).write(&mut writer).unwrap();
@@ -47,43 +54,36 @@ pub fn storage_id() -> Pubkey {
     Pubkey::from_str("SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt").unwrap()
 }
 
-#[allow(dead_code)]
 pub async fn get_storage_data(banks_client: &mut BanksClient) -> Vec<u8> {
     banks_client.get_account(storage_id()).await.unwrap().unwrap().data
 }
 
 pub fn new_storage_account_data() -> String {
-    let data: Vec<u8> = vec![0; TOTAL_SIZE];
-    //let (mut merkle_store, _) = data.split_at_mut(TREE_SIZE);
+    let mut data: Vec<u8> = vec![0; TOTAL_SIZE];
 
-    // Setup Merkle tree
-    /*let poseidon = Poseidon::new();
-    let limbs_to_value = |limbs: &[u8]| { from_bytes_le(limbs) };
-    let value_to_limbs = |value: Scalar| { to_bytes_le(value) };
-    let hash = |left: Scalar, right: Scalar| { poseidon.hash(vec![left, right]).unwrap() };*/
-    //let mut tree = elusiv::limbed_merkle::LimbedMerkleTree::new(TREE_HEIGHT, &mut merkle_store, 5, hash, limbs_to_value, value_to_limbs).unwrap();
-    //tree.initialize_store(Scalar::zero());
-
-    //println!("{:?}", &merkle_store[..32]);
+    // Setup Merkle tree and initialize values
+    {
+        let storage = StorageAccount::from(&mut data).unwrap();
+        let poseidon = Poseidon2::new();
+        let hash = |left: Scalar, right: Scalar| { poseidon.full_hash(left, right) };
+        initialize_store(storage.merkle_tree, Scalar::zero(), hash);
+    }
 
     base64::encode(&data)
 }
 
-// Accounts
-#[allow(dead_code)]
+// Account balance
 pub async fn get_balance(banks_client: &mut BanksClient, pubkey: Pubkey) -> u64 {
     banks_client.get_account(pubkey).await.unwrap().unwrap().lamports
 }
 
 // Commitment generation
-#[allow(dead_code)]
 fn random_scalar() -> Scalar {
     let mut random = rand::thread_rng().gen::<[u8; 32]>();
     random[31] = 0;
     from_bytes_le(&random)
 }
 
-#[allow(dead_code)]
 pub fn valid_commitment() -> Scalar {
     //let nullifier = random_scalar();
     let random = random_scalar();
@@ -91,7 +91,6 @@ pub fn valid_commitment() -> Scalar {
     random
 }
 
-#[allow(dead_code)]
 pub async fn start_program<F>(setup: F) -> (solana_program_test::BanksClient, Keypair, Hash)
 where F: Fn(&mut ProgramTest) -> ()
 {
@@ -99,10 +98,10 @@ where F: Fn(&mut ProgramTest) -> ()
     let program_id = elusiv::id();
     test.add_program("elusiv", program_id, processor!(process_instruction));
     setup(&mut test);
+    test.set_compute_max_units(180000 * (TREE_HEIGHT as u64) * (ITERATIONS as u64));
     test.start().await
 }
 
-#[allow(dead_code)]
 pub async fn start_program_with_storage(storage_id: Pubkey) -> (solana_program_test::BanksClient, Keypair, Hash) {
     let setup = |test: &mut ProgramTest| {
         let data = new_storage_account_data();
@@ -111,7 +110,6 @@ pub async fn start_program_with_storage(storage_id: Pubkey) -> (solana_program_t
     start_program(setup).await
 }
 
-#[allow(dead_code)]
 pub fn get_commitments(account_data: &mut [u8]) -> Vec<Scalar> {
     let tree_leaves = &account_data[TREE_LEAF_START * 32..TREE_SIZE];
     let mut leaves = Vec::new();
@@ -122,30 +120,52 @@ pub fn get_commitments(account_data: &mut [u8]) -> Vec<Scalar> {
 }
 
 // Deposit
-pub async fn send_deposit_transaction(program_id: Pubkey, storage_id: Pubkey, payer: &Keypair, recent_blockhash: Hash, data: Vec<u8>) -> Transaction {
-    let mut transaction = Transaction::new_with_payer(
-        &[Instruction {
-            program_id,
-            accounts: vec!
-            [
-                AccountMeta::new(payer.pubkey(), true),
-                AccountMeta::new(storage_id, false),
-                AccountMeta::new(system_program::id(), false),
-            ],
-            data,
-        }],
-        Some(&payer.pubkey()),
-    );
+pub async fn send_deposit_transaction(storage_id: Pubkey, payer: &Keypair, recent_blockhash: Hash, data: Vec<u8>) -> Transaction {
+    // Start deposit
+    let mut instructions = Vec::new();
+    instructions.push(Instruction {
+        program_id: elusiv::id(),
+        accounts: vec!
+        [
+            AccountMeta::new(storage_id, false),
+            AccountMeta::new(payer.pubkey(), true),
+            AccountMeta::new(system_program::id(), false),
+        ],
+        data: data,
+    });
+
+    // Calculate deposit
+    for _ in 0..ITERATIONS * TREE_HEIGHT - 1 {
+        instructions.push(Instruction {
+            program_id: elusiv::id(),
+            accounts: vec![AccountMeta::new(storage_id, false)],
+            data: vec![1],
+        });
+    }
+
+    // Finalize deposit
+    instructions.push(Instruction {
+        program_id: elusiv::id(),
+        accounts: vec!
+        [
+            AccountMeta::new(storage_id, false),
+            AccountMeta::new(payer.pubkey(), true),
+            AccountMeta::new(system_program::id(), false),
+        ],
+        data: vec![2],
+    });
+
+    // Sign and send transaction
+    let mut transaction = Transaction::new_with_payer(&instructions, Some(&payer.pubkey()));
     transaction.sign(&[payer], recent_blockhash);
     transaction
 }
 
-#[allow(dead_code)]
 pub async fn send_valid_deposit(payer: &Keypair, banks_client: &mut BanksClient, recent_blockhash: Hash) -> Scalar {
     let commitment = valid_commitment();
     let data = deposit_data(commitment);
 
-    let t = send_deposit_transaction(elusiv::id(), storage_id(), &payer, recent_blockhash, data).await;
+    let t = send_deposit_transaction(storage_id(), &payer, recent_blockhash, data).await;
     assert_matches!(banks_client.process_transaction(t).await, Ok(()));
 
     commitment
@@ -160,15 +180,14 @@ pub fn deposit_data(commitment: Scalar) -> Vec<u8> {
 }
 
 // Withdraw
-#[allow(dead_code)]
 pub async fn send_withdraw_transaction(program_id: Pubkey, storage_id: Pubkey, payer: Keypair, recipient: Pubkey, recent_blockhash: Hash, data: Vec<u8>) -> Transaction {
     let mut transaction = Transaction::new_with_payer(
         &[Instruction {
             program_id,
             accounts: vec!
             [
-                AccountMeta::new(payer.pubkey(), true),
                 AccountMeta::new(storage_id, false) ,
+                AccountMeta::new(payer.pubkey(), true),
                 AccountMeta::new(recipient, false),
             ],
             data,
@@ -179,8 +198,22 @@ pub async fn send_withdraw_transaction(program_id: Pubkey, storage_id: Pubkey, p
     transaction
 }
 
+pub fn withdraw_data(proof: ProofString, inputs: &[&str]) -> Vec<u8> {
+    let mut data = vec![3];
+
+    let amount: u64 = LAMPORTS_PER_SOL;
+    data.extend_from_slice(&amount.to_le_bytes());
+
+    proof.push_to_vec(&mut data);
+
+    for input in inputs {
+        data.extend(str_to_bytes(input));
+    }
+
+    data
+}
+
 // Proof
-#[allow(dead_code)]
 pub struct ProofString {
     pub ax: &'static str,
     pub ay: &'static str,
@@ -198,7 +231,6 @@ pub struct ProofString {
     pub cz: &'static str,
 }
 
-#[allow(dead_code)]
 impl ProofString {
     pub fn generate_proof(&self) -> Proof<Bn254> {
         Proof {
@@ -230,4 +262,4 @@ impl ProofString {
         v.extend(str_to_bytes(self.cy));
         v.push(if self.cz == "0" { 0 } else { 1 });
     }
-}*/
+}

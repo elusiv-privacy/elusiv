@@ -1,7 +1,6 @@
-/*mod common;
+mod common;
 
-use super::poseidon::*;
-use super::scalar::*;
+use poseidon::*;
 use elusiv::verifier;
 use ark_groth16::{
     verify_proof,
@@ -62,4 +61,4 @@ fn test_invalid_proof() {
     let result = verify_proof(&pvk, &proof, &inputs[..]);
 
     assert_eq!(result.unwrap(), false);
-}*/
+}
