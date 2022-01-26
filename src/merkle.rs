@@ -1,4 +1,4 @@
-use poseidon::*;
+use super::poseidon::*;
 use super::state::TREE_HEIGHT;
 
 /// Returns a tree node as a Scalar object

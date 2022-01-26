@@ -32,7 +32,8 @@ use ark_groth16::{
 };
 use ark_bn254::*;
 use ark_ff::*;
-use poseidon::*;
+use super::poseidon::*;
+use super::poseidon;
 
 use super::verifier;
 use super::state::StorageAccount;

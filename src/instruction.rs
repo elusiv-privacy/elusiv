@@ -12,7 +12,7 @@ use ark_bn254::{
     Fq2,
 };
 use ark_groth16::{ Proof };
-use poseidon::*;
+use super::poseidon::*;
 use ark_ff::*;
 
 pub enum ElusivInstruction {

@@ -8,7 +8,7 @@ use super::error::ElusivError::{
     CommitmentAlreadyUsed,
     NoRoomForCommitment,
 };
-use poseidon::*;
+use super::poseidon::*;
 
 pub const TREE_HEIGHT: usize = 12;
 pub const TREE_SIZE: usize = ((2 as usize).pow(TREE_HEIGHT as u32 + 1) - 1) * 32;

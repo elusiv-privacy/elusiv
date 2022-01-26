@@ -17,7 +17,7 @@ use {
     elusiv::state::TOTAL_SIZE,
     elusiv::state::TREE_HEIGHT,
     elusiv::merkle::node,
-    poseidon::{
+    elusiv::poseidon::{
         ITERATIONS,
         Scalar,
         from_str_10,

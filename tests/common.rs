@@ -18,7 +18,7 @@ use {
     },
     rand::Rng,
     std::str::FromStr,
-    poseidon::*,
+    elusiv::poseidon::*,
 
     elusiv::merkle::*,
     elusiv::entrypoint::process_instruction,
@@ -31,7 +31,7 @@ use {
     elusiv::state::StorageAccount,
     elusiv::state::TREE_HEIGHT,
 
-    poseidon::ITERATIONS,
+    elusiv::poseidon::ITERATIONS,
     ark_ff::*,
     num_bigint::BigUint,
     ark_groth16::Proof,
