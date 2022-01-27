@@ -81,7 +81,7 @@ pub async fn get_balance(banks_client: &mut BanksClient, pubkey: Pubkey) -> u64 
 fn random_scalar() -> Scalar {
     let mut random = rand::thread_rng().gen::<[u8; 32]>();
     random[31] = 0;
-    from_bytes_le(&random)
+    from_bytes_le_repr(&random).unwrap()
 }
 
 pub fn valid_commitment() -> Scalar {
@@ -114,7 +114,7 @@ pub fn get_commitments(account_data: &mut [u8]) -> Vec<Scalar> {
     let tree_leaves = &account_data[TREE_LEAF_START * 32..TREE_SIZE];
     let mut leaves = Vec::new();
     for l in 0..TREE_LEAF_COUNT {
-        leaves.push(from_bytes_le(&tree_leaves[l * 32..(l + 1) * 32]))
+        leaves.push(from_bytes_le_repr(&tree_leaves[l * 32..(l + 1) * 32]).unwrap())
     }
     leaves
 }
@@ -175,7 +175,7 @@ pub fn deposit_data(commitment: Scalar) -> Vec<u8> {
     let mut data = vec![0];
     let amount: u64 = LAMPORTS_PER_SOL;
     data.extend_from_slice(&amount.to_le_bytes());
-    data.extend_from_slice(&to_bytes_le(commitment));
+    data.extend_from_slice(&to_bytes_le_repr(commitment));
     data
 }
 

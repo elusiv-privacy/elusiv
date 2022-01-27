@@ -106,15 +106,15 @@ impl<'a> StorageAccount<'a> {
     // Hashing
     pub fn get_hashing_state(&self) -> [Scalar; 3] {
         [
-            from_bytes_le(&self.hashing_state_storage[..32]),
-            from_bytes_le(&self.hashing_state_storage[32..64]),
-            from_bytes_le(&self.hashing_state_storage[64..]),
+            from_bytes_le_repr(&self.hashing_state_storage[..32]).unwrap(),
+            from_bytes_le_repr(&self.hashing_state_storage[32..64]).unwrap(),
+            from_bytes_le_repr(&self.hashing_state_storage[64..]).unwrap(),
         ]
     }
     pub fn set_hashing_state(&mut self, state: [Scalar; 3]) {
-        let mut bytes: Vec<u8> = to_bytes_le(state[0]);
-        bytes.append(&mut to_bytes_le(state[1]));
-        bytes.append(&mut to_bytes_le(state[2]));
+        let mut bytes: Vec<u8> = to_bytes_le_repr(state[0]);
+        bytes.append(&mut to_bytes_le_repr(state[1]));
+        bytes.append(&mut to_bytes_le_repr(state[2]));
 
         for (i, &byte) in bytes.iter().enumerate() {
             self.hashing_state_storage[i] = byte;
@@ -132,7 +132,7 @@ impl<'a> StorageAccount<'a> {
         a
     }
     pub fn set_finished_hash(&mut self, position: usize, value: Scalar) {
-        for (i, &byte) in to_bytes_le(value).iter().enumerate() {
+        for (i, &byte) in to_bytes_le_repr(value).iter().enumerate() {
             self.finished_hashes_storage[position * 32 + i] = byte;
         }
     }
@@ -359,7 +359,7 @@ mod tests {
         let start_offset = TREE_SIZE + NULLIFIERS_SIZE + HISTORY_ARRAY_SIZE + 4 + 4 + 3 * 32;
         for i in 0..=TREE_HEIGHT {
             let scalar = from_str_10(&format!("{}", i + 1));
-            let bytes = to_bytes_le(scalar);
+            let bytes = to_bytes_le_repr(scalar);
             for (j, &byte) in bytes.iter().enumerate() {
                 data[start_offset + i * 32 + j] = byte;
             }
@@ -370,7 +370,7 @@ mod tests {
         for i in 0..=TREE_HEIGHT {
             let scalar = from_str_10(&format!("{}", i + 1));
             assert_eq!(
-                from_bytes_le(&hashes[i]),
+                from_bytes_le_repr(&hashes[i]).unwrap(),
                 scalar
             )
         }

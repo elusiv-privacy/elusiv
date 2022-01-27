@@ -115,7 +115,7 @@ impl Processor {
         storage.set_current_hash_tree_position(0);
 
         // Add commitment to hashing state and finished hash store
-        let commitment = from_limbs(&commitment);
+        let commitment = from_limbs_repr(&commitment).unwrap();
         storage.set_finished_hash(0, commitment);
         storage.set_hashing_state([commitment, Scalar::zero(), Scalar::zero()]);
 
@@ -249,8 +249,8 @@ impl Processor {
         // Validate proof
         let pvk = prepare_verifying_key(&verifier::verification_key());
         let inputs: Vec<Scalar> = vec![
-            from_limbs(&root),
-            from_limbs(&nullifier_hash),
+            from_limbs_repr(&root).unwrap(),
+            from_limbs_repr(&nullifier_hash).unwrap(),
         ];
         let result = verify_proof(&pvk, &proof, &inputs[..]);
         match result {
@@ -297,7 +297,7 @@ mod tests {
         let mut storage = StorageAccount::from(&mut data).unwrap();
 
         // Init Deposit
-        let commitment = bytes_to_limbs(&to_bytes_le(from_str_10(commitment)));
+        let commitment = bytes_to_limbs(&to_bytes_le_repr(from_str_10(commitment)));
         Processor::init_deposit(&mut storage, LAMPORTS_PER_SOL, commitment).unwrap();
 
         // Deposit Computation
@@ -372,7 +372,7 @@ mod tests {
         let original_merkle = clone_merkle(storage.merkle_tree);
 
         // Init Deposit
-        let commitment = bytes_to_limbs(&to_bytes_le(from_str_16("0x121C2AF32EBBAB8932DFCBC77B3A942F5A4E1040EE7157C291131B002F387C00").unwrap()));
+        let commitment = bytes_to_limbs(&to_bytes_le_repr(from_str_16("0x121C2AF32EBBAB8932DFCBC77B3A942F5A4E1040EE7157C291131B002F387C00").unwrap()));
         Processor::init_deposit(&mut storage, LAMPORTS_PER_SOL, commitment).unwrap();
 
         // Deposit Computation

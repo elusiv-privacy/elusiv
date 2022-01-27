@@ -10,7 +10,7 @@ use super::state::TREE_HEIGHT;
 /// * `index` - in [0; 2^{layer})
 pub fn node(store: &[u8], layer: usize, index: usize) -> Scalar {
     let s_index = store_index(layer, index);
-    from_bytes_le(&store[s_index..s_index + 32])
+    from_bytes_le_repr(&store[s_index..s_index + 32]).unwrap()
 }
 
 /// Returns the neighbour node (aka the other node of a pair of nodes in a layer)
@@ -73,7 +73,7 @@ where Hash: Fn(Scalar, Scalar) -> Scalar
 {
     let mut value = zero_value;
     for layer in (0..=TREE_HEIGHT).rev() {
-        let bytes = to_bytes_le(value);
+        let bytes = to_bytes_le_repr(value);
 
         for j in 0..size_of_layer(layer) {
             set_node(store, layer, j, &bytes);
@@ -117,7 +117,7 @@ mod tests {
     }
 
     fn set(data: &mut [u8], layer: usize, index: usize, value: Scalar) {
-        let bytes = to_bytes_le(value);
+        let bytes = to_bytes_le_repr(value);
         for (i, &byte) in bytes.iter().enumerate() {
             data[store_index(layer, index) + i] = byte;
         }
@@ -158,7 +158,7 @@ mod tests {
     fn test_set_node() {
         let mut data = vec![0; size_of_tree(TREE_HEIGHT) * 32];
         let scalar = from_str_10("12345678987654321");
-        let bytes = to_bytes_le(scalar);
+        let bytes = to_bytes_le_repr(scalar);
 
         set_node(&mut data, 11, 222, &bytes);
 
@@ -183,7 +183,7 @@ mod tests {
 
         for i in 0..TREE_HEIGHT + 1 {
             assert_eq!(
-                to_bytes_le(node(&data, TREE_HEIGHT - i, index >> i)),
+                to_bytes_le_repr(node(&data, TREE_HEIGHT - i, index >> i)),
                 hashes[i]
             )
         }

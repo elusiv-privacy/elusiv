@@ -3,33 +3,55 @@ use ark_ff::*;
 use std::str::FromStr;
 use byteorder::{ ByteOrder, LittleEndian };
 
+/// Bn254 scalar
+/// - Circom uses `r=21888242871839275222246405745257275088548364400416034343698204186575808495617` so, we use Fr (not Fq)
 pub type Scalar = Fr;
+
+/// Little endian limbs (least signification 64 bits of 256 bits first)
 pub type ScalarLimbs = [u64; 4];
 
-/// Returns a new scalar from 4 u64 limbs
-/// 
-/// ### Arguments
-/// 
-/// * `limbs` - 4 u64 limbs
-pub fn from_limbs(limbs: &[u64]) -> Fr {
-    BigInteger256([limbs[0], limbs[1], limbs[2], limbs[3]]).into()
+// Internal field element representation is in "Montgomery form"
+// - Fr::new(BigInteger256(limbs)) where limbs is in LE of 4 u64
+// Human readable representation is in "representation form"
+// - Fr::from_repr(BigInteger256(limbs)) where limbs is in LE of 4 u64
+
+/// Returns a Scalar from 4 le limbs in Montgomery form
+pub fn from_limbs_mont(limbs: &[u64]) -> Scalar {
+    Fr::new(BigInteger256([limbs[0], limbs[1], limbs[2], limbs[3]]))
 }
 
-/// Ruturns a Scalar from 32 little endian bytes
-/// 
-/// # Arguments
-/// 
-/// * `bytes` - 32 little endian bytes
-pub fn from_bytes_le(bytes: &[u8]) -> Scalar {
-    if bytes.len() != 32 { panic!("Invalid byte amount (32 bytes required)") }
-    BigInteger256(bytes_to_limbs(bytes)).into()
+/// Returns a Scalar from 4 le limbs in representation form
+/// - returns None if the supplied number is >= r
+pub fn from_limbs_repr(limbs: &[u64]) -> Option<Scalar> {
+    Fr::from_repr(BigInteger256([limbs[0], limbs[1], limbs[2], limbs[3]]))
 }
 
-/// Returns 4 u64 limbs from 32 bytes
-/// 
-/// # Arguments
-/// 
-/// * `bytes` - 32 little endian bytes
+/// Ruturns a Scalar from 32 le bytes in Montgomery form
+pub fn from_bytes_le_mont(bytes: &[u8]) -> Scalar {
+    Fr::new(BigInteger256(bytes_to_limbs(bytes)))
+}
+
+/// Ruturns a Scalar from 32 le bytes in representation form
+/// - returns None if the supplied number is >= r
+pub fn from_bytes_le_repr(bytes: &[u8]) -> Option<Scalar> {
+    Fr::from_repr(BigInteger256(bytes_to_limbs(bytes)))
+}
+
+/// Returns 32 le bytes in Montgomery form
+pub fn to_bytes_le_mont(scalar: Scalar) -> Vec<u8> {
+    let mut writer: Vec<u8> = vec![];
+    scalar.write(&mut writer).unwrap();
+    writer
+}
+
+/// Returns 32 le bytes in representation form
+pub fn to_bytes_le_repr(scalar: Scalar) -> Vec<u8> {
+    let mut writer: Vec<u8> = vec![];
+    scalar.write(&mut writer).unwrap();
+    writer
+}
+
+/// Returns 4 le u64 limbs from 32 le bytes
 pub fn bytes_to_limbs(bytes: &[u8]) -> [u64; 4] {
     [
         LittleEndian::read_u64(&bytes[..8]),
@@ -40,10 +62,6 @@ pub fn bytes_to_limbs(bytes: &[u8]) -> [u64; 4] {
 }
 
 /// Returns 32 bytes in little endian
-/// 
-/// # Arguments
-/// 
-/// * `limbs` - 32 little endian bytes
 pub fn limbs_to_bytes(limbs: &[u64]) -> [u8; 32] {
     let mut bytes: [u8; 32] = [0; 32];
     for i in 0..4 {
@@ -55,37 +73,22 @@ pub fn limbs_to_bytes(limbs: &[u64]) -> [u8; 32] {
     bytes
 }
 
-/// Returns 32 little endian bytes
-/// 
-/// # Arguments
-/// 
-/// * `scalar` - a 256 bit scalar
-pub fn to_bytes_le(scalar: Scalar) -> Vec<u8> {
-    let mut writer: Vec<u8> = vec![];
-    scalar.write(&mut writer).unwrap();
-    writer
-}
-
-/// Returns a hex string representation with leading zeros
-/// 
-/// # Arguments
-/// 
-/// * `scalar` - a 256 bit scalar
+/// Returns a hex string representation with leading zeros in representation form
 pub fn to_hex_string(scalar: Scalar) -> String {
     let mut str = String::from("0x");
-    let bytes: Vec<u8> = to_bytes_le(scalar).into_iter().rev().collect();
+    let bytes: Vec<u8> = to_bytes_le_repr(scalar).into_iter().rev().collect();
     for byte in bytes {
         str.push_str(&format!("{:02x}", byte).to_uppercase());
     }
     str
 }
 
-/// Parses a base 10 string into a Scalar
+/// Parses a base 10 string (in representation form) into a Scalar
 pub fn from_str_10(s: &str) -> Scalar {
     Fr::from_str(s).unwrap()
 }
 
-/// Parses a base 16 string into a Scalar
+/// Parses a base 16 string (in representation form) into a Scalar
 pub fn from_str_16(s: &str) -> Option<Scalar> {
     let s = s.trim_start_matches("0x");
     let length = s.len();
@@ -107,12 +110,13 @@ pub fn from_str_16(s: &str) -> Option<Scalar> {
         }
     }
 
-    Some(from_bytes_le(&bytes))
+    from_bytes_le_repr(&bytes)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use super::super::super::poseidon::*;
 
     fn hex_string(scalar: Scalar) -> String {
         scalar.to_string().replace("Fp256 \"(", "").replace(")\"", "")
@@ -120,37 +124,32 @@ mod test {
 
     #[test]
     fn test_from_bytes() {
-        let mut source: Vec<u8> = vec![0; 32];
-        source[0] = 1;
+        // value: 14744269619966411208579211824598458697587494354926760081771325075741142829156
+        let mont = from_bytes_le_mont(&vec![130, 154, 1, 250, 228, 248, 226, 43, 27, 76, 165, 173, 91, 84, 165, 131, 78, 224, 152, 167, 123, 115, 91, 213, 116, 49, 167, 101, 109, 41, 161, 8]);
+        let repr = from_bytes_le_repr(&vec![100, 72, 182, 70, 132, 238, 57, 168, 35, 213, 254, 95, 213, 36, 49, 220, 129, 228, 129, 123, 242, 195, 234, 60, 171, 158, 35, 158, 251, 245, 152, 32]).unwrap();
+        let hash = Poseidon2::new().full_hash(Fr::zero(), Fr::zero());
 
-        let f = from_bytes_le(&source);
-        assert_eq!(
-            "0000000000000000000000000000000000000000000000000000000000000001",
-            hex_string(f)
-        )
+        assert_eq!(mont, repr);
+        assert_eq!(mont, hash);
     }
 
     #[test]
-    fn test_from_bytes2() {
-        let bytes_be: Vec<u8> = vec![
-            0x09, 0xC4, 0x6E, 0x9E, 0xC6, 0x8E, 0x9B, 0xD4,
-            0xFE, 0x1F, 0xAA, 0xBA, 0x29, 0x4C, 0xBA, 0x38,
-            0xA7, 0x1A, 0xA1, 0x77, 0x53, 0x4C, 0xDD, 0x1B,
-            0x6C, 0x7D, 0xC0, 0xDB, 0xD0, 0xAB, 0xD7, 0xA7,
-        ];
-        let bytes_le: Vec<u8> = bytes_be.into_iter().rev().collect();
+    fn test_from_limbs() {
+        // value: 14744269619966411208579211824598458697587494354926760081771325075741142829156
+        let mont = from_limbs_mont(&vec![3162363550698150530, 9486080942857866267, 15374008727889305678, 621823773387469172]);
+        let repr = from_limbs_repr(&vec![12121982123933845604, 15866503461060138275, 4389536233047581825, 2348897666712444587]).unwrap();
+        let hash = Poseidon2::new().full_hash(Fr::zero(), Fr::zero());
 
-        let f = from_bytes_le(&bytes_le);
-        assert_eq!(
-            "09C46E9EC68E9BD4FE1FAABA294CBA38A71AA177534CDD1B6C7DC0DBD0ABD7A7",
-            hex_string(f)
-        )
+        assert_eq!(mont, repr);
+        assert_eq!(mont, hash);
     }
 
     #[test]
     fn test_to_bytes() {
-        let f = from_str_10("3");
-        let bytes = to_bytes_le(f);
+        // TODO: Add to_bytes_le_mont test
+        let n = from_str_10("3");
+        let bytes = to_bytes_le_repr(n);
+
         assert_eq!(bytes[0], 3);
         for i in 1..32 {
             assert_eq!(bytes[i], 0);
@@ -159,36 +158,12 @@ mod test {
 
     #[test]
     fn test_from_string() {
-        let f = from_str_10("4417881134626180770308697923359573201005643519861877412381846989312604493735");
-        let bytes_be: Vec<u8> = vec![
-            0x09, 0xC4, 0x6E, 0x9E, 0xC6, 0x8E, 0x9B, 0xD4,
-            0xFE, 0x1F, 0xAA, 0xBA, 0x29, 0x4C, 0xBA, 0x38,
-            0xA7, 0x1A, 0xA1, 0x77, 0x53, 0x4C, 0xDD, 0x1B,
-            0x6C, 0x7D, 0xC0, 0xDB, 0xD0, 0xAB, 0xD7, 0xA7,
-        ];
-        let bytes_le: Vec<u8> = bytes_be.into_iter().rev().collect();
+        let dec = from_str_10("14744269619966411208579211824598458697587494354926760081771325075741142829156");
+        let hex = from_str_16("2098F5FB9E239EAB3CEAC3F27B81E481DC3124D55FFED523A839EE8446B64864").unwrap();
+        let hash = Poseidon2::new().full_hash(Fr::zero(), Fr::zero());
 
-        assert_eq!(
-            bytes_le,
-            to_bytes_le(f)
-        )
-    }
-
-    #[test]
-    fn test_from_string_hex_valid() {
-        assert_eq!(Scalar::zero(), from_str_16("0x0").unwrap());
-
-        let n = to_bytes_le(from_str_16("0xABCDEF10").unwrap());
-        println!("{:?}", n);
-        assert_eq!(n[0], 0b00010000);
-        assert_eq!(n[1], 0b11101111);
-        assert_eq!(n[2], 0b11001101);
-        assert_eq!(n[3], 0b10101011);
-
-        assert_eq!(
-            from_str_10("4417881134626180770308697923359573201005643519861877412381846989312604493735"),
-            from_str_16("0x9C46E9EC68E9BD4FE1FAABA294CBA38A71AA177534CDD1B6C7DC0DBD0ABD7A7").unwrap(),
-        );
+        assert_eq!(dec, hex);
+        assert_eq!(dec, hash);
     }
 
     #[test]
