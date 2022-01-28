@@ -49,7 +49,7 @@ pub fn insert_hashes(store: &mut [u8], hashes: [[u8; 32]; TREE_HEIGHT + 1], leaf
 /// 
 /// * `layer` - in [0; TREE_HEIGHT]
 /// * `index` - in [0; 2^{TREE_HEIGHT})
-fn store_index(layer: usize, index: usize) -> usize {
+pub fn store_index(layer: usize, index: usize) -> usize {
     // Equal to: ((2^{layer} - 1) + index) * 32
     ((1 << layer) - 1 + index) << 5
 }

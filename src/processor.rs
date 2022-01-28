@@ -8,6 +8,7 @@ use super::error::ElusivError::{
     InvalidMerkleRoot,
     InvalidStorageAccount,
     DidNotFinishHashing,
+    ExplicitLogError,
 };
 use solana_program::{
     account_info::AccountInfo,
@@ -23,7 +24,6 @@ use solana_program::{
     program::invoke_signed,
     system_program,
     native_token::LAMPORTS_PER_SOL,
-    log::sol_log_compute_units,
 };
 use ark_groth16::{
     Proof,
@@ -91,6 +91,9 @@ impl Processor {
 
                 Self::withdraw(program_account, recipient, &mut storage, amount, proof, nullifier_hash, root)
             },
+            Log { index } => {
+                Self::log(&mut storage, index)
+            }
             _ => Err(InvalidArgument)
         }
     }
@@ -106,8 +109,6 @@ impl Processor {
 
         // Check commitment
         storage.can_insert_commitment(commitment)?;
-
-        //msg!(&format!("{}", &to_hex_string(from_limbs(&commitment))));
 
         // Reset values
         storage.set_committed_amount(amount);
@@ -137,7 +138,7 @@ impl Processor {
             storage.set_finished_hash(current_tree_position as usize, previous_hash);
 
             // Reset values
-            let index = storage.leaf_pointer();
+            let index = storage.leaf_pointer() >> (current_tree_position as usize);
             let layer = super::state::TREE_HEIGHT - current_tree_position as usize;
             let neighbour = super::merkle::neighbour(&storage.merkle_tree, layer, index as usize);
             let last_hash_is_left = ((index >> current_tree_position) & 1) == 0;
@@ -151,8 +152,6 @@ impl Processor {
 
             // Finished
             if current_tree_position as usize > super::state::TREE_HEIGHT { return Ok(()) }
-
-            sol_log_compute_units();
         }
 
         // Hash
@@ -267,6 +266,29 @@ impl Processor {
 
         Ok(())
     }
+
+    fn log(storage: &mut StorageAccount, index: u8) -> ProgramResult {
+        let index = index as usize;
+        use solana_program::msg;
+        use super::state::TREE_HEIGHT;
+
+        msg!(&format!("Nodes above index {} (commitment to root):", index));
+
+        for i in 0..=TREE_HEIGHT {
+            let layer = TREE_HEIGHT - i;
+            let node = super::merkle::node(&storage.merkle_tree, layer, index >> i);
+            msg!(&format!("Layer: {}: {}", layer, node));
+        }
+
+        for i in 0..=TREE_HEIGHT {
+            let layer = TREE_HEIGHT - i;
+            let index = super::merkle::store_index(layer, index >> i);
+            let bytes = &storage.merkle_tree[index..index + 32];
+            msg!(&format!("Layer: {}: {:?}", layer, bytes));
+        }
+
+        Err(ExplicitLogError.into())
+    }
 }
 
 #[cfg(test)]
@@ -356,6 +378,53 @@ mod tests {
                 (0, "20338143476584452910749922184091819440206294559351690339543524003947546518187"),
                 (0, "5920793278778744732122613922920389866758626491292944536621920552573424741009"),
             ]
+        );
+    }
+
+    #[test]
+    fn test_compute_multiple_commitments() {
+        // Init Storage
+        let mut data = [0 as u8; TOTAL_SIZE];
+        let mut storage = StorageAccount::from(&mut data).unwrap();
+
+        // Deposit 0
+        let commitment = bytes_to_limbs(&to_bytes_le_mont(from_str_10("13742746012751083277892228377764260000239534456878525049335647276801809645457")));
+        Processor::init_deposit(&mut storage, LAMPORTS_PER_SOL, commitment).unwrap();
+        for _ in 0..poseidon::ITERATIONS * (TREE_HEIGHT) - 1 { Processor::compute_deposit(&mut storage).unwrap(); }
+        Processor::finalize_deposit(&mut storage).unwrap();
+        assert_eq!(
+            node(&storage.merkle_tree, 0, 0),
+            from_str_10("12986367982040817160540332433371902400206274668282942567679375016030163683535")
+        );
+
+        // Deposit 1
+        let commitment = bytes_to_limbs(&to_bytes_le_mont(from_str_10("17598496762772913768842234443529375820067611385012556852766388745086067053344")));
+        Processor::init_deposit(&mut storage, LAMPORTS_PER_SOL, commitment).unwrap();
+        for _ in 0..poseidon::ITERATIONS * (TREE_HEIGHT) - 1 { Processor::compute_deposit(&mut storage).unwrap(); }
+        Processor::finalize_deposit(&mut storage).unwrap();
+        let poseidon = Poseidon2::new();
+
+        // Explicit first hash check
+        assert_eq!(
+            node(&storage.merkle_tree, TREE_HEIGHT - 1, 0),
+            from_str_10("9250582908633439312254427073747285879616368085421326049753099391976074597705")
+        );
+
+        // Check hashes
+        let mut hash = poseidon.full_hash(
+            from_str_10("13742746012751083277892228377764260000239534456878525049335647276801809645457"),
+            from_str_10("17598496762772913768842234443529375820067611385012556852766388745086067053344")
+        );
+        for i in 1..=TREE_HEIGHT {
+            println!("{}", i);
+            assert_eq!(hash, node(&storage.merkle_tree, TREE_HEIGHT - i, 0));
+            hash = poseidon.full_hash(hash, Scalar::zero());
+        }
+
+        // Explicit root check
+        assert_eq!(
+            node(&storage.merkle_tree, 0, 0),
+            from_str_10("14179231500255854581437255655788433381559803720571568228288219562259757099116")
         );
     }
 
