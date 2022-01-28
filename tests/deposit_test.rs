@@ -17,11 +17,11 @@ use {
     elusiv::state::TOTAL_SIZE,
     elusiv::state::TREE_HEIGHT,
     elusiv::merkle::node,
-    poseidon::{
+    elusiv::poseidon::{
         ITERATIONS,
         Scalar,
         from_str_10,
-        to_bytes_le,
+        to_bytes_le_mont,
     },
     common::*,
     ark_ff::*,
@@ -110,7 +110,7 @@ async fn test_full_deposit() {
     let amount = LAMPORTS_PER_SOL;
     let mut data = vec![0];
     for byte in amount.to_le_bytes() { data.push(byte); }
-    for byte in to_bytes_le(commitment) { data.push(byte); }
+    for byte in to_bytes_le_mont(commitment) { data.push(byte); }
     let transaction = send_deposit_transaction(storage_id(), &payer, recent_blockhash, data).await;
     assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 

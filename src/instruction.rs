@@ -3,6 +3,7 @@ use solana_program::{
         ProgramError,
         ProgramError::InvalidArgument,
     },
+    msg,
 };
 use std::convert::TryInto;
 use ark_bn254::{
@@ -12,7 +13,7 @@ use ark_bn254::{
     Fq2,
 };
 use ark_groth16::{ Proof };
-use poseidon::*;
+use super::poseidon::*;
 use ark_ff::*;
 
 pub enum ElusivInstruction {
@@ -26,6 +27,7 @@ pub enum ElusivInstruction {
         amount: u64,
 
         /// Poseidon Commitment
+        /// - in Montgomery form
         commitment: ScalarLimbs,
     },
 
@@ -56,6 +58,7 @@ pub enum ElusivInstruction {
 
         /// Groth16 proof
         /// 
+        /// - ! not in Montgomery form (in repr form)
         /// Consists of:
         /// - A: 2 [u64; 4] + 1 u8
         /// - B: 2 * (2 [u64; 4]) + 2 u8
@@ -63,9 +66,11 @@ pub enum ElusivInstruction {
         proof: Proof<Bn254>,
 
         /// Nullifier Hash
+        /// - in Montgomery form
         nullifier_hash: ScalarLimbs,
 
         /// Merkle root
+        /// - in Montgomery form
         root: ScalarLimbs,
     },
 }
@@ -86,11 +91,19 @@ impl ElusivInstruction {
     }
 
     fn unpack_deposit(data: &[u8]) -> Result<Self, ProgramError> {
+        msg!(&format!("Data (ohne tag): {:?}", data));
+
         // Unpack deposit amount
         let (amount, data) = unpack_u64(&data)?;
+        
+        msg!(&format!("Amount: {}", amount));
 
         // Unpack commitment
-        let (commitment, _) = unpack_limbs(&data)?;
+        let (bytes, _) = unpack_32_bytes(data)?;
+        msg!(&format!("Commitment bytes: {:?}", bytes));
+        let commitment = bytes_to_limbs(bytes);
+
+        msg!(&format!("Commitment limbs: {:?}", commitment));
 
         Ok(ElusivInstruction::InitDeposit{ amount, commitment })
     }
@@ -172,10 +185,8 @@ fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
     Ok((bytes, &data[32..]))
 }
 
-// TODO: Check if every value is < r/p
 fn unpack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
     let (bytes, data) = unpack_32_bytes(data)?;
-    //msg!(&format!("{:?}", bytes));
 
     Ok((bytes_to_limbs(bytes), data))
 }
@@ -212,6 +223,17 @@ mod tests {
         // Test little endian interpretation
         let (v, _) = unpack_u64(&d).unwrap();
         assert_eq!(v, 1);
+    }
+
+    #[test]
+    fn test_unpack_u256() {
+        //let mut d: [u8; 32] = [0; 32];
+        //let d: [u8; 32] = [29,215,204,114,108,61,239,116,41,59,252,118,208,67,77,122,130,144,207,91,248,223,20,9,33,136,37,120,185,23,135,180];
+        
+        //d[0] = 0b00000001;
+
+        //let v = from_bytes_le(&d);
+        //assert_eq!(v, from_str_10("1"));
     }
 
     #[test]

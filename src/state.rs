@@ -8,7 +8,7 @@ use super::error::ElusivError::{
     CommitmentAlreadyUsed,
     NoRoomForCommitment,
 };
-use poseidon::*;
+use super::poseidon::*;
 
 pub const TREE_HEIGHT: usize = 12;
 pub const TREE_SIZE: usize = ((2 as usize).pow(TREE_HEIGHT as u32 + 1) - 1) * 32;
@@ -106,15 +106,15 @@ impl<'a> StorageAccount<'a> {
     // Hashing
     pub fn get_hashing_state(&self) -> [Scalar; 3] {
         [
-            from_bytes_le(&self.hashing_state_storage[..32]),
-            from_bytes_le(&self.hashing_state_storage[32..64]),
-            from_bytes_le(&self.hashing_state_storage[64..]),
+            from_bytes_le_mont(&self.hashing_state_storage[..32]),
+            from_bytes_le_mont(&self.hashing_state_storage[32..64]),
+            from_bytes_le_mont(&self.hashing_state_storage[64..]),
         ]
     }
     pub fn set_hashing_state(&mut self, state: [Scalar; 3]) {
-        let mut bytes: Vec<u8> = to_bytes_le(state[0]);
-        bytes.append(&mut to_bytes_le(state[1]));
-        bytes.append(&mut to_bytes_le(state[2]));
+        let mut bytes: Vec<u8> = to_bytes_le_mont(state[0]);
+        bytes.append(&mut to_bytes_le_mont(state[1]));
+        bytes.append(&mut to_bytes_le_mont(state[2]));
 
         for (i, &byte) in bytes.iter().enumerate() {
             self.hashing_state_storage[i] = byte;
@@ -132,7 +132,7 @@ impl<'a> StorageAccount<'a> {
         a
     }
     pub fn set_finished_hash(&mut self, position: usize, value: Scalar) {
-        for (i, &byte) in to_bytes_le(value).iter().enumerate() {
+        for (i, &byte) in to_bytes_le_mont(value).iter().enumerate() {
             self.finished_hashes_storage[position * 32 + i] = byte;
         }
     }
@@ -249,6 +249,10 @@ impl<'a> StorageAccount<'a> {
     /// 
     /// * `root` - merkle root provided as 4 u64 limbs
     pub fn is_root_valid(&mut self, root: ScalarLimbs) -> bool {
+        let bytes: [u8; 32] = limbs_to_bytes(&root);
+        use solana_program::msg;
+        msg!(&format!("r: {:?}", &self.merkle_tree[..32]));
+        msg!(&format!("x: {:?}", bytes));
         // Checks for root equality with tree root
         if contains_limbs(root, &self.merkle_tree[..32]) { return true; }
 
@@ -359,7 +363,7 @@ mod tests {
         let start_offset = TREE_SIZE + NULLIFIERS_SIZE + HISTORY_ARRAY_SIZE + 4 + 4 + 3 * 32;
         for i in 0..=TREE_HEIGHT {
             let scalar = from_str_10(&format!("{}", i + 1));
-            let bytes = to_bytes_le(scalar);
+            let bytes = to_bytes_le_mont(scalar);
             for (j, &byte) in bytes.iter().enumerate() {
                 data[start_offset + i * 32 + j] = byte;
             }
@@ -370,7 +374,7 @@ mod tests {
         for i in 0..=TREE_HEIGHT {
             let scalar = from_str_10(&format!("{}", i + 1));
             assert_eq!(
-                from_bytes_le(&hashes[i]),
+                from_bytes_le_mont(&hashes[i]),
                 scalar
             )
         }

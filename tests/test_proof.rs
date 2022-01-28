@@ -1,6 +1,6 @@
 mod common;
 
-use poseidon::*;
+use elusiv::poseidon::*;
 use elusiv::verifier;
 use ark_groth16::{
     verify_proof,

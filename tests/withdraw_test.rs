@@ -4,7 +4,7 @@ use {
     assert_matches::*,
     solana_program_test::*,
     solana_sdk::signature::Signer,
-    poseidon::*,
+    elusiv::poseidon::*,
     solana_program::native_token::LAMPORTS_PER_SOL,
 };
 use common::*;

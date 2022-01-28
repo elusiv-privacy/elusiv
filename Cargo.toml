@@ -9,14 +9,11 @@ test-bpf = []
 [dependencies]
 # Solana program
 solana-program = "1.9.5"
-
 # Groth16 verification
 ark-bn254 = "0.3.0"
 ark-ff = "0.3.0"
 ark-groth16 = { version = "0.3.0", default-features = false }
-
-# Storage
-poseidon = { path = "poseidon" }
+byteorder = "1.4.3"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
