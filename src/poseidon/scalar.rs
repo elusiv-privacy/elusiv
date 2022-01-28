@@ -118,10 +118,6 @@ mod test {
     use super::*;
     use super::super::super::poseidon::*;
 
-    fn hex_string(scalar: Scalar) -> String {
-        scalar.to_string().replace("Fp256 \"(", "").replace(")\"", "")
-    }
-
     #[test]
     fn test_from_bytes() {
         // value: 14744269619966411208579211824598458697587494354926760081771325075741142829156

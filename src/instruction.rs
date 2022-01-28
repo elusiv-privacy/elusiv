@@ -73,6 +73,10 @@ pub enum ElusivInstruction {
         /// - in Montgomery form
         root: ScalarLimbs,
     },
+
+    Log {
+        index: u8
+    }
 }
 
 impl ElusivInstruction {
@@ -86,6 +90,7 @@ impl ElusivInstruction {
             1 => Ok(Self::ComputeDeposit),
             2 => Ok(Self::FinishDeposit),
             3 => Self::unpack_withdraw(&rest),
+            4 => Self::unpack_log(&rest),
             _ => Err(InvalidArgument)
         }
     }
@@ -166,6 +171,12 @@ impl ElusivInstruction {
         let (root, _) = unpack_limbs(&data)?;
 
         Ok(ElusivInstruction::Withdraw{ amount, proof, nullifier_hash, root })
+    }
+
+    fn unpack_log(data: &[u8]) -> Result<Self, ProgramError> {
+        let (&index, _) = data.split_first().ok_or(ProgramError::InvalidInstructionData)?;
+
+        Ok(ElusivInstruction::Log { index })
     }
 }
 

@@ -23,6 +23,8 @@ pub enum ElusivError {
     NoRoomForCommitment, // 13
 
     DidNotFinishHashing, // 14
+
+    ExplicitLogError, // 15
 }
 
 impl From<ElusivError> for ProgramError {
@@ -64,6 +66,8 @@ impl fmt::Display for ElusivError {
                 write!(f, "NoRoomForCommitment"),
             Self::DidNotFinishHashing =>
                 write!(f, "DidNotFinishHashing"),
+            Self::ExplicitLogError =>
+                write!(f, "ExplicitLogError"),
         }
     }
 }
