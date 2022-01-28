@@ -1,16 +1,10 @@
-name: build
+name: Cargo
 
 on:
   push:
-    paths: 
-      - 'src/**'
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
+    branches: [ master ]
   pull_request:
-    paths:
-      - 'src/**'
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
+    branches: [ master ]
 
 jobs:
   build:
@@ -19,13 +13,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - name: Push to codecov.io
-      env:
-        CODECOV_TOKEN: ${{ secrets.CODECOV }}
-      run: |
-        apt-get install libudev-dev
-        cargo install cargo-tarpaulin
-        cargo tarpaulin --out Xml
-        bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose

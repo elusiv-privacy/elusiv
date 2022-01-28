@@ -40,6 +40,7 @@ use {
 
 // String number conversions
 pub fn str_to_bytes(str: &str) -> Vec<u8> {
+    //to_bytes_le_mont(from_str_10(str)
     let mut writer: Vec<u8> = vec![];
     str_to_bigint(str).write(&mut writer).unwrap();
     writer
@@ -114,7 +115,7 @@ pub fn get_commitments(account_data: &mut [u8]) -> Vec<Scalar> {
     let tree_leaves = &account_data[TREE_LEAF_START * 32..TREE_SIZE];
     let mut leaves = Vec::new();
     for l in 0..TREE_LEAF_COUNT {
-        leaves.push(from_bytes_le_repr(&tree_leaves[l * 32..(l + 1) * 32]).unwrap())
+        leaves.push(from_bytes_le_mont(&tree_leaves[l * 32..(l + 1) * 32]))
     }
     leaves
 }
@@ -175,7 +176,7 @@ pub fn deposit_data(commitment: Scalar) -> Vec<u8> {
     let mut data = vec![0];
     let amount: u64 = LAMPORTS_PER_SOL;
     data.extend_from_slice(&amount.to_le_bytes());
-    data.extend_from_slice(&to_bytes_le_repr(commitment));
+    data.extend_from_slice(&to_bytes_le_mont(commitment));
     data
 }
 
@@ -207,7 +208,7 @@ pub fn withdraw_data(proof: ProofString, inputs: &[&str]) -> Vec<u8> {
     proof.push_to_vec(&mut data);
 
     for input in inputs {
-        data.extend(str_to_bytes(input));
+        data.extend(to_bytes_le_mont(from_str_10(input)));
     }
 
     data

@@ -27,6 +27,7 @@ pub enum ElusivInstruction {
         amount: u64,
 
         /// Poseidon Commitment
+        /// - in Montgomery form
         commitment: ScalarLimbs,
     },
 
@@ -57,6 +58,7 @@ pub enum ElusivInstruction {
 
         /// Groth16 proof
         /// 
+        /// - ! not in Montgomery form (in repr form)
         /// Consists of:
         /// - A: 2 [u64; 4] + 1 u8
         /// - B: 2 * (2 [u64; 4]) + 2 u8
@@ -64,9 +66,11 @@ pub enum ElusivInstruction {
         proof: Proof<Bn254>,
 
         /// Nullifier Hash
+        /// - in Montgomery form
         nullifier_hash: ScalarLimbs,
 
         /// Merkle root
+        /// - in Montgomery form
         root: ScalarLimbs,
     },
 }
@@ -181,10 +185,8 @@ fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
     Ok((bytes, &data[32..]))
 }
 
-// TODO: Check if every value is < r/p
 fn unpack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
     let (bytes, data) = unpack_32_bytes(data)?;
-    //msg!(&format!("{:?}", bytes));
 
     Ok((bytes_to_limbs(bytes), data))
 }

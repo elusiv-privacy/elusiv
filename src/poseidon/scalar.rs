@@ -40,7 +40,7 @@ pub fn from_bytes_le_repr(bytes: &[u8]) -> Option<Scalar> {
 /// Returns 32 le bytes in Montgomery form
 pub fn to_bytes_le_mont(scalar: Scalar) -> Vec<u8> {
     let mut writer: Vec<u8> = vec![];
-    scalar.write(&mut writer).unwrap();
+    scalar.0.write(&mut writer).unwrap();
     writer
 }
 
@@ -146,13 +146,16 @@ mod test {
 
     #[test]
     fn test_to_bytes() {
-        // TODO: Add to_bytes_le_mont test
         let n = from_str_10("3");
-        let bytes = to_bytes_le_repr(n);
+        let repr = to_bytes_le_repr(n);
+        let mont = to_bytes_le_mont(n);
 
-        assert_eq!(bytes[0], 3);
+        // Check for different byte representation
+        assert_ne!(repr, mont);
+
+        assert_eq!(repr[0], 3);
         for i in 1..32 {
-            assert_eq!(bytes[i], 0);
+            assert_eq!(repr[i], 0);
         }
     }
 

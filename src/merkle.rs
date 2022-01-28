@@ -10,7 +10,7 @@ use super::state::TREE_HEIGHT;
 /// * `index` - in [0; 2^{layer})
 pub fn node(store: &[u8], layer: usize, index: usize) -> Scalar {
     let s_index = store_index(layer, index);
-    from_bytes_le_repr(&store[s_index..s_index + 32]).unwrap()
+    from_bytes_le_mont(&store[s_index..s_index + 32])
 }
 
 /// Returns the neighbour node (aka the other node of a pair of nodes in a layer)
@@ -73,7 +73,7 @@ where Hash: Fn(Scalar, Scalar) -> Scalar
 {
     let mut value = zero_value;
     for layer in (0..=TREE_HEIGHT).rev() {
-        let bytes = to_bytes_le_repr(value);
+        let bytes = to_bytes_le_mont(value);
 
         for j in 0..size_of_layer(layer) {
             set_node(store, layer, j, &bytes);
@@ -117,7 +117,7 @@ mod tests {
     }
 
     fn set(data: &mut [u8], layer: usize, index: usize, value: Scalar) {
-        let bytes = to_bytes_le_repr(value);
+        let bytes = to_bytes_le_mont(value);
         for (i, &byte) in bytes.iter().enumerate() {
             data[store_index(layer, index) + i] = byte;
         }
@@ -126,16 +126,19 @@ mod tests {
     #[test]
     fn test_node() {
         let mut data = vec![0; size_of_tree(TREE_HEIGHT) * 32];
+
         assert_eq!(Scalar::zero(), node(&data, 0, 0));
-        data[0] = 1;
-        assert_eq!(from_str_10("1"), node(&data, 0, 0));
-        data[32] = 0xFF;
+
+        let s = from_str_16("1").unwrap();
+        set(&mut data, 0, 0, s);
+        assert_eq!(s, node(&data, 0, 0));
+
+        set(&mut data, 1, 0, from_str_16("0xFF").unwrap());
         assert_eq!(from_str_16("0xFF").unwrap(), node(&data, 1, 0));
 
         assert_eq!(Scalar::zero(), node(&data, 1, 1));
-        for i in 0..17 {
-            data[64 + i] = 0xFF;
-        }
+
+        set(&mut data, 1, 1, from_str_16("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").unwrap());
         assert_eq!(from_str_16("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").unwrap(), node(&data, 1, 1));
     }
 
@@ -183,7 +186,7 @@ mod tests {
 
         for i in 0..TREE_HEIGHT + 1 {
             assert_eq!(
-                to_bytes_le_repr(node(&data, TREE_HEIGHT - i, index >> i)),
+                to_bytes_le_mont(node(&data, TREE_HEIGHT - i, index >> i)),
                 hashes[i]
             )
         }
