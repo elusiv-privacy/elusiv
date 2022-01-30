@@ -1,4 +1,4 @@
-use ark_bn254::{ Fr };
+use ark_bn254::{ Fr, Fq, G1Affine };
 use ark_ff::*;
 use std::str::FromStr;
 use byteorder::{ ByteOrder, LittleEndian };
@@ -113,10 +113,36 @@ pub fn from_str_16(s: &str) -> Option<Scalar> {
     from_bytes_le_repr(&bytes)
 }
 
+pub fn read_le_montgomery(bytes: &[u8]) -> Fq {
+    Fq::new(BigInteger256(bytes_to_limbs(bytes)))
+}
+
+pub fn write_le_montgomery(q: Fq) -> Vec<u8> {
+    let mut writer: Vec<u8> = vec![];
+    q.0.write(&mut writer).unwrap();
+    writer
+}
+
+pub fn write_g1_affine(g1a: G1Affine) -> Vec<u8> {
+    let mut writer: Vec<u8> = vec![];
+    g1a.x.0.write(&mut writer).unwrap();
+    g1a.y.0.write(&mut writer).unwrap();
+    writer.push(if g1a.infinity { 1 } else { 0 });
+    writer
+}
+
+pub fn read_g1_affine(bytes: &[u8]) -> G1Affine {
+    G1Affine::new(
+        read_le_montgomery(&bytes[..32]),
+        read_le_montgomery(&bytes[32..64]),
+        bytes[64] == 1
+    )
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::super::poseidon::*;
+    use super::super::poseidon::*;
 
     #[test]
     fn test_from_bytes() {

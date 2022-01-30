@@ -12,7 +12,7 @@ solana-program = "1.9.5"
 # Groth16 verification
 ark-bn254 = "0.3.0"
 ark-ff = "0.3.0"
-ark-groth16 = { version = "0.3.0", default-features = false }
+ark-ec = "0.3.0"
 byteorder = "1.4.3"
 
 [dev-dependencies]

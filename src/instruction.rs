@@ -3,18 +3,9 @@ use solana_program::{
         ProgramError,
         ProgramError::InvalidArgument,
     },
-    msg,
 };
 use std::convert::TryInto;
-use ark_bn254::{
-    Bn254,
-    G1Affine, G2Affine,
-    G1Projective, G2Projective,
-    Fq2,
-};
-use ark_groth16::{ Proof };
-use super::poseidon::*;
-use ark_ff::*;
+use super::scalar::*;
 
 pub enum ElusivInstruction {
     /// Initialize deposit, store amount and start hashing
@@ -22,6 +13,7 @@ pub enum ElusivInstruction {
     /// Accounts expected:
     /// 0. [signer, writable] Depositor account
     /// 1. [owned, writable] Program account
+    /// 2. [owned, writable] Deposit account
     InitDeposit {
         /// Deposit amount in Lamports
         amount: u64,
@@ -34,8 +26,7 @@ pub enum ElusivInstruction {
     /// Compute the Merkle tree hashes
     /// 
     /// Accounts expected:
-    /// 0. [signer, writable] Depositor account
-    /// 1. [owned, writable] Program account
+    /// 0. [owned, writable] Deposit account
     ComputeDeposit,
 
     /// Finish the hash computation and deposit SOL
@@ -43,27 +34,18 @@ pub enum ElusivInstruction {
     /// Accounts expected:
     /// 0. [signer, writable] Depositor account
     /// 1. [owned, writable] Program account
+    /// 2. [owned, writable] Deposit account
     /// 2. [static] System program
     FinishDeposit,
 
     /// Withdraw SOL
     /// 
     /// Accounts expected:
-    /// 0. [signer] Initiator of the withdrawal
-    /// 1. [owned, writable] Program account
-    /// 2. [writable] Recipient of the withdrawal
-    Withdraw {
+    /// 0. [owned, writable] Program account
+    /// 1. [owned, writable] Withdraw account
+    InitWithdraw {
         /// Withdrawal amount in Lamports
         amount: u64,
-
-        /// Groth16 proof
-        /// 
-        /// - ! not in Montgomery form (in repr form)
-        /// Consists of:
-        /// - A: 2 [u64; 4] + 1 u8
-        /// - B: 2 * (2 [u64; 4]) + 2 u8
-        /// - C: 2 [u64; 4] + 1 u8
-        proof: Proof<Bn254>,
 
         /// Nullifier Hash
         /// - in Montgomery form
@@ -72,8 +54,37 @@ pub enum ElusivInstruction {
         /// Merkle root
         /// - in Montgomery form
         root: ScalarLimbs,
+
+        /// Groth16 proof
+        /// 
+        /// - in Montgomery form
+        /// Consists of:
+        /// - A: 2 [u64; 4] + 1 u8
+        /// - B: 2 * (2 [u64; 4]) + 2 u8
+        /// - C: 2 [u64; 4] + 1 u8
+        proof: [u8; 324],
     },
 
+    /// Groth16 verification computation
+    /// 
+    /// Accounts expected:
+    /// 0. [owned, writable] Withdraw account
+    VerifyWithdraw,
+
+    /// Transfers the funds to the recipient
+    /// 
+    /// Accounts expected:
+    /// 0. [owned, writable] Program account
+    /// 1. [owned, writable] Withdraw account
+    /// 2. [writable] Recipient account
+    FinishWithdraw,
+
+    /// Transfers the funds to the recipient
+    /// 
+    /// Accounts expected:
+    /// 0. [owned] Program account
+    /// 1. [owned] Deposit account
+    /// 2. [owned] Withdraw account
     Log {
         index: u8
     }
@@ -89,80 +100,30 @@ impl ElusivInstruction {
             0 => Self::unpack_deposit(&rest),
             1 => Ok(Self::ComputeDeposit),
             2 => Ok(Self::FinishDeposit),
-            3 => Self::unpack_withdraw(&rest),
-            4 => Self::unpack_log(&rest),
+
+            3 => Self::unpack_init_withdraw(&rest),
+            4 => Ok(Self::VerifyWithdraw),
+            5 => Ok(Self::FinishWithdraw),
+
+            6 => Self::unpack_log(&rest),
             _ => Err(InvalidArgument)
         }
     }
 
     fn unpack_deposit(data: &[u8]) -> Result<Self, ProgramError> {
-        msg!(&format!("Data (ohne tag): {:?}", data));
-
         // Unpack deposit amount
         let (amount, data) = unpack_u64(&data)?;
         
-        msg!(&format!("Amount: {}", amount));
-
         // Unpack commitment
         let (bytes, _) = unpack_32_bytes(data)?;
-        msg!(&format!("Commitment bytes: {:?}", bytes));
         let commitment = bytes_to_limbs(bytes);
-
-        msg!(&format!("Commitment limbs: {:?}", commitment));
 
         Ok(ElusivInstruction::InitDeposit{ amount, commitment })
     }
 
-    fn unpack_withdraw(data: &[u8]) -> Result<Self, ProgramError> {
+    fn unpack_init_withdraw(data: &[u8]) -> Result<Self, ProgramError> {
         // Unpack withdrawal amount
         let (amount, data) = unpack_u64(&data)?;
-
-        // Unpack zkSNARK proof
-        let (ax, data) = unpack_limbs(&data)?;
-        let (ay, data) = unpack_limbs(&data)?;
-        let (az, data) = upnack_single_byte_as_limbs(&data)?;
-        let (b00, data) = unpack_limbs(&data)?;
-        let (b01, data) = unpack_limbs(&data)?;
-        let (b10, data) = unpack_limbs(&data)?;
-        let (b11, data) = unpack_limbs(&data)?;
-        let (b20, data) = upnack_single_byte_as_limbs(&data)?;
-        let (b21, data) = upnack_single_byte_as_limbs(&data)?;
-        let (cx, data) = unpack_limbs(&data)?;
-        let (cy, data) = unpack_limbs(&data)?;
-        let (cz, data) = upnack_single_byte_as_limbs(&data)?;
-
-        let proof: Proof<Bn254> = Proof {
-            a: G1Affine::from(
-                G1Projective::new(
-                    BigInteger256::new(ax).into(),
-                    BigInteger256::new(ay).into(),
-                    BigInteger256::new(az).into()
-                )
-            ),
-            b: G2Affine::from(
-                G2Projective::new(
-                    Fq2::new(
-                        BigInteger256(b00).into(),
-                        BigInteger256(b01).into(),
-                    ),
-                    Fq2::new(
-                        BigInteger256(b10).into(),
-                        BigInteger256(b11).into(),
-                    ),
-                    Fq2::new(
-                        BigInteger256(b20).into(),
-                        BigInteger256(b21).into(),
-                    )
-                )
-            ),
-            c: G1Affine::from(
-                G1Projective::new(
-                    BigInteger256::new(cx).into(),
-                    BigInteger256::new(cy).into(),
-                    BigInteger256::new(cz).into()
-                )
-            ),
-        };
 
         // Unpack nullifier hash
         let (nullifier_hash, data) = unpack_limbs(&data)?;
@@ -170,7 +131,11 @@ impl ElusivInstruction {
         // Unpack merkle root
         let (root, _) = unpack_limbs(&data)?;
 
-        Ok(ElusivInstruction::Withdraw{ amount, proof, nullifier_hash, root })
+        // Raw zkSNARK proof
+        if data.len() != 324 { return Err(ProgramError::InvalidInstructionData); }
+        let proof: [u8; 324] = data.try_into().unwrap();
+
+        Ok(ElusivInstruction::InitWithdraw{ amount, proof, nullifier_hash, root })
     }
 
     fn unpack_log(data: &[u8]) -> Result<Self, ProgramError> {
@@ -196,7 +161,7 @@ fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
     Ok((bytes, &data[32..]))
 }
 
-fn unpack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
+pub fn unpack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
     let (bytes, data) = unpack_32_bytes(data)?;
 
     Ok((bytes_to_limbs(bytes), data))
@@ -212,7 +177,7 @@ fn unpack_single_byte_as_32_bytes(data: &[u8]) -> Result<([u8; 32], &[u8]), Prog
     Ok((bytes, rest))
 }
 
-fn upnack_single_byte_as_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
+pub fn unpack_single_byte_as_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
     let (bytes, data) = unpack_single_byte_as_32_bytes(data)?;
 
     Ok((bytes_to_limbs(&bytes), data))
@@ -222,7 +187,7 @@ fn upnack_single_byte_as_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), Prog
 mod tests {
     use super::*;
     use std::str::FromStr;
-    use ark_ff::{ BigInteger256 };
+    use ark_ff::{ BigInteger256, bytes::ToBytes };
     use num_bigint::BigUint;
     use std::convert::TryFrom;
 
@@ -237,21 +202,12 @@ mod tests {
     }
 
     #[test]
-    fn test_unpack_u256() {
-        //let mut d: [u8; 32] = [0; 32];
-        //let d: [u8; 32] = [29,215,204,114,108,61,239,116,41,59,252,118,208,67,77,122,130,144,207,91,248,223,20,9,33,136,37,120,185,23,135,180];
-        
-        //d[0] = 0b00000001;
-
-        //let v = from_bytes_le(&d);
-        //assert_eq!(v, from_str_10("1"));
-    }
-
-    #[test]
     fn test_unpack_withdraw() {
         // Withdrawal data
-        let mut data = vec![3];
-        data.extend([0,0,0,0,0,0,0,0]);
+        let mut data = vec![4];
+        data.extend([0; 8]);
+        data.extend([0; 32]);
+        data.extend([0; 32]);
         data.extend(str_to_bytes("15200472642106544087859624808573647436446459686589177220422407004547835364093"));
         data.extend(str_to_bytes("18563249006229852218279298661872929163955035535605917747249479039354347737308"));
         data.push(1);
@@ -268,6 +224,13 @@ mod tests {
         data.extend(str_to_bytes("17385834695111423269684287513728144523333186942287839669241715541894829818572"));
 
         ElusivInstruction::unpack(&data).unwrap();
+    }
+
+    #[test]
+    fn test_unpack_proof_field_element() {
+        let expect = str_to_bytes("21885181906247530850009302772481187419681297849437516181180948289250346671858");
+        let bytes = vec![242, 30, 172, 108, 189, 207, 207, 247, 213, 213, 57, 218, 109, 91, 54, 61, 252, 37, 48, 12, 80, 212, 48, 193, 233, 204, 12, 91, 241, 146, 98, 48];
+        assert_eq!(expect, bytes);
     }
 
     pub fn str_to_bytes(str: &str) -> Vec<u8> {
