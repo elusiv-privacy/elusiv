@@ -24,6 +24,7 @@ rand = "0.8.4"
 base64 = "0.13.0"
 num-bigint = "0.4.3"
 num-traits = "0.2.14"
+ark-groth16 = { version = "0.3.0", default-features = false }
 
 [lib]
 name = "elusiv"

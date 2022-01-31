@@ -1,5 +1,4 @@
 mod common;
-
 use {
     assert_matches::*,
     solana_program_test::*,
@@ -18,8 +17,8 @@ use {
     elusiv::merkle::node,
     elusiv::poseidon::ITERATIONS,
     elusiv::scalar::*,
-    common::*,
     ark_ff::*,
+    common::*,
 };
 
 #[tokio::test]
@@ -46,7 +45,7 @@ async fn test_deposit_finalize() {
     let setup = |test: &mut ProgramTest| {
         let data0: Vec<u8> = vec![0; ProgramAccount::TOTAL_SIZE];
         let mut data1: Vec<u8> = vec![0; DepositHashingAccount::TOTAL_SIZE];
-        let data2: Vec<u8> = vec![0; WithdrawVerificationAccount::TOTAL_SIZE];
+        let data2: Vec<u8> = vec![0; ProofVerificationAccount::TOTAL_SIZE];
 
         let mut deposit_account = DepositHashingAccount::from_data(&mut data1).unwrap();
         deposit_account.set_committed_amount(LAMPORTS_PER_SOL);

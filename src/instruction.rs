@@ -6,6 +6,7 @@ use solana_program::{
 };
 use std::convert::TryInto;
 use super::scalar::*;
+use super::groth16::PROOF_BYTES_SIZE;
 
 pub enum ElusivInstruction {
     /// Initialize deposit, store amount and start hashing
@@ -62,7 +63,7 @@ pub enum ElusivInstruction {
         /// - A: 2 [u64; 4] + 1 u8
         /// - B: 2 * (2 [u64; 4]) + 2 u8
         /// - C: 2 [u64; 4] + 1 u8
-        proof: [u8; 324],
+        proof: [u8; PROOF_BYTES_SIZE],
     },
 
     /// Groth16 verification computation
@@ -129,11 +130,11 @@ impl ElusivInstruction {
         let (nullifier_hash, data) = unpack_limbs(&data)?;
 
         // Unpack merkle root
-        let (root, _) = unpack_limbs(&data)?;
+        let (root, data) = unpack_limbs(&data)?;
 
         // Raw zkSNARK proof
-        if data.len() != 324 { return Err(ProgramError::InvalidInstructionData); }
-        let proof: [u8; 324] = data.try_into().unwrap();
+        if data.len() != PROOF_BYTES_SIZE { return Err(ProgramError::InvalidInstructionData); }
+        let proof: [u8; PROOF_BYTES_SIZE] = data.try_into().unwrap();
 
         Ok(ElusivInstruction::InitWithdraw{ amount, proof, nullifier_hash, root })
     }

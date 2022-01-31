@@ -1,35 +1,31 @@
-/*mod common;
+mod common;
 use {
     assert_matches::*,
     solana_program_test::*,
     solana_sdk::signature::Signer,
-    //elusiv::scalar::*,
-    //elusiv::poseidon::*,
-    //solana_program::native_token::LAMPORTS_PER_SOL,
+    ark_bn254::{
+        G1Projective,
+        G1Affine
+    },
+    ark_ec::{
+        AffineCurve,
+        ProjectiveCurve,
+    },
+    elusiv::state::ProofVerificationAccount,
+    elusiv::scalar::*,
     common::*,
 };
 
 #[tokio::test]
-async fn test_withdraw() {
+async fn test_prepare_inputs() {
+    // Check that gamma_abc_g1 match in the verifying keys
+    assert_eq!(
+        elusiv::groth16::gamma_abc_g1_0(),
+        elusiv::groth16::gamma_abc_g1()[0].into_projective()
+    );
+
     // Setup program and storage account
     let (mut banks_client, payer, recent_blockhash) = start_program_with_program_accounts().await;
-
-    //let storage_balance = get_balance(&mut banks_client, program_account_id()).await;
-
-    // Generate commitment and send deposit
-    /*let nullifier = from_str_16("0x0070FA9884550D4DC0E5084A7534E0D0DC0BCC1AB6D9273B0A9EF1570D1D47EC").unwrap();
-    let random = from_str_16("0x00A14157ED0ACC3E60CDF8E946BA124AB5EF8E463700AD7471B037C792EDCADF").unwrap();
-    let poseidon = Poseidon2::new();
-    let commitment = poseidon.full_hash(nullifier, random);
-    assert_eq!(to_hex_string(commitment), "0x2F35A39ADA15DF56E6FE48F24E5FC16C5AB45E2380C1C9C3730B35306184F415");
-    let t = send_deposit_transaction(&payer, recent_blockhash, deposit_data(commitment)).await;
-    assert_matches!(banks_client.process_transaction(t).await, Ok(()));
-
-    // Are funds added?
-    assert_eq!(
-        storage_balance + LAMPORTS_PER_SOL,
-        get_balance(&mut banks_client, program_account_id()).await
-    );*/
 
     // Withdrawal data
     let recipient = payer.pubkey();
@@ -59,13 +55,22 @@ async fn test_withdraw() {
     let t = withdraw_transaction(&payer, recipient, recent_blockhash, withdraw_data(proof, &inputs)).await;
     assert_matches!(banks_client.process_transaction(t).await, Ok(()));
 
-    // 
+    // Check if prepared_inputs match
+    let mut storage = get_account_data(&mut banks_client, withdraw_account_id()).await;
+    let account = ProofVerificationAccount::from_data(&mut storage).unwrap();
+    let prepared_inputs = read_g1_projective(&account.p_inputs);
+    
+    let pvk = ark_pvk();
+    let inputs = vec![
+        from_str_10(inputs[0]),
+        from_str_10(inputs[1]),
+    ];
+    let expect = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
 
-    // Are funds removed again?
-    /*assert_eq!(
-        storage_balance,
-        get_balance(&mut banks_client, program_account_id()).await
-    );*/
-
-
-}*/
+    println!("a: {}", prepared_inputs);
+    println!("b: {}", expect);
+    assert_eq!(
+        prepared_inputs,
+        expect
+    );
+}

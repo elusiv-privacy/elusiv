@@ -11,6 +11,8 @@ use ark_bn254::{
     Fq,
 };
 
+pub const PROOF_BYTES_SIZE: usize = 260;
+
 pub struct Proof {
     pub a: G1Affine,
     pub b: G2Affine,

@@ -14,7 +14,7 @@ use super::error::ElusivError::{
 use super::scalar::*;
 
 pub use super::poseidon::DepositHashingAccount;
-pub use super::groth16::WithdrawVerificationAccount;
+pub use super::groth16::ProofVerificationAccount;
 
 pub const TREE_HEIGHT: usize = 12;
 pub const TREE_SIZE: usize = ((2 as usize).pow(TREE_HEIGHT as u32 + 1) - 1) * 32;
@@ -112,6 +112,9 @@ impl<'a> ProgramAccount<'a> {
     /// * `nullifier_hash` - nullifier hash as 4 u64 limbs
     pub fn can_insert_nullifier_hash(&self, nullifier_hash: ScalarLimbs) -> ProgramResult {
         if bytes_to_u32(&self.next_nullifier_pointer) >= NULLIFIERS_COUNT as u32 { return Err(NullifierAlreadyUsed.into()); }
+
+        // Note: we could make this more efficient by only running this till the last inserted hash, but we want to keep the
+        // performance identical, so wen let it run over the full array.
         if contains_limbs(nullifier_hash, &self.nullifier_hashes) { return Err(NoRoomForNullifier.into()); }
 
         Ok(())

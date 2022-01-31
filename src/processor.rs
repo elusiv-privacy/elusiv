@@ -31,7 +31,7 @@ use super::merkle;
 // Storage accounts
 use super::state::ProgramAccount;
 use super::poseidon::DepositHashingAccount;
-use super::groth16::WithdrawVerificationAccount;
+use super::groth16::ProofVerificationAccount;
 
 pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: ElusivInstruction) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
@@ -90,7 +90,7 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
             // Withdraw account
             let withdraw_account = next_account_info(account_info_iter)?;
             let data = &mut withdraw_account.data.borrow_mut()[..];
-            let mut withdraw_account = WithdrawVerificationAccount::new(&withdraw_account, data, program_id)?;
+            let mut withdraw_account = ProofVerificationAccount::new(&withdraw_account, data, program_id)?;
 
             init_withdraw(&program_account, &mut withdraw_account, amount, nullifier_hash, root, &proof)
         },
@@ -98,7 +98,7 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
             // Withdraw account
             let withdraw_account = next_account_info(account_info_iter)?;
             let data = &mut withdraw_account.data.borrow_mut()[..];
-            let mut withdraw_account = WithdrawVerificationAccount::new(&withdraw_account, data, program_id)?;    
+            let mut withdraw_account = ProofVerificationAccount::new(&withdraw_account, data, program_id)?;    
 
             verify_withdraw(&mut withdraw_account)
         },
@@ -109,7 +109,7 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
             // Withdraw account
             let withdraw_account = next_account_info(account_info_iter)?;
             let data = &mut withdraw_account.data.borrow_mut()[..];
-            let mut withdraw_account = WithdrawVerificationAccount::new(&withdraw_account, data, program_id)?;
+            let mut withdraw_account = ProofVerificationAccount::new(&withdraw_account, data, program_id)?;
 
             // Recipient
             let recipient = next_account_info(account_info_iter)?;
@@ -262,49 +262,43 @@ fn finish_deposit<'a>(
 /// Withdraw the amount to the recipient using the proof
 fn init_withdraw(
     program_account: &ProgramAccount,
-    withdraw_account: &mut WithdrawVerificationAccount,
+    withdraw_account: &mut ProofVerificationAccount,
     amount: u64,
     nullifier_hash: ScalarLimbs,
     root: ScalarLimbs,
     proof: &[u8],
 ) -> ProgramResult {
     // Check the amount
-    if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
+    //if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
 
     // Check if nullifier does not already exist
+    // ~ 35000-45000 CUs
     program_account.can_insert_nullifier_hash(nullifier_hash)?;
 
     // Check merkle root
-    if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
+    //if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
 
-    // Reset values
-    withdraw_account.set_current_iteration(0);
-    withdraw_account.set_amount(amount);
-    withdraw_account.set_proof(&proof)?;
-
-    // Start proof verification
-    sol_log_compute_units();
-    let public_inputs: Vec<Scalar> = vec![
-        from_limbs_mont(&root),
-        from_limbs_mont(&nullifier_hash),
+    // Init values
+    let inputs = vec![
+        vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&nullifier_hash))),
+        vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&root))),
     ];
-    let pis = groth16::prepare_inputs(groth16::gamma_abc_g1(), &public_inputs);
-    withdraw_account.set_prepared_inputs(pis)?;
+    withdraw_account.init(inputs, amount, nullifier_hash)?;
 
-    Ok(())
+    // Start with computation
+    verify_withdraw(withdraw_account)
 }
 
 fn verify_withdraw(
-    withdraw_account: &mut WithdrawVerificationAccount,
+    withdraw_account: &mut ProofVerificationAccount,
 ) -> ProgramResult {
-    // Iteration
+
     let iteration = withdraw_account.get_current_iteration();
 
-    // Partial verification computation
-    groth16::partial_verification(iteration as usize);
+    // Prepare inputs
+    groth16::partial_prepare_inputs(withdraw_account, iteration)?;
 
-    // Increment iteration
-    withdraw_account.set_current_iteration(iteration + 1);
+    withdraw_account.inc_current_iteration();
 
     Ok(())
 }
@@ -312,7 +306,7 @@ fn verify_withdraw(
 fn finish_withdraw(
     program_id: &Pubkey,
     program_account: &AccountInfo,
-    withdraw_account: &mut WithdrawVerificationAccount,
+    withdraw_account: &mut ProofVerificationAccount,
     recipient: &AccountInfo,
 ) -> ProgramResult {
     {
