@@ -273,20 +273,23 @@ fn init_withdraw(
 
     // Check if nullifier does not already exist
     // ~ 35000-45000 CUs
-    program_account.can_insert_nullifier_hash(nullifier_hash)?;
+    //program_account.can_insert_nullifier_hash(nullifier_hash)?;
 
     // Check merkle root
     //if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
 
-    // Init values
+    // Init values (atm ~ 67343 CUs)
     let inputs = vec![
         vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&nullifier_hash))),
         vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&root))),
     ];
-    withdraw_account.init(inputs, amount, nullifier_hash)?;
+    let proof = groth16::Proof::from_bytes(proof).unwrap();
+    withdraw_account.init(inputs, amount, nullifier_hash, proof)?;
 
     // Start with computation
-    verify_withdraw(withdraw_account)
+    verify_withdraw(withdraw_account)?;
+
+    Ok(())
 }
 
 fn verify_withdraw(
@@ -295,10 +298,13 @@ fn verify_withdraw(
 
     let iteration = withdraw_account.get_current_iteration();
 
-    // Prepare inputs
-    groth16::partial_prepare_inputs(withdraw_account, iteration)?;
+    if iteration < groth16::PREPARE_INPUTS_ITERATIONS {    // Prepare inputs
+        groth16::partial_prepare_inputs(withdraw_account, iteration)?;
+    } else if iteration < groth16::PREPARE_INPUTS_ITERATIONS + groth16::PREPARE_PROOF_ITERATIONS {   // Prepare proof (calculate b coefficients)
+        groth16::partial_prepare_proof(withdraw_account, iteration - groth16::PREPARE_INPUTS_ITERATIONS)?;
+    }
 
-    withdraw_account.inc_current_iteration();
+    withdraw_account.inc_current_iteration(1);
 
     Ok(())
 }

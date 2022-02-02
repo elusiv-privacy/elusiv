@@ -6,6 +6,7 @@ mod proof;
 mod deposit;
 mod withdraw;
 mod utils;
+mod log;
 
 pub use accounts::*;
 pub use program::*;
@@ -13,3 +14,4 @@ pub use proof::*;
 pub use deposit::*;
 pub use withdraw::*;
 pub use utils::*;
+pub use log::*;

@@ -20,6 +20,8 @@ use {
     super::proof::*,
 };
 
+pub const WITHDRAW_INSTRUCTIONS_COUNT: u64 = (groth16::ITERATIONS + 2) as u64;
+
 pub async fn withdraw_transaction(payer: &Keypair, recipient: Pubkey, recent_blockhash: Hash, data: Vec<u8>) -> Transaction {
     // Start withdrawal
     let mut instructions = Vec::new();
@@ -63,7 +65,7 @@ pub async fn withdraw_transaction(payer: &Keypair, recipient: Pubkey, recent_blo
     transaction
 }
 
-pub fn withdraw_data(proof: ProofString, inputs: &[&str]) -> Vec<u8> {
+pub fn withdraw_data(proof: &ProofString, inputs: &[&str]) -> Vec<u8> {
     let mut data = vec![3];
 
     let amount: u64 = LAMPORTS_PER_SOL;

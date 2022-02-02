@@ -8,7 +8,7 @@ use {
     super::accounts::*,
 };
 
-pub async fn start_program<F>(setup: F) -> (solana_program_test::BanksClient, Keypair, Hash)
+pub async fn start_program<F>(setup: F, iterations: u64) -> (solana_program_test::BanksClient, Keypair, Hash)
 where F: Fn(&mut ProgramTest) -> ()
 {
     let mut test = ProgramTest::default();
@@ -17,22 +17,18 @@ where F: Fn(&mut ProgramTest) -> ()
 
     setup(&mut test);
 
-    // Deposit
-    //let mut cus = 180000 * (TREE_HEIGHT as u64) * (poseidon::ITERATIONS as u64);
-    // Withdraw
-    //cus += 200000 * (groth16::ITERATIONS as u64 + 1);
-    let cus = 20000000;//1000000000;
+    let cus = 2000000 * iterations;
 
     test.set_compute_max_units(cus);
     test.start().await
 }
 
-pub async fn start_program_with_program_accounts() -> (solana_program_test::BanksClient, Keypair, Hash) {
+pub async fn start_program_with_program_accounts(iterations: u64) -> (solana_program_test::BanksClient, Keypair, Hash) {
     let setup = |test: &mut ProgramTest| {
         let data = new_program_accounts_data();
         test.add_account_with_base64_data(program_account_id(), 100000000, elusiv::id(), &data.0);
         test.add_account_with_base64_data(deposit_account_id(), 100000000, elusiv::id(), &data.1);
         test.add_account_with_base64_data(withdraw_account_id(), 100000000, elusiv::id(), &data.2);
     };
-    start_program(setup).await
+    start_program(setup, iterations).await
 }

@@ -1,10 +1,12 @@
-use ark_bn254::{ Fr, Fq, Fq2, G1Affine, G1Projective };
+use ark_bn254::{ Fr, Fq, Fq2, G1Affine, G2Affine, G1Projective, G2Projective };
 use ark_ff::*;
 use std::str::FromStr;
 use byteorder::{ ByteOrder, LittleEndian };
 
 pub const G1PROJECTIVE_SIZE: usize = 96;
+pub const G2PROJECTIVE_SIZE: usize = 192;
 pub const G1AFFINE_SIZE: usize = 65;
+pub const G2AFFINE_SIZE: usize = 129;
 
 /// Bn254 scalar
 /// - Circom uses `r=21888242871839275222246405745257275088548364400416034343698204186575808495617` so, we use Fr (not Fq)
@@ -133,6 +135,20 @@ pub fn read_fq2_le_montgomery(bytes: &[u8]) -> Fq2 {
     )
 }
 
+pub fn write_fq2(buffer: &mut [u8], q: Fq2) {
+    let mut bytes: Vec<u8> = vec![];
+    q.c0.0.write(&mut bytes).unwrap();
+    q.c1.0.write(&mut bytes).unwrap(); 
+
+    for i in 0..64 {
+        buffer[i] = bytes[i];
+    }
+}
+
+pub fn read_fq2(buffer: &[u8]) -> Fq2 {
+    read_fq2_le_montgomery(&buffer)
+}
+
 pub fn write_fq2_le_montgomery(q: Fq2) -> Vec<u8> {
     let mut writer: Vec<u8> = vec![];
     q.c0.0.write(&mut writer).unwrap();
@@ -140,12 +156,15 @@ pub fn write_fq2_le_montgomery(q: Fq2) -> Vec<u8> {
     writer
 }
 
-pub fn write_g1_affine(g1a: G1Affine) -> Vec<u8> {
-    let mut writer: Vec<u8> = vec![];
-    g1a.x.0.write(&mut writer).unwrap();
-    g1a.y.0.write(&mut writer).unwrap();
-    writer.push(if g1a.infinity { 1 } else { 0 });
-    writer
+pub fn write_g1_affine(buffer: &mut [u8], g1a: G1Affine) {
+    let mut bytes: Vec<u8> = vec![];
+    g1a.x.0.write(&mut bytes).unwrap();
+    g1a.y.0.write(&mut bytes).unwrap();
+    bytes.push(if g1a.infinity { 1 } else { 0 });
+
+    for i in 0..G1AFFINE_SIZE {
+        buffer[i] = bytes[i];
+    }
 }
 
 pub fn read_g1_affine(bytes: &[u8]) -> G1Affine {
@@ -153,6 +172,24 @@ pub fn read_g1_affine(bytes: &[u8]) -> G1Affine {
         read_le_montgomery(&bytes[..32]),
         read_le_montgomery(&bytes[32..64]),
         bytes[64] == 1
+    )
+}
+
+pub fn write_g2_affine(buffer: &mut [u8], p: G2Affine) {
+    let mut bytes = write_fq2_le_montgomery(p.x);
+    bytes.extend(write_fq2_le_montgomery(p.y));
+    bytes.push(if p.infinity { 1 } else { 0 });
+
+    for i in 0..G2AFFINE_SIZE {
+        buffer[i] = bytes[i];
+    }
+}
+
+pub fn read_g2_affine(bytes: &[u8]) -> G2Affine {
+    G2Affine::new(
+        read_fq2_le_montgomery(&bytes[..64]),
+        read_fq2_le_montgomery(&bytes[64..128]),
+        bytes[128] == 1
     )
 }
 
@@ -171,6 +208,24 @@ pub fn read_g1_projective(bytes: &[u8]) -> G1Projective {
         read_le_montgomery(&bytes[..32]),
         read_le_montgomery(&bytes[32..64]),
         read_le_montgomery(&bytes[64..96]),
+    )
+}
+
+pub fn write_g2_projective(buffer: &mut [u8], p: G2Projective) {
+    let mut bytes = write_fq2_le_montgomery(p.x);
+    bytes.extend(write_fq2_le_montgomery(p.y));
+    bytes.extend(write_fq2_le_montgomery(p.z));
+
+    for i in 0..G2PROJECTIVE_SIZE {
+        buffer[i] = bytes[i];
+    }
+}
+
+pub fn read_g2_projective(bytes: &[u8]) -> G2Projective {
+    G2Projective::new(
+        read_fq2_le_montgomery(&bytes[..64]),
+        read_fq2_le_montgomery(&bytes[64..128]),
+        read_fq2_le_montgomery(&bytes[128..192]),
     )
 }
 

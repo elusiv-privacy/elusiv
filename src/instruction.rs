@@ -168,29 +168,18 @@ pub fn unpack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
     Ok((bytes_to_limbs(bytes), data))
 }
 
-fn unpack_single_byte_as_32_bytes(data: &[u8]) -> Result<([u8; 32], &[u8]), ProgramError> {
-    let (&data, rest) = data
-        .split_first()
-        .ok_or(ProgramError::InvalidInstructionData)?;
-    let mut bytes = [0; 32];
-    bytes[0] = data;
+pub fn unpack_bool(data: &[u8]) -> Result<(bool, &[u8]), ProgramError> {
+    let (&byte, rest) = data.split_first().ok_or(ProgramError::InvalidInstructionData)?;
 
-    Ok((bytes, rest))
-}
-
-pub fn unpack_single_byte_as_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
-    let (bytes, data) = unpack_single_byte_as_32_bytes(data)?;
-
-    Ok((bytes_to_limbs(&bytes), data))
+    Ok((byte == 1, rest))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::str::FromStr;
-    use ark_ff::{ BigInteger256, bytes::ToBytes };
-    use num_bigint::BigUint;
-    use std::convert::TryFrom;
+    use ark_ff::{ bytes::ToBytes };
+    use ark_bn254::Fq;
 
     // Test subsidiary unpacking functions
     #[test]
@@ -211,36 +200,25 @@ mod tests {
         data.extend([0; 32]);
         data.extend(str_to_bytes("15200472642106544087859624808573647436446459686589177220422407004547835364093"));
         data.extend(str_to_bytes("18563249006229852218279298661872929163955035535605917747249479039354347737308"));
-        data.push(1);
+        data.push(0);
         data.extend(str_to_bytes("20636553466803549451478361961314475483171634413642350348046906733449463808895"));
         data.extend(str_to_bytes("3955337224043097728615186066317353350659966424133589619785214107405965410236"));
         data.extend(str_to_bytes("16669477906162214549333998971085624527095786690622350917799822973577201769757"));
         data.extend(str_to_bytes("10686129702127228201109048634021146893529704437134012687698468995076983569763"));
-        data.push(1);
         data.push(0);
         data.extend(str_to_bytes("7825488021728597353611301562108479035418173715138578342437621330551207000521"));
         data.extend(str_to_bytes("17385834695111423269684287513728144523333186942287839669241715541894829818572"));
-        data.push(1);
+        data.push(0);
         data.extend(str_to_bytes("17385834695111423269684287513728144523333186942287839669241715541894829818572"));
         data.extend(str_to_bytes("17385834695111423269684287513728144523333186942287839669241715541894829818572"));
 
         ElusivInstruction::unpack(&data).unwrap();
     }
 
-    #[test]
-    fn test_unpack_proof_field_element() {
-        let expect = str_to_bytes("21885181906247530850009302772481187419681297849437516181180948289250346671858");
-        let bytes = vec![242, 30, 172, 108, 189, 207, 207, 247, 213, 213, 57, 218, 109, 91, 54, 61, 252, 37, 48, 12, 80, 212, 48, 193, 233, 204, 12, 91, 241, 146, 98, 48];
-        assert_eq!(expect, bytes);
-    }
-
-    pub fn str_to_bytes(str: &str) -> Vec<u8> {
+    fn str_to_bytes(str: &str) -> Vec<u8> {
+        let s = Fq::from_str(&str).unwrap();
         let mut writer: Vec<u8> = vec![];
-        str_to_bigint(str).write(&mut writer).unwrap();
+        s.0.write(&mut writer).unwrap();
         writer
-    }
-
-    pub fn str_to_bigint(str: &str) -> BigInteger256 {
-        BigInteger256::try_from(BigUint::from_str(str).unwrap()).unwrap()
     }
 }

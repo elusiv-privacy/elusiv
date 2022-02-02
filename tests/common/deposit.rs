@@ -24,6 +24,8 @@ use {
     super::accounts::*,
 };
 
+pub const DEPOSIT_INSTRUCTIONS_COUNT: u64 = (elusiv::poseidon::ITERATIONS * TREE_HEIGHT + 2) as u64;
+
 pub async fn send_deposit_transaction(payer: &Keypair, recent_blockhash: Hash, data: Vec<u8>) -> Transaction {
     // Start deposit
     let mut instructions = Vec::new();

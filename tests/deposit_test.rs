@@ -60,7 +60,7 @@ async fn test_deposit_finalize() {
         test.add_account_with_base64_data(deposit_account_id(), 100000000, elusiv::id(), &base64::encode(&data1));
         test.add_account_with_base64_data(withdraw_account_id(), 100000000, elusiv::id(), &base64::encode(&data2));
     };
-    let (mut banks_client, payer, recent_blockhash) = start_program(setup).await;
+    let (mut banks_client, payer, recent_blockhash) = start_program(setup, 1).await;
 
     // Send finalize_deposit transaction
     let mut transaction = Transaction::new_with_payer(
@@ -95,10 +95,11 @@ async fn test_deposit_finalize() {
 
 #[tokio::test]
 async fn test_full_deposit() {
+    capture_compute_units();
     let commitment = from_str_10("244717386276344062509703350126374528606984111509041278484910414242901923926");
 
     // Create program accounts
-    let (mut banks_client, payer, recent_blockhash) = start_program_with_program_accounts().await;
+    let (mut banks_client, payer, recent_blockhash) = start_program_with_program_accounts(DEPOSIT_INSTRUCTIONS_COUNT).await;
 
     // Start deposit
     let amount = LAMPORTS_PER_SOL;

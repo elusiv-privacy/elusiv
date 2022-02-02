@@ -10,28 +10,33 @@ use super::gamma_abc_g1;
 use super::super::scalar::*;
 use super::super::state::ProofVerificationAccount;
 
-pub const PREPARATION_ITERATIONS: usize = 66;
-pub const PREPARATION_ITERATION_ROUNDS: [usize; PREPARATION_ITERATIONS] = [
-    4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 5,
+pub const PREPARE_INPUTS_ITERATIONS: usize = 66;
+pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [
+    3, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 6,
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 1,
 ];
 
 /// Prepares `INPUTS_COUNT` public inputs (into one `G1Affine`)
 /// - requires `PREPARATION_ITERATIONS` calls to complete
-pub fn partial_prepare_inputs(account: &mut ProofVerificationAccount, iteration: usize) -> ProgramResult {
+pub fn partial_prepare_inputs(
+    account: &mut ProofVerificationAccount,
+    iteration: usize
+) -> ProgramResult {
+
     let round = account.get_current_round();
-    let rounds = PREPARATION_ITERATION_ROUNDS[iteration];
+    let rounds = PREPARE_INPUTS_ROUNDS[iteration];
     let iteration = iteration / 33;
 
     // Multiplication of gamma_abc_g1[i + 1] and input[i]
+    // ~ rounds * 24608 CUs
     let product = partial_mul_g1a_scalar(
         &gamma_abc_g1()[iteration + 1],
-        read_g1_projective(&account.p_product),
+        read_g1_projective(&account.get_ram(0, 3)),
         account.get_input_bits(iteration),
         round,
         rounds,
     )?;
-    write_g1_projective(&mut account.p_product, product);
+    write_g1_projective(&mut account.get_ram_mut(0, 3), product);
 
     // Add the product to g_ic after mul is finished
     // ~ 36300 CUs
@@ -86,6 +91,7 @@ mod tests {
         PreparedVerifyingKey,
     };
     use ark_ec::AffineCurve;
+    use ark_bn254::G2Affine;
 
     #[test]
     fn test_mul_g1a_scalar() {
@@ -101,8 +107,8 @@ mod tests {
 
         let mut res = G1Projective::zero();
         let mut round = 0;
-        for i in 0..PREPARATION_ITERATIONS {
-            let rounds = PREPARATION_ITERATION_ROUNDS[i];
+        for i in 0..PREPARE_INPUTS_ITERATIONS {
+            let rounds = PREPARE_INPUTS_ROUNDS[i];
             res = partial_mul_g1a_scalar(&g1a, res, scalar_bits, round, rounds).unwrap();
 
             round += rounds;
@@ -123,15 +129,12 @@ mod tests {
         let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
         let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
         account.init(vec!
-            [
-                vec_to_array_32(to_bytes_le_repr(inputs[0])),
-                vec_to_array_32(to_bytes_le_repr(inputs[1]))
-            ],
-            0, [0,0,0,0]
+            [ vec_to_array_32(to_bytes_le_repr(inputs[0])), vec_to_array_32(to_bytes_le_repr(inputs[1])) ],
+            0, [0,0,0,0], super::super::Proof{ a: G1Affine::zero(), b: G2Affine::zero(), c: G1Affine::zero() }
         ).unwrap();
 
         // Result
-        for i in 0..PREPARATION_ITERATIONS {
+        for i in 0..PREPARE_INPUTS_ITERATIONS {
             partial_prepare_inputs(&mut account, i).unwrap();
         }
 
