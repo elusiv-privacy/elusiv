@@ -19,7 +19,9 @@ struct G2HomProjective {
 }
 
 pub const MILLER_LOOP_ITERATIONS: usize = 86;
-const ITERATION_ROUNDS: [usize; 86] = [16, 17, 30, 15, 16, 31, 31, 16, 16, 31, 16, 16, 16, 16, 47, 31, 16, 16, 30, 30, 15, 16, 16, 16, 31, 31, 16, 16, 31, 31, 31, 47, 16, 17, 30, 30, 15, 16, 31, 31, 16, 16, 16, 16, 16, 16, 31, 47, 31, 16, 16, 30, 15, 16, 31, 31, 16, 16, 31, 16, 16, 16, 16, 47, 16, 17, 30, 30, 15, 16, 16, 16, 31, 31, 16, 16, 31, 16, 16, 31, 17, 31, 31, 31, 16, 12];
+const ITERATION_ROUNDS: [usize; 86] = [
+    16, 17, 30, 15, 16, 31, 31, 16, 16, 31, 16, 16, 16, 16, 47, 31, 16, 16, 30, 30, 15, 16, 16, 16, 31, 31, 16, 16, 31, 31, 31, 47, 16, 17, 30, 30, 15, 16, 31, 31, 16, 16, 16, 16, 16, 16, 31, 47, 31, 16, 16, 30, 15, 16, 31, 31, 16, 16, 31, 16, 16, 16, 16, 47, 16, 17, 30, 30, 15, 16, 16, 16, 31, 31, 16, 16, 31, 16, 16, 31, 17, 31, 31, 31, 16, 12
+];
 const MAIN_ROUNDS: usize = 1920;
 const FULL_ROUNDS: usize = ADDITION_ROUNDS + DOUBLING_ROUNDS + 2 * ELL_ROUNDS;
 
@@ -49,15 +51,19 @@ pub fn partial_miller_loop(
 
         if i < 64 { // Main loop (64 + 25 coefficients)
             let round = round % FULL_ROUNDS;
-            if round < 6 {
-                doubling_round(account, &mut r, round);
-            } else
-            if round < 6 + 9 {
-                if i > 0 && round == 6 {
+            if round == 0 {
+                if i > 0 {
                     let mut miller_value = read_miller_value(account);    
                     miller_value.square_in_place();
                     write_miller_value(account, miller_value);
                 }
+            }
+
+            if round < 6 {
+                doubling_round(account, &mut r, round);
+            } else
+            if round < 6 + 9 {
+                
 
                 ell_round(account, round - 6);
             } else
@@ -76,28 +82,26 @@ pub fn partial_miller_loop(
             }
         } else {    // Final two coefficients
             let round = round - MAIN_ROUNDS;
-            if round < 6 {
-                if round == 0 {
-                    b = mul_by_char(b);
-                    write_g2_affine(&mut account.proof_b, b);
-                }
-
-                addition_round(account, &mut r, &b, round);
+            if round == 0 {
+                b = mul_by_char(b);
+                write_g2_affine(&mut account.proof_b, b);
             } else
-            if round < 6 + 9 {
-                ell_round(account, round - 6);
+            if round < 7 {
+                addition_round(account, &mut r, &b, round - 1);
             } else
-            if round < 6 + 9 + 6 {
-                if round == 6 + 9 {
-                    b = mul_by_char(b);
-                    b.y = -b.y;
-                    write_g2_affine(&mut account.proof_b, b);
-                }
-
-                addition_round(account, &mut r, &b, round - 15);
+            if round < 7 + 9 {
+                ell_round(account, round - 7);
             } else
-            if round < 6 + 9 + 6 + 9 {
-                ell_round(account, round - 21);
+            if round == 7 + 9 {
+                b = mul_by_char(b);
+                b.y = -b.y;
+                write_g2_affine(&mut account.proof_b, b);
+            } else
+            if round < 7 + 9 + 1 + 6 {
+                addition_round(account, &mut r, &b, round - 17);
+            } else
+            if round < 7 + 9 + 1 + 6 + 9 {
+                ell_round(account, round - 23);
             }
         }
     }
@@ -593,16 +597,6 @@ mod tests {
     }
 
     fn ell_original(f: &mut Fq12, coeffs: (Fq2, Fq2, Fq2), p: &G1Affine) {
-        let mut c0 = coeffs.0;
-        let mut c1 = coeffs.1;
-        let c2 = coeffs.2;
-    
-        c0.mul_assign_by_fp(&p.y);
-        c1.mul_assign_by_fp(&p.x);
-        f.mul_by_034(&c0, &c1, &c2);
-    }
-
-    fn ell(f: &mut Fq12, coeffs: &(Fq2, Fq2, Fq2), p: &G1Affine) {
         let mut c0 = coeffs.0;
         let mut c1 = coeffs.1;
         let c2 = coeffs.2;
