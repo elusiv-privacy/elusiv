@@ -1,6 +1,6 @@
 use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective, Parameters };
 use ark_ec::models::bn::g2::G2Prepared;
-use ark_ff::{ BigInteger256, Zero, One };
+use ark_ff::{ BigInteger256 };
 
 pub fn gamma_abc_g1_0() -> G1Projective {
 	G1Projective::new(

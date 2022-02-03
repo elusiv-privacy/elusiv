@@ -1,6 +1,6 @@
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
-use ark_bn254::{ G1Affine, G1Projective };
+use ark_bn254::{ Fq12, G1Affine, G1Projective };
 use ark_ec::{
     ProjectiveCurve,
 };
@@ -25,14 +25,16 @@ pub fn partial_prepare_inputs(
 
     let round = account.get_current_round();
     let rounds = PREPARE_INPUTS_ROUNDS[iteration];
-    let iteration = iteration / 33;
+    let i = iteration / 33;
+
+    let mut product = read_g1_projective(&account.get_ram(0, 3));
 
     // Multiplication of gamma_abc_g1[i + 1] and input[i]
     // ~ rounds * 24608 CUs
-    let product = partial_mul_g1a_scalar(
-        &gamma_abc_g1()[iteration + 1],
-        read_g1_projective(&account.get_ram(0, 3)),
-        account.get_input_bits(iteration),
+    product = partial_mul_g1a_scalar(
+        &gamma_abc_g1()[i + 1],
+        product,
+        account.get_input_bits(i),
         round,
         rounds,
     )?;
@@ -41,13 +43,24 @@ pub fn partial_prepare_inputs(
     // Add the product to g_ic after mul is finished
     // ~ 36300 CUs
     if round + rounds == 256 {
-        let mut g_ic = if iteration == 0 { super::gamma_abc_g1_0() } else { read_g1_projective(&account.p_inputs) };
+        let mut g_ic = if i == 0 { super::gamma_abc_g1_0() } else { read_g1_projective(&account.p_inputs) };
         g_ic.add_assign(product);
         write_g1_projective(&mut account.p_inputs, g_ic);
 
         account.set_current_round(0);
+
     } else {
         account.set_current_round(round + rounds);
+    }
+
+    // Convert value from projective to affine form after last iteration
+    if iteration == PREPARE_INPUTS_ITERATIONS - 1 {
+        let v = read_g1_projective(&account.p_inputs);
+        write_g1_affine(&mut account.p_inputs, v.into());
+
+        // Reset round counter and init miller value to one
+        account.set_current_round(0);
+        super::write_miller_value(account, Fq12::one());
     }
 
     Ok(())
@@ -91,7 +104,7 @@ mod tests {
         PreparedVerifyingKey,
     };
     use ark_ec::AffineCurve;
-    use ark_bn254::G2Affine;
+    use ark_bn254::{ G2Affine, G1Affine };
 
     #[test]
     fn test_mul_g1a_scalar() {
@@ -152,11 +165,11 @@ mod tests {
             gamma_g2_neg_pc: gamma_g2_neg_pc(),
             delta_g2_neg_pc: delta_g2_neg_pc(),
         };
-        let expect = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
+        let expect: G1Projective = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
 
         assert_eq!(
-            read_g1_projective(&account.p_inputs),
-            expect
+            read_g1_affine(&account.p_inputs),
+            G1Affine::from(expect),
         );
     }
 }

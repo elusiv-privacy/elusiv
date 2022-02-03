@@ -2,18 +2,15 @@ mod common;
 use assert_matches::*;
 use solana_program_test::*;
 use solana_sdk::signature::Signer;
-use ark_bn254::{ Parameters };
-use ark_ec::{
-        AffineCurve,
-        models::bn::g2::G2Prepared,
-    };
+use ark_bn254::{ Bn254, G1Affine };
+use ark_ec::{ AffineCurve, PairingEngine };
 use elusiv::state::ProofVerificationAccount;
 use elusiv::scalar::*;
 use common::*;
 
 #[tokio::test]
-async fn test_prepare_inputs_and_proof() {
-    capture_compute_units();
+async fn test_full_miller() {
+    //capture_compute_units();
 
     // Check that gamma_abc_g1 match in the verifying keys
     assert_eq!(
@@ -43,19 +40,24 @@ async fn test_prepare_inputs_and_proof() {
     assert_eq!(read_g1_affine(account.proof_c), proof.c());
 
     // Check if prepared_inputs match
-    let prepared_inputs = read_g1_projective(&account.p_inputs);
+    let prepared_inputs = read_g1_affine(&account.p_inputs);
     
     let pvk = ark_pvk();
     let inputs = vec![ from_str_10(inputs[0]), from_str_10(inputs[1]), ];
     let expected_inputs = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
 
-    assert_eq!(prepared_inputs, expected_inputs);
+    assert_eq!(prepared_inputs, G1Affine::from(expected_inputs));
 
-    // Check if prepared proof matches
-    let expected: G2Prepared<Parameters> = proof.b().into();
-    for i in 0..expected.ell_coeffs.len() {
-        assert_eq!(expected.ell_coeffs[i].0, account.get_b_coeff(i).0);
-        assert_eq!(expected.ell_coeffs[i].1, account.get_b_coeff(i).1);
-        assert_eq!(expected.ell_coeffs[i].2, account.get_b_coeff(i).2);
-    }
+    // Check for miller result
+    let result = elusiv::groth16::read_miller_value(&account);
+    let miller = Bn254::miller_loop(
+        [
+            ( proof.a().into(), proof.b().into() ),
+            ( prepared_inputs.into(), pvk.gamma_g2_neg_pc ),
+            ( proof.c().into(), pvk.delta_g2_neg_pc ),
+        ]
+        .iter()
+    );
+
+    assert_eq!(result, miller);
 }

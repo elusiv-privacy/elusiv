@@ -3,7 +3,7 @@ use super::instruction::ElusivInstruction::*;
 use super::error::ElusivError::{
     SenderIsNotSigner,
     InvalidAmount,
-    InvalidMerkleRoot,
+    //InvalidMerkleRoot,
     DidNotFinishHashing,
 };
 use solana_program::{
@@ -20,7 +20,6 @@ use solana_program::{
     system_program,
     native_token::LAMPORTS_PER_SOL,
 };
-use solana_program::log::sol_log_compute_units;
 use ark_ff::*;
 use super::groth16;
 use super::scalar::*;
@@ -269,11 +268,11 @@ fn init_withdraw(
     proof: &[u8],
 ) -> ProgramResult {
     // Check the amount
-    //if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
+    if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
 
     // Check if nullifier does not already exist
     // ~ 35000-45000 CUs
-    //program_account.can_insert_nullifier_hash(nullifier_hash)?;
+    program_account.can_insert_nullifier_hash(nullifier_hash)?;
 
     // Check merkle root
     //if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
@@ -300,8 +299,9 @@ fn verify_withdraw(
 
     if iteration < groth16::PREPARE_INPUTS_ITERATIONS {    // Prepare inputs
         groth16::partial_prepare_inputs(withdraw_account, iteration)?;
-    } else if iteration < groth16::PREPARE_INPUTS_ITERATIONS + groth16::PREPARE_PROOF_ITERATIONS {   // Prepare proof (calculate b coefficients)
-        groth16::partial_prepare_proof(withdraw_account, iteration - groth16::PREPARE_INPUTS_ITERATIONS)?;
+    } else
+    if iteration < groth16::PREPARE_INPUTS_ITERATIONS + groth16::MILLER_LOOP_ITERATIONS {   // Compute the miller value
+        groth16::partial_miller_loop(withdraw_account, iteration - groth16::PREPARE_INPUTS_ITERATIONS)?;
     }
 
     withdraw_account.inc_current_iteration(1);

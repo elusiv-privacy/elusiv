@@ -4,7 +4,6 @@ use ark_groth16::PreparedVerifyingKey;
 use ark_groth16::VerifyingKey;
 use std::str::FromStr;
 use ark_ff::bytes::ToBytes;
-use super::utils::*;
 
 pub struct ProofString {
     pub a_x: &'static str,

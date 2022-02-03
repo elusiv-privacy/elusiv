@@ -1,7 +1,4 @@
-use solana_program::program_error::ProgramError;
 use solana_program::entrypoint::ProgramResult;
-use solana_program::pubkey::Pubkey;
-use solana_program::account_info::AccountInfo;
 use super::scalar::*;
 
 /// Checks whether a word represented by 4 u64 limbs is contained inside a byte array

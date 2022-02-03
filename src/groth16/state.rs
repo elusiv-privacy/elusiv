@@ -9,7 +9,7 @@ use super::super::error::ElusivError::{ InvalidStorageAccount, InvalidStorageAcc
 use super::super::scalar::*;
 
 pub const INPUTS_COUNT: usize = 2;
-pub const RAM_WORD_SIZE: usize = 14;
+pub const RAM_WORD_SIZE: usize = 32;
 
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 
@@ -24,6 +24,10 @@ pub struct ProofVerificationAccount<'a> {
     /// Computation round (multiple rounds in each iteration)
     /// - `u32`
     current_round: &'a mut [u8],
+
+    /// RAM used for caching values for next instruction/round
+    /// - `RAM_WORD_SIZE` 32 byte words
+    computation_ram: &'a mut [u8],
 
     //////////////////////////////////////////////////////////////////////////////
     // Inputs preparation
@@ -42,13 +46,10 @@ pub struct ProofVerificationAccount<'a> {
     /// - z: 32 bytes
     pub p_inputs: &'a mut [u8],
 
-    /// RAM used for caching values for next instruction/round
-    /// - `RAM_WORD_SIZE` 32 byte words
-    computation_ram: &'a mut [u8],
-
     //////////////////////////////////////////////////////////////////////////////
-    // Proof and proof preparation
+    // Proof
 
+    //TODO: Save A and C as G1Projective
     /// A value of the proof
     /// - `G1Affine` -> 65 bytes
     pub proof_a: &'a mut [u8],
@@ -61,11 +62,6 @@ pub struct ProofVerificationAccount<'a> {
     /// - `G2Affine` -> 130 bytes
     pub proof_b: &'a mut [u8],
 
-    /// B coeffs
-    /// - every coeff consits of 6 Fq -> 6 * 32 byte
-    /// - in total: `B_COEFFS_TOTAL_BYTES` (17472 bytes)
-    pub proof_b_ell_coeffs: &'a mut [u8],
-
     /// B value negated
     pub b_neg: &'a mut [u8],
 
@@ -76,7 +72,7 @@ pub struct ProofVerificationAccount<'a> {
 
     // Insertion pointer pointing to next free coeffient field
     // - u32
-    b_ell_coeffs_ic: &'a mut [u8],
+    coeff_ic: &'a mut [u8],
 
     //////////////////////////////////////////////////////////////////////////////
     // Withdraw data
@@ -93,7 +89,7 @@ pub struct ProofVerificationAccount<'a> {
 }
 
 impl<'a> ProofVerificationAccount<'a> {
-    pub const TOTAL_SIZE: usize = 4 + 4 + INPUTS_COUNT * 256 + G1PROJECTIVE_SIZE + RAM_WORD_SIZE * 32 + G1AFFINE_SIZE + G1AFFINE_SIZE + G2AFFINE_SIZE + super::B_COEFFS_TOTAL_BYTES + G2AFFINE_SIZE + G2PROJECTIVE_SIZE + 4 + 8 + 32;
+    pub const TOTAL_SIZE: usize = 4 + 4 + INPUTS_COUNT * 256 + G1PROJECTIVE_SIZE + RAM_WORD_SIZE * 32 + G1AFFINE_SIZE + G1AFFINE_SIZE + G2AFFINE_SIZE + G2AFFINE_SIZE + G2PROJECTIVE_SIZE + 4 + 8 + 32;
 
     pub fn new(
         account_info: &solana_program::account_info::AccountInfo,
@@ -120,10 +116,9 @@ impl<'a> ProofVerificationAccount<'a> {
         let (proof_a, data) = data.split_at_mut(G1AFFINE_SIZE);
         let (proof_c, data) = data.split_at_mut(G1AFFINE_SIZE);
         let (proof_b, data) = data.split_at_mut(G2AFFINE_SIZE);
-        let (proof_b_ell_coeffs, data) = data.split_at_mut(super::B_COEFFS_TOTAL_BYTES);
         let (b_neg, data) = data.split_at_mut(G2AFFINE_SIZE);
         let (b_homo_r, data) = data.split_at_mut(G2PROJECTIVE_SIZE);
-        let (b_ell_coeffs_ic, data) = data.split_at_mut(4);
+        let (coeff_ic, data) = data.split_at_mut(4);
 
         let (amount, data) = data.split_at_mut(8);
         let (nullifier_hash, _) = data.split_at_mut(32);
@@ -138,10 +133,9 @@ impl<'a> ProofVerificationAccount<'a> {
                 proof_a,
                 proof_c,
                 proof_b,
-                proof_b_ell_coeffs,
                 b_neg,
                 b_homo_r,
-                b_ell_coeffs_ic,
+                coeff_ic,
                 amount,
                 nullifier_hash,
             }
@@ -181,7 +175,7 @@ impl<'a> ProofVerificationAccount<'a> {
         // Reset counters
         self.set_current_iteration(0);
         self.set_current_round(0);
-        self.set_b_ell_coeffs_ic(0);
+        self.set_coeff_ic(0);
 
         Ok(())
     }
@@ -259,39 +253,17 @@ impl<'a> ProofVerificationAccount<'a> {
 
 // Proof preparation
 impl<'a> ProofVerificationAccount<'a> {
-    pub fn set_b_coeff_element(&mut self, n: usize, value: Fq2) {
-        let pointer = bytes_to_u32(self.b_ell_coeffs_ic) as usize;
-
-        set(
-            self.proof_b_ell_coeffs,
-            pointer * super::B_COEFF_LENGTH + n * 64,
-            64,
-            &write_fq2_le_montgomery(value),
-        ).unwrap();
+    fn set_coeff_ic(&mut self, index: u32) {
+        LittleEndian::write_u32(&mut self.coeff_ic, index);
     }
 
-    pub fn get_b_coeff(&self, index: usize) -> (Fq2, Fq2, Fq2) {
-        let base = index * super::B_COEFF_LENGTH;
-        (
-            read_fq2_le_montgomery(&self.proof_b_ell_coeffs[base..base + 64]),
-            read_fq2_le_montgomery(&self.proof_b_ell_coeffs[base + 64..base + 128]),
-            read_fq2_le_montgomery(&self.proof_b_ell_coeffs[base + 128..base + 192]),
-        )
+    pub fn get_coeff_ic(&self) -> usize {
+        bytes_to_u32(self.coeff_ic) as usize
     }
 
-    pub fn get_b_coeff_element(&self, n: usize) -> Fq2 {
-        let pointer = bytes_to_u32(self.b_ell_coeffs_ic) as usize;
-        let base = pointer * super::B_COEFF_LENGTH + n * 64;
-        read_fq2_le_montgomery(&self.proof_b_ell_coeffs[base..base + 64])
-    }
-
-    fn set_b_ell_coeffs_ic(&mut self, index: u32) {
-        LittleEndian::write_u32(&mut self.b_ell_coeffs_ic, index);
-    }
-
-    pub fn inc_b_ell_coeffs_ic(&mut self) {
-        let pointer = bytes_to_u32(self.b_ell_coeffs_ic) as usize;
-        LittleEndian::write_u32(&mut self.b_ell_coeffs_ic, pointer as u32 + 1);
+    pub fn inc_coeff_ic(&mut self) {
+        let ic = self.get_coeff_ic();
+        LittleEndian::write_u32(&mut self.coeff_ic, ic as u32 + 1);
     }
 }
 
