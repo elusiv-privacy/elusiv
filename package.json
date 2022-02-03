@@ -7,9 +7,6 @@
         "deploy": "solana program deploy dist/program/elusiv.so",
         "redeploy": "solana program deploy --program-id dist/program/elusiv-keypair.json dist/program/elusiv.so",
 
-        "switch:19": "sh -c \"$(curl -sSfL https://release.solana.com/v1.9.5/install)\"",
-        "switch:18": "sh -c \"$(curl -sSfL https://release.solana.com/v1.8.12/install)\"",
-
-        "full-deploy": "npm run switch:19 && npm run build && npm run switch:18 && npm run redeploy"
+        "opt:miller-loop": "cd optimization && python3 miller_loop_rounds.py"
     }
 }

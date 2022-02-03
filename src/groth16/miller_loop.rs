@@ -18,8 +18,8 @@ struct G2HomProjective {
     pub z: Fq2,
 }
 
-pub const MILLER_LOOP_ITERATIONS: usize = 103;
-const ITERATION_ROUNDS: [usize; MILLER_LOOP_ITERATIONS] = [18, 16, 29, 13, 16, 14, 29, 30, 14, 16, 29, 13, 16, 14, 16, 14, 29, 31, 29, 13, 17, 13, 29, 29, 16, 14, 14, 16, 29, 13, 29, 16, 14, 29, 29, 29, 13, 29, 29, 16, 15, 29, 29, 13, 16, 14, 29, 30, 14, 16, 14, 17, 13, 17, 13, 29, 29, 30, 29, 13, 17, 13, 29, 16, 14, 29, 29, 13, 17, 13, 29, 16, 14, 16, 14, 31, 29, 13, 17, 13, 29, 29, 16, 14, 14, 16, 29, 13, 29, 16, 14, 29, 14, 16, 29, 13, 16, 14, 29, 29, 29, 16, 14];
+pub const MILLER_LOOP_ITERATIONS: usize = 123;
+const ITERATION_ROUNDS: [usize; MILLER_LOOP_ITERATIONS] = [18, 17, 12, 24, 9, 17, 14, 24, 25, 15, 8, 17, 25, 14, 8, 17, 10, 17, 12, 24, 25, 15, 24, 9, 17, 14, 24, 25, 15, 8, 17, 10, 17, 12, 24, 25, 15, 8, 17, 25, 14, 24, 25, 15, 24, 25, 15, 8, 17, 25, 14, 24, 9, 17, 14, 24, 25, 15, 8, 17, 10, 17, 12, 8, 17, 25, 14, 24, 25, 15, 24, 9, 17, 14, 24, 9, 17, 14, 24, 25, 15, 8, 17, 25, 14, 8, 17, 10, 17, 12, 24, 25, 15, 8, 17, 25, 14, 24, 9, 17, 14, 8, 17, 25, 14, 24, 9, 17, 14, 24, 9, 17, 14, 24, 9, 17, 14, 24, 25, 15, 23, 16, 10];
 const MAIN_ROUNDS: usize = 2048;
 const FULL_ROUNDS: usize = ADDITION_ROUNDS + DOUBLING_ROUNDS + 2 * ELL_ROUNDS + 2;
 
@@ -323,14 +323,14 @@ fn ell_round(
         // Multiply `p_inputs` by second coeff values
         3 => {
             let p_inputs = read_g1_affine(account.p_inputs);
-            let mut c0 = super::gamma_g2_neg_pc().ell_coeffs[coeff_ic].0;
+            let mut c0 = super::gamma_g2_neg_pc(coeff_ic).0;
             c0.mul_assign_by_fp(&p_inputs.y);
 
             set_coeff_element(account, 0, c0);
         },
         4 => {
             let p_inputs = read_g1_affine(account.p_inputs);
-            let mut c1 = super::gamma_g2_neg_pc().ell_coeffs[coeff_ic].1;
+            let mut c1 = super::gamma_g2_neg_pc(coeff_ic).1;
             c1.mul_assign_by_fp(&p_inputs.x);
 
             set_coeff_element(account, 1, c1);
@@ -339,21 +339,21 @@ fn ell_round(
             miller_value.mul_by_034(
                 &get_coeff_element(account, 0),
                 &get_coeff_element(account, 1),
-                &super::gamma_g2_neg_pc().ell_coeffs[coeff_ic].2,
+                &super::gamma_g2_neg_pc(coeff_ic).2,
             );
         },
 
         // Multiply `c` by third coeff values
         6 => {
             let c = read_g1_affine(account.proof_c);
-            let mut c0 = super::delta_g2_neg_pc().ell_coeffs[coeff_ic].0;
+            let mut c0 = super::delta_g2_neg_pc(coeff_ic).0;
             c0.mul_assign_by_fp(&c.y);
 
             set_coeff_element(account, 0, c0);
         },
         7 => {
             let c = read_g1_affine(account.proof_c);
-            let mut c1 = super::delta_g2_neg_pc().ell_coeffs[coeff_ic].1;
+            let mut c1 = super::delta_g2_neg_pc(coeff_ic).1;
             c1.mul_assign_by_fp(&c.x);
 
             set_coeff_element(account, 1, c1);
@@ -362,7 +362,7 @@ fn ell_round(
             miller_value.mul_by_034(
                 &get_coeff_element(account, 0),
                 &get_coeff_element(account, 1),
-                &super::delta_g2_neg_pc().ell_coeffs[coeff_ic].2,
+                &super::delta_g2_neg_pc(coeff_ic).2,
             );
 
             account.inc_coeff_ic();
@@ -424,6 +424,7 @@ mod tests {
     use ark_ec::models::bn::{ TwistType };
     use std::str::FromStr;
     use ark_ec::PairingEngine;
+    use core::ops::Neg;
     use super::super::vkey::*;
     use super::super::{ PREPARE_INPUTS_ITERATIONS, partial_prepare_inputs };
 
@@ -516,8 +517,8 @@ mod tests {
         let mut miller = Fq12::one();
         ell_original(&mut miller, b_coeffs, &get_a());
         let p_inputs = read_g1_affine(account.p_inputs);
-        ell_original(&mut miller, gamma_g2_neg_pc().ell_coeffs[0], &p_inputs);
-        ell_original(&mut miller, delta_g2_neg_pc().ell_coeffs[0], &get_c());
+        ell_original(&mut miller, gamma_g2_neg_pc(0), &p_inputs);
+        ell_original(&mut miller, delta_g2_neg_pc(0), &get_c());
 
         assert_eq!(result, miller);
     }
@@ -539,8 +540,8 @@ mod tests {
         let miller = Bn254::miller_loop(
             [
                 ( get_a().into(), get_b().into() ),
-                ( p_inputs.into(), gamma_g2_neg_pc() ),
-                ( get_c().into(), delta_g2_neg_pc() ),
+                ( p_inputs.into(), gamma_g2().neg().into() ),
+                ( get_c().into(), delta_g2().neg().into() ),
             ]
             .iter(),
         );

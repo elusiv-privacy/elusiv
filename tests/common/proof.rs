@@ -4,6 +4,7 @@ use ark_groth16::PreparedVerifyingKey;
 use ark_groth16::VerifyingKey;
 use std::str::FromStr;
 use ark_ff::bytes::ToBytes;
+use core::ops::Neg;
 
 pub struct ProofString {
     pub a_x: &'static str,
@@ -101,8 +102,8 @@ pub fn ark_pvk() -> PreparedVerifyingKey<ark_bn254::Bn254> {
     let pvk = PreparedVerifyingKey {
         vk,
         alpha_g1_beta_g2: alpha_g1_beta_g2(),
-        gamma_g2_neg_pc: gamma_g2_neg_pc(),
-        delta_g2_neg_pc: delta_g2_neg_pc(),
+        gamma_g2_neg_pc: gamma_g2().neg().into(),
+        delta_g2_neg_pc: delta_g2().neg().into(),
     };
     pvk
 }

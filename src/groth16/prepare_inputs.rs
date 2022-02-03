@@ -105,6 +105,7 @@ mod tests {
     };
     use ark_ec::AffineCurve;
     use ark_bn254::{ G2Affine, G1Affine };
+    use core::ops::Neg;
 
     #[test]
     fn test_mul_g1a_scalar() {
@@ -162,8 +163,8 @@ mod tests {
         let pvk = PreparedVerifyingKey {
             vk,
             alpha_g1_beta_g2: alpha_g1_beta_g2(),
-            gamma_g2_neg_pc: gamma_g2_neg_pc(),
-            delta_g2_neg_pc: delta_g2_neg_pc(),
+            gamma_g2_neg_pc: gamma_g2().neg().into(),
+            delta_g2_neg_pc: gamma_g2().neg().into(),
         };
         let expect: G1Projective = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
 
