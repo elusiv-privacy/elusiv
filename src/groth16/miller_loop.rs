@@ -18,12 +18,10 @@ struct G2HomProjective {
     pub z: Fq2,
 }
 
-pub const MILLER_LOOP_ITERATIONS: usize = 86;
-const ITERATION_ROUNDS: [usize; 86] = [
-    16, 17, 30, 15, 16, 31, 31, 16, 16, 31, 16, 16, 16, 16, 47, 31, 16, 16, 30, 30, 15, 16, 16, 16, 31, 31, 16, 16, 31, 31, 31, 47, 16, 17, 30, 30, 15, 16, 31, 31, 16, 16, 16, 16, 16, 16, 31, 47, 31, 16, 16, 30, 15, 16, 31, 31, 16, 16, 31, 16, 16, 16, 16, 47, 16, 17, 30, 30, 15, 16, 16, 16, 31, 31, 16, 16, 31, 16, 16, 31, 17, 31, 31, 31, 16, 12
-];
-const MAIN_ROUNDS: usize = 1920;
-const FULL_ROUNDS: usize = ADDITION_ROUNDS + DOUBLING_ROUNDS + 2 * ELL_ROUNDS;
+pub const MILLER_LOOP_ITERATIONS: usize = 103;
+const ITERATION_ROUNDS: [usize; MILLER_LOOP_ITERATIONS] = [18, 16, 29, 13, 16, 14, 29, 30, 14, 16, 29, 13, 16, 14, 16, 14, 29, 31, 29, 13, 17, 13, 29, 29, 16, 14, 14, 16, 29, 13, 29, 16, 14, 29, 29, 29, 13, 29, 29, 16, 15, 29, 29, 13, 16, 14, 29, 30, 14, 16, 14, 17, 13, 17, 13, 29, 29, 30, 29, 13, 17, 13, 29, 16, 14, 29, 29, 13, 17, 13, 29, 16, 14, 16, 14, 31, 29, 13, 17, 13, 29, 29, 16, 14, 14, 16, 29, 13, 29, 16, 14, 29, 14, 16, 29, 13, 16, 14, 29, 29, 29, 16, 14];
+const MAIN_ROUNDS: usize = 2048;
+const FULL_ROUNDS: usize = ADDITION_ROUNDS + DOUBLING_ROUNDS + 2 * ELL_ROUNDS + 2;
 
 /// Computes the `miller_value` (12 q field elements)
 /// - requires `MILLER_LOOP_ITERATIONS` calls to complete
@@ -57,27 +55,24 @@ pub fn partial_miller_loop(
                     miller_value.square_in_place();
                     write_miller_value(account, miller_value);
                 }
-            }
-
-            if round < 6 {
-                doubling_round(account, &mut r, round);
             } else
-            if round < 6 + 9 {
-                
-
-                ell_round(account, round - 6);
+            if round < 7 {
+                doubling_round(account, &mut r, round - 1);
             } else
-            if round < 6 + 9 + 6 {
+            if round < 7 + 9 {
+                ell_round(account, round - 7);
+            } else
+            if round < 7 + 9 + 6 {
                 let bit = Parameters::ATE_LOOP_COUNT[63 - i];
                 if bit == 1 {
-                    addition_round(account, &mut r, &b, round - 15);
+                    addition_round(account, &mut r, &b, round - 16);
                 } else if bit == -1 {
-                    addition_round(account, &mut r, &neg_b, round - 15);
+                    addition_round(account, &mut r, &neg_b, round - 16);
                 }
             } else
-            if round < 6 + 9 + 6 + 9 {
+            if round < 7 + 9 + 6 + 9 {
                 if Parameters::ATE_LOOP_COUNT[63 - i] != 0 {
-                    ell_round(account, round - 21);
+                    ell_round(account, round - 22);
                 }
             }
         } else {    // Final two coefficients
