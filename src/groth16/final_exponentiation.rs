@@ -28,7 +28,9 @@ pub fn final_exponentiation(
     // ~ 285923 CUs
     // Inverse f
     if f.is_zero() { panic!() }
-    f12_inverse(&f, account);  // -> fail if inverse fails
+    for round in 0..F12_INVERSE_ROUND_COUNT {
+        f12_inverse(&f, account, round);  // -> fail if inverse fails
+    }
     let mut f2 = read_fq12(account.get_ram(F2_OFFSET, 12));
 
     // ~ 629 CUs
@@ -96,137 +98,123 @@ const F2_OFFSET: usize = 12;
 // - t6 (2)
 // - v0a (1)
 
+const F12_INVERSE_ROUND_COUNT: usize = 3 + F6_INVERSE_ROUND_COUNT;
+
 fn f12_inverse(
     f: &Fq12,
     account: &mut ProofVerificationAccount,
+    round: usize,
 ) {
-    // ~ 28000
-    // v1/v0
-    {
-        let v1 = f.c1.square();
+    match round {
+        0 => {  // ~ 28000
+            let v1 = f.c1.square();
+    
+            write_fq6(account.get_ram_mut(V1_OFFSET, 6), v1);
+        },
+        1 => {  // ~ 30000
+            let v1 = read_fq6(account.get_ram(V1_OFFSET, 6));
+    
+            let v2 = f.c0.square();
+            let v0 = Fp12ParamsWrapper::<Fq12Parameters>::sub_and_mul_base_field_by_nonresidue(&v2, &v1);   // ~ 1621
+    
+            write_fq6(account.get_ram_mut(V1_OFFSET, 6), v0);
+        },
+        (2..=F6_INVERSE_ROUND_COUNT_PLUS_ONE) => {    // ~ 231693
+            let v0 = read_fq6(account.get_ram(V1_OFFSET, 6));
 
-        write_fq6(account.get_ram_mut(V1_OFFSET, 6), v1);
-    }
+            if v0.is_zero() { panic!() }
+            f6_inverse(&v0, account, round - 2);
+        },
+        F6_INVERSE_ROUND_COUNT_PLUS_TWO => {
+            let v1 = read_fq6(account.get_ram(V1_OFFSET, 6));
 
-    // ~ 30000
-    // v1/v0
-    {
-        let v1 = read_fq6(account.get_ram(V1_OFFSET, 6));
-
-        let v2 = f.c0.square();
-        let v0 = Fp12ParamsWrapper::<Fq12Parameters>::sub_and_mul_base_field_by_nonresidue(&v2, &v1);   // ~ 1621
-
-        write_fq6(account.get_ram_mut(V1_OFFSET, 6), v0);
-    }
-
-    // ~ 231693
-    // v1
-    {
-        let v0 = read_fq6(account.get_ram(V1_OFFSET, 6));
-
-        if v0.is_zero() { panic!() }
-        f6_inverse(&v0, account);
-    }
-
-    // ~ 12 words
-    {
-        let v1 = read_fq6(account.get_ram(V1_OFFSET, 6));
-
-        let c0 = f.c0 * &v1;
-        let c1 = -(f.c1 * &v1);
-        let f2 = Fq12::new(c0, c1);
-
-        write_fq12(account.get_ram_mut(F2_OFFSET, 12), f2);
+            let c0 = f.c0 * &v1;
+            let c1 = -(f.c1 * &v1);
+            let f2 = Fq12::new(c0, c1);
+    
+            write_fq12(account.get_ram_mut(F2_OFFSET, 12), f2);
+        }
+        _ => {}
     }
 }
+
+const F6_INVERSE_ROUND_COUNT: usize = 6;
+const F6_INVERSE_ROUND_COUNT_PLUS_ONE: usize = F6_INVERSE_ROUND_COUNT + 1;
+const F6_INVERSE_ROUND_COUNT_PLUS_TWO: usize = F6_INVERSE_ROUND_COUNT + 2;
 
 fn f6_inverse(
     f: &Fq6,
     account: &mut ProofVerificationAccount,
+    round: usize,
 ) {
-    // ~ 11000
-    // s2
-    {
-        let t1 = f.c1.square();
-        let t4 = f.c0 * &f.c2;
-        let s2 = t1 - &t4;
+    match round {
+        0 => {  // ~ 11000
+            let t1 = f.c1.square();
+            let t4 = f.c0 * &f.c2;
+            let s2 = t1 - &t4;
+    
+            write_fq2(account.get_ram_mut(S2_OFFSET, 2), s2);
+        },
+        1 => {  // ~ 22000
+            let t0 = f.c0.square();
+            let t2 = f.c2.square();
+            let t3 = f.c0 * &f.c1;
+            let t5 = f.c1 * &f.c2;
+            let n5 = Fp6ParamsWrapper::<Fq6Parameters>::mul_base_field_by_nonresidue(&t5);
+            let s0 = t0 - &n5;
+            let s1 = Fp6ParamsWrapper::<Fq6Parameters>::mul_base_field_by_nonresidue(&t2) - &t3;
 
-        write_fq2(account.get_ram_mut(S2_OFFSET, 2), s2);
-    }
+            write_fq2(account.get_ram_mut(S0_OFFSET, 2), s0);
+            write_fq2(account.get_ram_mut(S1_OFFSET, 2), s1);
+        },
+        2 => {  // ~ 21000
+            let s0 = read_fq2(account.get_ram(S0_OFFSET, 2));
+            let s1 = read_fq2(account.get_ram(S1_OFFSET, 2));
+            let s2 = read_fq2(account.get_ram(S2_OFFSET, 2));
 
-    // ~ 22000
-    // s0, s1
-    {
-        let t0 = f.c0.square();
-        let t2 = f.c2.square();
-        let t3 = f.c0 * &f.c1;
-        let t5 = f.c1 * &f.c2;
-        let n5 = Fp6ParamsWrapper::<Fq6Parameters>::mul_base_field_by_nonresidue(&t5);
-        let s0 = t0 - &n5;
-        let s1 = Fp6ParamsWrapper::<Fq6Parameters>::mul_base_field_by_nonresidue(&t2) - &t3;
+            let a1 = f.c2 * &s1;
+            let a2 = f.c1 * &s2;
+            let mut a3 = a1 + &a2;
+            a3 = Fp6ParamsWrapper::<Fq6Parameters>::mul_base_field_by_nonresidue(&a3);
+            let t6 = f.c0 * &s0 + &a3;  // ~ 6467
+            if t6.is_zero() { panic!() }
 
-        write_fq2(account.get_ram_mut(S0_OFFSET, 2), s0);
-        write_fq2(account.get_ram_mut(S1_OFFSET, 2), s1);
-    }
+            write_fq2(account.get_ram_mut(T6_OFFSET, 2), t6);
+        },
+        3 => {  // ~ 3346
+            let t6 = read_fq2(account.get_ram(T6_OFFSET, 2));
+    
+            let v1a = t6.c1.square();
+            let v2a = t6.c0.square();
+            let v0a = Fp2ParamsWrapper::<Fq2Parameters>::sub_and_mul_base_field_by_nonresidue(&v2a, &v1a); // ~ 125
+    
+            write_fq(account.get_ram_mut(V0A_OFFSET, 1), v0a);
+        },
+        4 => {  // ~ 64678 - 100.000
+            let mut v0a = read_fq(account.get_ram(V0A_OFFSET, 1));
 
-    // ~ 21000
-    // t6
-    {
-        let s0 = read_fq2(account.get_ram(S0_OFFSET, 2));
-        let s1 = read_fq2(account.get_ram(S1_OFFSET, 2));
-        let s2 = read_fq2(account.get_ram(S2_OFFSET, 2));
+            v0a = v0a.inverse().unwrap();
 
-        let a1 = f.c2 * &s1;
-        let a2 = f.c1 * &s2;
-        let mut a3 = a1 + &a2;
-        a3 = Fp6ParamsWrapper::<Fq6Parameters>::mul_base_field_by_nonresidue(&a3);
-        let t6 = f.c0 * &s0 + &a3;  // ~ 6467
-        if t6.is_zero() { panic!() }
-
-        write_fq2(account.get_ram_mut(T6_OFFSET, 2), t6);
-    }
-
-    // Fq2 Inversion (~ 72539)
-    // ~ 3346
-    // v0a
-    {
-        let t6 = read_fq2(account.get_ram(T6_OFFSET, 2));
-
-        let v1a = t6.c1.square();
-        let v2a = t6.c0.square();
-        let v0a = Fp2ParamsWrapper::<Fq2Parameters>::sub_and_mul_base_field_by_nonresidue(&v2a, &v1a); // ~ 125
-
-        write_fq(account.get_ram_mut(V0A_OFFSET, 1), v0a);
-    }
-
-    // ~ 64678 - 100.000
-    // v0a
-    {
-        let mut v0a = read_fq(account.get_ram(V0A_OFFSET, 1));
-
-        v0a = v0a.inverse().unwrap();
-
-        write_fq(account.get_ram_mut(V0A_OFFSET, 1), v0a);
-    }
-
-    // ~ 23000
-    // t6
-    {
-        let mut t6 = read_fq2(account.get_ram(T6_OFFSET, 2));
-        let v0a = read_fq(account.get_ram(V0A_OFFSET, 2));
-        let s0 = read_fq2(account.get_ram(S0_OFFSET, 2));
-        let s1 = read_fq2(account.get_ram(S1_OFFSET, 2));
-        let s2 = read_fq2(account.get_ram(S2_OFFSET, 2));
-
-        let c0 = t6.c0 * &v0a;    // ~ 1904
-        let c1 = -(t6.c1 * &v0a); // ~ 1949
-        t6 = Fq2::new(c0, c1);
-        let c0 = t6 * &s0;  // ~ 6000
-        let c1 = t6 * &s1;  // ~ 6000
-        let c2 = t6 * &s2;  // ~ 6000
-        let v1 = Fq6::new(c0, c1, c2);
-
-        write_fq6(account.get_ram_mut(V1_OFFSET, 6), v1);
+            write_fq(account.get_ram_mut(V0A_OFFSET, 1), v0a);
+        },
+        5 => {   // ~ 23000
+            let mut t6 = read_fq2(account.get_ram(T6_OFFSET, 2));
+            let v0a = read_fq(account.get_ram(V0A_OFFSET, 2));
+            let s0 = read_fq2(account.get_ram(S0_OFFSET, 2));
+            let s1 = read_fq2(account.get_ram(S1_OFFSET, 2));
+            let s2 = read_fq2(account.get_ram(S2_OFFSET, 2));
+    
+            let c0 = t6.c0 * &v0a;    // ~ 1904
+            let c1 = -(t6.c1 * &v0a); // ~ 1949
+            t6 = Fq2::new(c0, c1);
+            let c0 = t6 * &s0;  // ~ 6000
+            let c1 = t6 * &s1;  // ~ 6000
+            let c2 = t6 * &s2;  // ~ 6000
+            let v1 = Fq6::new(c0, c1, c2);
+    
+            write_fq6(account.get_ram_mut(V1_OFFSET, 6), v1);
+        },
+        _ => {}
     }
 }
 
@@ -374,37 +362,24 @@ mod tests {
     use ark_bn254::{ Fq, Bn254 };
 
     #[test]
+    pub fn test_f12_inverse() {
+        let f = get_f();
+        let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
+        let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
+
+        for round in 0..F12_INVERSE_ROUND_COUNT {
+            f12_inverse(&f, &mut account, round);
+        }
+
+        let expected = f.inverse().unwrap();
+        let result = read_fq12(account.get_ram(F2_OFFSET, 12));
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
     pub fn test_final_exponentiation() {
-        let f = Fq12::new(
-            Fq6::new(
-                Fq2::new(
-                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                ),
-                Fq2::new(
-                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                ),
-                Fq2::new(
-                    Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
-                    Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
-                ),
-            ),
-            Fq6::new(
-                Fq2::new(
-                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                ),
-                Fq2::new(
-                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                ),
-                Fq2::new(
-                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-                ),
-            ),
-        );
+        let f = get_f();
         let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
         let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
         write_fq12(account.get_ram_mut(F_OFFSET, 12), f);
@@ -415,5 +390,38 @@ mod tests {
         let result = final_exponentiation(&mut account);
 
         assert_eq!(result, expected);
+    }
+
+    fn get_f() -> Fq12 {
+        Fq12::new(
+            Fq6::new(
+                Fq2::new(
+                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+                    Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+                ),
+            ),
+            Fq6::new(
+                Fq2::new(
+                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+                ),
+            ),
+        )
     }
 }
