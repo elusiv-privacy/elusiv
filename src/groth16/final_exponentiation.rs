@@ -40,7 +40,7 @@ pub fn final_exponentiation(
     f2 = r;
 
     // ~ 53325
-    f12_frobenius_map(&mut r, 2);
+    /*f12_frobenius_map(&mut r, 2);
 
     r *= &f2;   // ~ 131961
 
@@ -68,7 +68,8 @@ pub fn final_exponentiation(
     let mut y15 = r * &y9;
     f12_frobenius_map(&mut y15, 3);
     let y16 = y15 * &y14;
-    y16
+    y16*/
+    f
 }
 
 const F_OFFSET: usize = 0;
@@ -224,13 +225,32 @@ fn cyclotomic_square(f: Fq12) -> Fq12 {
     result
 }
 
-fn f12_frobenius_map(f: &mut Fq12, power: usize) {
-    f6_frobenius_map(&mut f.c0, power);
-    f6_frobenius_map(&mut f.c1, power);
-    f.c1.mul_assign_by_fp2(Fq12Parameters::FROBENIUS_COEFF_FP12_C1[power % 12]);
+const F12_FROBENIUS_MAP_ROUND_COUNT: usize = 3;
+
+fn f12_frobenius_map(
+    f: &mut Fq12,
+    power: usize,
+    round: usize,
+) -> Fq12 {
+    match round {
+        0 => {
+            f6_frobenius_map(&mut f.c0, power); // ~ 17625
+        },
+        1 => {
+            f6_frobenius_map(&mut f.c1, power); // ~ 17637
+        },
+        2 => {
+            f.c1.mul_assign_by_fp2(Fq12Parameters::FROBENIUS_COEFF_FP12_C1[power % 12]);    // ~ 18065
+        }
+        _ => {}
+    }
+    *f
 }
 
-fn f6_frobenius_map(f: &mut Fq6, power: usize) {
+fn f6_frobenius_map(
+    f: &mut Fq6,
+    power: usize
+) {
     f2_frobenius_map(&mut f.c0, power);
     f2_frobenius_map(&mut f.c1, power);
     f2_frobenius_map(&mut f.c2, power);
@@ -373,6 +393,19 @@ mod tests {
 
         let expected = f.inverse().unwrap();
         let result = read_fq12(account.get_ram(F2_OFFSET, 12));
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    pub fn test_f12_frobenius_map() {
+        let mut result = get_f();
+        for round in 0..F12_FROBENIUS_MAP_ROUND_COUNT {
+            result = f12_frobenius_map(&mut result, 3, round);
+        }
+
+        let mut expected = get_f();
+        expected.frobenius_map(3);
 
         assert_eq!(result, expected);
     }
