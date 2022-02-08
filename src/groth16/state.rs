@@ -9,7 +9,7 @@ use super::super::error::ElusivError::{ InvalidStorageAccount, InvalidStorageAcc
 use super::super::scalar::*;
 
 pub const INPUTS_COUNT: usize = 2;
-pub const RAM_WORD_SIZE: usize = 32;
+pub const RAM_WORD_SIZE: usize = 64;
 
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 

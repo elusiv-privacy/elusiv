@@ -23,7 +23,7 @@ pub const FINAL_EXPONENTIATION_ROUNDS: [usize; 1] = [1];
 pub fn final_exponentiation(
     account: &mut ProofVerificationAccount,
 ) -> Fq12 {
-    let f = read_fq12(account.get_ram(F_OFFSET, 12));
+    let mut f = read_fq12(account.get_ram(F_OFFSET, 12));
 
     // ~ 285923 CUs
     // Inverse f
@@ -40,18 +40,26 @@ pub fn final_exponentiation(
     f2 = r;
 
     // ~ 53325
-    /*f12_frobenius_map(&mut r, 2);
+    for round in 0..F12_FROBENIUS_MAP_ROUND_COUNT {
+        f12_frobenius_map(&mut r, 2, round);
+    }
 
     r *= &f2;   // ~ 131961
 
-    let y0 = exp_by_neg_x(r);   // ~ 6_006_136
+    let mut y0 = exp_by_neg_x(r, account, F2_OFFSET + 12);
     
     let y1 = cyclotomic_square(y0);    // ~ 45634
     let y2 = cyclotomic_square(y1);    // ~ 45569
     let mut y3 = y2 * &y1;  // ~ 132119
-    let y4 = exp_by_neg_x(y3);  // ~ 6_009_534
+
+    let mut y4 = y3;
+    let y4 = exp_by_neg_x(y3, account, F2_OFFSET + 12);  // ~ 6_009_534
+
     let y5 = cyclotomic_square(y4);
-    let mut y6 = exp_by_neg_x(y5);
+
+    let mut y6 = y5;
+    let mut y6 = exp_by_neg_x(y5, account, F2_OFFSET + 12);
+
     y3.conjugate();
     y6.conjugate();
     let y7 = y6 * &y4;
@@ -60,16 +68,21 @@ pub fn final_exponentiation(
     let y10 = y8 * &y4;
     let y11 = y10 * &r;
     let mut y12 = y9;
-    f12_frobenius_map(&mut y12, 1);
+    for round in 0..F12_FROBENIUS_MAP_ROUND_COUNT {
+        f12_frobenius_map(&mut y12, 1, round);
+    }
     let y13 = y12 * &y11;
-    f12_frobenius_map(&mut y8, 2);
+    for round in 0..F12_FROBENIUS_MAP_ROUND_COUNT {
+        f12_frobenius_map(&mut y8, 2, round);
+    }
     let y14 = y8 * &y13;
     r.conjugate();
     let mut y15 = r * &y9;
-    f12_frobenius_map(&mut y15, 3);
+    for round in 0..F12_FROBENIUS_MAP_ROUND_COUNT {
+        f12_frobenius_map(&mut y15, 3, round);
+    }
     let y16 = y15 * &y14;
-    y16*/
-    f
+    y16
 }
 
 const F_OFFSET: usize = 0;
@@ -82,6 +95,11 @@ const T6_OFFSET: usize = 24;
 const V0A_OFFSET: usize = 26;
 
 const F2_OFFSET: usize = 12;
+
+const RES_OFFSET: usize = 24;
+const FE_OFFSET: usize = 36;
+const FE_INV_OFFSET: usize = 48;
+const FOUND_NONZ_OFFSET: usize = 60;
 
 // ### RAM usage:
 // Base:
@@ -98,6 +116,12 @@ const F2_OFFSET: usize = 12;
 // - s2 (2)
 // - t6 (2)
 // - v0a (1)
+//
+// exp_by_neg_x
+// - res
+// - fe
+// - fe_inv
+// - found_non_zero
 
 const F12_INVERSE_ROUND_COUNT: usize = 3 + F6_INVERSE_ROUND_COUNT;
 
@@ -220,6 +244,7 @@ fn f6_inverse(
 }
 
 fn cyclotomic_square(f: Fq12) -> Fq12 {
+    // TODO: Convert cyclotomic Square into rounds system
     let mut result = f;
     result.cyclotomic_square_in_place();
     result
@@ -258,120 +283,164 @@ fn f6_frobenius_map(
     f.c2 *= &Fq6Parameters::FROBENIUS_COEFF_FP6_C2[power % 6];
 }
 
+#[inline(always)]
 fn f2_frobenius_map(f: &mut Fq2, power: usize) {
     f.c1 *= &Fq2Parameters::FROBENIUS_COEFF_FP2_C1[power % 2];
 }
 
-fn exp_by_neg_x(mut f: Fq12) -> Fq12 {
-    f = cyclotomic_exp(&f, Parameters::X);
-    f.conjugate();
-    f
-}
+const EXP_BY_NEG_X_ROUND_COUNT: usize = 2 + CYCLOTOMIC_ROUNDS_LEN;
 
-fn cyclotomic_exp(fe: &Fq12, exponent: impl AsRef<[u64]>) -> Fq12 {
-    let mut res = Fq12::one();
-    let mut fe_inverse = *fe;
-    fe_inverse.conjugate();
+const CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT: usize = F12_MUL_ROUND_COUNT + 1;
+const CYCLOTOMIC_EXPRESSION_ROUND_COUNT: usize = X_WNAF_L * CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
 
-    let mut found_nonzero = false;
-    let naf = find_wnaf(exponent.as_ref()); // ~ 17213
+const CYCLOTOMIC_ROUNDS_LEN: usize = 3;
+const CYCLOTOMIC_ROUNDS: [(usize, usize); CYCLOTOMIC_ROUNDS_LEN] = [
+    (0, 2),
+    (2, 10),
+    (10, CYCLOTOMIC_EXPRESSION_ROUND_COUNT)
+];
+const CYCLOTOMIC_ROUNDS_LEN_PLUS_ONE: usize = CYCLOTOMIC_ROUNDS_LEN + 1;
 
-    // 130504
-    // 45286
-    // 45885
-    //
-    // 177466
-    //let mut i = 0;
-    //for &value in naf.iter().rev() {
-    for i in 0..WNAF_SIZE {
-        let value = naf[WNAF_SIZE - i - 1];
+const X_WNAF_L: usize = 63;
 
-        // ~ 45281
-        if found_nonzero { 
-            res.cyclotomic_square_in_place();
-        }
+/// Non-adjacent window form of exponent Parameters::X (u64: 4965661367192848881)
+/// NAF computed using: https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.394.3037&rep=rep1&type=pdf Page 98
+const X_WNAF: [i64; X_WNAF_L] = [1, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, -1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0, -1, 0, -1, 0, 1, 0, 1, 0, 0, -1, 0, 1, 0, 1, 0, -1, 0, 0, 1, 0, 1, 0, 0, 0, 1];
 
-        if value != 0 {
-            found_nonzero = true;
-
-            if value > 0 {  // 132364
-                res *= fe;
-            } else {    // 132044
-                res *= &fe_inverse;
-            }
+/// A
+/// - in the WNAF loop, we have `F12_MUL_ROUND_COUNT` * `X_WNAF_L` iterations (since we use `F12_MUL_ROUND_COUNT` per multiplication)
+/// - for the iterations in which we don't have any multiplication, we skip using a cost of 0 CUs
+/// - Question: more expensive to conjugate or to store and read?
+/// ### RAM usage:
+/// - fe
+/// - f_inverse
+fn exp_by_neg_x(
+    f: Fq12,
+    account: &mut ProofVerificationAccount,
+    offset: usize,
+) -> Fq12 {
+    let mut res = f;
+    for round in 0..EXP_BY_NEG_X_ROUND_COUNT {
+        match round {
+            0 => {
+                let mut fe_inverse = f;
+                fe_inverse.conjugate();
+    
+                write_fq12(&mut account.get_ram_mut(offset, 12), f);
+                write_fq12(&mut account.get_ram_mut(offset + 12, 12), fe_inverse);
+    
+                res = Fq12::one();
+            },
+            1..=CYCLOTOMIC_ROUNDS_LEN => { // Cyclotomic expression
+                let fe = read_fq12(account.get_ram(offset, 12));
+                let fe_inverse = read_fq12(account.get_ram(offset + 12, 12));
+                let (lower_round, upper_round) = CYCLOTOMIC_ROUNDS[round - 1];
+    
+                for i in lower_round..upper_round {
+                    let sub_round = i % CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
+                    let i = i / CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
+                    let value = X_WNAF[X_WNAF_L - 1 - i];
+    
+                    if sub_round == 0 {
+                        if i > 0 {
+                            res.cyclotomic_square_in_place();
+                        }
+                    } else {
+                        if value > 0 {
+                            f12_mul_assign(&mut res, &fe, account, offset + 24, sub_round - 1);
+                        } else if value < 0 {
+                            f12_mul_assign(&mut res, &fe_inverse, account, offset + 24, sub_round - 1);
+                        }
+                    }
+                }
+            },
+            CYCLOTOMIC_ROUNDS_LEN_PLUS_ONE => {
+                res.conjugate();
+            },
+            _ => { }
         }
     }
     res
 }
 
-const WNAF_SIZE: usize = 63;
+const F12_MUL_ROUND_COUNT: usize = 5;
 
-// What is the max WNAF length? (guess: 64 or 63)
-pub fn find_wnaf(num: &[u64]) -> Vec<i64> {
-    let is_zero = |num: &[u64]| num.iter().all(|x| *x == 0u64);
-    let is_odd = |num: &[u64]| num[0] & 1 == 1;
-    let sub_noborrow = |num: &mut [u64], z: u64| {
-        let mut other = vec![0u64; num.len()];
-        other[0] = z;
-        let mut borrow = 0;
+const F12_MUL_V0_LOFFSET: usize = 0;
+const F12_MUL_V1_LOFFSET: usize = 6;
 
-        for (a, b) in num.iter_mut().zip(other) {
-            *a = sbb(*a, b, &mut borrow);
-        }
-    };
-    let add_nocarry = |num: &mut [u64], z: u64| {
-        let mut other = vec![0u64; num.len()];
-        other[0] = z;
-        let mut carry = 0;
+// Karatsuba multiplication;
+// Guide to Pairing-based cryprography, Algorithm 5.16.
+/// [20000, 20000, 20000, 20000, 46000]
+fn f12_mul_assign(
+    a: &mut Fq12,
+    b: &Fq12,
+    account: &mut ProofVerificationAccount,
+    ram_offset: usize,
+    round: usize,
+) {
+    // ~ 42000
+    match round {
+        0 => {
+            let v0 = f6_mul(a.c0, b.c0, Fq6::zero(), 0);
+            write_fq6(account.get_ram_mut(F12_MUL_V0_LOFFSET + ram_offset, 6), v0);
+        },
+        1 => {
+            let mut v0 = read_fq6(account.get_ram_mut(F12_MUL_V0_LOFFSET + ram_offset, 6));
+            v0 = f6_mul(a.c0, b.c0, v0, 1);
+            write_fq6(account.get_ram_mut(F12_MUL_V0_LOFFSET + ram_offset, 6), v0);
+        },
+        2 => {
+            let v1 = f6_mul(a.c1, b.c1, Fq6::zero(), 0);
+            write_fq6(account.get_ram_mut(F12_MUL_V1_LOFFSET + ram_offset, 6), v1);
+        },
+        3 => {
+            let mut v1 = read_fq6(account.get_ram_mut(F12_MUL_V1_LOFFSET + ram_offset, 6));
+            v1 = f6_mul(a.c1, b.c1, v1, 1);
+            write_fq6(account.get_ram_mut(F12_MUL_V1_LOFFSET + ram_offset, 6), v1);
+        },
+        4 => {
+            let v0 = read_fq6(account.get_ram_mut(F12_MUL_V0_LOFFSET + ram_offset, 6));
+            let v1 = read_fq6(account.get_ram_mut(F12_MUL_V1_LOFFSET + ram_offset, 6));
 
-        for (a, b) in num.iter_mut().zip(other) {
-            *a = adc(*a, b, &mut carry);
-        }
-    };
-    let div2 = |num: &mut [u64]| {
-        let mut t = 0;
-        for i in num.iter_mut().rev() {
-            let t2 = *i << 63;
-            *i >>= 1;
-            *i |= t;
-            t = t2;
-        }
-    };
+            a.c1 += &a.c0;  // ~ 400
+            a.c1 *= &(b.c0 + &b.c1);    // ~ 43000
 
-    let mut num = num.to_vec();
-    let mut res = vec![];
-
-    while !is_zero(&num) {
-        let z: i64;
-        if is_odd(&num) {
-            z = 2 - (num[0] % 4) as i64;
-            if z >= 0 {
-                sub_noborrow(&mut num, z as u64)
-            } else {
-                add_nocarry(&mut num, (-z) as u64)
-            }
-        } else {
-            z = 0;
-        }
-        res.push(z);
-        div2(&mut num);
+            a.c1 -= &v0;    // ~ 400
+            a.c1 -= &v1;    // ~ 400
+            a.c0 = Fp12ParamsWrapper::<Fq12Parameters>::add_and_mul_base_field_by_nonresidue(&v0, &v1); // ~ 1831
+        },
+        _ => {}
     }
-
-    res
 }
 
-/// Calculate a + (b * c) + carry
-fn adc(a: u64, b: u64, carry: &mut u64) -> u64 {
-    let tmp = (a as u128) + (b as u128) + (*carry as u128);
-    *carry = (tmp >> 64) as u64;
-    tmp as u64
-}
+// Devegili OhEig Scott Dahab --- Multiplication and Squaring on
+// AbstractPairing-Friendly
+// Fields.pdf; Section 4 (Karatsuba)
+fn f6_mul(
+    lhs: Fq6,
+    rhs: Fq6,
+    p: Fq6,
+    round: usize,
+) -> Fq6 {
+    if round == 0 { // ~ 19000
+        Fq6::new(
+            lhs.c0 * rhs.c0,
+            lhs.c1 * rhs.c1,
+            lhs.c2 * rhs.c2,
+        )
+    } else if round == 1 { // ~ 24000
+        let x = (lhs.c1 + lhs.c2) * &(rhs.c1 + rhs.c2) - &p.c1 - &p.c2;
+        let y = (lhs.c0 + lhs.c1) * &(rhs.c0 + rhs.c1) - &p.c0 - &p.c1;
+        let z = (lhs.c0 + lhs.c2) * &(rhs.c0 + rhs.c2) - &p.c0 + &p.c1 - &p.c2;
 
-/// Calculate a - b - borrow
-fn sbb(a: u64, b: u64, borrow: &mut u64) -> u64 {
-    let tmp = (1u128 << 64) + (a as u128) - (b as u128) - (*borrow as u128);
-    *borrow = if tmp >> 64 == 0 { 1 } else { 0 };
-    tmp as u64
+        Fq6::new(
+            p.c0 + &Fp6ParamsWrapper::<Fq6Parameters>::mul_base_field_by_nonresidue(&x),
+            y + &Fp6ParamsWrapper::<Fq6Parameters>::mul_base_field_by_nonresidue(&p.c2),
+            z,
+        )
+    } else {
+        p
+    }
 }
 
 #[cfg(test)]
@@ -393,6 +462,21 @@ mod tests {
 
         let expected = f.inverse().unwrap();
         let result = read_fq12(account.get_ram(F2_OFFSET, 12));
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    pub fn test_f12_mul_assign() {
+        let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
+        let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
+
+        let expected = get_f() * get_f();
+
+        let mut result = get_f();
+        for round in 0..F12_MUL_ROUND_COUNT {
+            f12_mul_assign(&mut result, &get_f(), &mut account, 0, round);
+        }
 
         assert_eq!(result, expected);
     }
