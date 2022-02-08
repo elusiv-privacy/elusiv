@@ -294,15 +294,55 @@ fn init_withdraw(
 fn verify_withdraw(
     withdraw_account: &mut ProofVerificationAccount,
 ) -> ProgramResult {
+    use groth16::*;
+    use ark_bn254::{ Fq12, Fq6, Fq2, Fq };
+    use std::str::FromStr;
 
     let iteration = withdraw_account.get_current_iteration();
 
-    if iteration < groth16::PREPARE_INPUTS_ITERATIONS {    // Prepare inputs
-        groth16::partial_prepare_inputs(withdraw_account, iteration)?;
+    /*if iteration < PREPARE_INPUTS_ITERATIONS {    // Prepare inputs
+        partial_prepare_inputs(withdraw_account, iteration)?;
     } else
-    if iteration < groth16::PREPARE_INPUTS_ITERATIONS + groth16::MILLER_LOOP_ITERATIONS {   // Compute the miller value
-        groth16::partial_miller_loop(withdraw_account, iteration - groth16::PREPARE_INPUTS_ITERATIONS)?;
-    }
+    if iteration < PREPARE_INPUTS_ITERATIONS + MILLER_LOOP_ITERATIONS {   // Compute the miller value
+        partial_miller_loop(withdraw_account, iteration - PREPARE_INPUTS_ITERATIONS)?;
+    } else
+    if iteration < PREPARE_INPUTS_ITERATIONS + MILLER_LOOP_ITERATIONS + FINAL_EXPONENTIATION_ITERATIONS {
+        */
+        let f = Fq12::new(
+            Fq6::new(
+                Fq2::new(
+                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+                    Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+                ),
+            ),
+            Fq6::new(
+                Fq2::new(
+                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+                ),
+            ),
+        );
+        //let f = read_miller_value(withdraw_account);
+        write_fq12(withdraw_account.get_ram_mut(0, 12), f);
+        final_exponentiation(withdraw_account);
+    //}
+    solana_program::msg!("123123");
 
     withdraw_account.inc_current_iteration(1);
 

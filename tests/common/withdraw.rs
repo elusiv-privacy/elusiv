@@ -36,13 +36,13 @@ pub async fn withdraw_transaction(payer: &Keypair, _recipient: Pubkey, recent_bl
     });
 
     // Compute verification
-    for _ in 0..groth16::ITERATIONS {
+    /*for _ in 0..1 {
         instructions.push(Instruction {
             program_id: elusiv::id(),
             accounts: vec![ AccountMeta::new(withdraw_account_id(), false) ],
             data: vec![4],
         });
-    }
+    }*/
 
     /*
 

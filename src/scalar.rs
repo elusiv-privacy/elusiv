@@ -1,4 +1,4 @@
-use ark_bn254::{ Fr, Fq, Fq2, G1Affine, G2Affine, G1Projective, G2Projective };
+use ark_bn254::{ Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective, G2Projective };
 use ark_ff::*;
 use std::str::FromStr;
 use byteorder::{ ByteOrder, LittleEndian };
@@ -135,18 +135,59 @@ pub fn read_fq2_le_montgomery(bytes: &[u8]) -> Fq2 {
     )
 }
 
+pub fn write_fq(buffer: &mut [u8], q: Fq) {
+    let mut bytes: Vec<u8> = vec![];
+    q.0.write(&mut bytes).unwrap();
+
+    for i in 0..32 { buffer[i] = bytes[i]; }
+}
+
+pub fn read_fq(buffer: &[u8]) -> Fq {
+    read_le_montgomery(&buffer)
+}
+
 pub fn write_fq2(buffer: &mut [u8], q: Fq2) {
     let mut bytes: Vec<u8> = vec![];
     q.c0.0.write(&mut bytes).unwrap();
     q.c1.0.write(&mut bytes).unwrap(); 
 
-    for i in 0..64 {
-        buffer[i] = bytes[i];
-    }
+    for i in 0..64 { buffer[i] = bytes[i]; }
 }
 
 pub fn read_fq2(buffer: &[u8]) -> Fq2 {
     read_fq2_le_montgomery(&buffer)
+}
+
+pub fn read_fq6(buffer: &[u8]) -> Fq6 {
+    Fq6::new(
+        read_fq2_le_montgomery(&buffer[..64]),
+        read_fq2_le_montgomery(&buffer[64..128]),
+        read_fq2_le_montgomery(&buffer[128..192]),
+    )
+}
+
+pub fn write_fq6(buffer: &mut [u8], q: Fq6) {
+    let mut bytes: Vec<u8> = vec![0; 192];
+    write_fq2(&mut bytes[..64], q.c0);
+    write_fq2(&mut bytes[64..128], q.c1);
+    write_fq2(&mut bytes[128..192], q.c2);
+
+    for i in 0..192 { buffer[i] = bytes[i]; }
+}
+
+pub fn write_fq12(buffer: &mut [u8], q: Fq12) {
+    let mut bytes: Vec<u8> = vec![0; 384];
+    write_fq6(&mut bytes[..192], q.c0);
+    write_fq6(&mut bytes[192..384], q.c1);
+
+    for i in 0..384 { buffer[i] = bytes[i]; }
+}
+
+pub fn read_fq12(buffer: &[u8]) -> Fq12 {
+    Fq12::new(
+        read_fq6(&buffer[..192]),
+        read_fq6(&buffer[192..384]),
+    )
 }
 
 pub fn write_fq2_le_montgomery(q: Fq2) -> Vec<u8> {

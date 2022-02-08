@@ -10,7 +10,7 @@ use common::*;
 
 #[tokio::test]
 async fn test_full_miller() {
-    capture_compute_units();
+    //capture_compute_units();
 
     // Check that gamma_abc_g1 match in the verifying keys
     assert_eq!(

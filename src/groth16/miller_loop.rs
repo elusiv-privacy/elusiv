@@ -5,6 +5,8 @@ use ark_ff::*;
 use super::super::scalar::*;
 use super::super::state::ProofVerificationAccount;
 
+// TODO: mul_by_034, square_in_place
+
 /// Inverse of 2 (in q)
 /// - Calculated using: Fq::one().double().inverse().unwrap()
 pub const TWO_INV: Fq = Fq::new(BigInteger256::new([9781510331150239090, 15059239858463337189, 10331104244869713732, 2249375503248834476]));
@@ -18,8 +20,8 @@ struct G2HomProjective {
     pub z: Fq2,
 }
 
-pub const MILLER_LOOP_ITERATIONS: usize = 123;
-const ITERATION_ROUNDS: [usize; MILLER_LOOP_ITERATIONS] = [18, 17, 12, 24, 9, 17, 14, 24, 25, 15, 8, 17, 25, 14, 8, 17, 10, 17, 12, 24, 25, 15, 24, 9, 17, 14, 24, 25, 15, 8, 17, 10, 17, 12, 24, 25, 15, 8, 17, 25, 14, 24, 25, 15, 24, 25, 15, 8, 17, 25, 14, 24, 9, 17, 14, 24, 25, 15, 8, 17, 10, 17, 12, 8, 17, 25, 14, 24, 25, 15, 24, 9, 17, 14, 24, 9, 17, 14, 24, 25, 15, 8, 17, 25, 14, 8, 17, 10, 17, 12, 24, 25, 15, 8, 17, 25, 14, 24, 9, 17, 14, 8, 17, 25, 14, 24, 9, 17, 14, 24, 9, 17, 14, 24, 9, 17, 14, 24, 25, 15, 23, 16, 10];
+pub const MILLER_LOOP_ITERATIONS: usize = 337;
+const ITERATION_ROUNDS: [usize; MILLER_LOOP_ITERATIONS] = [8, 3, 3, 7, 6, 3, 9, 4, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 18, 8, 3, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 3, 7, 3, 3, 9, 4, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 3, 7, 3, 3, 9, 4, 3, 18, 8, 3, 3, 18, 8, 3, 3, 18, 9, 3, 3, 6, 7, 3, 1];
 const MAIN_ROUNDS: usize = 2048;
 const FULL_ROUNDS: usize = ADDITION_ROUNDS + DOUBLING_ROUNDS + 2 * ELL_ROUNDS + 2;
 
@@ -50,7 +52,7 @@ pub fn partial_miller_loop(
         if i < 64 { // Main loop (64 + 25 coefficients)
             let round = round % FULL_ROUNDS;
             if round == 0 {
-                if i > 0 {
+                if i > 0 {  // ~ 87084 CUs
                     let mut miller_value = read_miller_value(account);    
                     miller_value.square_in_place();
                     write_miller_value(account, miller_value);
@@ -142,7 +144,7 @@ const H_OFFSET: usize = 30;
 // - h (2 words)
 
 /// Formula for line function when working with homogeneous projective coordinates
-/// - CUs: [6500, 6500, 15000, 11000, 24000, 13000]
+/// - CUs: [12673, 23173, 15199, 27102, 12907, 12661]
 fn addition_round(
     account: &mut ProofVerificationAccount,
     r: &mut G2HomProjective,
@@ -150,55 +152,55 @@ fn addition_round(
     round: usize,
 ) {
     match round {
-        0 => { // compute lambda and store as 1st coeff element (~ 6500 CUs)
-            let lambda = r.x - &(q.x * &r.z);   // 6531
+        0 => { // compute lambda and store as 1st coeff element (~ 12673 CUs)
+            let lambda = r.x - &(q.x * &r.z);
 
             write_fq2(account.get_ram_mut(LAMBDA_OFFSET, 2), lambda);
             set_coeff_element(account, 0, lambda);
         },
-        1 => { // compute theta and store as 2nd coeff element (~ 6500 CUs)
-            let theta = r.y - &(q.y * &r.z);    // 6541
+        1 => { // compute theta and store as 2nd coeff element (~ 12746 CUs)
+            let theta = r.y - &(q.y * &r.z);
 
             write_fq2(account.get_ram_mut(THETHA_OFFSET, 2), theta);
             set_coeff_element(account, 1, -theta);
         },
-        2 => { // e, g (~ 15000 CUs)
+        2 => { // e, g (~ 23173 CUs)
             let lambda = read_fq2(account.get_ram(LAMBDA_OFFSET, 2));
 
-            let d = lambda.square();    // 4113
-            let e = lambda * &d;    // 6230
-            let g = r.x * &d;   // 6229
+            let d = lambda.square();
+            let e = lambda * &d;
+            let g = r.x * &d;
 
             write_fq2(account.get_ram_mut(E_OFFSET, 2), e);
             write_fq2(account.get_ram_mut(G_OFFSET, 2), g);
         },
-        3 => { // c, h (~ 11000 CUs)
+        3 => { // c, h (~ 15199 CUs)
             let theta = read_fq2(account.get_ram(THETHA_OFFSET, 2));
             let e = read_fq2(account.get_ram(E_OFFSET, 2));
             let g = read_fq2(account.get_ram(G_OFFSET, 2));
 
-            let c = theta.square(); // 4132
-            let f = r.z * &c;   // 6241
-            let h = e + &f - &g.double();   // 654
+            let c = theta.square();
+            let f = r.z * &c;
+            let h = e + &f - &g.double();
 
             write_fq2(account.get_ram_mut(H_OFFSET, 2), h);
         },
-        4 => { // Assign to r (~ 24000 CUs)
+        4 => { // Assign to r (~ 27102 CUs)
             let theta = read_fq2(account.get_ram(THETHA_OFFSET, 2));
             let lambda = read_fq2(account.get_ram(LAMBDA_OFFSET, 2));
             let e = read_fq2(account.get_ram(E_OFFSET, 2));
             let g = read_fq2(account.get_ram(G_OFFSET, 2));
             let h = read_fq2(account.get_ram(H_OFFSET, 2));
 
-            r.x = lambda * &h;  // 6238
-            r.y = theta * &(g - &h) - &(e * &r.y);  // 12907
-            r.z *= &e;  // 6055
+            r.x = lambda * &h;
+            r.y = theta * &(g - &h) - &(e * &r.y);
+            r.z *= &e;
         },
-        5 => { // compute the last coeff element (~ 13000 CUs)
+        5 => { // compute the last coeff element (~ 16506 CUs)
             let theta = read_fq2(account.get_ram(THETHA_OFFSET, 2));
             let lambda = read_fq2(account.get_ram(LAMBDA_OFFSET, 2));
 
-            let j = theta * &q.x - &(lambda * &q.y);    // 12661
+            let j = theta * &q.x - &(lambda * &q.y);
 
             set_coeff_element(account, 2, j);
         },
@@ -216,34 +218,34 @@ const COEFF_B: Fq2 = field_new!(Fq2,
 const DOUBLING_ROUNDS: usize = 6;
 
 /// Formula for line function when working with homogeneous projective coordinates
-/// - CUs: [10000, 11000, 8000, 18000, 11000, 15000]
+/// - CUs: [13078, 16767, 25817, 15379, 15070, 5567]
 fn doubling_round(
     account: &mut ProofVerificationAccount,
     r: &mut G2HomProjective,
     round: usize,
 ) {
     match round {
-        0 => {  // a (~ 10000 CUs)
-            let mut a = r.x * &r.y; // 6272 + 3780
+        0 => {  // a (~ 13078 CUs)
+            let mut a = r.x * &r.y;
             a.mul_assign_by_fp(&TWO_INV);
 
             write_fq2(account.get_ram_mut(A_OFFSET, 2), a);
         },
-        1 => { // c, e (~ 11000 CUs)
-            let c = r.z.square();   // 4159
-            let e = COEFF_B * &(c.double() + &c);   // 6541
+        1 => { // c, e (~ 16767 CUs)
+            let c = r.z.square();
+            let e = COEFF_B * &(c.double() + &c);
 
             write_fq2(account.get_ram_mut(C_OFFSET, 2), c);
             write_fq2(account.get_ram_mut(E_OFFSET, 2), e);
         },
-        2 => { // b, f, d set 3. coeff element (~ 8000 CUs)
+        2 => { // b, f, d set 3. coeff element (~ 25817 CUs)
             let e = read_fq2(account.get_ram(E_OFFSET, 2));
 
-            let f = e.double() + &e; // 325 + 4325 + 364
+            let f = e.double() + &e;
             let b = r.y.square();
             let i = e - &b;
 
-            let mut g = b + &f; // 278 + 3773 + k
+            let mut g = b + &f;
             g.mul_assign_by_fp(&TWO_INV);
             g = g.square();
 
@@ -253,33 +255,33 @@ fn doubling_round(
 
             set_coeff_element(account, 2, i);
         },
-        3 => {  // set 2. coeff element & set r.x (~ 18000 CUs)
+        3 => {  // set 2. coeff element & set r.x (~ 15379 CUs)
             let a = read_fq2(account.get_ram(A_OFFSET, 2));
             let b = read_fq2(account.get_ram(B_OFFSET, 2));
             let f = read_fq2(account.get_ram(F_OFFSET, 2));
 
             let mut j = r.x.square();
             j = j.double() + &j;
-            r.x = a * &(b - &f);    // 6499
+            r.x = a * &(b - &f);
 
             set_coeff_element(account, 1, j);
         },
-        4 => {  // set 1. coeff element & assign r.z (~ 11000 CUs)
+        4 => {  // set 1. coeff element & assign r.z (~ 15070 CUs)
             let b = read_fq2(account.get_ram(B_OFFSET, 2));
             let c = read_fq2(account.get_ram(C_OFFSET, 2));
 
-            let h = (r.y + &r.z).square() - &(b + &c);  // 4945 + 6215 + x
+            let h = (r.y + &r.z).square() - &(b + &c);
             r.z = b * &h;
 
             set_coeff_element(account, 0, -h);
         },
-        5 => {  // set r.y (~ 15000 CUs)
+        5 => {  // set r.y (~ 5567 CUs)
             let e = read_fq2(account.get_ram(E_OFFSET, 2));
             let g = read_fq2(account.get_ram(G_OFFSET, 2));
 
-            let e_square = e.square();  // 4157
+            let e_square = e.square();
 
-            r.y = g - &(e_square.double() + &e_square);    // 4769 - k
+            r.y = g - &(e_square.double() + &e_square);
         },
         _ => {}
     }
@@ -288,7 +290,7 @@ fn doubling_round(
 const ELL_ROUNDS: usize = 9;
 
 /// Evaluates the line function at point p
-/// - CUs: [11000, 11000, 11000, 11000, 11000, 11000, 11000, 11000, 11000]
+/// - CUs: [8000, 8000, 90000, 8000, 8000, 90000, 8000, 8000, 90000]
 fn ell_round(
     account: &mut ProofVerificationAccount,
     round: usize,
@@ -298,21 +300,21 @@ fn ell_round(
 
     match round {
         // Multiply `a` by first coeff values
-        0 => {
+        0 => {  // ~ 7692 CUs
             let a = read_g1_affine(account.proof_a);
             let mut c0 = get_coeff_element(account, 0);
             c0.mul_assign_by_fp(&a.y);
 
             set_coeff_element(account, 0, c0);
         },
-        1 => {
+        1 => {  // ~ 7699
             let a = read_g1_affine(account.proof_a);
             let mut c1 = get_coeff_element(account, 1);
             c1.mul_assign_by_fp(&a.x);
 
             set_coeff_element(account, 1, c1);
         },
-        2 => {
+        2 => {  // ~ 89310
             miller_value.mul_by_034(
                 &get_coeff_element(account, 0),
                 &get_coeff_element(account, 1),
@@ -321,21 +323,21 @@ fn ell_round(
         },
 
         // Multiply `p_inputs` by second coeff values
-        3 => {
+        3 => {  // ~ 7906
             let p_inputs = read_g1_affine(account.p_inputs);
             let mut c0 = super::gamma_g2_neg_pc(coeff_ic).0;
             c0.mul_assign_by_fp(&p_inputs.y);
 
             set_coeff_element(account, 0, c0);
         },
-        4 => {
+        4 => {  // ~ 7906
             let p_inputs = read_g1_affine(account.p_inputs);
             let mut c1 = super::gamma_g2_neg_pc(coeff_ic).1;
             c1.mul_assign_by_fp(&p_inputs.x);
 
             set_coeff_element(account, 1, c1);
         },
-        5 => {
+        5 => {  // ~ 89985
             miller_value.mul_by_034(
                 &get_coeff_element(account, 0),
                 &get_coeff_element(account, 1),
@@ -344,21 +346,21 @@ fn ell_round(
         },
 
         // Multiply `c` by third coeff values
-        6 => {
+        6 => {  // ~ 7913
             let c = read_g1_affine(account.proof_c);
             let mut c0 = super::delta_g2_neg_pc(coeff_ic).0;
             c0.mul_assign_by_fp(&c.y);
 
             set_coeff_element(account, 0, c0);
         },
-        7 => {
+        7 => {  // ~ 7903
             let c = read_g1_affine(account.proof_c);
             let mut c1 = super::delta_g2_neg_pc(coeff_ic).1;
             c1.mul_assign_by_fp(&c.x);
 
             set_coeff_element(account, 1, c1);
         },
-        8 => {
+        8 => {  // ~ 90117
             miller_value.mul_by_034(
                 &get_coeff_element(account, 0),
                 &get_coeff_element(account, 1),
