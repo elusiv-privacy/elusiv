@@ -46,19 +46,28 @@ pub fn final_exponentiation(
 
     r *= &f2;   // ~ 131961
 
-    let mut y0 = exp_by_neg_x(r, account, F2_OFFSET + 12);
+    let mut y0 = r;
+    for round in 0..EXP_BY_NEG_X_ROUND_COUNT {
+        y0 = exp_by_neg_x(y0, account, F2_OFFSET + 12, round);
+    }
     
     let y1 = cyclotomic_square(y0);    // ~ 45634
     let y2 = cyclotomic_square(y1);    // ~ 45569
     let mut y3 = y2 * &y1;  // ~ 132119
 
     let mut y4 = y3;
-    let y4 = exp_by_neg_x(y3, account, F2_OFFSET + 12);  // ~ 6_009_534
+    for round in 0..EXP_BY_NEG_X_ROUND_COUNT {
+        y4 = exp_by_neg_x(y4, account, F2_OFFSET + 12, round);
+    }
+    //let y4 = exp_by_neg_x(y3, account, F2_OFFSET + 12);  // ~ 6_009_534
 
     let y5 = cyclotomic_square(y4);
 
     let mut y6 = y5;
-    let mut y6 = exp_by_neg_x(y5, account, F2_OFFSET + 12);
+    for round in 0..EXP_BY_NEG_X_ROUND_COUNT {
+        y6 = exp_by_neg_x(y6, account, F2_OFFSET + 12, round);
+    }
+    //let mut y6 = exp_by_neg_x(y5, account, F2_OFFSET + 12);
 
     y3.conjugate();
     y6.conjugate();
@@ -318,49 +327,53 @@ fn exp_by_neg_x(
     f: Fq12,
     account: &mut ProofVerificationAccount,
     offset: usize,
+    round: usize,
 ) -> Fq12 {
     let mut res = f;
-    for round in 0..EXP_BY_NEG_X_ROUND_COUNT {
-        match round {
-            0 => {
-                let mut fe_inverse = f;
-                fe_inverse.conjugate();
-    
-                write_fq12(&mut account.get_ram_mut(offset, 12), f);
-                write_fq12(&mut account.get_ram_mut(offset + 12, 12), fe_inverse);
-    
-                res = Fq12::one();
-            },
-            1..=CYCLOTOMIC_ROUNDS_LEN => { // Cyclotomic expression
-                let fe = read_fq12(account.get_ram(offset, 12));
-                let fe_inverse = read_fq12(account.get_ram(offset + 12, 12));
-                let (lower_round, upper_round) = CYCLOTOMIC_ROUNDS[round - 1];
-    
-                for i in lower_round..upper_round {
-                    let sub_round = i % CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
-                    let i = i / CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
-                    let value = X_WNAF[X_WNAF_L - 1 - i];
-    
-                    if sub_round == 0 {
-                        if i > 0 {
-                            res.cyclotomic_square_in_place();
-                        }
-                    } else {
-                        if value > 0 {
-                            f12_mul_assign(&mut res, &fe, account, offset + 24, sub_round - 1);
-                        } else if value < 0 {
-                            f12_mul_assign(&mut res, &fe_inverse, account, offset + 24, sub_round - 1);
-                        }
+    match round {
+        0 => {
+            let mut fe_inverse = f;
+            fe_inverse.conjugate();
+
+            write_fq12(&mut account.get_ram_mut(offset, 12), f);
+            write_fq12(&mut account.get_ram_mut(offset + 12, 12), fe_inverse);
+
+            Fq12::one()
+        },
+        1..=CYCLOTOMIC_ROUNDS_LEN => { // Cyclotomic expression
+            let fe = read_fq12(account.get_ram(offset, 12));
+            let fe_inverse = read_fq12(account.get_ram(offset + 12, 12));
+            let (lower_round, upper_round) = CYCLOTOMIC_ROUNDS[round - 1];
+            
+            let mut res = f;
+
+            for i in lower_round..upper_round {
+                let sub_round = i % CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
+                let i = i / CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
+                let value = X_WNAF[X_WNAF_L - 1 - i];
+
+                if sub_round == 0 {
+                    if i > 0 {
+                        res.cyclotomic_square_in_place();
+                    }
+                } else {
+                    if value > 0 {
+                        f12_mul_assign(&mut res, &fe, account, offset + 24, sub_round - 1);
+                    } else if value < 0 {
+                        f12_mul_assign(&mut res, &fe_inverse, account, offset + 24, sub_round - 1);
                     }
                 }
-            },
-            CYCLOTOMIC_ROUNDS_LEN_PLUS_ONE => {
-                res.conjugate();
-            },
-            _ => { }
-        }
+            }
+
+            res
+        },
+        CYCLOTOMIC_ROUNDS_LEN_PLUS_ONE => {
+            let mut res = f;
+            res.conjugate();
+            res
+        },
+        _ => { f }
     }
-    res
 }
 
 const F12_MUL_ROUND_COUNT: usize = 5;
@@ -447,7 +460,7 @@ fn f6_mul(
 mod tests {
     use super::*;
     use std::str::FromStr;
-    use ark_ec::PairingEngine;
+    use ark_ec::{ PairingEngine, models::bn::BnParameters };
     use ark_bn254::{ Fq, Bn254 };
 
     #[test]
@@ -490,6 +503,21 @@ mod tests {
 
         let mut expected = get_f();
         expected.frobenius_map(3);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    pub fn test_exp_by_neg_x() {
+        let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
+        let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
+
+        let mut result = get_f();
+        for round in 0..EXP_BY_NEG_X_ROUND_COUNT {
+            result = exp_by_neg_x(result, &mut account, 0, round);
+        }
+
+        let expected = original_exp_by_neg_x(get_f());
 
         assert_eq!(result, expected);
     }
@@ -540,5 +568,13 @@ mod tests {
                 ),
             ),
         )
+    }
+
+    fn original_exp_by_neg_x(f: Fq12) -> Fq12 {
+        let mut f = f.cyclotomic_exp(&Parameters::X);
+        if !Parameters::X_IS_NEGATIVE {
+            f.conjugate();
+        }
+        f
     }
 }
