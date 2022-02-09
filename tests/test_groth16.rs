@@ -31,18 +31,18 @@ async fn test_full_miller() {
     assert_matches!(banks_client.process_transaction(t).await, Ok(()));
 
     // Storage account
-    let mut account = get_account_data(&mut banks_client, withdraw_account_id()).await;
-    let account = ProofVerificationAccount::from_data(&mut account).unwrap();
+    //let mut account = get_account_data(&mut banks_client, withdraw_account_id()).await;
+    //let account = ProofVerificationAccount::from_data(&mut account).unwrap();
 
     // Check if values are parsed correctly into account
-    assert_eq!(read_g1_affine(account.proof_a), proof.a());
+    //assert_eq!(read_g1_affine(account.proof_a), proof.a());
     //assert_eq!(read_g2_affine(account.proof_b), proof.b()); -> b is overwritten in preparation
-    assert_eq!(read_g1_affine(account.proof_c), proof.c());
+    //assert_eq!(read_g1_affine(account.proof_c), proof.c());
 
     // Check if prepared_inputs match
-    let prepared_inputs = read_g1_affine(&account.p_inputs);
+    //let prepared_inputs = read_g1_affine(&account.p_inputs);
     
-    let pvk = ark_pvk();
+    /*let pvk = ark_pvk();
     let inputs = vec![ from_str_10(inputs[0]), from_str_10(inputs[1]), ];
     let expected_inputs = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
 
@@ -59,5 +59,6 @@ async fn test_full_miller() {
         .iter()
     );
 
-    assert_eq!(result, miller);
+    assert_eq!(result, miller);*/
+    panic!()
 }

@@ -1,4 +1,4 @@
-use solana_program::entrypoint::ProgramResult;
+/*use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use ark_bn254::{ Fq12, G1Affine, G1Projective };
 use ark_ec::{
@@ -173,4 +173,4 @@ mod tests {
             G1Affine::from(expect),
         );
     }
-}
+}*/

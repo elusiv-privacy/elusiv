@@ -1,4 +1,4 @@
-use solana_program::entrypoint::ProgramResult;
+/*use solana_program::entrypoint::ProgramResult;
 use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G2Affine, Parameters };
 use ark_ec::models::bn::BnParameters;
 use ark_ff::*;
@@ -659,4 +659,4 @@ mod tests {
 
         account
     }
-}
+}*/

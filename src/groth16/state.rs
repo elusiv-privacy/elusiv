@@ -3,93 +3,33 @@ use super::super::storage_account::*;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use byteorder::{ ByteOrder, LittleEndian };
-use ark_bn254::{ Fq2, G2Projective };
-use ark_ff::{ One };
+use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G2Projective };
+use ark_ff::*;
+use super::lazy_stack::LazyHeapStack;
 use super::super::error::ElusivError::{ InvalidStorageAccount, InvalidStorageAccountSize };
 use super::super::scalar::*;
 
-pub const INPUTS_COUNT: usize = 2;
-pub const RAM_WORD_SIZE: usize = 64;
+const ZERO_1: Fq = field_new!(Fq, "0");
+const ZERO_2: Fq2 = field_new!(Fq2, ZERO_1, ZERO_1);
+const ZERO_6: Fq6 = field_new!(Fq6, ZERO_2, ZERO_2, ZERO_2);
+const ZERO_12: Fq12 = field_new!(Fq12, ZERO_6, ZERO_6);
+
+pub const STACK_FQ_SIZE: usize = 20;
+pub const STACK_FQ6_SIZE: usize = 7;
+pub const STACK_FQ12_SIZE: usize = 6;
 
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 
 pub struct ProofVerificationAccount<'a> {
-    //////////////////////////////////////////////////////////////////////////////
-    // Cached values
+    data: &'a mut [u8],
 
-    /// Computation iteration 
-    /// - `u32`
-    current_iteration: &'a mut [u8],
-
-    /// Computation round (multiple rounds in each iteration)
-    /// - `u32`
-    current_round: &'a mut [u8],
-
-    /// RAM used for caching values for next instruction/round
-    /// - `RAM_WORD_SIZE` 32 byte words
-    computation_ram: &'a mut [u8],
-
-    //////////////////////////////////////////////////////////////////////////////
-    // Inputs preparation
-
-    /// Original inputs
-    /// - `[u8; INPUTS_COUNT * 256]`
-    /// - big endian
-    /// - stored as bits (1 true, 0 false)
-    /// - leading bits are replaced by the value 2
-    input_bits: &'a mut [u8],
-
-    /// Prepared inputs
-    /// - `G1Projective`
-    /// - x: 32 bytes
-    /// - y: 32 bytes
-    /// - z: 32 bytes
-    pub p_inputs: &'a mut [u8],
-
-    //////////////////////////////////////////////////////////////////////////////
-    // Proof
-
-    //TODO: Save A and C as G1Projective
-    /// A value of the proof
-    /// - `G1Affine` -> 65 bytes
-    pub proof_a: &'a mut [u8],
-
-    /// C value of the proof
-    /// - `G1Affine` -> 65 bytes
-    pub proof_c: &'a mut [u8],
-
-    /// B value of the proof
-    /// - `G2Affine` -> 130 bytes
-    pub proof_b: &'a mut [u8],
-
-    /// B value negated
-    pub b_neg: &'a mut [u8],
-
-    /// r value for b computation
-    /// - `G2HomProjective` (basically as G2Affine)
-    /// - 130 bytes
-    pub b_homo_r: &'a mut [u8],
-
-    // Insertion pointer pointing to next free coeffient field
-    // - u32
-    coeff_ic: &'a mut [u8],
-
-    //////////////////////////////////////////////////////////////////////////////
-    // Withdraw data
-
-    /// Amount
-    /// - `u64`
-    /// - 8 bytes
-    amount: &'a mut [u8],
-
-    /// Nullifier hash
-    /// - `Scalar`
-    /// - 32 bytes
-    nullifier_hash: &'a mut [u8],
+    pub stack_fq: LazyHeapStack<Fq>,
+    pub stack_fq6: LazyHeapStack<Fq6>,
+    pub stack_fq12: LazyHeapStack<Fq12>,
 }
 
 impl<'a> ProofVerificationAccount<'a> {
-    pub const TOTAL_SIZE: usize = 4 + 4 + INPUTS_COUNT * 256 + G1PROJECTIVE_SIZE + RAM_WORD_SIZE * 32 + G1AFFINE_SIZE + G1AFFINE_SIZE + G2AFFINE_SIZE + G2AFFINE_SIZE + G2PROJECTIVE_SIZE + 4 + 8 + 32;
+    pub const TOTAL_SIZE: usize = (STACK_FQ_SIZE + STACK_FQ6_SIZE * 6 + STACK_FQ12_SIZE * 12) * 32;
 
     pub fn new(
         account_info: &solana_program::account_info::AccountInfo,
@@ -98,7 +38,6 @@ impl<'a> ProofVerificationAccount<'a> {
     ) -> Result<Self, ProgramError> {
         if account_info.owner != program_id { return Err(InvalidStorageAccount.into()); }
         if !account_info.is_writable { return Err(InvalidStorageAccount.into()); }
-        //if *account_info.key != id() { return Err(InvalidStorageAccount.into()); }
 
         Self::from_data(data) 
     }
@@ -106,38 +45,25 @@ impl<'a> ProofVerificationAccount<'a> {
     pub fn from_data(data: &'a mut [u8]) -> Result<Self, ProgramError> {
         if data.len() != Self::TOTAL_SIZE { return Err(InvalidStorageAccountSize.into()); }
 
-        let (current_iteration, data) = data.split_at_mut(4);
-        let (current_round, data) = data.split_at_mut(4);
-        let (input_bits, data) = data.split_at_mut(INPUTS_COUNT * 256);
-        let (p_inputs, data) = data.split_at_mut(G1PROJECTIVE_SIZE);
-
-        let (computation_ram, data) = data.split_at_mut(RAM_WORD_SIZE * 32);
-
-        let (proof_a, data) = data.split_at_mut(G1AFFINE_SIZE);
-        let (proof_c, data) = data.split_at_mut(G1AFFINE_SIZE);
-        let (proof_b, data) = data.split_at_mut(G2AFFINE_SIZE);
-        let (b_neg, data) = data.split_at_mut(G2AFFINE_SIZE);
-        let (b_homo_r, data) = data.split_at_mut(G2PROJECTIVE_SIZE);
-        let (coeff_ic, data) = data.split_at_mut(4);
-
-        let (amount, data) = data.split_at_mut(8);
-        let (nullifier_hash, _) = data.split_at_mut(32);
+        let stack_fq = LazyHeapStack {
+            stack: vec![ZERO_1; STACK_FQ_SIZE],
+            stack_pointer: 0,
+        };
+        let stack_fq6 = LazyHeapStack {
+            stack: vec![ZERO_6; STACK_FQ6_SIZE],
+            stack_pointer: 0,
+        };
+        let stack_fq12 = LazyHeapStack {
+            stack: vec![ZERO_12; STACK_FQ12_SIZE],
+            stack_pointer: 0,
+        };
 
         Ok(
             ProofVerificationAccount {
-                current_iteration,
-                current_round,
-                input_bits,
-                p_inputs,
-                computation_ram,
-                proof_a,
-                proof_c,
-                proof_b,
-                b_neg,
-                b_homo_r,
-                coeff_ic,
-                amount,
-                nullifier_hash,
+                data,
+                stack_fq,
+                stack_fq6,
+                stack_fq12,
             }
         )
     }
@@ -152,30 +78,6 @@ impl<'a> ProofVerificationAccount<'a> {
         // Parse inputs
         // - leading zeros are padded as the value 2
         // - big endian
-        for i in 0..inputs.len() {
-            let bits = bit_encode(inputs[i]);
-            for j in 0..256 {
-                self.input_bits[i * 256 + j] = bits[j];
-            }
-        }
-
-        // Store amount
-
-        // Store nullifier_hash
-
-        // Store raw proof data
-        write_g1_affine(&mut self.proof_a, proof.a);
-        write_g1_affine(&mut self.proof_c, proof.c);
-        write_g2_affine(&mut self.proof_b, proof.b);
-
-        // Store proof preparation values
-        write_g2_projective(&mut self.b_homo_r, G2Projective::new(proof.b.x, proof.b.y, Fq2::one()));
-        write_g2_affine(&mut self.b_neg, -proof.b);
-
-        // Reset counters
-        self.set_current_iteration(0);
-        self.set_current_round(0);
-        self.set_coeff_ic(0);
 
         Ok(())
     }
@@ -201,86 +103,106 @@ pub fn bit_encode(scalar: [u8; 32]) -> Vec<u8> {
     bits
 }
 
-// Iterations
+// Stack pushing
 impl<'a> ProofVerificationAccount<'a> {
-    pub fn get_current_iteration(&self) -> usize {
-        bytes_to_u32(self.current_iteration) as usize
-    }
-    pub fn get_current_round(&self) -> usize {
-        bytes_to_u32(self.current_round) as usize
+    #[inline(always)]
+    pub fn push_fq(&mut self, v: Fq) {
+        self.stack_fq.push(v)
     }
 
-    fn set_current_iteration(&mut self, iteration: u32) {
-        let bytes = iteration.to_le_bytes();
-        self.current_iteration[0] = bytes[0];
-        self.current_iteration[1] = bytes[1];
-        self.current_iteration[2] = bytes[2];
-        self.current_iteration[3] = bytes[3];
+    #[inline(always)]
+    pub fn push_fq2(&mut self, v: Fq2) {
+        self.stack_fq.push(v.c1);
+        self.stack_fq.push(v.c0);
     }
 
-    pub fn inc_current_iteration(&mut self, count: u32) {
-        self.set_current_iteration(bytes_to_u32(self.current_iteration) + count);
+    #[inline(always)]
+    pub fn push_fq6(&mut self, v: Fq6) {
+        self.stack_fq6.push(v);
     }
 
-    pub fn set_current_round(&mut self, round: usize) {
-        let bytes = (round as u32).to_le_bytes();
-        self.current_round[0] = bytes[0];
-        self.current_round[1] = bytes[1];
-        self.current_round[2] = bytes[2];
-        self.current_round[3] = bytes[3];
-    }
-
-    pub fn get_input_bits(&self, input: usize) -> [u8; 256] {
-        let mut bits = [0 as u8; 256];
-        let ib = &self.input_bits[input * 256..(input + 1) * 256];
-        for i in 0..256 {
-            bits[i] = ib[i];
-        }
-        bits 
+    #[inline(always)]
+    pub fn push_fq12(&mut self, v: Fq12) {
+        self.stack_fq12.push(v);
     }
 }
 
-// RAM usage
+// Stack poping
 impl<'a> ProofVerificationAccount<'a> {
-    pub fn get_ram_mut(&mut self, offset: usize, length: usize) -> &mut [u8] {
-        &mut self.computation_ram[offset * 32..(offset + length) * 32]
+    pub fn pop_fq(&mut self) -> Fq {
+        self.stack_fq.pop()
     }
 
-    pub fn get_ram(&self, offset: usize, length: usize) -> &[u8] {
-        &self.computation_ram[offset * 32..(offset + length) * 32]
+    pub fn pop_fq2(&mut self) -> Fq2 {
+        let a = self.stack_fq.pop();
+        let b = self.stack_fq.pop();
+        Fq2::new(a, b)
+    }
+
+    pub fn pop_fq6(&mut self) -> Fq6 {
+        self.stack_fq6.pop()
+    }
+
+    pub fn pop_fq12(&mut self) -> Fq12 {
+        self.stack_fq12.pop()
     }
 }
 
-// Proof preparation
+// Stack peeking
 impl<'a> ProofVerificationAccount<'a> {
-    fn set_coeff_ic(&mut self, index: u32) {
-        LittleEndian::write_u32(&mut self.coeff_ic, index);
+    pub fn peek_fq(&mut self, offset: usize) -> Fq {
+        self.stack_fq.peek(offset)
     }
 
-    pub fn get_coeff_ic(&self) -> usize {
-        bytes_to_u32(self.coeff_ic) as usize
+    pub fn peek_fq2(&mut self, offset: usize) -> Fq2 {
+        let a = self.stack_fq.peek(offset * 2);
+        let b = self.stack_fq.peek(offset * 2 + 1);
+        Fq2::new(a, b)
     }
 
-    pub fn inc_coeff_ic(&mut self) {
-        let ic = self.get_coeff_ic();
-        LittleEndian::write_u32(&mut self.coeff_ic, ic as u32 + 1);
+    pub fn peek_fq6(&mut self, offset: usize) -> Fq6 {
+        self.stack_fq6.peek(offset)
+    }
+
+    pub fn peek_fq12(&mut self, offset: usize) -> Fq12 {
+        self.stack_fq12.peek(offset)
     }
 }
 
-// Withdrawal data
+// Stack serialization
 impl<'a> ProofVerificationAccount<'a> {
-    pub fn get_amount(&self) -> u64 {
-        LittleEndian::read_u64(&self.amount)
+    pub fn save_stack(&mut self) {
+        //Self::save_fq(self.stack[i], self.data, i << 5);
     }
 
-    pub fn get_nullifier_hash(&self) -> ScalarLimbs {
-        bytes_to_limbs(&self.nullifier_hash)
+    #[inline(always)]
+    fn save_fq(v: Fq, buffer: &mut [u8], offset: usize) {
+        Self::save_limb(v.0.0[0], buffer, 0 + offset);
+        Self::save_limb(v.0.0[1], buffer, 8 + offset);
+        Self::save_limb(v.0.0[2], buffer, 16 + offset);
+        Self::save_limb(v.0.0[3], buffer, 24 + offset);
+    }
+
+    #[inline(never)]
+    fn save_limb(v: u64, buffer: &mut [u8], offset: usize) {
+        let a = u64::to_le_bytes(v);
+        buffer[offset + 0] = a[0];
+        buffer[offset + 1] = a[1];
+        buffer[offset + 2] = a[2];
+        buffer[offset + 3] = a[3];
+        buffer[offset + 4] = a[4];
+        buffer[offset + 5] = a[5];
+        buffer[offset + 6] = a[6];
+        buffer[offset + 7] = a[7];
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ark_bn254::{ Fq, Fq6 };
+    use std::str::FromStr;
+
     type StorageAccount<'a> = super::ProofVerificationAccount<'a>;
 
     #[test]
@@ -289,12 +211,12 @@ mod tests {
         StorageAccount::from_data(&mut data).unwrap();
     }
 
-    #[test]
+    /*#[test]
     #[should_panic]
     fn test_invalid_size() {
         let mut data = [0; StorageAccount::TOTAL_SIZE - 1];
         StorageAccount::from_data(&mut data).unwrap();
-    }
+    }*/
 
     #[test]
     fn test_bit_encode_input() {
@@ -310,5 +232,85 @@ mod tests {
         }
 
         assert_eq!(expect, bits);
+    }
+
+    #[test]
+    fn test_stack_fq() {
+        let mut data = [0; StorageAccount::TOTAL_SIZE];
+        let mut account = StorageAccount::from_data(&mut data).unwrap();
+
+        let f = Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap();
+
+        account.push_fq(f);
+        let peek = account.peek_fq(0);
+        let pop = account.pop_fq();
+
+        assert_eq!(peek, f);
+        assert_eq!(pop, f);
+    }
+
+    #[test]
+    fn test_stack_fq2() {
+        let mut data = [0; StorageAccount::TOTAL_SIZE];
+        let mut account = StorageAccount::from_data(&mut data).unwrap();
+
+        let f = Fq2::new(
+            Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+            Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+        );
+
+        account.push_fq2(f);
+        let peek = account.peek_fq2(0);
+        let pop = account.pop_fq2();
+
+        assert_eq!(peek, f);
+        assert_eq!(pop, f);
+    }
+
+    #[test]
+    fn test_stack_fq6() {
+        let mut data = [0; StorageAccount::TOTAL_SIZE];
+        let mut account = StorageAccount::from_data(&mut data).unwrap();
+
+        let f = get_fq6();
+
+        account.push_fq6(f);
+        let peek = account.peek_fq6(0);
+        let pop = account.pop_fq6();
+
+        assert_eq!(peek, f);
+        assert_eq!(pop, f);
+    }
+
+    #[test]
+    fn test_stack_fq12() {
+        let mut data = [0; StorageAccount::TOTAL_SIZE];
+        let mut account = StorageAccount::from_data(&mut data).unwrap();
+
+        let f = Fq12::new(get_fq6(), get_fq6());
+
+        account.push_fq12(f);
+        let peek = account.peek_fq12(0);
+        let pop = account.pop_fq12();
+
+        assert_eq!(peek, f);
+        assert_eq!(pop, f);
+    }
+
+    fn get_fq6() -> Fq6 {
+        Fq6::new(
+            Fq2::new(
+                Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+            ),
+            Fq2::new(
+                Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+            ),
+            Fq2::new(
+                Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+                Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+            ),
+        )
     }
 }

@@ -268,22 +268,22 @@ fn init_withdraw(
     proof: &[u8],
 ) -> ProgramResult {
     // Check the amount
-    if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
+    //if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
 
     // Check if nullifier does not already exist
     // ~ 35000-45000 CUs
-    program_account.can_insert_nullifier_hash(nullifier_hash)?;
+    //program_account.can_insert_nullifier_hash(nullifier_hash)?;
 
     // Check merkle root
     //if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
 
     // Init values (atm ~ 67343 CUs)
-    let inputs = vec![
+    /*let inputs = vec![
         vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&nullifier_hash))),
         vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&root))),
-    ];
-    let proof = groth16::Proof::from_bytes(proof).unwrap();
-    withdraw_account.init(inputs, amount, nullifier_hash, proof)?;
+    ];*/
+    //let proof = groth16::Proof::from_bytes(proof).unwrap();
+    //withdraw_account.init(inputs, amount, nullifier_hash, proof)?;
 
     // Start with computation
     verify_withdraw(withdraw_account)?;
@@ -298,7 +298,7 @@ fn verify_withdraw(
     use ark_bn254::{ Fq12, Fq6, Fq2, Fq };
     use std::str::FromStr;
 
-    let iteration = withdraw_account.get_current_iteration();
+    //let iteration = withdraw_account.get_current_iteration();
 
     /*if iteration < PREPARE_INPUTS_ITERATIONS {    // Prepare inputs
         partial_prepare_inputs(withdraw_account, iteration)?;
@@ -339,12 +339,21 @@ fn verify_withdraw(
             ),
         );
         //let f = read_miller_value(withdraw_account);
-        write_fq12(withdraw_account.get_ram_mut(0, 12), f);
-        final_exponentiation(withdraw_account);
+        //write_fq12(withdraw_account.get_ram_mut(0, 12), f);
+        //final_exponentiation(withdraw_account, 0);
     //}
-    solana_program::msg!("123123");
+    let q = f.c0;
+    let q1 = f.c1;
 
-    withdraw_account.inc_current_iteration(1);
+    solana_program::log::sol_log_compute_units();
+    withdraw_account.push_fq2(q.c0);   // ~ 11.082
+    solana_program::log::sol_log_compute_units();
+    let p = withdraw_account.pop_fq2();
+    //withdraw_account.save_stack();
+    solana_program::log::sol_log_compute_units();
+    //let _ = withdraw_account.pop_fq12();    // ~ 28.778 and 13958
+
+    //withdraw_account.inc_current_iteration(1);
 
     Ok(())
 }
@@ -360,14 +369,14 @@ fn finish_withdraw(
         let mut program_account = ProgramAccount::new(&program_account, data, program_id)?;
 
         // Save nullifier
-        program_account.insert_nullifier_hash(withdraw_account.get_nullifier_hash())?;
+        //program_account.insert_nullifier_hash(withdraw_account.get_nullifier_hash())?;
     }
 
     // Transfer funds using owned bank account
     //TODO: Add check
-    let amount = withdraw_account.get_amount();
+    /*let amount = withdraw_account.get_amount();
     **program_account.try_borrow_mut_lamports()? -= amount;
-    **recipient.try_borrow_mut_lamports()? += amount;
+    **recipient.try_borrow_mut_lamports()? += amount;*/
 
     Ok(())
 }
