@@ -340,17 +340,9 @@ fn verify_withdraw(
         );
         //let f = read_miller_value(withdraw_account);
         //write_fq12(withdraw_account.get_ram_mut(0, 12), f);
-        //final_exponentiation(withdraw_account, 0);
+        withdraw_account.push_fq12(f);
+        final_exponentiation(withdraw_account, 0);
     //}
-    let q = f.c0;
-    let q1 = f.c1;
-
-    solana_program::log::sol_log_compute_units();
-    withdraw_account.push_fq2(q.c0);   // ~ 11.082
-    solana_program::log::sol_log_compute_units();
-    let p = withdraw_account.pop_fq2();
-    //withdraw_account.save_stack();
-    solana_program::log::sol_log_compute_units();
     //let _ = withdraw_account.pop_fq12();    // ~ 28.778 and 13958
 
     //withdraw_account.inc_current_iteration(1);

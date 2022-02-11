@@ -16,7 +16,7 @@ const ZERO_12: Fq12 = field_new!(Fq12, ZERO_6, ZERO_6);
 
 pub const STACK_FQ_SIZE: usize = 20;
 pub const STACK_FQ6_SIZE: usize = 7;
-pub const STACK_FQ12_SIZE: usize = 6;
+pub const STACK_FQ12_SIZE: usize = 7;
 
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 

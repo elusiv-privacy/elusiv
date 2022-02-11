@@ -1,4 +1,4 @@
-use ark_bn254::{ Fq, Fq2, Fq6, Fq12, Parameters, Fq12Parameters, Fq2Parameters, Fq6Parameters };
+use ark_bn254::{ Fq2, Fq6, Fq12, Fq12Parameters, Fq2Parameters, Fq6Parameters };
 use ark_ff::fields::{
     Field,
     models::{
@@ -13,8 +13,6 @@ use ark_ff::fields::{
     }
 };
 use ark_ff::{ One, Zero };
-use ark_ec::bn::BnParameters;
-use super::super::scalar::*;
 use super::super::state::ProofVerificationAccount;
 
 // TODO: Handle unwrap/zero cases
@@ -23,312 +21,313 @@ use super::super::state::ProofVerificationAccount;
 pub const FINAL_EXPONENTIATION_ITERATIONS: usize = 1;
 pub const FINAL_EXPONENTIATION_ROUNDS: [usize; 1] = [1];
 
+const RANGE_COUNT: usize = 38;
+const LAST_ROUND: usize = 113;
+
 pub fn final_exponentiation(
     account: &mut ProofVerificationAccount,
     iteration: usize,
 ) {
-    let mul = |account: &mut ProofVerificationAccount| {
-        let mut a = account.pop_fq12();
-        let b = account.pop_fq12();
+    for round in 0..=LAST_ROUND {
+        match round {
+            0 => {   // Check whether f is zero (if true, it cannot be inverted)
+                let f = account.peek_fq12(0);
 
-        for round in 0..F12_MUL_ROUND_COUNT {
-            f12_mul_assign(&mut a, &b, account, round);
+                if f.is_zero() { panic!() }
+            },
+
+            // - pushes: f2
+            1..=9 => {   // f2 <- f^{-1} (~ 285923 CUs)
+                let f = account.peek_fq12(0);
+
+                // - pushes: f2 after last round
+                f12_inverse(&f, account, round - 1);  // -> fail if inverse fails
+            },
+
+            // - pops: f2, f
+            // - pushes: f2, r (Fq12)
+            10 => {
+                let f2 = account.pop_fq12();
+                let f = account.pop_fq12();
+
+                let mut f1 = f;
+                f1.conjugate();
+                let r = f1;
+
+                account.push_fq12(f2);
+                account.push_fq12(r);
+            },
+
+            // - pops: r, f2
+            // - pushes: mul stack vars, f2, r
+            11..=15 => {   // r <- f1 * f2
+                mul(account, round - 11);
+            },
+
+            // - pops: r, f2
+            // - pushes: f2, r
+            16 => {   // f2 <- r
+                let r = account.pop_fq12();
+                account.stack_fq12.pop_empty();
+
+                account.push_fq12(r);
+                account.push_fq12(r);
+            },
+
+            // - pops: r
+            // - pushes: r
+            17..=19 => { // ~ 53325
+                frobenius_map(account, 2, round - 17);
+            },
+
+            // - pops: r, f2
+            // - pushes: f2 (unchanged), r
+            20..=24 => { //r *= &f2;   // ~ 131961 // -> r
+                mul(account, round - 20);
+            },
+
+            // - pops: r, f2
+            // - pushes: r (unchanged), y0
+            25 => {
+                let r = account.pop_fq12();
+                account.stack_fq12.pop_empty();
+
+                let y0 = r;
+
+                account.push_fq12(r);
+                account.push_fq12(y0);
+            },
+
+            // - pops: y0
+            // - pushes: y0
+            26..=30 => {
+                exp_neg_x(account, round - 26);
+            },
+            
+            // - pops: y0
+            // - pushes: y1 (-> r, y1)
+            31 => { // -> y1
+                let y0 = account.pop_fq12();
+                let y1 = cyclotomic_square(y0);    // ~ 45634
+
+                account.push_fq12(y1);
+            },
+
+            // - pushes y2 (-> r, y1, y2)
+            32 => {
+                let y1 = account.peek_fq12(0);
+                let y2 = cyclotomic_square(y1);    // ~ 45569
+
+                account.push_fq12(y2);
+            },
+
+            // - pops: y2, y1
+            // - pushes: mul stack vars, y1, y3
+            33..=37 => { //y3 = y2 * y1;  (~ 132119 CUs)
+                mul(account, round - 33);
+            },
+
+            // - pops: y3
+            // - pushes: y3, y4
+            38 => {
+                let y3 = account.pop_fq12();
+
+                account.push_fq12(y3);
+                account.push_fq12(y3);
+            },
+
+            // - pops: y4
+            // - pushes: local stack vars, y4 (-> r, y1, y3, y4)
+            39..=43 => {   // y4 = exp_by_neg_x(y3) (~ 6_009_534 CUs)
+                exp_neg_x(account, round - 39);
+            },
+
+            // - pushes: y5
+            44 => { // y5 <- cyclotomic_square(y4) (~ 45634 CUs)
+                let y4 = account.peek_fq12(0);
+
+                let y5 = cyclotomic_square(y4);
+
+                account.push_fq12(y5);
+            },
+
+            // - pops: y5
+            // - pushes: y6
+            45..=49 => {   // y6 = exp_by_neg_x(y5) (~ 6_009_534 CUs)
+                exp_neg_x(account, round - 45);
+            },
+
+            // - pops: y6,
+            // - pushes: y7
+            50 => {   // y7 <- y6.conjugate()
+                let mut y7 = account.pop_fq12();
+
+                y7.conjugate();
+
+                account.push_fq12(y7);
+            },
+
+            51..=55 => { // y7 *= y4;  (~ 132119 CUs)
+                mul(account, round - 51);
+            },
+
+            // - pops: y7, y4, y3
+            // - pushes: y4, y3, y8
+            56 => {
+                let y8 = account.pop_fq12();
+                let y4 = account.pop_fq12();
+                let mut y3 = account.pop_fq12();
+
+                y3.conjugate();
+
+                account.push_fq12(y4);
+                account.push_fq12(y3);
+                account.push_fq12(y8);
+            },
+
+            57..=61 => {   // y8 *= y3
+                mul(account, round - 57);
+            },
+
+            // - pops: y8, y3, y4, y1
+            // - pushes: y8, y4, y10, y1, y9
+            62 => {
+                let y8 = account.pop_fq12();
+                account.stack_fq12.pop_empty();
+                let y4 = account.pop_fq12();
+                let y1 = account.pop_fq12();
+
+                account.push_fq12(y8);
+                account.push_fq12(y4);
+                account.push_fq12(y8);  // y10
+                account.push_fq12(y1);
+                account.push_fq12(y8);  // y9
+            },
+
+            63..=67 => {   // y9 *= y1
+                mul(account, round - 63);
+            },
+
+            // - pops: y9, y1, y10, y4
+            // - pushes: y9, y4, y10 (-> r, y8, y9, y4, y10) 
+            68 => {
+                account.stack_fq12.swap(0, 3);  // swap y9 and y4
+                let y4 = account.pop_fq12();
+                account.stack_fq12.pop_empty(); // drain y1
+                account.push_fq12(y4);
+                account.stack_fq12.swap(0, 1); // swap y4 and y10
+            },
+
+            69..=73 => {   // y10 *= y4
+                mul(account, round - 69);
+            },
+
+            // - -> stack: (-> y9, y8, r, y10)
+            74 => {
+                account.stack_fq12.swap(0, 1);  // swap y10 and y4
+                account.stack_fq12.pop_empty(); // drain y4
+                account.stack_fq12.swap(1, 3);  // swap y9 and r
+            },
+
+            75..=79 => {   // y11 = y10 * r
+                mul(account, round - 75);
+            },
+
+            // - pushes: y12 (-> y9, y8, r, y11, y12)
+            80 => {
+                let y9 = account.peek_fq12(3);
+                account.push_fq12(y9);
+            },
+
+            81..=83 => {   // y12 = frobenius_map(y9, power: 1)
+                frobenius_map(account, 1, round - 81);
+            },
+
+            84..=88 => {   // y13 = y12 * y11
+                mul(account, round - 84);
+            },
+
+            // - -> stack: (-> y9, y11, r, y13, y8)
+            89 => {   //bring y8 to the top of the stack
+                account.stack_fq12.swap(0, 3);  // swap y8 and y13
+                account.stack_fq12.swap(1, 3);  // swap y13 and y11
+            },
+
+            90..=92 => {   // y8 = frobenius_map(y8, power: 2)
+                frobenius_map(account, 2, round - 90);
+            },
+
+            93..=97 => {   // y8 *= y13
+                mul(account, round - 93);
+            },
+
+            // - -> stack: (-> y8, y9, r)
+            98 => {
+                // (-> y9, y11, r, y13, y8)
+                let y8 = account.pop_fq12();
+                account.stack_fq12.pop_empty();
+                let mut r = account.pop_fq12();
+                account.stack_fq12.pop_empty();
+                let y9 = account.pop_fq12();
+
+                r.conjugate();
+
+                account.push_fq12(y8);
+                account.push_fq12(y9);
+                account.push_fq12(r);
+            },
+
+            99..=103 => {   // r *= y9
+                mul(account, round - 99);
+            },
+
+            104..=106 => {   // r = frobenius_map(r, power: 3)
+                frobenius_map(account, 3, round - 104);
+            },
+
+            // - -> stack: (-> y8, r)
+            107 => {
+                account.stack_fq12.swap(0, 1);  // swap r and y9
+                account.stack_fq12.pop_empty(); // drain y9
+            },
+
+            108..=112 => {   // r *= y8
+                mul(account, round - 108);
+            },
+
+            // - -> stack: (-> r)
+            113 => {
+                account.stack_fq12.swap(0, 1);
+                account.stack_fq12.pop_empty();
+            },
+            _ => {} 
         }
-
-        account.push_fq12(b);
-        account.push_fq12(a);
-    };
-    let exp_neg_x = |account: &mut ProofVerificationAccount| {
-        let mut v = account.pop_fq12();
-
-        for round in 0..EXP_BY_NEG_X_ROUND_COUNT {
-            v = exp_by_neg_x(v, account, round);
-        }
-
-        account.push_fq12(v);
-    };
-    let frobenius_map = |account: &mut ProofVerificationAccount, power: usize| {
-        let mut v = account.pop_fq12();
-
-        for round in 0..F12_FROBENIUS_MAP_ROUND_COUNT {
-            f12_frobenius_map(&mut v, power, round);
-        }
-
-        account.push_fq12(v);
-    };
-
-    {   // Check whether f is zero (if true, it cannot be inverted)
-        let f = account.peek_fq12(0);
-
-        if f.is_zero() { panic!() }
     }
+}
 
-    // - pushes: f2
-    {   // f2 <- f^{-1} (~ 285923 CUs)
-        let f = account.peek_fq12(0);
+fn mul(account: &mut ProofVerificationAccount, round: usize) {
+    let mut a = account.pop_fq12();
+    let b = account.peek_fq12(0);
 
-        // - pushes: f2 after last round
-        for round in 0..F12_INVERSE_ROUND_COUNT {
-            f12_inverse(&f, account, round);  // -> fail if inverse fails
-        }
-    }
+    f12_mul_assign(&mut a, &b, account, round);
 
-    // - pops: f2, f
-    // - pushes: f2, r (Fq12)
-    {
-        let f2 = account.pop_fq12();
-        let f = account.pop_fq12();
+    account.push_fq12(a);
+}
 
-        let mut f1 = f;
-        f1.conjugate();
-        let r = f1;
+fn exp_neg_x(account: &mut ProofVerificationAccount, round: usize) {
+    let mut v = account.pop_fq12();
 
-        account.push_fq12(f2);
-        account.push_fq12(r);
-    }
+    exp_by_neg_x(&mut v, account, round);
 
-    // - pops: r, f2
-    // - pushes: mul stack vars, f2, r
-    {   // r <- f1 * f2
-        mul(account);
-    }
+    account.push_fq12(v);
+}
 
-    // - pops: r, f2
-    // - pushes: f2, r
-    {   // f2 <- r
-        let r = account.pop_fq12();
-        account.stack_fq12.pop_empty();
+fn frobenius_map(account: &mut ProofVerificationAccount, power: usize, round: usize) {
+    let mut v = account.pop_fq12();
 
-        account.push_fq12(r);
-        account.push_fq12(r);
-    }
+    f12_frobenius_map(&mut v, power, round);
 
-    // - pops: r
-    // - pushes: r
-    { // ~ 53325
-        frobenius_map(account, 2);
-    }
-
-    // - pops: r, f2
-    // - pushes: f2 (unchanged), r
-    { //r *= &f2;   // ~ 131961 // -> r
-        mul(account);
-    }
-
-    // - pops: r, f2
-    // - pushes: r (unchanged), y0
-    {
-        let r = account.pop_fq12();
-        account.stack_fq12.pop_empty();
-
-        let y0 = r;
-
-        account.push_fq12(r);
-        account.push_fq12(y0);
-    }
-
-    // - pops: y0
-    // - pushes: y0
-    {
-        exp_neg_x(account);
-    }
-    
-    // - pops: y0
-    // - pushes: y1 (-> r, y1)
-    { // -> y1
-        let y0 = account.pop_fq12();
-        let y1 = cyclotomic_square(y0);    // ~ 45634
-
-        account.push_fq12(y1);
-    }
-
-    // - pushes y2 (-> r, y1, y2)
-    {
-        let y1 = account.peek_fq12(0);
-        let y2 = cyclotomic_square(y1);    // ~ 45569
-
-        account.push_fq12(y2);
-    }
-
-    // - pops: y2, y1
-    // - pushes: mul stack vars, y1, y3
-    { //y3 = y2 * y1;  (~ 132119 CUs)
-        mul(account);
-    }
-
-    // - pops: y3
-    // - pushes: y3, y4
-    {
-        let y3 = account.pop_fq12();
-
-        account.push_fq12(y3);
-        account.push_fq12(y3);
-    }
-
-    // - pops: y4
-    // - pushes: local stack vars, y4 (-> r, y1, y3, y4)
-    {   // y4 = exp_by_neg_x(y3) (~ 6_009_534 CUs)
-        exp_neg_x(account);
-    }
-
-    // - pushes: y5
-    { // y5 <- cyclotomic_square(y4) (~ 45634 CUs)
-        let y4 = account.peek_fq12(0);
-
-        let y5 = cyclotomic_square(y4);
-
-        account.push_fq12(y5);
-    }
-
-    // - pops: y5
-    // - pushes: y6
-    {   // y6 = exp_by_neg_x(y5) (~ 6_009_534 CUs)
-        exp_neg_x(account);
-    }
-
-    // - pops: y6,
-    // - pushes: y7
-    {   // y7 <- y6.conjugate()
-        let mut y7 = account.pop_fq12();
-
-        y7.conjugate();
-
-        account.push_fq12(y7);
-    }
-
-    { // y7 *= y4;  (~ 132119 CUs)
-        mul(account);
-    }
-
-    // - pops: y7, y4, y3
-    // - pushes: y4, y3, y8
-    {
-        let y8 = account.pop_fq12();
-        let y4 = account.pop_fq12();
-        let mut y3 = account.pop_fq12();
-
-        y3.conjugate();
-
-        account.push_fq12(y4);
-        account.push_fq12(y3);
-        account.push_fq12(y8);
-    }
-
-    {   // y8 *= y3
-        mul(account);
-    }
-
-    // - pops: y8, y3, y4, y1
-    // - pushes: y8, y4, y10, y1, y9
-    {
-        let y8 = account.pop_fq12();
-        account.stack_fq12.pop_empty();
-        let y4 = account.pop_fq12();
-        let y1 = account.pop_fq12();
-
-        account.push_fq12(y8);
-        account.push_fq12(y4);
-        account.push_fq12(y8);  // y10
-        account.push_fq12(y1);
-        account.push_fq12(y8);  // y9
-    }
-
-    {   // y9 *= y1
-        mul(account);
-    }
-
-    // - pops: y9, y1, y10, y4
-    // - pushes: y9, y4, y10 (-> r, y8, y9, y4, y10) 
-    {
-        account.stack_fq12.swap(0, 3);  // swap y9 and y4
-        let y4 = account.pop_fq12();
-        account.stack_fq12.pop_empty(); // drain y1
-        account.push_fq12(y4);
-        account.stack_fq12.swap(0, 1); // swap y4 and y10
-    }
-
-    {   // y10 *= y4
-        mul(account);
-    }
-
-    // - -> stack: (-> y9, y8, r, y10)
-    {
-        account.stack_fq12.swap(0, 1);  // swap y10 and y4
-        account.stack_fq12.pop_empty(); // drain y4
-        account.stack_fq12.swap(1, 3);  // swap y9 and r
-    }
-
-    {   // y11 = y10 * r
-        mul(account);
-    }
-
-    // - pushes: y12 (-> y9, y8, r, y11, y12)
-    {
-        let y9 = account.peek_fq12(3);
-        account.push_fq12(y9);
-    }
-
-    {   // y12 = frobenius_map(y9, power: 1)
-        frobenius_map(account, 1);
-    }
-
-    {   // y13 = y12 * y11
-        mul(account);
-    }
-
-    // - -> stack: (-> y9, y11, r, y13, y8)
-    {   //bring y8 to the top of the stack
-        account.stack_fq12.swap(0, 3);  // swap y8 and y13
-        account.stack_fq12.swap(1, 3);  // swap y13 and y11
-    }
-
-    {   // y8 = frobenius_map(y8, power: 2)
-        frobenius_map(account, 2);
-    }
-
-    {   // y8 *= y13
-        mul(account);
-    }
-
-    // - -> stack: (-> y8, y9, r)
-    {
-        // (-> y9, y11, r, y13, y8)
-        let y8 = account.pop_fq12();
-        account.stack_fq12.pop_empty();
-        let mut r = account.pop_fq12();
-        account.stack_fq12.pop_empty();
-        let y9 = account.pop_fq12();
-
-        r.conjugate();
-
-        account.push_fq12(y8);
-        account.push_fq12(y9);
-        account.push_fq12(r);
-    }
-
-    {   // r *= y9
-        mul(account);
-    }
-
-    {   // r = frobenius_map(r, power: 3)
-        frobenius_map(account, 3);
-    }
-
-    // - -> stack: (-> y8, r)
-    {
-        account.stack_fq12.swap(0, 1);  // swap r and y9
-        account.stack_fq12.pop_empty(); // drain y9
-    }
-
-    {   // r *= y8
-        mul(account);
-    }
-
-    // - -> stack: (-> r)
-    {
-        account.stack_fq12.swap(0, 1);
-        account.stack_fq12.pop_empty();
-    }
+    account.push_fq12(v);
 }
 
 const F12_INVERSE_ROUND_COUNT: usize = 3 + F6_INVERSE_ROUND_COUNT;
@@ -489,7 +488,7 @@ fn f12_frobenius_map(
     f: &mut Fq12,
     power: usize,
     round: usize,
-) -> Fq12 {
+) {
     match round {
         0 => {
             f6_frobenius_map(&mut f.c0, power); // ~ 17625
@@ -502,7 +501,6 @@ fn f12_frobenius_map(
         }
         _ => {}
     }
-    *f
 }
 
 fn f6_frobenius_map(
@@ -545,20 +543,20 @@ const X_WNAF: [i64; X_WNAF_L] = [1, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0
 /// - for the iterations in which we don't have any multiplication, we skip using a cost of 0 CUs
 /// - Question: more expensive to conjugate or to store and read?
 fn exp_by_neg_x(
-    f: Fq12,
+    f: &mut Fq12,
     account: &mut ProofVerificationAccount,
     round: usize,
-) -> Fq12 {
+) {
     match round {
         // - pushes: fe, fe_inverse
-        0 => {
-            let mut fe_inverse = f;
+        0 => {  // (~ 1000 CUs)
+            let mut fe_inverse = *f;
             fe_inverse.conjugate();
 
-            account.push_fq12(f);
+            account.push_fq12(*f);
             account.push_fq12(fe_inverse);
 
-            Fq12::one()
+            *f = Fq12::one();
         },
 
         // - pops: fe_inverse, fe
@@ -569,8 +567,6 @@ fn exp_by_neg_x(
 
             let (lower_round, upper_round) = CYCLOTOMIC_ROUNDS[round - 1];
             
-            let mut res = f;
-
             for i in lower_round..upper_round {
                 let sub_round = i % CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
                 let i = i / CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
@@ -578,21 +574,19 @@ fn exp_by_neg_x(
 
                 if sub_round == 0 {
                     if i > 0 {
-                        res.cyclotomic_square_in_place();
+                        f.cyclotomic_square_in_place();
                     }
                 } else {
                     if value > 0 {
-                        f12_mul_assign(&mut res, &fe, account, sub_round - 1);
+                        f12_mul_assign(f, &fe, account, sub_round - 1);
                     } else if value < 0 {
-                        f12_mul_assign(&mut res, &fe_inverse, account, sub_round - 1);
+                        f12_mul_assign(f, &fe_inverse, account, sub_round - 1);
                     }
                 }
             }
 
             account.push_fq12(fe);
             account.push_fq12(fe_inverse);
-
-            res
         },
 
         // - pops: fe_inverse, fe
@@ -600,11 +594,9 @@ fn exp_by_neg_x(
             let _ = account.pop_fq12();
             let _ = account.pop_fq12();
             
-            let mut res = f;
-            res.conjugate();
-            res
+            f.conjugate();
         },
-        _ => { f }
+        _ => { }
     }
 }
 
@@ -694,7 +686,7 @@ mod tests {
     use super::*;
     use std::str::FromStr;
     use ark_ec::{ PairingEngine, models::bn::BnParameters };
-    use ark_bn254::{ Fq, Bn254 };
+    use ark_bn254::{ Fq, Bn254, Parameters };
 
     #[test]
     pub fn test_f12_inverse() {
@@ -730,14 +722,35 @@ mod tests {
     }
 
     #[test]
-    pub fn test_f12_frobenius_map() {
-        let mut result = get_f();
+    pub fn test_mul() {
+        let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
+        let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
+        account.push_fq12(get_f());
+        account.push_fq12(get_f());
+
+        /*for round in 0..F12_MUL_ROUND_COUNT {
+            mul(&mut account, round)
+        }*/
+
+        let expected = get_f() * get_f();
+        let result = account.pop_fq12();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    pub fn test_frobenius_map() {
+        let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
+        let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
+        account.push_fq12(get_f());
+
         for round in 0..F12_FROBENIUS_MAP_ROUND_COUNT {
-            result = f12_frobenius_map(&mut result, 3, round);
+            //frobenius_map(&mut account, 3, round);
         }
 
         let mut expected = get_f();
         expected.frobenius_map(3);
+
+        let result = account.pop_fq12();
 
         assert_eq!(result, expected);
     }
@@ -746,13 +759,14 @@ mod tests {
     pub fn test_exp_by_neg_x() {
         let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
         let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
+        account.push_fq12(get_f());
 
-        let mut result = get_f();
         for round in 0..EXP_BY_NEG_X_ROUND_COUNT {
-            result = exp_by_neg_x(result, &mut account, round);
+            exp_neg_x(&mut account, round);
         }
 
         let expected = original_exp_by_neg_x(get_f());
+        let result = account.pop_fq12();
 
         assert_eq!(result, expected);
         assert_stack_is_cleared(&account);
@@ -773,6 +787,7 @@ mod tests {
         let result = account.pop_fq12();
 
         assert_eq!(result, expected);
+        assert_stack_is_cleared(&account);
     }
 
     /// Stack convention:
@@ -825,3 +840,71 @@ mod tests {
         f
     }
 }
+
+//let x = generate_ranges(); println!("{:?}", x); panic!();
+/*fn generate_ranges() -> Vec<std::ops::RangeInclusive<usize>> {
+    enum ArmType {
+        One,
+        Inverse,
+        Mul,
+        Frobenius,
+        CyclotomicSquare,
+        ExpByNegX,
+    }
+    use ArmType::*;
+    let arms: [ArmType; RANGE_COUNT] = [
+        One,
+        Inverse,
+        One,
+        Mul,
+        One,
+        Frobenius,
+        Mul,
+        One,
+        ExpByNegX,
+        CyclotomicSquare,
+        CyclotomicSquare,
+        Mul,
+        One,
+        ExpByNegX,
+        CyclotomicSquare,
+        ExpByNegX,
+        One,
+        Mul,
+        One,
+        Mul,
+        One,
+        Mul,
+        One,
+        Mul,
+        One,
+        Mul,
+        One,
+        Frobenius,
+        Mul,
+        One,
+        Frobenius,
+        Mul,
+        One,
+        Mul,
+        Frobenius,
+        One,
+        Mul,
+        One
+    ];
+    let mut res = Vec::new();
+    let mut base_round = 0;
+    for arm in arms.iter() {
+        let rounds = match arm {
+            One => 1,
+            Inverse => F12_INVERSE_ROUND_COUNT,
+            Mul => F12_MUL_ROUND_COUNT,
+            Frobenius => F12_FROBENIUS_MAP_ROUND_COUNT,
+            CyclotomicSquare => 1,
+            ExpByNegX => EXP_BY_NEG_X_ROUND_COUNT
+        };
+        res.push(base_round..=(base_round + rounds - 1));
+        base_round += rounds;
+    }
+    res
+}*/

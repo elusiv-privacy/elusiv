@@ -1,6 +1,3 @@
-MAX_CUS = 200000
-SECURITY_PADDING = 5000
-START_CUS = 0
 IDLE_CUS = 2000
 
 # ATE loop count reversed, first element removed and -1s squared
@@ -44,29 +41,7 @@ rounds_cus.append(mul_by_char_cus)
 rounds_cus.extend(adding_rounds_cus)
 rounds_cus.extend(ell_rounds_cus)
 
-# Calculate the ideal distribution
-max = MAX_CUS - SECURITY_PADDING - IDLE_CUS
-rounds = 0
-iterations = list()
-iteration_rounds = 0
-iteration_cus = START_CUS
-
-while rounds < len(rounds_cus):
-    next_cost = rounds_cus[rounds]
-
-    if iteration_cus + next_cost <= max:
-        rounds += 1
-        iteration_rounds += 1
-        iteration_cus += next_cost
-    else:
-        iterations.append(iteration_rounds)
-        iteration_rounds = 0
-        iteration_cus = 0
-iterations.append(iteration_rounds)
-
-# Output
-print("Iterations: ", iterations)
-print("Count: ", len(iterations))
-print("Total rounds: ", len(rounds_cus))
+# Calculate the optimal distribution
+from optimize_distribution import find_optimal_distribution
+find_optimal_distribution(rounds_cus, IDLE_CUS)
 print("Main loop rounds: ", rounds_main_loop)
-print("Remaining CUs: ", MAX_CUS - iteration_cus)

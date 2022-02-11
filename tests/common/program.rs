@@ -17,7 +17,8 @@ where F: Fn(&mut ProgramTest) -> ()
 
     setup(&mut test);
 
-    let cus = 2000000 * iterations;
+    //let cus = 2000000 * iterations;
+    let cus = 30_000_000;
 
     test.set_compute_max_units(cus);
     test.start().await
