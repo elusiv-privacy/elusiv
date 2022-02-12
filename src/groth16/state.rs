@@ -21,15 +21,16 @@ pub const STACK_FQ12_SIZE: usize = 7;
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 
 pub struct ProofVerificationAccount<'a> {
-    data: &'a mut [u8],
-
     pub stack_fq: LazyHeapStack<Fq>,
     pub stack_fq6: LazyHeapStack<Fq6>,
     pub stack_fq12: LazyHeapStack<Fq12>,
+
+    iteration: &'a mut [u8],
+    round: &'a mut [u8],
 }
 
 impl<'a> ProofVerificationAccount<'a> {
-    pub const TOTAL_SIZE: usize = (STACK_FQ_SIZE + STACK_FQ6_SIZE * 6 + STACK_FQ12_SIZE * 12) * 32;
+    pub const TOTAL_SIZE: usize = (STACK_FQ_SIZE + STACK_FQ6_SIZE * 6 + STACK_FQ12_SIZE * 12) * 32 + 4 + 4;
 
     pub fn new(
         account_info: &solana_program::account_info::AccountInfo,
@@ -58,12 +59,16 @@ impl<'a> ProofVerificationAccount<'a> {
             stack_pointer: 0,
         };
 
+        let (iteration, data) = data.split_at_mut(4);
+        let (round, _) = data.split_at_mut(4);
+
         Ok(
             ProofVerificationAccount {
-                data,
                 stack_fq,
                 stack_fq6,
                 stack_fq12,
+                iteration,
+                round,
             }
         )
     }
@@ -166,6 +171,33 @@ impl<'a> ProofVerificationAccount<'a> {
 
     pub fn peek_fq12(&mut self, offset: usize) -> Fq12 {
         self.stack_fq12.peek(offset)
+    }
+}
+
+// Iterations and rounds
+impl<'a> ProofVerificationAccount<'a> {
+    pub fn get_iteration(&self) -> usize {
+        bytes_to_u32(&self.round) as usize
+    }
+
+    pub fn set_iteration(&mut self, iteration: usize) {
+        let bytes = (iteration as u32).to_le_bytes();
+        self.iteration[0] = bytes[0];
+        self.iteration[1] = bytes[1];
+        self.iteration[2] = bytes[2];
+        self.iteration[3] = bytes[3];
+    }
+
+    pub fn get_round(&self) -> usize {
+        bytes_to_u32(&self.round) as usize
+    }
+
+    pub fn set_round(&mut self, round: usize) {
+        let bytes = (round as u32).to_le_bytes();
+        self.round[0] = bytes[0];
+        self.round[1] = bytes[1];
+        self.round[2] = bytes[2];
+        self.round[3] = bytes[3];
     }
 }
 
