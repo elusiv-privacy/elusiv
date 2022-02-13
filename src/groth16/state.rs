@@ -17,6 +17,7 @@ const ZERO_12: Fq12 = field_new!(Fq12, ZERO_6, ZERO_6);
 pub const STACK_FQ_SIZE: usize = 20;
 pub const STACK_FQ6_SIZE: usize = 7;
 pub const STACK_FQ12_SIZE: usize = 7;
+const INPUTS_COUNT: usize = 2;
 
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 
@@ -25,12 +26,17 @@ pub struct ProofVerificationAccount<'a> {
     pub stack_fq6: LazyHeapStack<Fq6>,
     pub stack_fq12: LazyHeapStack<Fq12>,
 
+    /// Original inputs
+    /// - `[u8; INPUTS_COUNT * 32]`
+    /// - big endian
+    pub inputs_be: &'a mut [u8],
+
     iteration: &'a mut [u8],
     round: &'a mut [u8],
 }
 
 impl<'a> ProofVerificationAccount<'a> {
-    pub const TOTAL_SIZE: usize = (STACK_FQ_SIZE + STACK_FQ6_SIZE * 6 + STACK_FQ12_SIZE * 12) * 32 + 4 + 4;
+    pub const TOTAL_SIZE: usize = (STACK_FQ_SIZE + STACK_FQ6_SIZE * 6 + STACK_FQ12_SIZE * 12) * 32 + INPUTS_COUNT * 32 + 4 + 4;
 
     pub fn new(
         account_info: &solana_program::account_info::AccountInfo,
@@ -59,6 +65,7 @@ impl<'a> ProofVerificationAccount<'a> {
             stack_pointer: 0,
         };
 
+        let (inputs_be, data) = data.split_at_mut(INPUTS_COUNT * 32);
         let (iteration, data) = data.split_at_mut(4);
         let (round, _) = data.split_at_mut(4);
 
@@ -67,6 +74,7 @@ impl<'a> ProofVerificationAccount<'a> {
                 stack_fq,
                 stack_fq6,
                 stack_fq12,
+                inputs_be,
                 iteration,
                 round,
             }
@@ -81,31 +89,26 @@ impl<'a> ProofVerificationAccount<'a> {
         proof: super::Proof,
     ) -> ProgramResult {
         // Parse inputs
-        // - leading zeros are padded as the value 2
         // - big endian
+        for (i, input) in inputs.iter().enumerate() {
+            let bytes_be: Vec<u8> = input.iter().copied().rev().collect();
+            for j in 0..32 {
+                self.inputs_be[i * 32 + j] = bytes_be[j];
+            }
+        }
+
+        // Push super::gamma_abc_g1_0() (aka the starting value for g_ic)
+        self.push_fq(super::gamma_abc_g1_0().z);
+        self.push_fq(super::gamma_abc_g1_0().y);
+        self.push_fq(super::gamma_abc_g1_0().x);
+
+        // Push the empy product acc
+        self.push_fq(ZERO_1);
+        self.push_fq(ZERO_1);
+        self.push_fq(ZERO_1);
 
         Ok(())
     }
-}
-
-/// Encodes the scalar bytes as bits required for the scalar multiplicaiton
-/// 
-/// ### Arguments
-/// 
-/// * `scalar` - `[u8; 32]` le bytes in repr form (!)
-pub fn bit_encode(scalar: [u8; 32]) -> Vec<u8> {
-    let bytes_be: Vec<u8> = scalar.iter().copied().rev().collect();
-    let mut bits = Vec::new();
-    let mut is_leading = true;
-    for byte in bytes_be {
-        for i in (0..8).rev() {
-            let bit = (byte >> i) & 1;
-            if bit == 1 { is_leading = false; }
-
-            bits.push(if bit == 0 && is_leading { 2 } else { bit });
-        }
-    }
-    bits
 }
 
 // Stack pushing
@@ -249,22 +252,6 @@ mod tests {
         let mut data = [0; StorageAccount::TOTAL_SIZE - 1];
         StorageAccount::from_data(&mut data).unwrap();
     }*/
-
-    #[test]
-    fn test_bit_encode_input() {
-        let bytes_le = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b11111111, 0];
-        let bits = bit_encode(bytes_le);
-
-        let mut expect = vec![0 as u8; 256];
-        for i in 0..8 {
-            expect[i] = 2;
-        }
-        for i in 8..16 {
-            expect[i] = 1;
-        }
-
-        assert_eq!(expect, bits);
-    }
 
     #[test]
     fn test_stack_fq() {

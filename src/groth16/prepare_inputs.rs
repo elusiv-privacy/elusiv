@@ -1,6 +1,6 @@
-/*use solana_program::entrypoint::ProgramResult;
+use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
-use ark_bn254::{ Fq12, G1Affine, G1Projective };
+use ark_bn254::{ Fq, Fq12, G1Affine, G1Projective };
 use ark_ec::{
     ProjectiveCurve,
 };
@@ -15,6 +15,8 @@ pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [
     3, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 6,
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 1,
 ];
+const ZERO: Fq = field_new!(Fq, "0");
+const ONE: Fq = field_new!(Fq, "1");
 
 /// Prepares `INPUTS_COUNT` public inputs (into one `G1Affine`)
 /// - requires `PREPARATION_ITERATIONS` calls to complete
@@ -23,76 +25,133 @@ pub fn partial_prepare_inputs(
     iteration: usize
 ) -> ProgramResult {
 
-    let round = account.get_current_round();
+    let round = account.get_round();
     let rounds = PREPARE_INPUTS_ROUNDS[iteration];
     let i = iteration / 33;
 
-    let mut product = read_g1_projective(&account.get_ram(0, 3));
+    let mut product = pop_g1_projective(account);
 
     // Multiplication of gamma_abc_g1[i + 1] and input[i]
     // ~ rounds * 24608 CUs
-    product = partial_mul_g1a_scalar(
+    partial_mul_g1a_scalar(
         &gamma_abc_g1()[i + 1],
-        product,
-        account.get_input_bits(i),
+        &mut product,
+        &account.inputs_be[i * 32..(i + 1) * 32],
         round,
         rounds,
     )?;
-    write_g1_projective(&mut account.get_ram_mut(0, 3), product);
+    //write_g1_projective(&mut account.get_ram_mut(0, 3), product);
+    push_g1_projective(account, product);
 
     // Add the product to g_ic after mul is finished
     // ~ 36300 CUs
     if round + rounds == 256 {
-        let mut g_ic = if i == 0 { super::gamma_abc_g1_0() } else { read_g1_projective(&account.p_inputs) };
+        // Move g_ic to the top of the stack
+        let mut g_ic = get_gic(account);
+
         g_ic.add_assign(product);
-        write_g1_projective(&mut account.p_inputs, g_ic);
+        push_g1_projective(account, g_ic);
 
-        account.set_current_round(0);
+        account.set_round(0);
 
+        // Push null product acc
+        account.push_fq(ZERO);
+        account.push_fq(ZERO);
+        account.push_fq(ZERO);
     } else {
-        account.set_current_round(round + rounds);
+        account.set_round(round + rounds);
     }
 
     // Convert value from projective to affine form after last iteration
     if iteration == PREPARE_INPUTS_ITERATIONS - 1 {
-        let v = read_g1_projective(&account.p_inputs);
-        write_g1_affine(&mut account.p_inputs, v.into());
+        let v = get_gic(account);
+        push_g1_affine(account, v.into());
 
         // Reset round counter and init miller value to one
-        account.set_current_round(0);
-        super::write_miller_value(account, Fq12::one());
+        account.set_round(0);
+        //super::write_miller_value(account, Fq12::one());
     }
 
     Ok(())
+}
+
+fn get_gic(account: &mut ProofVerificationAccount) -> G1Projective {
+    account.stack_fq.pop_empty();
+    account.stack_fq.pop_empty();
+    account.stack_fq.pop_empty();
+    pop_g1_projective(account)
+}
+
+fn pop_g1_projective(account: &mut ProofVerificationAccount) -> G1Projective {
+    G1Projective::new(
+        account.pop_fq(),
+        account.pop_fq(),
+        account.pop_fq(),
+    )
+}
+
+fn push_g1_projective(account: &mut ProofVerificationAccount, p: G1Projective) {
+    account.push_fq(p.z);
+    account.push_fq(p.y);
+    account.push_fq(p.x);
+}
+
+fn pop_g1_affine(account: &mut ProofVerificationAccount) -> G1Affine {
+    G1Affine::new(
+        account.pop_fq(),
+        account.pop_fq(),
+        account.pop_fq() == ONE,
+    )
+}
+
+fn push_g1_affine(account: &mut ProofVerificationAccount, p: G1Affine) {
+    account.push_fq(if p.infinity { ONE } else { ZERO });
+    account.push_fq(p.y);
+    account.push_fq(p.x);
 }
 
 pub const MUL_G1A_SCALAR_ROUNDS: usize = 256;
 
 /// Multiplies a `G1Affine` with a `Scalar`
 /// - requires MUL_G1A_SCALAR_ITERATIONS calls to complete
-/// - `scalar_bits` needs to be supplied in the state's `encode_bits` format
 /// - 1 round: ~ 24608 CUs
 pub fn partial_mul_g1a_scalar(
     g1a: &G1Affine,
-    acc: G1Projective,
-    scalar_bits: [u8; 256],
+    acc: &mut G1Projective,
+    bytes_be: &[u8],
     base_round: usize,
     rounds: usize,
-) -> Result<G1Projective, ProgramError> {
-    let mut acc = if base_round == 0 { G1Projective::zero() } else { acc };
+) -> Result<(), ProgramError> {
+    let first_non_zero = find_first_non_zero(bytes_be);
 
     for r in base_round..base_round + rounds {
-        // Leading zeros (encoded with `2`) are ignored
-        if scalar_bits[r] == 2 { continue; }
+        if r < first_non_zero { continue; }
 
         // Multiplication core
         acc.double_in_place();
-        if scalar_bits[r] == 1 {
+        if get_bit(bytes_be, r / 8, 7 - (r % 8)) {
             acc.add_assign_mixed(g1a);
         }
     }
 
-    Ok(acc)
+    Ok(())
+}
+
+fn find_first_non_zero(bytes_be: &[u8]) -> usize {
+    for byte in 0..32 {
+        for bit in 0..8 {
+            if get_bit(bytes_be, byte, bit) {
+                return byte * 8 + bit;
+            }
+        }
+    }
+    return 256
+}
+
+#[inline(always)]
+/// Returns true if the bit is 1
+fn get_bit(bytes_be: &[u8], byte: usize, bit: usize) -> bool {
+    (bytes_be[byte] >> bit) & 1 == 1
 }
 
 #[cfg(test)]
@@ -117,16 +176,11 @@ mod tests {
             )
         );
         let scalar = from_str_10("19526707366532583397322534596786476145393586591811230548888354920504818678603");
-        let scalar_bits = vec_to_array_256(super::super::state::bit_encode(vec_to_array_32(to_bytes_le_repr(scalar))));
+        let scalar_bits: Vec<u8> = to_bytes_le_repr(scalar).iter().copied().rev().collect();
 
         let mut res = G1Projective::zero();
-        let mut round = 0;
-        for i in 0..PREPARE_INPUTS_ITERATIONS {
-            let rounds = PREPARE_INPUTS_ROUNDS[i];
-            res = partial_mul_g1a_scalar(&g1a, res, scalar_bits, round, rounds).unwrap();
-
-            round += rounds;
-            if round == 256 { round = 0; }
+        for round in 0..MUL_G1A_SCALAR_ROUNDS {
+            partial_mul_g1a_scalar(&g1a, &mut res, &scalar_bits, round, 1).unwrap();
         }
 
         let expect = g1a.mul(scalar);
@@ -151,6 +205,7 @@ mod tests {
         for i in 0..PREPARE_INPUTS_ITERATIONS {
             partial_prepare_inputs(&mut account, i).unwrap();
         }
+        let result = pop_g1_affine(&mut account);
 
         // ark_groth16 result
         let vk: VerifyingKey<ark_bn254::Bn254> = VerifyingKey {
@@ -168,9 +223,10 @@ mod tests {
         };
         let expect: G1Projective = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
 
+
         assert_eq!(
-            read_g1_affine(&account.p_inputs),
+            result,
             G1Affine::from(expect),
         );
     }
-}*/
+}
