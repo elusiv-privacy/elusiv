@@ -4,6 +4,7 @@ use ark_groth16::PreparedVerifyingKey;
 use ark_groth16::VerifyingKey;
 use std::str::FromStr;
 use ark_ff::bytes::ToBytes;
+use elusiv::scalar::{ Scalar, from_str_10 };
 use core::ops::Neg;
 
 pub struct ProofString {
@@ -137,6 +138,14 @@ pub fn test_inputs() -> [&'static str; 2] {
     [
         "20643720223837027367320733428836459266646763523911772324593310161284187566894",
         "19526707366532583397322534596786476145393586591811230548888354920504818678603"
+    ]
+}
+
+pub fn test_inputs_fe() -> [Scalar; 2] {
+    let inputs = test_inputs();
+    [
+        from_str_10(inputs[0]),
+        from_str_10(inputs[1]),
     ]
 }
 

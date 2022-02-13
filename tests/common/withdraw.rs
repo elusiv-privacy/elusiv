@@ -22,7 +22,7 @@ use {
 
 pub const WITHDRAW_INSTRUCTIONS_COUNT: u64 = (groth16::ITERATIONS + 2) as u64;
 
-pub async fn withdraw_transaction(payer: &Keypair, _recipient: Pubkey, recent_blockhash: Hash, data: Vec<u8>) -> Transaction {
+pub async fn withdraw_transaction(payer: &Keypair, recipient: Pubkey, recent_blockhash: Hash, data: Vec<u8>) -> Transaction {
     // Start withdrawal
     let mut instructions = Vec::new();
     instructions.push(Instruction {
@@ -36,15 +36,13 @@ pub async fn withdraw_transaction(payer: &Keypair, _recipient: Pubkey, recent_bl
     });
 
     // Compute verification
-    /*for _ in 0..1 {
+    for _ in 0..groth16::ITERATIONS {
         instructions.push(Instruction {
             program_id: elusiv::id(),
             accounts: vec![ AccountMeta::new(withdraw_account_id(), false) ],
             data: vec![4],
         });
-    }*/
-
-    /*
+    }
 
     // Finalize deposit
     instructions.push(Instruction {
@@ -57,7 +55,7 @@ pub async fn withdraw_transaction(payer: &Keypair, _recipient: Pubkey, recent_bl
             AccountMeta::new(recipient, true),
         ],
         data: vec![5],
-    });*/
+    });
 
     // Sign and send transaction
     let mut transaction = Transaction::new_with_payer(&instructions, Some(&payer.pubkey()));

@@ -15,9 +15,9 @@ const ZERO_2: Fq2 = field_new!(Fq2, ZERO_1, ZERO_1);
 const ZERO_6: Fq6 = field_new!(Fq6, ZERO_2, ZERO_2, ZERO_2);
 const ZERO_12: Fq12 = field_new!(Fq12, ZERO_6, ZERO_6);
 
-pub const STACK_FQ_SIZE: usize = 10;
-pub const STACK_FQ2_SIZE: usize = 30;
-pub const STACK_FQ6_SIZE: usize = 7;
+pub const STACK_FQ_SIZE: usize = 6;
+pub const STACK_FQ2_SIZE: usize = 10;
+pub const STACK_FQ6_SIZE: usize = 2;
 pub const STACK_FQ12_SIZE: usize = 7;
 const INPUTS_COUNT: usize = 2;
 
@@ -250,7 +250,7 @@ impl<'a> ProofVerificationAccount<'a> {
         //Self::save_fq(self.stack[i], self.data, i << 5);
     }
 
-    #[inline(always)]
+    /*#[inline(always)]
     fn save_fq(v: Fq, buffer: &mut [u8], offset: usize) {
         Self::save_limb(v.0.0[0], buffer, 0 + offset);
         Self::save_limb(v.0.0[1], buffer, 8 + offset);
@@ -269,7 +269,7 @@ impl<'a> ProofVerificationAccount<'a> {
         buffer[offset + 5] = a[5];
         buffer[offset + 6] = a[6];
         buffer[offset + 7] = a[7];
-    }
+    }*/
 }
 
 // Proof preparation

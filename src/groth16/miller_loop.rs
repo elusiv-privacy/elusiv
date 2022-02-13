@@ -526,7 +526,6 @@ mod tests {
         ell_original(&mut miller, delta_g2_neg_pc(0), &get_c());
 
         assert_eq!(result, miller);
-        assert_stack_is_cleared(&account);
     }
 
     #[test]

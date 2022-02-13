@@ -64,9 +64,6 @@ pub fn partial_prepare_inputs(
     if iteration == PREPARE_INPUTS_ITERATIONS - 1 {
         let v = get_gic(account);
         push_g1_affine(account, v.into());
-
-        // Reset round counter and init miller value to one
-        account.set_round(0);
     }
 
     Ok(())
@@ -159,9 +156,13 @@ mod tests {
         ];
         let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
         let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
-        account.init(vec!
-            [ vec_to_array_32(to_bytes_le_repr(inputs[0])), vec_to_array_32(to_bytes_le_repr(inputs[1])) ],
-            0, [0,0,0,0], super::super::Proof{ a: G1Affine::zero(), b: G2Affine::zero(), c: G1Affine::zero() }
+        account.init(
+            vec![
+                vec_to_array_32(to_bytes_le_repr(inputs[0])),
+                vec_to_array_32(to_bytes_le_repr(inputs[1]))
+            ],
+            0, [0,0,0,0],
+            super::super::Proof{ a: G1Affine::zero(), b: G2Affine::zero(), c: G1Affine::zero() }
         ).unwrap();
 
         // Result

@@ -1,6 +1,7 @@
 from enum import Enum
 
 IDLE_CUS = 30000
+START_CUS = 0
 
 # Costs in CUs (BPF Compute Units)
 class Arm(Enum):
@@ -87,4 +88,4 @@ for arm in arms:
 
 # Calculate the optimal distribution
 from optimize_distribution import find_optimal_distribution
-find_optimal_distribution(rounds_cus, IDLE_CUS)
+find_optimal_distribution(rounds_cus, START_CUS, IDLE_CUS)

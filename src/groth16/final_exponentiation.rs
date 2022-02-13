@@ -26,7 +26,7 @@ pub const FINAL_EXPONENTIATION_ROUNDS: [usize; FINAL_EXPONENTIATION_ITERATIONS] 
 //const RANGE_COUNT: usize = 38;
 //const LAST_ROUND: usize = 1238;
 
-pub fn final_exponentiation(
+pub fn partial_final_exponentiation(
     account: &mut ProofVerificationAccount,
     iteration: usize,
 ) {
@@ -786,7 +786,7 @@ mod tests {
         let expected = Bn254::final_exponentiation(&f).unwrap();
             
         for iteration in 0..FINAL_EXPONENTIATION_ITERATIONS {
-            final_exponentiation(&mut account, iteration);
+            partial_final_exponentiation(&mut account, iteration);
         }
         let result = account.pop_fq12();
 

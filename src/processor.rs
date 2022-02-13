@@ -5,6 +5,7 @@ use super::error::ElusivError::{
     InvalidAmount,
     //InvalidMerkleRoot,
     DidNotFinishHashing,
+    InvalidProof,
 };
 use solana_program::{
     account_info::AccountInfo,
@@ -21,7 +22,15 @@ use solana_program::{
     native_token::LAMPORTS_PER_SOL,
 };
 use ark_ff::*;
-use super::groth16;
+use super::groth16::{
+    PREPARE_INPUTS_ITERATIONS,
+    MILLER_LOOP_ITERATIONS,
+    FINAL_EXPONENTIATION_ITERATIONS,
+    partial_prepare_inputs,
+    partial_miller_loop,
+    partial_final_exponentiation,
+    Proof,
+};
 use super::scalar::*;
 use super::poseidon::*;
 use super::poseidon;
@@ -261,7 +270,7 @@ fn finish_deposit<'a>(
 /// Withdraw the amount to the recipient using the proof
 fn init_withdraw(
     program_account: &ProgramAccount,
-    withdraw_account: &mut ProofVerificationAccount,
+    proof_account: &mut ProofVerificationAccount,
     amount: u64,
     nullifier_hash: ScalarLimbs,
     root: ScalarLimbs,
@@ -278,74 +287,47 @@ fn init_withdraw(
     //if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
 
     // Init values (atm ~ 67343 CUs)
-    /*let inputs = vec![
+    let inputs = vec![
         vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&nullifier_hash))),
         vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&root))),
-    ];*/
-    //let proof = groth16::Proof::from_bytes(proof).unwrap();
-    //withdraw_account.init(inputs, amount, nullifier_hash, proof)?;
+    ];
+    let proof = Proof::from_bytes(proof).unwrap();
+    proof_account.init(inputs, amount, nullifier_hash, proof)?;
 
     // Start with computation
-    verify_withdraw(withdraw_account)?;
+    verify_withdraw(proof_account)?;
 
     Ok(())
 }
 
 fn verify_withdraw(
-    withdraw_account: &mut ProofVerificationAccount,
+    account: &mut ProofVerificationAccount,
 ) -> ProgramResult {
-    use groth16::*;
-    use ark_bn254::{ Fq12, Fq6, Fq2, Fq };
-    use std::str::FromStr;
+    let iteration = account.get_iteration();
 
-    //let iteration = withdraw_account.get_current_iteration();
+    // Prepare inputs
+    if iteration < PREPARE_INPUTS_ITERATIONS {
+        if iteration == 0 { account.set_round(0); }
+        partial_prepare_inputs(account, iteration)?;
+    } else
 
-    /*if iteration < PREPARE_INPUTS_ITERATIONS {    // Prepare inputs
-        partial_prepare_inputs(withdraw_account, iteration)?;
+    // Miller loop
+    if iteration < PREPARE_INPUTS_ITERATIONS + MILLER_LOOP_ITERATIONS {
+        let base = PREPARE_INPUTS_ITERATIONS;
+        if iteration == base { account.set_round(0); }
+
+        partial_miller_loop(account, iteration - base)?;
     } else
-    if iteration < PREPARE_INPUTS_ITERATIONS + MILLER_LOOP_ITERATIONS {   // Compute the miller value
-        partial_miller_loop(withdraw_account, iteration - PREPARE_INPUTS_ITERATIONS)?;
-    } else
+
+    // Final exponentiation
     if iteration < PREPARE_INPUTS_ITERATIONS + MILLER_LOOP_ITERATIONS + FINAL_EXPONENTIATION_ITERATIONS {
-        */
-        let f = Fq12::new(
-            Fq6::new(
-                Fq2::new(
-                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                ),
-                Fq2::new(
-                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                ),
-                Fq2::new(
-                    Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
-                    Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
-                ),
-            ),
-            Fq6::new(
-                Fq2::new(
-                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                ),
-                Fq2::new(
-                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                ),
-                Fq2::new(
-                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-                ),
-            ),
-        );
-        //let f = read_miller_value(withdraw_account);
-        //write_fq12(withdraw_account.get_ram_mut(0, 12), f);
-        withdraw_account.push_fq12(f);
-        final_exponentiation(withdraw_account, 0);
-    //}
-    //let _ = withdraw_account.pop_fq12();    // ~ 28.778 and 13958
+        let base = PREPARE_INPUTS_ITERATIONS + MILLER_LOOP_ITERATIONS;
+        if iteration == base { account.set_round(0); }
 
-    //withdraw_account.inc_current_iteration(1);
+        partial_final_exponentiation(account, iteration - base);
+    }
+
+    account.set_iteration(iteration + 1);
 
     Ok(())
 }
@@ -353,12 +335,17 @@ fn verify_withdraw(
 fn finish_withdraw(
     program_id: &Pubkey,
     program_account: &AccountInfo,
-    withdraw_account: &mut ProofVerificationAccount,
+    proof_account: &mut ProofVerificationAccount,
     recipient: &AccountInfo,
 ) -> ProgramResult {
+    // Check if proof is verified
+    if proof_account.get_iteration() != super::groth16::ITERATIONS { return Err(InvalidProof.into()) }
+    let result = proof_account.pop_fq12();
+    if result != super::groth16::alpha_g1_beta_g2() { return Err(InvalidProof.into()) }
+
     {
-        let data = &mut program_account.data.borrow_mut()[..];
-        let mut program_account = ProgramAccount::new(&program_account, data, program_id)?;
+        //let data = &mut program_account.data.borrow_mut()[..];
+        //let mut program_account = ProgramAccount::new(&program_account, data, program_id)?;
 
         // Save nullifier
         //program_account.insert_nullifier_hash(withdraw_account.get_nullifier_hash())?;

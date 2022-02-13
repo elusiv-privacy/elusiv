@@ -1,14 +1,13 @@
 MAX_CUS = 200000
 SECURITY_PADDING = 5000
-START_CUS = 0
 
 # Calculate the optimal distribution
-def find_optimal_distribution(rounds_cus, idle_cus):
+def find_optimal_distribution(rounds_cus, start_cus, idle_cus):
     max = MAX_CUS - SECURITY_PADDING - idle_cus
     rounds = 0
     iterations = list()
     iteration_rounds = 0
-    iteration_cus = START_CUS
+    iteration_cus = start_cus
 
     while rounds < len(rounds_cus):
         next_cost = rounds_cus[rounds]

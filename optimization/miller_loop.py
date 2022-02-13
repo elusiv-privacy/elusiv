@@ -1,4 +1,5 @@
 IDLE_CUS = 2000
+START_CUS = 0
 
 # ATE loop count reversed, first element removed and -1s squared
 ate_rev_normalized = [1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0]
@@ -41,5 +42,5 @@ rounds_cus.extend(ell_rounds_cus)
 
 # Calculate the optimal distribution
 from optimize_distribution import find_optimal_distribution
-find_optimal_distribution(rounds_cus, IDLE_CUS)
+find_optimal_distribution(rounds_cus, START_CUS, IDLE_CUS)
 print("Main loop rounds: ", rounds_main_loop)
