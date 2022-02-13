@@ -22,9 +22,9 @@ pub const FINAL_EXPONENTIATION_ROUNDS: [usize; FINAL_EXPONENTIATION_ITERATIONS] 
     7, 5, 9, 10, 13, 10, 14, 13, 11, 6, 18, 10, 14, 6, 10, 10, 10, 6, 10, 14, 6, 18, 6, 10, 10, 10, 6, 10, 10, 10, 10, 10, 10, 6, 10, 14, 6, 10, 14, 10, 5, 10, 15, 10, 14, 13, 11, 6, 18, 10, 14, 6, 10, 10, 10, 6, 10, 14, 6, 18, 6, 10, 10, 10, 6, 10, 10, 10, 10, 10, 10, 6, 10, 14, 6, 10, 14, 10, 8, 15, 10, 14, 13, 11, 6, 18, 10, 14, 6, 10, 10, 10, 6, 10, 14, 6, 18, 6, 10, 10, 10, 6, 10, 10, 10, 10, 10, 10, 6, 10, 14, 6, 10, 14, 10, 10, 9, 10, 9, 9, 9, 9, 2
 ];
 
-#[allow(dead_code)]
-const RANGE_COUNT: usize = 38;
-const LAST_ROUND: usize = 1238;
+//#[allow(dead_code)]
+//const RANGE_COUNT: usize = 38;
+//const LAST_ROUND: usize = 1238;
 
 pub fn final_exponentiation(
     account: &mut ProofVerificationAccount,

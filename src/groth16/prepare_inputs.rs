@@ -1,14 +1,13 @@
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
-use ark_bn254::{ Fq, Fq12, G1Affine, G1Projective };
+use ark_bn254::{ Fq, G1Affine, G1Projective };
 use ark_ec::{
     ProjectiveCurve,
 };
 use ark_ff::*;
 use core::ops::{ AddAssign };
 use super::gamma_abc_g1;
-use super::super::scalar::*;
-use super::super::state::ProofVerificationAccount;
+use super::state::*;
 
 pub const PREPARE_INPUTS_ITERATIONS: usize = 66;
 pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [
@@ -16,7 +15,6 @@ pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 1,
 ];
 const ZERO: Fq = field_new!(Fq, "0");
-const ONE: Fq = field_new!(Fq, "1");
 
 /// Prepares `INPUTS_COUNT` public inputs (into one `G1Affine`)
 /// - requires `PREPARATION_ITERATIONS` calls to complete
@@ -69,45 +67,9 @@ pub fn partial_prepare_inputs(
 
         // Reset round counter and init miller value to one
         account.set_round(0);
-        //super::write_miller_value(account, Fq12::one());
     }
 
     Ok(())
-}
-
-fn get_gic(account: &mut ProofVerificationAccount) -> G1Projective {
-    account.stack_fq.pop_empty();
-    account.stack_fq.pop_empty();
-    account.stack_fq.pop_empty();
-    pop_g1_projective(account)
-}
-
-fn pop_g1_projective(account: &mut ProofVerificationAccount) -> G1Projective {
-    G1Projective::new(
-        account.pop_fq(),
-        account.pop_fq(),
-        account.pop_fq(),
-    )
-}
-
-fn push_g1_projective(account: &mut ProofVerificationAccount, p: G1Projective) {
-    account.push_fq(p.z);
-    account.push_fq(p.y);
-    account.push_fq(p.x);
-}
-
-fn pop_g1_affine(account: &mut ProofVerificationAccount) -> G1Affine {
-    G1Affine::new(
-        account.pop_fq(),
-        account.pop_fq(),
-        account.pop_fq() == ONE,
-    )
-}
-
-fn push_g1_affine(account: &mut ProofVerificationAccount, p: G1Affine) {
-    account.push_fq(if p.infinity { ONE } else { ZERO });
-    account.push_fq(p.y);
-    account.push_fq(p.x);
 }
 
 pub const MUL_G1A_SCALAR_ROUNDS: usize = 256;
@@ -165,6 +127,7 @@ mod tests {
     use ark_ec::AffineCurve;
     use ark_bn254::{ G2Affine, G1Affine };
     use core::ops::Neg;
+    use super::super::super::scalar::*;
 
     #[test]
     fn test_mul_g1a_scalar() {
@@ -205,7 +168,10 @@ mod tests {
         for i in 0..PREPARE_INPUTS_ITERATIONS {
             partial_prepare_inputs(&mut account, i).unwrap();
         }
-        let result = pop_g1_affine(&mut account);
+        let result = account.get_prepared_inputs();
+        account.stack_fq.pop_empty();
+        account.stack_fq.pop_empty();
+        account.stack_fq.pop_empty();
 
         // ark_groth16 result
         let vk: VerifyingKey<ark_bn254::Bn254> = VerifyingKey {
@@ -228,5 +194,13 @@ mod tests {
             result,
             G1Affine::from(expect),
         );
+        assert_stack_is_cleared(&account);
+    }
+
+    /// Stack convention:
+    /// - every private function has to clear the local stack
+    /// - public functions are allowed to return values on the stack
+    fn assert_stack_is_cleared(account: &ProofVerificationAccount) {
+        assert_eq!(account.stack_fq.stack_pointer, 0);
     }
 }

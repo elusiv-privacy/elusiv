@@ -5,8 +5,8 @@ ate_rev_normalized = [1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1
 
 # Costs in CUs (BPF Compute Units)
 adding_rounds_cus = [12673, 23173, 15199, 27102, 12907, 12661]
-doubling_rounds_cus = [13078, 16767, 25817, 15379, 15070, 5567]
-ell_rounds_cus = [8000, 8000, 90000, 8000, 8000, 90000, 8000, 8000, 90000]
+doubling_rounds_cus = [13078, 16767, 25817, 15379, 15070, 5567, 15070]
+ell_rounds_cus = [15000, 90000, 15000, 90000, 15000, 90000]
 square_in_place_cus = 90000
 mul_by_char_cus = 18000
 
@@ -29,8 +29,6 @@ for i, complex_round in enumerate(ate_rev_normalized):
     else:
         rounds_cus.extend([0] * len(adding_rounds_cus))
         rounds_cus.extend([0] * len(ell_rounds_cus))
-
-    rounds_cus.append(0)
 
 rounds_main_loop = len(rounds_cus)
 

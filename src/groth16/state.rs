@@ -3,18 +3,20 @@ use super::super::storage_account::*;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use byteorder::{ ByteOrder, LittleEndian };
-use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G2Projective };
+use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G1Affine, G1Projective };
 use ark_ff::*;
 use super::lazy_stack::LazyHeapStack;
 use super::super::error::ElusivError::{ InvalidStorageAccount, InvalidStorageAccountSize };
 use super::super::scalar::*;
 
 const ZERO_1: Fq = field_new!(Fq, "0");
+const ONE_1: Fq = field_new!(Fq, "1");
 const ZERO_2: Fq2 = field_new!(Fq2, ZERO_1, ZERO_1);
 const ZERO_6: Fq6 = field_new!(Fq6, ZERO_2, ZERO_2, ZERO_2);
 const ZERO_12: Fq12 = field_new!(Fq12, ZERO_6, ZERO_6);
 
-pub const STACK_FQ_SIZE: usize = 20;
+pub const STACK_FQ_SIZE: usize = 10;
+pub const STACK_FQ2_SIZE: usize = 30;
 pub const STACK_FQ6_SIZE: usize = 7;
 pub const STACK_FQ12_SIZE: usize = 7;
 const INPUTS_COUNT: usize = 2;
@@ -23,6 +25,7 @@ solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 
 pub struct ProofVerificationAccount<'a> {
     pub stack_fq: LazyHeapStack<Fq>,
+    pub stack_fq2: LazyHeapStack<Fq2>,
     pub stack_fq6: LazyHeapStack<Fq6>,
     pub stack_fq12: LazyHeapStack<Fq12>,
 
@@ -30,13 +33,20 @@ pub struct ProofVerificationAccount<'a> {
     /// - `[u8; INPUTS_COUNT * 32]`
     /// - big endian
     pub inputs_be: &'a mut [u8],
+    prepared_inputs: Option<G1Affine>,
+    coeff_ic: &'a mut [u8],
+
+    pub proof_a: &'a mut [u8],
+    pub proof_b: &'a mut [u8],
+    pub proof_c: &'a mut [u8],
+    pub b_neg: &'a mut [u8],
 
     iteration: &'a mut [u8],
     round: &'a mut [u8],
 }
 
 impl<'a> ProofVerificationAccount<'a> {
-    pub const TOTAL_SIZE: usize = (STACK_FQ_SIZE + STACK_FQ6_SIZE * 6 + STACK_FQ12_SIZE * 12) * 32 + INPUTS_COUNT * 32 + 4 + 4;
+    pub const TOTAL_SIZE: usize = (STACK_FQ_SIZE + STACK_FQ2_SIZE * 2 + STACK_FQ6_SIZE * 6 + STACK_FQ12_SIZE * 12) * 32 + INPUTS_COUNT * 32 + 4 + G1AFFINE_SIZE + G2AFFINE_SIZE + G1AFFINE_SIZE + 4 + 4;
 
     pub fn new(
         account_info: &solana_program::account_info::AccountInfo,
@@ -56,6 +66,10 @@ impl<'a> ProofVerificationAccount<'a> {
             stack: vec![ZERO_1; STACK_FQ_SIZE],
             stack_pointer: 0,
         };
+        let stack_fq2 = LazyHeapStack {
+            stack: vec![ZERO_2; STACK_FQ2_SIZE],
+            stack_pointer: 0,
+        };
         let stack_fq6 = LazyHeapStack {
             stack: vec![ZERO_6; STACK_FQ6_SIZE],
             stack_pointer: 0,
@@ -66,15 +80,27 @@ impl<'a> ProofVerificationAccount<'a> {
         };
 
         let (inputs_be, data) = data.split_at_mut(INPUTS_COUNT * 32);
+        let (coeff_ic, data) = data.split_at_mut(4);
+        let (proof_a, data) = data.split_at_mut(G1AFFINE_SIZE);
+        let (proof_b, data) = data.split_at_mut(G2AFFINE_SIZE);
+        let (proof_c, data) = data.split_at_mut(G1AFFINE_SIZE);
+        let (b_neg, data) = data.split_at_mut(G2AFFINE_SIZE);
         let (iteration, data) = data.split_at_mut(4);
         let (round, _) = data.split_at_mut(4);
 
         Ok(
             ProofVerificationAccount {
                 stack_fq,
+                stack_fq2,
                 stack_fq6,
                 stack_fq12,
                 inputs_be,
+                prepared_inputs: None,
+                coeff_ic,
+                proof_a,
+                proof_b,
+                proof_c,
+                b_neg,
                 iteration,
                 round,
             }
@@ -97,6 +123,17 @@ impl<'a> ProofVerificationAccount<'a> {
             }
         }
 
+        // Save proof
+        write_g1_affine(&mut self.proof_a, proof.a);
+        write_g1_affine(&mut self.proof_c, proof.c);
+        write_g2_affine(&mut self.proof_b, proof.b);
+        write_g2_affine(&mut self.b_neg, -proof.b);
+
+        // Store proof preparation values
+        self.push_fq2(Fq2::one());
+        self.push_fq2(proof.b.y);
+        self.push_fq2(proof.b.x);
+
         // Push super::gamma_abc_g1_0() (aka the starting value for g_ic)
         self.push_fq(super::gamma_abc_g1_0().z);
         self.push_fq(super::gamma_abc_g1_0().y);
@@ -106,6 +143,14 @@ impl<'a> ProofVerificationAccount<'a> {
         self.push_fq(ZERO_1);
         self.push_fq(ZERO_1);
         self.push_fq(ZERO_1);
+
+        // Push the miller value
+        self.push_fq12(Fq12::one());
+
+        // Reset counters
+        self.set_iteration(0);
+        self.set_round(0);
+        self.set_coeff_ic(0);
 
         Ok(())
     }
@@ -120,8 +165,7 @@ impl<'a> ProofVerificationAccount<'a> {
 
     #[inline(always)]
     pub fn push_fq2(&mut self, v: Fq2) {
-        self.stack_fq.push(v.c1);
-        self.stack_fq.push(v.c0);
+        self.stack_fq2.push(v);
     }
 
     #[inline(always)]
@@ -135,16 +179,14 @@ impl<'a> ProofVerificationAccount<'a> {
     }
 }
 
-// Stack poping
+// Stack popping
 impl<'a> ProofVerificationAccount<'a> {
     pub fn pop_fq(&mut self) -> Fq {
         self.stack_fq.pop()
     }
 
     pub fn pop_fq2(&mut self) -> Fq2 {
-        let a = self.stack_fq.pop();
-        let b = self.stack_fq.pop();
-        Fq2::new(a, b)
+        self.stack_fq2.pop()
     }
 
     pub fn pop_fq6(&mut self) -> Fq6 {
@@ -158,21 +200,19 @@ impl<'a> ProofVerificationAccount<'a> {
 
 // Stack peeking
 impl<'a> ProofVerificationAccount<'a> {
-    pub fn peek_fq(&mut self, offset: usize) -> Fq {
+    pub fn peek_fq(&self, offset: usize) -> Fq {
         self.stack_fq.peek(offset)
     }
 
-    pub fn peek_fq2(&mut self, offset: usize) -> Fq2 {
-        let a = self.stack_fq.peek(offset * 2);
-        let b = self.stack_fq.peek(offset * 2 + 1);
-        Fq2::new(a, b)
+    pub fn peek_fq2(&self, offset: usize) -> Fq2 {
+        self.stack_fq2.peek(offset)
     }
 
-    pub fn peek_fq6(&mut self, offset: usize) -> Fq6 {
+    pub fn peek_fq6(&self, offset: usize) -> Fq6 {
         self.stack_fq6.peek(offset)
     }
 
-    pub fn peek_fq12(&mut self, offset: usize) -> Fq12 {
+    pub fn peek_fq12(&self, offset: usize) -> Fq12 {
         self.stack_fq12.peek(offset)
     }
 }
@@ -230,6 +270,74 @@ impl<'a> ProofVerificationAccount<'a> {
         buffer[offset + 6] = a[6];
         buffer[offset + 7] = a[7];
     }
+}
+
+// Proof preparation
+impl<'a> ProofVerificationAccount<'a> {
+    fn set_coeff_ic(&mut self, index: u32) {
+        LittleEndian::write_u32(&mut self.coeff_ic, index);
+    }
+
+    pub fn get_coeff_ic(&self) -> usize {
+        bytes_to_u32(self.coeff_ic) as usize
+    }
+
+    pub fn inc_coeff_ic(&mut self) {
+        let ic = self.get_coeff_ic();
+        LittleEndian::write_u32(&mut self.coeff_ic, ic as u32 + 1);
+    }
+
+    pub fn get_prepared_inputs(&self) -> G1Affine {
+        if let Some(pi) = self.prepared_inputs { return pi; }
+        G1Affine::new(
+            self.peek_fq(0),
+            self.peek_fq(1),
+            self.peek_fq(2) == ONE_1,
+        )
+    }
+}
+
+pub fn get_gic(account: &mut ProofVerificationAccount) -> G1Projective {
+    account.stack_fq.pop_empty();
+    account.stack_fq.pop_empty();
+    account.stack_fq.pop_empty();
+    pop_g1_projective(account)
+}
+
+pub fn pop_g1_projective(account: &mut ProofVerificationAccount) -> G1Projective {
+    G1Projective::new(
+        account.pop_fq(),
+        account.pop_fq(),
+        account.pop_fq(),
+    )
+}
+
+pub fn push_g1_projective(account: &mut ProofVerificationAccount, p: G1Projective) {
+    account.push_fq(p.z);
+    account.push_fq(p.y);
+    account.push_fq(p.x);
+}
+
+pub fn peek_g1_affine(account: &mut ProofVerificationAccount) -> G1Affine {
+    G1Affine::new(
+        account.peek_fq(0),
+        account.peek_fq(1),
+        account.peek_fq(2) == ONE_1,
+    )
+}
+
+pub fn pop_g1_affine(account: &mut ProofVerificationAccount) -> G1Affine {
+    G1Affine::new(
+        account.pop_fq(),
+        account.pop_fq(),
+        account.pop_fq() == ONE_1,
+    )
+}
+
+pub fn push_g1_affine(account: &mut ProofVerificationAccount, p: G1Affine) {
+    account.push_fq(if p.infinity { ONE_1 } else { ZERO_1 });
+    account.push_fq(p.y);
+    account.push_fq(p.x);
 }
 
 #[cfg(test)]
