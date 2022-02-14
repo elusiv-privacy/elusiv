@@ -8,8 +8,7 @@
 
         "opt:miller-loop": "cd optimization && python3 miller_loop_rounds.py",
 
-        "test": "cargo test-bpf",
         "test:compute": "RUST_LOG=\"debug/^.*BPF instructions executed.*$\" cargo test-bpf --test test_groth16 -- --nocapture",
-        "test:16": "cargo test-bpf --test test_groth16 -- --nocapture"
+        "test": "cargo test-bpf --test withdraw_test -- --nocapture"
     }
 }

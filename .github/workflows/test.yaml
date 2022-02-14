@@ -13,7 +13,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - setup:
+      run: sh -c "$(curl -sSfL https://release.solana.com/v1.9.6/install)"
     - name: Build
       run: cargo build --verbose
-    - name: Run tests
+    - name: Test
       run: cargo test --verbose

@@ -29,6 +29,7 @@ use super::groth16::{
     partial_prepare_inputs,
     partial_miller_loop,
     partial_final_exponentiation,
+    verify_proof,
     Proof,
 };
 use super::scalar::*;
@@ -100,6 +101,7 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
             let data = &mut withdraw_account.data.borrow_mut()[..];
             let mut withdraw_account = ProofVerificationAccount::new(&withdraw_account, data, program_id)?;
 
+            // CUs consumed until this point: ~ 7270
             init_withdraw(&program_account, &mut withdraw_account, amount, nullifier_hash, root, &proof)
         },
         VerifyWithdraw => {
@@ -277,16 +279,15 @@ fn init_withdraw(
     proof: &[u8],
 ) -> ProgramResult {
     // Check the amount
-    //if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
+    if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
 
-    // Check if nullifier does not already exist
-    // ~ 35000-45000 CUs
-    //program_account.can_insert_nullifier_hash(nullifier_hash)?;
+    // Check if nullifier does not already exist (~ 35000 CUs)
+    program_account.can_insert_nullifier_hash(nullifier_hash)?;
 
     // Check merkle root
     //if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
 
-    // Init values (atm ~ 67343 CUs)
+    // Init values (~ 33081 CUs)
     let inputs = vec![
         vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&nullifier_hash))),
         vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&root))),
@@ -295,7 +296,7 @@ fn init_withdraw(
     proof_account.init(inputs, amount, nullifier_hash, proof)?;
 
     // Start with computation
-    verify_withdraw(proof_account)?;
+    //verify_withdraw(proof_account)?;
 
     Ok(())
 }
@@ -304,6 +305,11 @@ fn verify_withdraw(
     account: &mut ProofVerificationAccount,
 ) -> ProgramResult {
     let iteration = account.get_iteration();
+
+    // Prevent any computations after the last iteration
+    if iteration >= super::groth16::ITERATIONS {
+        return Err(InvalidProof.into())
+    }
 
     // Prepare inputs
     if iteration < PREPARE_INPUTS_ITERATIONS {
@@ -328,6 +334,7 @@ fn verify_withdraw(
     }
 
     account.set_iteration(iteration + 1);
+    account.serialize();
 
     Ok(())
 }
@@ -338,16 +345,18 @@ fn finish_withdraw(
     proof_account: &mut ProofVerificationAccount,
     recipient: &AccountInfo,
 ) -> ProgramResult {
+    let iteration = proof_account.get_iteration();
+
     // Check if proof is verified
-    if proof_account.get_iteration() != super::groth16::ITERATIONS { return Err(InvalidProof.into()) }
-    let result = proof_account.pop_fq12();
-    if result != super::groth16::alpha_g1_beta_g2() { return Err(InvalidProof.into()) }
+    if !verify_proof(proof_account, iteration) {
+        return Err(InvalidProof.into())
+    }
 
+    // Save nullifier hash
     {
-        //let data = &mut program_account.data.borrow_mut()[..];
-        //let mut program_account = ProgramAccount::new(&program_account, data, program_id)?;
+        let data = &mut program_account.data.borrow_mut()[..];
+        let mut program_account = ProgramAccount::new(&program_account, data, program_id)?;
 
-        // Save nullifier
         //program_account.insert_nullifier_hash(withdraw_account.get_nullifier_hash())?;
     }
 

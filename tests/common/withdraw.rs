@@ -36,7 +36,7 @@ pub async fn withdraw_transaction(payer: &Keypair, recipient: Pubkey, recent_blo
     });
 
     // Compute verification
-    for _ in 0..groth16::ITERATIONS {
+    /*for _ in 0..groth16::ITERATIONS {
         instructions.push(Instruction {
             program_id: elusiv::id(),
             accounts: vec![ AccountMeta::new(withdraw_account_id(), false) ],
@@ -55,7 +55,7 @@ pub async fn withdraw_transaction(payer: &Keypair, recipient: Pubkey, recent_blo
             AccountMeta::new(recipient, true),
         ],
         data: vec![5],
-    });
+    });*/
 
     // Sign and send transaction
     let mut transaction = Transaction::new_with_payer(&instructions, Some(&payer.pubkey()));

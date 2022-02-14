@@ -14,7 +14,7 @@ enum ValueState {
 pub struct LazyHeapStack<'a, F: Copy> {
     data: &'a mut [u8],
     bytecount: usize,
-    stack: Vec<F>,
+    stack: Vec<Option<F>>,
     state: Vec<ValueState>,
     pub stack_pointer: usize,
     serialize: Box<dyn Fn(F, &mut [u8]) + 'a>,
@@ -26,7 +26,6 @@ impl<'a, F: Copy> LazyHeapStack<'a, F> {
         data: &'a mut [u8],
         size: usize,
         bytecount: usize,
-        default_value: F,
         serialize: S,
         deserialize: D,
     ) -> LazyHeapStack<'a, F>
@@ -41,7 +40,7 @@ impl<'a, F: Copy> LazyHeapStack<'a, F> {
         LazyHeapStack {
             data,
             bytecount,
-            stack: vec![default_value; size],
+            stack: vec![None; size],
             state: vec![ValueState::None; size],
             stack_pointer,
             serialize: Box::new(serialize),
@@ -91,21 +90,20 @@ impl<'a, F: Copy> LazyHeapStack<'a, F> {
     }
 
     fn get(&mut self, index: usize) -> F {
-        // Deserialize and return value
-        if let ValueState::None = self.state[index] {
-            let slice = &self.data[4 + index * self.bytecount..4 + (index + 1) * self.bytecount];
-            let v = (self.deserialize)(slice);
-            self.stack[index] = v;
-            self.state[index] = ValueState::Used;
-            return v
+        match self.stack[index] {
+            Some(v) => v,
+            None => {
+                let slice = &self.data[4 + index * self.bytecount..4 + (index + 1) * self.bytecount];
+                let v = (self.deserialize)(slice);
+                self.stack[index] = Some(v);
+                self.state[index] = ValueState::Used;
+                v
+            }
         }
-
-        // Value has already been deserialized
-        self.stack[index]
     }
 
     fn set(&mut self, index: usize, v: F) {
-        self.stack[index] = v;
+        self.stack[index] = Some(v);
         self.state[index] = ValueState::Modified;
     }
 
@@ -114,7 +112,7 @@ impl<'a, F: Copy> LazyHeapStack<'a, F> {
         for i in 0..self.stack_pointer {
             if let ValueState::Modified = self.state[i] {
                 let slice = &mut self.data[4 + i * self.bytecount..4 + (i + 1) * self.bytecount]; 
-                (self.serialize)(self.stack[i], slice);
+                (self.serialize)(self.stack[i].unwrap(), slice);
             }
         }
     }
