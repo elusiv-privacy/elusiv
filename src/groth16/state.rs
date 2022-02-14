@@ -19,15 +19,108 @@ pub const STACK_FQ_SIZE: usize = 6;
 pub const STACK_FQ2_SIZE: usize = 10;
 pub const STACK_FQ6_SIZE: usize = 2;
 pub const STACK_FQ12_SIZE: usize = 7;
+pub const STACK_FQ_BYTES: usize = STACK_FQ_SIZE * 32 + 4;
+pub const STACK_FQ2_BYTES: usize = STACK_FQ2_SIZE * 2 * 32 + 4;
+pub const STACK_FQ6_BYTES: usize = STACK_FQ6_SIZE * 6 * 32 + 4;
+pub const STACK_FQ12_BYTES: usize = STACK_FQ12_SIZE * 12 * 32 + 4;
 const INPUTS_COUNT: usize = 2;
 
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 
+#[inline(always)]
+fn save_fq(v: Fq, buffer: &mut [u8], offset: usize) {
+    save_limb(v.0.0[0], buffer, 0 + offset);
+    save_limb(v.0.0[1], buffer, 8 + offset);
+    save_limb(v.0.0[2], buffer, 16 + offset);
+    save_limb(v.0.0[3], buffer, 24 + offset);
+}
+
+#[inline(never)]
+fn save_limb(v: u64, buffer: &mut [u8], offset: usize) {
+    let a = u64::to_le_bytes(v);
+    buffer[offset + 0] = a[0];
+    buffer[offset + 1] = a[1];
+    buffer[offset + 2] = a[2];
+    buffer[offset + 3] = a[3];
+    buffer[offset + 4] = a[4];
+    buffer[offset + 5] = a[5];
+    buffer[offset + 6] = a[6];
+    buffer[offset + 7] = a[7];
+}
+
+fn serialize_fq(f: Fq, data: &mut [u8]) {
+    save_fq(f, data, 0);
+}
+
+fn deserialize_fq(data: &[u8]) -> Fq {
+    Fq::new(BigInteger256::read(data).unwrap())
+}
+
+fn serialize_fq2(f: Fq2, data: &mut [u8]) {
+    save_fq(f.c0, data, 0);
+    save_fq(f.c1, data, 32);
+}
+
+fn deserialize_fq2(data: &[u8]) -> Fq2 {
+    Fq2::new(
+        Fq::new(BigInteger256::read(&data[0..32]).unwrap()),
+        Fq::new(BigInteger256::read(&data[32..64]).unwrap()),
+    )
+}
+
+fn serialize_fq6(f: Fq6, data: &mut [u8]) {
+    save_fq(f.c0.c0, data, 0);
+    save_fq(f.c0.c1, data, 32);
+    save_fq(f.c1.c0, data, 64);
+    save_fq(f.c1.c1, data, 96);
+    save_fq(f.c2.c0, data, 128);
+    save_fq(f.c2.c1, data, 160);
+}
+
+fn deserialize_fq6(data: &[u8]) -> Fq6 {
+    Fq6::new(
+        Fq2::new(
+            Fq::new(BigInteger256::read(&data[0..32]).unwrap()),
+            Fq::new(BigInteger256::read(&data[32..64]).unwrap()),
+        ),
+        Fq2::new(
+            Fq::new(BigInteger256::read(&data[64..96]).unwrap()),
+            Fq::new(BigInteger256::read(&data[96..128]).unwrap()),
+        ),
+        Fq2::new(
+            Fq::new(BigInteger256::read(&data[128..160]).unwrap()),
+            Fq::new(BigInteger256::read(&data[160..192]).unwrap()),
+        ),
+    )
+}
+
+fn serialize_fq12(f: Fq12, data: &mut [u8]) {
+    save_fq(f.c0.c0.c0, data, 0);
+    save_fq(f.c0.c0.c1, data, 32);
+    save_fq(f.c0.c1.c0, data, 64);
+    save_fq(f.c0.c1.c1, data, 96);
+    save_fq(f.c0.c2.c0, data, 128);
+    save_fq(f.c0.c2.c1, data, 160);
+    save_fq(f.c1.c0.c0, data, 192);
+    save_fq(f.c1.c0.c1, data, 224);
+    save_fq(f.c1.c1.c0, data, 256);
+    save_fq(f.c1.c1.c1, data, 288);
+    save_fq(f.c1.c2.c0, data, 320);
+    save_fq(f.c1.c2.c1, data, 352);
+}
+
+fn deserialize_fq12(data: &[u8]) -> Fq12 {
+    Fq12::new(
+        deserialize_fq6(&data[0..192]),
+        deserialize_fq6(&data[192..384]),
+    )
+}
+
 pub struct ProofVerificationAccount<'a> {
-    pub stack_fq: LazyHeapStack<Fq>,
-    pub stack_fq2: LazyHeapStack<Fq2>,
-    pub stack_fq6: LazyHeapStack<Fq6>,
-    pub stack_fq12: LazyHeapStack<Fq12>,
+    pub stack_fq: LazyHeapStack<'a, Fq, >,
+    pub stack_fq2: LazyHeapStack<'a, Fq2>,
+    pub stack_fq6: LazyHeapStack<'a, Fq6>,
+    pub stack_fq12: LazyHeapStack<'a, Fq12>,
 
     /// Original inputs
     /// - `[u8; INPUTS_COUNT * 32]`
@@ -46,7 +139,7 @@ pub struct ProofVerificationAccount<'a> {
 }
 
 impl<'a> ProofVerificationAccount<'a> {
-    pub const TOTAL_SIZE: usize = (STACK_FQ_SIZE + STACK_FQ2_SIZE * 2 + STACK_FQ6_SIZE * 6 + STACK_FQ12_SIZE * 12) * 32 + INPUTS_COUNT * 32 + 4 + G1AFFINE_SIZE + G2AFFINE_SIZE + G1AFFINE_SIZE + 4 + 4;
+    pub const TOTAL_SIZE: usize = STACK_FQ_BYTES + STACK_FQ2_BYTES + STACK_FQ6_BYTES + STACK_FQ12_BYTES + INPUTS_COUNT * 32 + 4 + G1AFFINE_SIZE + G2AFFINE_SIZE + G1AFFINE_SIZE + G2AFFINE_SIZE + 4 + 4;
 
     pub fn new(
         account_info: &solana_program::account_info::AccountInfo,
@@ -62,22 +155,17 @@ impl<'a> ProofVerificationAccount<'a> {
     pub fn from_data(data: &'a mut [u8]) -> Result<Self, ProgramError> {
         if data.len() != Self::TOTAL_SIZE { return Err(InvalidStorageAccountSize.into()); }
 
-        let stack_fq = LazyHeapStack {
-            stack: vec![ZERO_1; STACK_FQ_SIZE],
-            stack_pointer: 0,
-        };
-        let stack_fq2 = LazyHeapStack {
-            stack: vec![ZERO_2; STACK_FQ2_SIZE],
-            stack_pointer: 0,
-        };
-        let stack_fq6 = LazyHeapStack {
-            stack: vec![ZERO_6; STACK_FQ6_SIZE],
-            stack_pointer: 0,
-        };
-        let stack_fq12 = LazyHeapStack {
-            stack: vec![ZERO_12; STACK_FQ12_SIZE],
-            stack_pointer: 0,
-        };
+        let (stack_fq, data) = data.split_at_mut(STACK_FQ_BYTES);
+        let stack_fq = LazyHeapStack::new(stack_fq, STACK_FQ_SIZE, 32, ZERO_1, serialize_fq, deserialize_fq);
+
+        let (stack_fq2, data) = data.split_at_mut(STACK_FQ2_BYTES);
+        let stack_fq2 = LazyHeapStack::new(stack_fq2, STACK_FQ2_SIZE, 64, ZERO_2, serialize_fq2, deserialize_fq2);
+
+        let (stack_fq6, data) = data.split_at_mut(STACK_FQ6_BYTES);
+        let stack_fq6 = LazyHeapStack::new(stack_fq6, STACK_FQ6_SIZE, 192, ZERO_6, serialize_fq6, deserialize_fq6);
+
+        let (stack_fq12, data) = data.split_at_mut(STACK_FQ12_BYTES);
+        let stack_fq12 = LazyHeapStack::new(stack_fq12, STACK_FQ12_SIZE, 384, ZERO_12, serialize_fq12, deserialize_fq12);
 
         let (inputs_be, data) = data.split_at_mut(INPUTS_COUNT * 32);
         let (coeff_ic, data) = data.split_at_mut(4);
@@ -122,6 +210,12 @@ impl<'a> ProofVerificationAccount<'a> {
                 self.inputs_be[i * 32 + j] = bytes_be[j];
             }
         }
+
+        // Reset stack
+        self.stack_fq.clear();
+        self.stack_fq2.clear();
+        self.stack_fq6.clear();
+        self.stack_fq12.clear();
 
         // Save proof
         write_g1_affine(&mut self.proof_a, proof.a);
@@ -200,19 +294,19 @@ impl<'a> ProofVerificationAccount<'a> {
 
 // Stack peeking
 impl<'a> ProofVerificationAccount<'a> {
-    pub fn peek_fq(&self, offset: usize) -> Fq {
+    pub fn peek_fq(&mut self, offset: usize) -> Fq {
         self.stack_fq.peek(offset)
     }
 
-    pub fn peek_fq2(&self, offset: usize) -> Fq2 {
+    pub fn peek_fq2(&mut self, offset: usize) -> Fq2 {
         self.stack_fq2.peek(offset)
     }
 
-    pub fn peek_fq6(&self, offset: usize) -> Fq6 {
+    pub fn peek_fq6(&mut self, offset: usize) -> Fq6 {
         self.stack_fq6.peek(offset)
     }
 
-    pub fn peek_fq12(&self, offset: usize) -> Fq12 {
+    pub fn peek_fq12(&mut self, offset: usize) -> Fq12 {
         self.stack_fq12.peek(offset)
     }
 }
@@ -287,7 +381,7 @@ impl<'a> ProofVerificationAccount<'a> {
         LittleEndian::write_u32(&mut self.coeff_ic, ic as u32 + 1);
     }
 
-    pub fn get_prepared_inputs(&self) -> G1Affine {
+    pub fn get_prepared_inputs(&mut self) -> G1Affine {
         if let Some(pi) = self.prepared_inputs { return pi; }
         G1Affine::new(
             self.peek_fq(0),
@@ -354,12 +448,12 @@ mod tests {
         StorageAccount::from_data(&mut data).unwrap();
     }
 
-    /*#[test]
+    #[test]
     #[should_panic]
     fn test_invalid_size() {
         let mut data = [0; StorageAccount::TOTAL_SIZE - 1];
         StorageAccount::from_data(&mut data).unwrap();
-    }*/
+    }
 
     #[test]
     fn test_stack_fq() {
