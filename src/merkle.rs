@@ -1,4 +1,4 @@
-use super::poseidon::*;
+use super::scalar::*;
 use super::state::TREE_HEIGHT;
 
 /// Returns a tree node as a Scalar object
@@ -26,6 +26,23 @@ fn set_node(store: &mut [u8], layer: usize, index: usize, bytes: &[u8]) {
     for (i, &byte) in bytes.iter().enumerate() {
         store[s_index + i] = byte;
     }
+}
+
+pub fn opening(store: &[u8], index: usize) -> [u8; TREE_HEIGHT * 32] {
+    let mut bytes = [0; TREE_HEIGHT * 32];
+    let mut index = index;
+
+    for i in 0..TREE_HEIGHT {
+        let layer = TREE_HEIGHT - i;
+        let n_index = if index % 2 == 0 { index + 1 } else { index - 1};
+        let s_index = store_index(layer, n_index);
+        for j in 0..32 {
+            bytes[i * 32 + j] = store[s_index + j];
+        }
+        index = index >> 1;
+    }
+
+    bytes
 }
 
 /// Inserts the hashes (incl. leaf & root) into the tree

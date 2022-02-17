@@ -1,5 +1,4 @@
 mod common;
-
 use {
     assert_matches::*,
     solana_program_test::*,
@@ -13,18 +12,13 @@ use {
         signature::Signer,
         transaction::Transaction,
     },
-    elusiv::state::StorageAccount,
-    elusiv::state::TOTAL_SIZE,
+    elusiv::state::*,
     elusiv::state::TREE_HEIGHT,
     elusiv::merkle::node,
-    elusiv::poseidon::{
-        ITERATIONS,
-        Scalar,
-        from_str_10,
-        to_bytes_le_mont,
-    },
-    common::*,
+    elusiv::poseidon::ITERATIONS,
+    elusiv::scalar::*,
     ark_ff::*,
+    common::*,
 };
 
 #[tokio::test]
@@ -49,20 +43,24 @@ async fn test_deposit_finalize() {
 
     // Create program account with hash data
     let setup = |test: &mut ProgramTest| {
-        let mut data: Vec<u8> = vec![0; TOTAL_SIZE];
-        let mut storage = StorageAccount::from(&mut data).unwrap();
-        storage.set_committed_amount(LAMPORTS_PER_SOL);
-        storage.set_current_hash_iteration(ITERATIONS as u16);
-        storage.set_current_hash_tree_position(TREE_HEIGHT as u16);
-        for (i, &hash) in hashes.iter().enumerate() {
-            storage.set_finished_hash(i, hash);
-        }
-        storage.set_hashing_state([*hashes.last().unwrap(), Scalar::zero(), Scalar::zero()]);
+        let data0: Vec<u8> = vec![0; ProgramAccount::TOTAL_SIZE];
+        let mut data1: Vec<u8> = vec![0; DepositHashingAccount::TOTAL_SIZE];
+        let data2: Vec<u8> = vec![0; ProofVerificationAccount::TOTAL_SIZE];
 
-        let data = base64::encode(&data);
-        test.add_account_with_base64_data(storage_id(), 100000000, elusiv::id(), &data);
+        let mut deposit_account = DepositHashingAccount::from_data(&mut data1).unwrap();
+        deposit_account.set_committed_amount(LAMPORTS_PER_SOL);
+        deposit_account.set_current_hash_iteration(ITERATIONS as u16);
+        deposit_account.set_current_hash_tree_position(TREE_HEIGHT as u16);
+        for (i, &hash) in hashes.iter().enumerate() {
+            deposit_account.set_finished_hash(i, hash);
+        }
+        deposit_account.set_hashing_state([*hashes.last().unwrap(), Scalar::zero(), Scalar::zero()]);
+
+        test.add_account_with_base64_data(program_account_id(), 100000000, elusiv::id(), &base64::encode(&data0));
+        test.add_account_with_base64_data(deposit_account_id(), 100000000, elusiv::id(), &base64::encode(&data1));
+        test.add_account_with_base64_data(withdraw_account_id(), 100000000, elusiv::id(), &base64::encode(&data2));
     };
-    let (mut banks_client, payer, recent_blockhash) = start_program(setup).await;
+    let (mut banks_client, payer, recent_blockhash) = start_program(setup, 1).await;
 
     // Send finalize_deposit transaction
     let mut transaction = Transaction::new_with_payer(
@@ -70,8 +68,9 @@ async fn test_deposit_finalize() {
             program_id: elusiv::id(),
             accounts: vec!
             [
-                AccountMeta::new(storage_id(), false),
                 AccountMeta::new(payer.pubkey(), true),
+                AccountMeta::new(program_account_id(), false),
+                AccountMeta::new(deposit_account_id(), false),
                 AccountMeta::new(system_program::id(), false),
             ],
             data: vec![2],
@@ -82,10 +81,10 @@ async fn test_deposit_finalize() {
     assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 
     // Check that commitment and hashes are saved
-    let mut data = get_storage_data(&mut banks_client).await;
-    let storage = StorageAccount::from(&mut data).unwrap();
+    let mut data = get_account_data(&mut banks_client, program_account_id()).await;
+    let program_account = ProgramAccount::from_data(&mut data).unwrap();
     for (i, &hash) in hashes.iter().enumerate() {
-        let node = node(&storage.merkle_tree, TREE_HEIGHT - i, 0);
+        let node = node(&program_account.merkle_tree, TREE_HEIGHT - i, 0);
         println!("{} {} == {}", i, node, hash);
         assert_eq!(
             node,
@@ -96,22 +95,18 @@ async fn test_deposit_finalize() {
 
 #[tokio::test]
 async fn test_full_deposit() {
+    capture_compute_units();
     let commitment = from_str_10("244717386276344062509703350126374528606984111509041278484910414242901923926");
 
-    // Create program account
-    let setup = |test: &mut ProgramTest| {
-        let data: Vec<u8> = vec![0; TOTAL_SIZE];
-        let data = base64::encode(&data);
-        test.add_account_with_base64_data(storage_id(), 100000000, elusiv::id(), &data);
-    };
-    let (mut banks_client, payer, recent_blockhash) = start_program(setup).await;
+    // Create program accounts
+    let (mut banks_client, payer, recent_blockhash) = start_program_with_program_accounts(DEPOSIT_INSTRUCTIONS_COUNT).await;
 
     // Start deposit
     let amount = LAMPORTS_PER_SOL;
     let mut data = vec![0];
     for byte in amount.to_le_bytes() { data.push(byte); }
     for byte in to_bytes_le_mont(commitment) { data.push(byte); }
-    let transaction = send_deposit_transaction(storage_id(), &payer, recent_blockhash, data).await;
+    let transaction = send_deposit_transaction(&payer, recent_blockhash, data).await;
     assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 
     // Check that the correct values are in the storage
@@ -130,24 +125,12 @@ async fn test_full_deposit() {
         from_str_10("3989299271092868442847094777985016599066028468903109025219359254101145990789"),
         from_str_10("5624838273495382817818151473383436058544590187524286868849209100849522715500"),
     ];
-    let mut data = get_storage_data(&mut banks_client).await;
-    let storage = StorageAccount::from(&mut data).unwrap();
+    let mut data = get_account_data(&mut banks_client, program_account_id()).await;
+    let program_account = ProgramAccount::from_data(&mut data).unwrap();
     for i in 0..=TREE_HEIGHT {
-        let node = node(&storage.merkle_tree, TREE_HEIGHT - i, 0);
+        let node = node(&program_account.merkle_tree, TREE_HEIGHT - i, 0);
         let expected = expected[i];
         println!("{} {} == {}", i, node, expected);
         assert_eq!(node, expected);
     }
-
-    /*let mut transaction = Transaction::new_with_payer(
-        &[Instruction {
-            program_id: elusiv::id(),
-            accounts: vec!
-            [ AccountMeta::new(storage_id(), false) ],
-            data: vec![4],
-        }],
-        Some(&payer.pubkey()),
-    );
-    transaction.sign(&[&payer], recent_blockhash);
-    assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));*/
 }

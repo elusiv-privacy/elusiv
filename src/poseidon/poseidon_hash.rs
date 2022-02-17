@@ -1,6 +1,6 @@
 use ark_ff::*;
 use super::poseidon_constants::*;
-use super::scalar::Scalar;
+use super::super::scalar::Scalar;
 
 /// Two input Poseidon hasher
 pub struct Poseidon2 {
@@ -74,8 +74,7 @@ impl Poseidon2 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::scalar::to_hex_string;
-    use super::super::scalar::from_str_10;
+    use super::super::super::scalar::*;
 
     #[test]
     fn test_null_hash() {

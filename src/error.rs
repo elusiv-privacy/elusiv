@@ -9,22 +9,23 @@ pub enum ElusivError {
     SenderIsNotWritable, // 2
     InvalidAmount, // 3
     InvalidProof, // 4
-    CouldNotProcessProof, // 5
-    InvalidMerkleRoot, // 6
+    CouldNotParseProof, // 5
+    CouldNotProcessProof, // 6
+    InvalidMerkleRoot, // 7
 
-    InvalidStorageAccount, // 7
-    InvalidStorageAccountSize, // 8
-    CouldNotCreateMerkleTree, // 9
+    InvalidStorageAccount, // 8
+    InvalidStorageAccountSize, // 9
+    CouldNotCreateMerkleTree, // 10
 
-    NullifierAlreadyUsed, // 10
-    NoRoomForNullifier, // 11
+    NullifierAlreadyUsed, // 11
+    NoRoomForNullifier, // 12
 
-    CommitmentAlreadyUsed, // 12
-    NoRoomForCommitment, // 13
+    CommitmentAlreadyUsed, // 13
+    NoRoomForCommitment, // 14
 
-    DidNotFinishHashing, // 14
+    DidNotFinishHashing, // 15
 
-    ExplicitLogError, // 15
+    ExplicitLogError, // 16
 }
 
 impl From<ElusivError> for ProgramError {
@@ -68,6 +69,8 @@ impl fmt::Display for ElusivError {
                 write!(f, "DidNotFinishHashing"),
             Self::ExplicitLogError =>
                 write!(f, "ExplicitLogError"),
+            Self::CouldNotParseProof =>
+                write!(f, "CouldNotParseProof"),
         }
     }
 }

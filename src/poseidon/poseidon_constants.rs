@@ -1,5 +1,5 @@
 use ark_ff::BigInteger256;
-use super::scalar::Scalar;
+use super::super::scalar::Scalar;
 
 pub const ITERATIONS: usize = 14;
 
@@ -457,7 +457,7 @@ pub fn generate_m() -> [Scalar; 9] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::scalar::from_str_10;
+    use super::super::super::scalar::from_str_10;
 
 	#[test]
 	pub fn test_generate_c0() {

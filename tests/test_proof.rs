@@ -1,11 +1,7 @@
-mod common;
+/*mod common;
 
 use elusiv::poseidon::*;
-use elusiv::verifier;
-use ark_groth16::{
-    verify_proof,
-    prepare_verifying_key,
-};
+use elusiv::groth16;
 use ark_ff::*;
 use common::*;
 
@@ -30,10 +26,8 @@ fn test_valid_proof() {
         str_to_bigint("19810382324495243148399901112112255966654948517909945087601981242862578955507").into(),
     ];
 
-    let pvk = prepare_verifying_key(&verifier::verification_key());
-    let result = verify_proof(&pvk, &proof, &inputs[..]);
-
-    assert_eq!(result.unwrap(), true);
+    let own_result = groth16::verify_proof(inputs, proof);
+    assert_eq!(own_result, true);
 }
 
 #[test]
@@ -57,8 +51,6 @@ fn test_invalid_proof() {
         str_to_bigint("19810382324495243148399901112112255966654948517909945087601981242862578955507").into(),
     ];
 
-    let pvk = prepare_verifying_key(&verifier::verification_key());
-    let result = verify_proof(&pvk, &proof, &inputs[..]);
-
-    assert_eq!(result.unwrap(), false);
-}
+    let own_result = groth16::verify_proof(inputs, proof);
+    assert_eq!(own_result, false);
+}*/

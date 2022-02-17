@@ -3,13 +3,14 @@
         "cluster": "cd ../ && solana-test-validator",
 
         "build": "cargo build-bpf --manifest-path=Cargo.toml --bpf-out-dir=dist/program",
-        "test": "cargo test-bpf",
         "deploy": "solana program deploy dist/program/elusiv.so",
         "redeploy": "solana program deploy --program-id dist/program/elusiv-keypair.json dist/program/elusiv.so",
 
-        "switch:19": "sh -c \"$(curl -sSfL https://release.solana.com/v1.9.5/install)\"",
-        "switch:18": "sh -c \"$(curl -sSfL https://release.solana.com/v1.8.12/install)\"",
+        "opt:miller-loop": "cd optimization && python3 miller_loop_rounds.py",
 
-        "full-deploy": "npm run switch:19 && npm run build && npm run switch:18 && npm run redeploy"
+        "test:compute": "RUST_LOG='debug/\\d+\\s(units remaining)' cargo test-bpf --test withdraw_test -- --nocapture 2> optimization/cu-log.txt && /opt/homebrew/bin/python3 /Users/yannikschrade/elusiv_cash/elusiv/optimization/log_to_cus.py",
+        "test:check": "RUST_LOG=\"debug/^.*BPF instructions executed.*$\" cargo test-bpf --test withdraw_test -- --nocapture",
+        "testc": "cargo test-bpf --test withdraw_test -- --nocapture",
+        "test": "cargo test-bpf --test withdraw_test -- --nocapture"
     }
 }

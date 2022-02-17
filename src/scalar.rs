@@ -1,7 +1,12 @@
-use ark_bn254::{ Fr };
+use ark_bn254::{ Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective, G2Projective };
 use ark_ff::*;
 use std::str::FromStr;
 use byteorder::{ ByteOrder, LittleEndian };
+
+pub const G1PROJECTIVE_SIZE: usize = 96;
+pub const G2PROJECTIVE_SIZE: usize = 192;
+pub const G1AFFINE_SIZE: usize = 65;
+pub const G2AFFINE_SIZE: usize = 129;
 
 /// Bn254 scalar
 /// - Circom uses `r=21888242871839275222246405745257275088548364400416034343698204186575808495617` so, we use Fr (not Fq)
@@ -113,10 +118,174 @@ pub fn from_str_16(s: &str) -> Option<Scalar> {
     from_bytes_le_repr(&bytes)
 }
 
+pub fn read_le_montgomery(bytes: &[u8]) -> Fq {
+    Fq::new(BigInteger256(bytes_to_limbs(bytes)))
+}
+
+pub fn write_le_montgomery(q: Fq) -> Vec<u8> {
+    let mut writer: Vec<u8> = vec![];
+    q.0.write(&mut writer).unwrap();
+    writer
+}
+
+pub fn read_fq2_le_montgomery(bytes: &[u8]) -> Fq2 {
+    Fq2::new(
+        read_le_montgomery(&bytes[..32]),
+        read_le_montgomery(&bytes[32..64]),
+    )
+}
+
+pub fn write_fq(buffer: &mut [u8], q: Fq) {
+    let mut bytes: Vec<u8> = vec![];
+    q.0.write(&mut bytes).unwrap();
+
+    for i in 0..32 { buffer[i] = bytes[i]; }
+}
+
+pub fn read_fq(buffer: &[u8]) -> Fq {
+    read_le_montgomery(&buffer)
+}
+
+pub fn write_fq2(buffer: &mut [u8], q: Fq2) {
+    let mut bytes: Vec<u8> = vec![];
+    q.c0.0.write(&mut bytes).unwrap();
+    q.c1.0.write(&mut bytes).unwrap(); 
+
+    for i in 0..64 { buffer[i] = bytes[i]; }
+}
+
+pub fn read_fq2(buffer: &[u8]) -> Fq2 {
+    read_fq2_le_montgomery(&buffer)
+}
+
+pub fn read_fq6(buffer: &[u8]) -> Fq6 {
+    Fq6::new(
+        read_fq2_le_montgomery(&buffer[..64]),
+        read_fq2_le_montgomery(&buffer[64..128]),
+        read_fq2_le_montgomery(&buffer[128..192]),
+    )
+}
+
+pub fn write_fq6(buffer: &mut [u8], q: Fq6) {
+    let mut bytes: Vec<u8> = vec![0; 192];
+    write_fq2(&mut bytes[..64], q.c0);
+    write_fq2(&mut bytes[64..128], q.c1);
+    write_fq2(&mut bytes[128..192], q.c2);
+
+    for i in 0..192 { buffer[i] = bytes[i]; }
+}
+
+pub fn write_fq12(buffer: &mut [u8], q: Fq12) {
+    let mut bytes: Vec<u8> = vec![0; 384];
+    write_fq6(&mut bytes[..192], q.c0);
+    write_fq6(&mut bytes[192..384], q.c1);
+
+    for i in 0..384 { buffer[i] = bytes[i]; }
+}
+
+pub fn read_fq12(buffer: &[u8]) -> Fq12 {
+    Fq12::new(
+        read_fq6(&buffer[..192]),
+        read_fq6(&buffer[192..384]),
+    )
+}
+
+pub fn write_fq2_le_montgomery(q: Fq2) -> Vec<u8> {
+    let mut writer: Vec<u8> = vec![];
+    q.c0.0.write(&mut writer).unwrap();
+    q.c1.0.write(&mut writer).unwrap();
+    writer
+}
+
+pub fn write_g1_affine(buffer: &mut [u8], g1a: G1Affine) {
+    let mut bytes: Vec<u8> = vec![];
+    g1a.x.0.write(&mut bytes).unwrap();
+    g1a.y.0.write(&mut bytes).unwrap();
+    bytes.push(if g1a.infinity { 1 } else { 0 });
+
+    for i in 0..G1AFFINE_SIZE {
+        buffer[i] = bytes[i];
+    }
+}
+
+pub fn read_g1_affine(bytes: &[u8]) -> G1Affine {
+    G1Affine::new(
+        read_le_montgomery(&bytes[..32]),
+        read_le_montgomery(&bytes[32..64]),
+        bytes[64] == 1
+    )
+}
+
+pub fn write_g2_affine(buffer: &mut [u8], p: G2Affine) {
+    let mut bytes = write_fq2_le_montgomery(p.x);
+    bytes.extend(write_fq2_le_montgomery(p.y));
+    bytes.push(if p.infinity { 1 } else { 0 });
+
+    for i in 0..G2AFFINE_SIZE {
+        buffer[i] = bytes[i];
+    }
+}
+
+pub fn read_g2_affine(bytes: &[u8]) -> G2Affine {
+    G2Affine::new(
+        read_fq2_le_montgomery(&bytes[..64]),
+        read_fq2_le_montgomery(&bytes[64..128]),
+        bytes[128] == 1
+    )
+}
+
+pub fn write_g1_projective(buffer: &mut [u8], p: G1Projective) {
+    let mut bytes = write_le_montgomery(p.x);
+    bytes.extend(write_le_montgomery(p.y));
+    bytes.extend(write_le_montgomery(p.z));
+
+    for i in 0..G1PROJECTIVE_SIZE {
+        buffer[i] = bytes[i];
+    }
+}
+
+pub fn read_g1_projective(bytes: &[u8]) -> G1Projective {
+    G1Projective::new(
+        read_le_montgomery(&bytes[..32]),
+        read_le_montgomery(&bytes[32..64]),
+        read_le_montgomery(&bytes[64..96]),
+    )
+}
+
+pub fn write_g2_projective(buffer: &mut [u8], p: G2Projective) {
+    let mut bytes = write_fq2_le_montgomery(p.x);
+    bytes.extend(write_fq2_le_montgomery(p.y));
+    bytes.extend(write_fq2_le_montgomery(p.z));
+
+    for i in 0..G2PROJECTIVE_SIZE {
+        buffer[i] = bytes[i];
+    }
+}
+
+pub fn read_g2_projective(bytes: &[u8]) -> G2Projective {
+    G2Projective::new(
+        read_fq2_le_montgomery(&bytes[..64]),
+        read_fq2_le_montgomery(&bytes[64..128]),
+        read_fq2_le_montgomery(&bytes[128..192]),
+    )
+}
+
+pub fn vec_to_array_32(v: Vec<u8>) -> [u8; 32] {
+    let mut a = [0; 32];
+    for i in 0..32 { a[i] = v[i]; }
+    a
+}
+
+pub fn vec_to_array_256(v: Vec<u8>) -> [u8; 256] {
+    let mut a = [0; 256];
+    for i in 0..256 { a[i] = v[i]; }
+    a
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::super::poseidon::*;
+    use super::super::poseidon::*;
 
     #[test]
     fn test_from_bytes() {
