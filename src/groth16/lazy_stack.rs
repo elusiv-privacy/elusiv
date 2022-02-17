@@ -109,9 +109,18 @@ impl<'a, F: Copy> LazyHeapStack<'a, F> {
 
     /// Serializes all modified values and the stack pointer
     pub fn serialize_stack(&mut self) {
+        // Serialize stack pointer
+        let bytes = (self.stack_pointer as u32).to_le_bytes();
+        self.data[0] = bytes[0];
+        self.data[1] = bytes[1];
+        self.data[2] = bytes[2];
+        self.data[3] = bytes[3];
+
+        // Serialize stack values
         for i in 0..self.stack_pointer {
             if let ValueState::Modified = self.state[i] {
-                let slice = &mut self.data[4 + i * self.bytecount..4 + (i + 1) * self.bytecount]; 
+                let slice = &mut self.data[4..];
+                let slice = &mut slice[i * self.bytecount..(i + 1) * self.bytecount]; 
                 (self.serialize)(self.stack[i].unwrap(), slice);
             }
         }

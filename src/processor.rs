@@ -296,15 +296,20 @@ fn init_withdraw(
     proof_account.init(inputs, amount, nullifier_hash, proof)?;
 
     // Start with computation
-    //verify_withdraw(proof_account)?;
+    verify_withdraw(proof_account)?;
 
     Ok(())
 }
 
-fn verify_withdraw(
+pub fn verify_withdraw(
     account: &mut ProofVerificationAccount,
 ) -> ProgramResult {
     let iteration = account.get_iteration();
+
+    // TODO: Add flag that checks whether init_withdraw has been called
+
+    solana_program::msg!(&format!("d it: {}", iteration));
+    solana_program::msg!(&format!("sps: {} {} {} {}", account.stack_fq.stack_pointer, account.stack_fq2.stack_pointer, account.stack_fq6.stack_pointer, account.stack_fq12.stack_pointer));
 
     // Prevent any computations after the last iteration
     if iteration >= super::groth16::ITERATIONS {

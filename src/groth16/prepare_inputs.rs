@@ -1,5 +1,4 @@
 use solana_program::entrypoint::ProgramResult;
-use solana_program::program_error::ProgramError;
 use ark_bn254::{ Fq, G1Affine, G1Projective };
 use ark_ec::{
     ProjectiveCurve,
@@ -9,12 +8,8 @@ use core::ops::{ AddAssign };
 use super::gamma_abc_g1;
 use super::state::*;
 
-pub const PREPARE_INPUTS_ITERATIONS: usize = 66;
-pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [
-    3, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 6,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 1,
-];
-const ZERO: Fq = field_new!(Fq, "0");
+pub const PREPARE_INPUTS_ITERATIONS: usize = 104;
+pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 1];
 
 /// Prepares `INPUTS_COUNT` public inputs (into one `G1Affine`)
 /// - requires `PREPARATION_ITERATIONS` calls to complete
@@ -23,77 +18,79 @@ pub fn partial_prepare_inputs(
     iteration: usize
 ) -> ProgramResult {
 
-    let round = account.get_round();
+    let base_round = account.get_round();
     let rounds = PREPARE_INPUTS_ROUNDS[iteration];
-    let i = iteration / 33;
 
-    let mut product = pop_g1_projective(account);
+    for round in base_round..(base_round + rounds) {
+        let input = round / (MUL_G1A_SCALAR_ROUNDS + 1);
+        let round = round % (MUL_G1A_SCALAR_ROUNDS + 1);
 
-    // Multiplication of gamma_abc_g1[i + 1] and input[i]
-    // ~ rounds * 24608 CUs
-    partial_mul_g1a_scalar(
-        &gamma_abc_g1()[i + 1],
-        &mut product,
-        &account.inputs_be[i * 32..(i + 1) * 32],
-        round,
-        rounds,
-    )?;
-    //write_g1_projective(&mut account.get_ram_mut(0, 3), product);
-    push_g1_projective(account, product);
+        match round {
+            // - pops: product (G1Projective, 3 Fqs)
+            // - pushes: product (G1Projective)
+            // Multiplication of gamma_abc_g1[input + 1] and input[input] (~ 34000 CUs)
+            0..=MUL_G1A_SCALAR_ROUNDS_MINUS_ONE => {
+                let mut product = pop_g1_projective(account);   // (~ 169 CUs)
 
-    // Add the product to g_ic after mul is finished
-    // ~ 36300 CUs
-    if round + rounds == 256 {
-        // Move g_ic to the top of the stack
-        let mut g_ic = get_gic(account);
+                partial_mul_g1a_scalar(
+                    &gamma_abc_g1()[input + 1],
+                    &mut product,
+                    &account.inputs_be[input * 32..(input + 1) * 32],
+                    round,
+                );
+    
+                push_g1_projective(account, product);
+            },
 
-        g_ic.add_assign(product);
-        push_g1_projective(account, g_ic);
+            // - pops: product, g_ic
+            // - pushes: g_ic, empty product
+            // Add the product to g_ic after mul is finished (~ 36300 CUs)
+            MUL_G1A_SCALAR_ROUNDS => {
+                // Pop product
+                let product = pop_g1_projective(account);
+                let mut g_ic = pop_g1_projective(account);
 
-        account.set_round(0);
+                g_ic.add_assign(product);
 
-        // Push null product acc
-        account.push_fq(ZERO);
-        account.push_fq(ZERO);
-        account.push_fq(ZERO);
-    } else {
-        account.set_round(round + rounds);
+                // Convert value from projective to affine form after last iteration
+                if iteration == PREPARE_INPUTS_ITERATIONS - 1 {
+                    push_g1_affine(account, g_ic.into());
+                } else {
+                    push_g1_projective(account, g_ic);
+                    push_g1_projective(account, G1Projective::zero());
+                }
+            }
+
+            _ => {}
+        }
     }
 
-    // Convert value from projective to affine form after last iteration
-    if iteration == PREPARE_INPUTS_ITERATIONS - 1 {
-        let v = get_gic(account);
-        push_g1_affine(account, v.into());
-    }
+    account.set_round(base_round + rounds);
 
     Ok(())
 }
 
 pub const MUL_G1A_SCALAR_ROUNDS: usize = 256;
+pub const MUL_G1A_SCALAR_ROUNDS_MINUS_ONE: usize = MUL_G1A_SCALAR_ROUNDS - 1;
 
 /// Multiplies a `G1Affine` with a `Scalar`
 /// - requires MUL_G1A_SCALAR_ITERATIONS calls to complete
-/// - 1 round: ~ 24608 CUs
+/// - 1 round: ~ 34000 CUs
 pub fn partial_mul_g1a_scalar(
     g1a: &G1Affine,
     acc: &mut G1Projective,
     bytes_be: &[u8],
-    base_round: usize,
-    rounds: usize,
-) -> Result<(), ProgramError> {
+    round: usize,
+) {
     let first_non_zero = find_first_non_zero(bytes_be);
 
-    for r in base_round..base_round + rounds {
-        if r < first_non_zero { continue; }
+    if round < first_non_zero { return; }
 
-        // Multiplication core
-        acc.double_in_place();
-        if get_bit(bytes_be, r / 8, 7 - (r % 8)) {
-            acc.add_assign_mixed(g1a);
-        }
+    // Multiplication core
+    double_in_place(acc); // ~ 13014 CUs
+    if get_bit(bytes_be, round / 8, 7 - (round % 8)) {
+        add_assign_mixed(acc, &g1a); // ~ 21000 CUs
     }
-
-    Ok(())
 }
 
 fn find_first_non_zero(bytes_be: &[u8]) -> usize {
@@ -105,6 +102,65 @@ fn find_first_non_zero(bytes_be: &[u8]) -> usize {
         }
     }
     return 256
+}
+
+fn double_in_place(g1p: &mut G1Projective) {
+    if g1p.is_zero() { return; }
+
+    let mut a = g1p.x.square();
+    let b = g1p.y.square();
+    let mut c = b.square();
+    let d = ((g1p.x + &b).square() - &a - &c).double();
+    let e = a + &*a.double_in_place();
+    let f = e.square();
+    g1p.z *= &g1p.y;
+    g1p.z.double_in_place();
+    g1p.x = f - &d - &d;
+    g1p.y = (d - &g1p.x) * &e - &*c.double_in_place().double_in_place().double_in_place();
+}
+
+fn add_assign_mixed(g1p: &mut G1Projective, other: &G1Affine) {
+    if other.is_zero() { return; }
+
+    if g1p.is_zero() {
+        g1p.x = other.x;
+        g1p.y = other.y;
+        g1p.z = Fq::one();
+        return;
+    }
+
+    // (~ 7417 CUs)
+
+    let z1z1 = g1p.z.square();
+    let u2 = other.x * &z1z1;
+    let s2 = (other.y * &g1p.z) * &z1z1;
+
+    if g1p.x == u2 && g1p.y == s2 { // ~ 1314 CUs
+        g1p.double_in_place();
+    } else {    // ~ 13528 CUs
+        // If we're adding -a and a together, self.z becomes zero as H becomes zero.
+
+        let h = u2 - &g1p.x;
+        let hh = h.square();
+        let mut i = hh;
+        i.double_in_place().double_in_place();
+        let mut j = h * &i;
+        let r = (s2 - &g1p.y).double();
+        let v = g1p.x * &i;
+        g1p.x = r.square();
+        g1p.x -= &j;
+        g1p.x -= &v;
+        g1p.x -= &v;
+        j *= &g1p.y; // J = 2*Y1*J
+        j.double_in_place();
+        g1p.y = v - &g1p.x;
+        g1p.y *= &r;
+        g1p.y -= &j;
+        g1p.z += &h;
+        g1p.z.square_in_place();
+        g1p.z -= &z1z1;
+        g1p.z -= &hh;
+    }
 }
 
 #[inline(always)]
@@ -140,7 +196,7 @@ mod tests {
 
         let mut res = G1Projective::zero();
         for round in 0..MUL_G1A_SCALAR_ROUNDS {
-            partial_mul_g1a_scalar(&g1a, &mut res, &scalar_bits, round, 1).unwrap();
+            partial_mul_g1a_scalar(&g1a, &mut res, &scalar_bits, round);
         }
 
         let expect = g1a.mul(scalar);
@@ -159,7 +215,7 @@ mod tests {
         account.init(
             vec![
                 vec_to_array_32(to_bytes_le_repr(inputs[0])),
-                vec_to_array_32(to_bytes_le_repr(inputs[1]))
+                vec_to_array_32(to_bytes_le_repr(inputs[1])),
             ],
             0, [0,0,0,0],
             super::super::Proof{ a: G1Affine::zero(), b: G2Affine::zero(), c: G1Affine::zero() }
@@ -169,10 +225,7 @@ mod tests {
         for i in 0..PREPARE_INPUTS_ITERATIONS {
             partial_prepare_inputs(&mut account, i).unwrap();
         }
-        let result = account.get_prepared_inputs();
-        account.stack_fq.pop_empty();
-        account.stack_fq.pop_empty();
-        account.stack_fq.pop_empty();
+        let result = pop_g1_affine(&mut account);
 
         // ark_groth16 result
         let vk: VerifyingKey<ark_bn254::Bn254> = VerifyingKey {
@@ -189,7 +242,6 @@ mod tests {
             delta_g2_neg_pc: gamma_g2().neg().into(),
         };
         let expect: G1Projective = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
-
 
         assert_eq!(
             result,

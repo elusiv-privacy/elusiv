@@ -1,5 +1,5 @@
 MAX_CUS = 200000
-SECURITY_PADDING = 5000
+SECURITY_PADDING = 2000
 
 # Calculate the optimal distribution
 def find_optimal_distribution(rounds_cus, start_cus, idle_cus):

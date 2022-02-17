@@ -1,7 +1,7 @@
 mod instruction;
-mod processor;
 mod error;
 mod storage_account;
+pub mod processor;
 pub mod scalar;
 pub mod merkle;
 pub mod state;

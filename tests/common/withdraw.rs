@@ -32,11 +32,11 @@ pub async fn withdraw_transaction(payer: &Keypair, recipient: Pubkey, recent_blo
             AccountMeta::new(program_account_id(), false),
             AccountMeta::new(withdraw_account_id(), false),
         ],
-        data: data,
+        data,
     });
 
     // Compute verification
-    /*for _ in 0..groth16::ITERATIONS {
+    for _ in 0..groth16::PREPARE_INPUTS_ITERATIONS {
         instructions.push(Instruction {
             program_id: elusiv::id(),
             accounts: vec![ AccountMeta::new(withdraw_account_id(), false) ],
@@ -44,6 +44,7 @@ pub async fn withdraw_transaction(payer: &Keypair, recipient: Pubkey, recent_blo
         });
     }
 
+    /*
     // Finalize deposit
     instructions.push(Instruction {
         program_id: elusiv::id(),

@@ -72,9 +72,24 @@ fn test_full_proof() {
     //assert_stack_is_cleared(&account); //TODO: pop the prepared inputs from the stack
 }
 
-/*fn assert_stack_is_cleared(account: &ProofVerificationAccount) {
-    assert_eq!(account.stack_fq.stack_pointer, 0);
-    assert_eq!(account.stack_fq2.stack_pointer, 0);
-    assert_eq!(account.stack_fq6.stack_pointer, 0);
-    assert_eq!(account.stack_fq12.stack_pointer, 0);
-}*/
+#[test]
+fn test_verify_proof_computation() {
+    // Setup proof account
+    let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
+    let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
+    let proof = test_proof();
+    let inputs = test_inputs_fe();
+    account.init(
+        vec![
+            vec_to_array_32(to_bytes_le_repr(inputs[0])),
+            vec_to_array_32(to_bytes_le_repr(inputs[1]))
+        ],
+        0, [0,0,0,0],
+        proof.generate_proof()
+    ).unwrap();
+
+    // Run all computations
+    for _ in 0..ITERATIONS {
+        elusiv::processor::verify_withdraw(&mut account).unwrap();
+    }
+}

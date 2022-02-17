@@ -11,9 +11,6 @@ use super::super::scalar::*;
 
 const ZERO_1: Fq = field_new!(Fq, "0");
 const ONE_1: Fq = field_new!(Fq, "1");
-const ZERO_2: Fq2 = field_new!(Fq2, ZERO_1, ZERO_1);
-const ZERO_6: Fq6 = field_new!(Fq6, ZERO_2, ZERO_2, ZERO_2);
-const ZERO_12: Fq12 = field_new!(Fq12, ZERO_6, ZERO_6);
 
 pub const STACK_FQ_SIZE: usize = 6;
 pub const STACK_FQ2_SIZE: usize = 10;
@@ -23,7 +20,7 @@ pub const STACK_FQ_BYTES: usize = STACK_FQ_SIZE * 32 + 4;
 pub const STACK_FQ2_BYTES: usize = STACK_FQ2_SIZE * 2 * 32 + 4;
 pub const STACK_FQ6_BYTES: usize = STACK_FQ6_SIZE * 6 * 32 + 4;
 pub const STACK_FQ12_BYTES: usize = STACK_FQ12_SIZE * 12 * 32 + 4;
-const INPUTS_COUNT: usize = 2;
+pub const INPUTS_COUNT: usize = 2;
 
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 
@@ -135,7 +132,7 @@ impl<'a> ProofVerificationAccount<'a> {
         write_g2_affine(&mut self.proof_b, proof.b);
         write_g2_affine(&mut self.b_neg, -proof.b);
 
-        // Store proof preparation values
+        // Store proof computation values
         self.push_fq2(Fq2::one());
         self.push_fq2(proof.b.y);
         self.push_fq2(proof.b.x);
@@ -146,9 +143,7 @@ impl<'a> ProofVerificationAccount<'a> {
         self.push_fq(super::gamma_abc_g1_0().x);
 
         // Push the empy product acc
-        self.push_fq(ZERO_1);
-        self.push_fq(ZERO_1);
-        self.push_fq(ZERO_1);
+        push_g1_projective(self, G1Projective::zero());
 
         // Push the miller value
         self.push_fq12(Fq12::one());
@@ -157,6 +152,9 @@ impl<'a> ProofVerificationAccount<'a> {
         self.set_iteration(0);
         self.set_round(0);
         self.set_coeff_ic(0);
+
+        // Save stack changes
+        self.serialize();
 
         Ok(())
     }
@@ -226,7 +224,7 @@ impl<'a> ProofVerificationAccount<'a> {
 // Iterations and rounds
 impl<'a> ProofVerificationAccount<'a> {
     pub fn get_iteration(&self) -> usize {
-        bytes_to_u32(&self.round) as usize
+        bytes_to_u32(&self.iteration) as usize
     }
 
     pub fn set_iteration(&mut self, iteration: usize) {
@@ -283,13 +281,6 @@ impl<'a> ProofVerificationAccount<'a> {
             self.peek_fq(2) == ONE_1,
         )
     }
-}
-
-pub fn get_gic(account: &mut ProofVerificationAccount) -> G1Projective {
-    account.stack_fq.pop_empty();
-    account.stack_fq.pop_empty();
-    account.stack_fq.pop_empty();
-    pop_g1_projective(account)
 }
 
 pub fn pop_g1_projective(account: &mut ProofVerificationAccount) -> G1Projective {

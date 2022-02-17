@@ -4,9 +4,29 @@ use log::Level::Debug;
 use log::log_enabled;
 
 const MAX: usize = 200000;
-const MIN: usize = 150000;
+const MIN: usize = 180000;
 
 pub fn capture_compute_units() {
+    if log_enabled!(Debug) {
+        println!("Debug logging not enabled!");
+        return
+    }
+
+    let mut builder = env_logger::builder();
+    builder.is_test(true);
+    builder.format(|buf, record| {
+        let msg = format!("{}", record.args());
+        let m = msg.split(" ").collect::<Vec<&str>>();
+        if let Ok(n) = m[2].parse::<usize>() {
+            return writeln!(buf, "{}", n,);
+        }
+
+        Err(Error::new(ErrorKind::Other, "oh no!"))
+    });
+    builder.init();
+}
+
+pub fn check_compute_units() {
     if log_enabled!(Debug) {
         println!("Debug logging not enabled!");
         return
@@ -27,7 +47,7 @@ pub fn capture_compute_units() {
 
             let color = if n > MAX {
                 "31"
-            } else if n > 190_000 {
+            } else if n > 195_000 {
                 "33"
             } else if n < MIN {
                 "34"
@@ -42,6 +62,7 @@ pub fn capture_compute_units() {
                 overflow,
             );
         }
+
         Err(Error::new(ErrorKind::Other, "oh no!"))
     });
     builder.init();

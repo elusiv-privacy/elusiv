@@ -1,16 +1,14 @@
 mod common;
-use {
-    assert_matches::*,
-    solana_program_test::*,
-    solana_sdk::signature::Signer,
-    //elusiv::scalar::*,
-    //elusiv::poseidon::*,
-    //solana_program::native_token::LAMPORTS_PER_SOL,
-    common::*,
-};
+use assert_matches::*;
+use solana_program_test::*;
+use solana_sdk::signature::Signer;
+use common::*;
 
 #[tokio::test]
 async fn test_withdraw() {
+    //capture_compute_units();
+    check_compute_units();
+
     // Setup program and storage account
     let (mut banks_client, payer, recent_blockhash) = start_program_with_program_accounts(1).await;
 
