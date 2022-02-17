@@ -126,7 +126,7 @@ impl ElusivInstruction {
         Ok(ElusivInstruction::InitDeposit{ amount, commitment })
     }
 
-    fn unpack_init_withdraw(data: &[u8]) -> Result<Self, ProgramError> {
+    pub fn unpack_init_withdraw(data: &[u8]) -> Result<Self, ProgramError> {
         // Unpack withdrawal amount
         let (amount, data) = unpack_u64(&data)?;
 
