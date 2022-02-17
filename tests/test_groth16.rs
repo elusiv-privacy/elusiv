@@ -21,12 +21,12 @@ fn test_full_proof() {
     let proof = test_proof();
     let inputs = test_inputs_fe();
     account.init(
-        vec![
+        0,
+        proof.generate_proof(),
+        [
             vec_to_array_32(to_bytes_le_repr(inputs[0])),
             vec_to_array_32(to_bytes_le_repr(inputs[1]))
         ],
-        0, [0,0,0,0],
-        proof.generate_proof()
     ).unwrap();
 
     // Expected setup
@@ -80,12 +80,12 @@ fn test_verify_proof_computation() {
     let proof = test_proof();
     let inputs = test_inputs_fe();
     account.init(
-        vec![
+        0,
+        proof.generate_proof(),
+        [
             vec_to_array_32(to_bytes_le_repr(inputs[0])),
-            vec_to_array_32(to_bytes_le_repr(inputs[1]))
+            vec_to_array_32(to_bytes_le_repr(inputs[1])),
         ],
-        0, [0,0,0,0],
-        proof.generate_proof()
     ).unwrap();
 
     // Run all computations

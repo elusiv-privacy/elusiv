@@ -1,5 +1,5 @@
 use solana_program::entrypoint::ProgramResult;
-use ark_bn254::{ Fq, Fq2, Fq12, G2Affine, Parameters };
+use ark_bn254::{ Fq, Fq2, G2Affine, Parameters };
 use ark_ec::models::bn::BnParameters;
 use ark_ff::*;
 use super::super::scalar::*;
@@ -424,7 +424,7 @@ fn mul_by_char(r: G2Affine) -> G2Affine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_bn254::{ Bn254, G1Affine, G2Affine };
+    use ark_bn254::{ Fq12, Bn254, G1Affine, G2Affine };
     use ark_ec::models::bn::{ TwistType };
     use std::str::FromStr;
     use ark_ec::PairingEngine;
@@ -654,13 +654,13 @@ mod tests {
             from_str_10("20643720223837027367320733428836459266646763523911772324593310161284187566894"),
             from_str_10("19526707366532583397322534596786476145393586591811230548888354920504818678603"),
         ];
-        account.init(vec!
+        account.init(
+            0,
+            super::super::Proof{ a: get_a(), b: get_b(), c: get_c() },
             [
                 vec_to_array_32(to_bytes_le_repr(inputs[0])),
                 vec_to_array_32(to_bytes_le_repr(inputs[1]))
             ],
-            0, [0,0,0,0],
-            super::super::Proof{ a: get_a(), b: get_b(), c: get_c() }
         ).unwrap();
 
         /*assert_eq!(read_g2_affine(&account.proof_b), get_b());

@@ -22,7 +22,7 @@ use {
 
 pub const WITHDRAW_INSTRUCTIONS_COUNT: u64 = (groth16::ITERATIONS + 2) as u64;
 
-pub async fn withdraw_transaction(payer: &Keypair, recipient: Pubkey, recent_blockhash: Hash, data: Vec<u8>) -> Transaction {
+pub async fn withdraw_transaction(payer: &Keypair, _recipient: Pubkey, recent_blockhash: Hash, data: Vec<u8>) -> Transaction {
     // Start withdrawal
     let mut instructions = Vec::new();
     instructions.push(Instruction {

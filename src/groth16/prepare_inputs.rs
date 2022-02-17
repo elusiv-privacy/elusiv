@@ -213,12 +213,12 @@ mod tests {
         let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
         let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
         account.init(
-            vec![
+            0,
+            super::super::Proof{ a: G1Affine::zero(), b: G2Affine::zero(), c: G1Affine::zero() },
+            [
                 vec_to_array_32(to_bytes_le_repr(inputs[0])),
                 vec_to_array_32(to_bytes_le_repr(inputs[1])),
             ],
-            0, [0,0,0,0],
-            super::super::Proof{ a: G1Affine::zero(), b: G2Affine::zero(), c: G1Affine::zero() }
         ).unwrap();
 
         // Result

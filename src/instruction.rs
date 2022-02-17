@@ -8,6 +8,8 @@ use std::convert::TryInto;
 use super::scalar::*;
 use super::groth16::PROOF_BYTES_SIZE;
 
+pub const PUBLIC_INPUTS_COUNT: usize = 2;
+
 pub enum ElusivInstruction {
     /// Initialize deposit, store amount and start hashing
     /// 
@@ -48,13 +50,15 @@ pub enum ElusivInstruction {
         /// Withdrawal amount in Lamports
         amount: u64,
 
-        /// Nullifier Hash
-        /// - in Montgomery form
-        nullifier_hash: ScalarLimbs,
-
-        /// Merkle root
-        /// - in Montgomery form
-        root: ScalarLimbs,
+        /// Public inputs (in LE repr form)
+        /// - root
+        /// - nullifier_hash
+        /// 
+        /// Soon also:
+        /// - amount
+        /// - recipient
+        /// - token id
+        public_inputs: [[u8; 32]; PUBLIC_INPUTS_COUNT],
 
         /// Groth16 proof
         /// 
@@ -126,17 +130,20 @@ impl ElusivInstruction {
         // Unpack withdrawal amount
         let (amount, data) = unpack_u64(&data)?;
 
-        // Unpack nullifier hash
-        let (nullifier_hash, data) = unpack_limbs(&data)?;
-
-        // Unpack merkle root
-        let (root, data) = unpack_limbs(&data)?;
+        // Unpack public inputs
+        let mut public_inputs = [[0; 32]; PUBLIC_INPUTS_COUNT];
+        let mut data = data;
+        for i in 0..PUBLIC_INPUTS_COUNT {
+            let (input, d) = unpack_32_bytes(data)?;
+            public_inputs[i] = vec_to_array_32(input.to_vec());
+            data = d;
+        }
 
         // Raw zkSNARK proof
         if data.len() != PROOF_BYTES_SIZE { return Err(ProgramError::InvalidInstructionData); }
         let proof: [u8; PROOF_BYTES_SIZE] = data.try_into().unwrap();
 
-        Ok(ElusivInstruction::InitWithdraw{ amount, proof, nullifier_hash, root })
+        Ok(ElusivInstruction::InitWithdraw{ amount, proof, public_inputs })
     }
 
     fn unpack_log(data: &[u8]) -> Result<Self, ProgramError> {

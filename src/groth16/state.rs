@@ -8,6 +8,7 @@ use ark_ff::*;
 use super::lazy_stack::LazyHeapStack;
 use super::super::error::ElusivError::{ InvalidStorageAccount, InvalidStorageAccountSize };
 use super::super::scalar::*;
+use super::super::instruction::PUBLIC_INPUTS_COUNT;
 
 const ZERO_1: Fq = field_new!(Fq, "0");
 const ONE_1: Fq = field_new!(Fq, "1");
@@ -20,7 +21,6 @@ pub const STACK_FQ_BYTES: usize = STACK_FQ_SIZE * 32 + 4;
 pub const STACK_FQ2_BYTES: usize = STACK_FQ2_SIZE * 2 * 32 + 4;
 pub const STACK_FQ6_BYTES: usize = STACK_FQ6_SIZE * 6 * 32 + 4;
 pub const STACK_FQ12_BYTES: usize = STACK_FQ12_SIZE * 12 * 32 + 4;
-pub const INPUTS_COUNT: usize = 2;
 
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
 
@@ -31,7 +31,7 @@ pub struct ProofVerificationAccount<'a> {
     pub stack_fq12: LazyHeapStack<'a, Fq12>,
 
     /// Original inputs
-    /// - `[u8; INPUTS_COUNT * 32]`
+    /// - `[u8; PUBLIC_INPUTS_COUNT * 32]`
     /// - big endian
     pub inputs_be: &'a mut [u8],
     prepared_inputs: Option<G1Affine>,
@@ -47,7 +47,7 @@ pub struct ProofVerificationAccount<'a> {
 }
 
 impl<'a> ProofVerificationAccount<'a> {
-    pub const TOTAL_SIZE: usize = STACK_FQ_BYTES + STACK_FQ2_BYTES + STACK_FQ6_BYTES + STACK_FQ12_BYTES + INPUTS_COUNT * 32 + 4 + G1AFFINE_SIZE + G2AFFINE_SIZE + G1AFFINE_SIZE + G2AFFINE_SIZE + 4 + 4;
+    pub const TOTAL_SIZE: usize = STACK_FQ_BYTES + STACK_FQ2_BYTES + STACK_FQ6_BYTES + STACK_FQ12_BYTES + PUBLIC_INPUTS_COUNT * 32 + 4 + G1AFFINE_SIZE + G2AFFINE_SIZE + G1AFFINE_SIZE + G2AFFINE_SIZE + 4 + 4;
 
     pub fn new(
         account_info: &solana_program::account_info::AccountInfo,
@@ -76,7 +76,7 @@ impl<'a> ProofVerificationAccount<'a> {
         let (stack_fq12, data) = data.split_at_mut(STACK_FQ12_BYTES);
         let stack_fq12 = LazyHeapStack::new(stack_fq12, STACK_FQ12_SIZE, 384, serialize_fq12, deserialize_fq12);
 
-        let (inputs_be, data) = data.split_at_mut(INPUTS_COUNT * 32);
+        let (inputs_be, data) = data.split_at_mut(PUBLIC_INPUTS_COUNT * 32);
         let (coeff_ic, data) = data.split_at_mut(4);
         let (proof_a, data) = data.split_at_mut(G1AFFINE_SIZE);
         let (proof_b, data) = data.split_at_mut(G2AFFINE_SIZE);
@@ -106,14 +106,13 @@ impl<'a> ProofVerificationAccount<'a> {
 
     pub fn init(
         &mut self,
-        inputs: Vec<[u8; 32]>,
-        amount: u64,
-        nullifier_hash: ScalarLimbs,
+        _amount: u64,
         proof: super::Proof,
+        public_inputs: [[u8; 32]; PUBLIC_INPUTS_COUNT],
     ) -> ProgramResult {
         // Parse inputs
         // - big endian
-        for (i, input) in inputs.iter().enumerate() {
+        for (i, input) in public_inputs.iter().enumerate() {
             let bytes_be: Vec<u8> = input.iter().copied().rev().collect();
             for j in 0..32 {
                 self.inputs_be[i * 32 + j] = bytes_be[j];

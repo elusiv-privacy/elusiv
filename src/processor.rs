@@ -90,7 +90,7 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
 
             finish_deposit(&signer, program_id, program_account, &mut deposit_account, system_program)
         },
-        InitWithdraw { amount, nullifier_hash, root, proof } => {
+        InitWithdraw { amount, proof, public_inputs } => {
             // Program account
             let program_account = next_account_info(account_info_iter)?;
             let data = &mut program_account.data.borrow_mut()[..];
@@ -102,7 +102,7 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
             let mut withdraw_account = ProofVerificationAccount::new(&withdraw_account, data, program_id)?;
 
             // CUs consumed until this point: ~ 7270
-            init_withdraw(&program_account, &mut withdraw_account, amount, nullifier_hash, root, &proof)
+            init_withdraw(&program_account, &mut withdraw_account, amount, &proof, public_inputs)
         },
         VerifyWithdraw => {
             // Withdraw account
@@ -274,26 +274,23 @@ fn init_withdraw(
     program_account: &ProgramAccount,
     proof_account: &mut ProofVerificationAccount,
     amount: u64,
-    nullifier_hash: ScalarLimbs,
-    root: ScalarLimbs,
     proof: &[u8],
+    public_inputs: [[u8; 32]; super::instruction::PUBLIC_INPUTS_COUNT],
 ) -> ProgramResult {
     // Check the amount
     if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
 
-    // Check if nullifier does not already exist (~ 35000 CUs)
-    program_account.can_insert_nullifier_hash(nullifier_hash)?;
+    { // Check if nullifier does not already exist (~ 35000 CUs)
+        let nullifier_hash = bytes_to_limbs(&public_inputs[0]);
+        program_account.can_insert_nullifier_hash(nullifier_hash)?;
+    }
 
     // Check merkle root
     //if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
 
     // Init values (~ 33081 CUs)
-    let inputs = vec![
-        vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&nullifier_hash))),
-        vec_to_array_32(to_bytes_le_repr(from_limbs_mont(&root))),
-    ];
     let proof = Proof::from_bytes(proof).unwrap();
-    proof_account.init(inputs, amount, nullifier_hash, proof)?;
+    proof_account.init(amount, proof, public_inputs)?;
 
     // Start with computation
     verify_withdraw(proof_account)?;
@@ -345,10 +342,10 @@ pub fn verify_withdraw(
 }
 
 fn finish_withdraw(
-    program_id: &Pubkey,
-    program_account: &AccountInfo,
+    _program_id: &Pubkey,
+    _program_account: &AccountInfo,
     proof_account: &mut ProofVerificationAccount,
-    recipient: &AccountInfo,
+    _recipient: &AccountInfo,
 ) -> ProgramResult {
     let iteration = proof_account.get_iteration();
 
@@ -359,8 +356,8 @@ fn finish_withdraw(
 
     // Save nullifier hash
     {
-        let data = &mut program_account.data.borrow_mut()[..];
-        let mut program_account = ProgramAccount::new(&program_account, data, program_id)?;
+        //let data = &mut program_account.data.borrow_mut()[..];
+        //let mut program_account = ProgramAccount::new(&program_account, data, program_id)?;
 
         //program_account.insert_nullifier_hash(withdraw_account.get_nullifier_hash())?;
     }
