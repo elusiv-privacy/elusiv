@@ -8,7 +8,7 @@ use {
     super::accounts::*,
 };
 
-pub async fn start_program<F>(setup: F, _iterations: u64) -> (solana_program_test::BanksClient, Keypair, Hash)
+pub async fn start_program<F>(setup: F, iterations: u64) -> (solana_program_test::BanksClient, Keypair, Hash)
 where F: Fn(&mut ProgramTest) -> ()
 {
     let mut test = ProgramTest::default();
@@ -17,8 +17,7 @@ where F: Fn(&mut ProgramTest) -> ()
 
     setup(&mut test);
 
-    //let cus = 2000000 * iterations;
-    let cus = 30_000_000;
+    let cus = 2000000 * iterations;
 
     test.set_compute_max_units(cus);
     test.start().await

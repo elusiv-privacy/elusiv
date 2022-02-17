@@ -20,9 +20,9 @@ struct G2HomProjective {
     pub z: Fq2,
 }
 
-pub const MILLER_LOOP_ITERATIONS: usize = 337;
+pub const MILLER_LOOP_ITERATIONS: usize = 336;
 const ITERATION_ROUNDS: [usize; MILLER_LOOP_ITERATIONS] = [
-    8, 2, 2, 7, 4, 2, 7, 4, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 14, 8, 2, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 3, 6, 2, 2, 7, 4, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 3, 6, 2, 2, 7, 4, 2, 14, 8, 2, 2, 14, 8, 2, 2, 14, 8, 2, 2, 6, 5, 2, 1
+    10, 3, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 18, 5, 2, 6, 5, 2, 1
 ];
 const MAIN_ROUNDS: usize = 1664;
 const FULL_ROUNDS: usize = ADDITION_ROUNDS + DOUBLING_ROUNDS + 2 * ELL_ROUNDS + 1;
@@ -57,7 +57,7 @@ pub fn partial_miller_loop(
 
             match round {
                 0 => {
-                    if i > 0 {  // ~ 87084 CUs
+                    if i > 0 {  // (CUs: Max: 91923 Avg: 89720 Min: 86998 )
                         let mut miller_value = account.pop_fq12();
                         miller_value.square_in_place();
                         account.push_fq12(miller_value);
@@ -132,7 +132,7 @@ pub fn partial_miller_loop(
 const ADDITION_ROUNDS: usize = 6;
 
 /// Formula for line function when working with homogeneous projective coordinates
-/// - CUs: [12673, 23173, 15199, 27102, 12907, 12661]
+/// - CUs: [7247, 8442, 17450, 11901, 29344, 14668]
 fn addition_round(
     account: &mut ProofVerificationAccount,
     r: &mut G2HomProjective,
@@ -141,7 +141,7 @@ fn addition_round(
 ) {
     match round {
         // - pushes: coeff1, lambda (Fq2)
-        0 => { // compute lambda and store as 1st coeff element (~ 12673 CUs)
+        0 => { // compute lambda and store as 1st coeff element (CUs: Max: 7247 Avg: 7183 Min: 7123)
             let lambda = r.x - &(q.x * &r.z);
 
             // Push 1. coefficient and 1 placeholder
@@ -153,7 +153,7 @@ fn addition_round(
 
         // - pops: lambda
         // - pushes: coeff2, lambda, theta (Fq2)
-        1 => { // compute theta and store as 2nd coeff element (~ 12746 CUs)
+        1 => { // compute theta and store as 2nd coeff element (CUs: Max: 8442 Avg: 8293 Min: 7647)
             let theta = r.y - &(q.y * &r.z);
             let lambda = account.pop_fq2();
 
@@ -163,7 +163,7 @@ fn addition_round(
         },
 
         // - pushes: e, g (Fq2)
-        2 => { // e, g (~ 23173 CUs)
+        2 => { // e, g (CUs: Max: 17450 Avg: 17374 Min: 17310)
             let lambda = account.peek_fq2(1);
 
             let d = lambda.square();
@@ -175,7 +175,7 @@ fn addition_round(
         },
 
         // - pushes: h (Fq2)
-        3 => { // c, h (~ 15199 CUs)
+        3 => { // c, h (CUs: Max: 11901 Avg: 11787 Min: 11693)
             let g = account.peek_fq2(0);
             let e = account.peek_fq2(1);
             let theta = account.peek_fq2(2);
@@ -188,7 +188,7 @@ fn addition_round(
         },
 
         // - pops: h, g, e
-        4 => { // Assign to r (~ 27102 CUs)
+        4 => { // Assign to r (CUs: Max: 29344 Avg: 26047 Min: 25775)
             let h = account.pop_fq2();
             let g = account.pop_fq2();
             let e = account.pop_fq2();
@@ -202,7 +202,7 @@ fn addition_round(
 
         // - pops: theta, lambda
         // - pushes: coeff3
-        5 => { // compute the last coeff element (~ 16506 CUs)
+        5 => { // compute the last coeff element (CUs: Max: 14668 Avg: 13325 Min: 13140)
             let theta = account.pop_fq2();
             let lambda = account.pop_fq2();
 
@@ -224,7 +224,7 @@ const COEFF_B: Fq2 = field_new!(Fq2,
 const DOUBLING_ROUNDS: usize = 7;
 
 /// Formula for line function when working with homogeneous projective coordinates
-/// - CUs: [16767, 25817, 13078, 15379, 15070, 5567, 10000]
+/// - CUs: [11502, 6020, 10393, 11970, 11906, 10372, 5889]
 fn doubling_round(
     account: &mut ProofVerificationAccount,
     r: &mut G2HomProjective,
@@ -232,7 +232,7 @@ fn doubling_round(
 ) {
     match round {
         // - pushes: coeff1, coeff2, coeff3, e, c
-        0 => { // c, e (~ 16767 CUs)
+        0 => { // c, e (CUs: Max: 11502 Avg: 11382 Min: 11268)
             let c = r.z.square();
             let e = COEFF_B * &(c.double() + &c);
 
@@ -246,7 +246,7 @@ fn doubling_round(
         },
 
         // - pushes: b, f
-        1 => { // b, f, d set 3. coeff element (~ 25817 CUs)
+        1 => { // b, f, d set 3. coeff element (CUs: Max: 6020 Avg: 5928 Min: 5846)
             let e = account.peek_fq2(1);
 
             let f = e.double() + &e;
@@ -261,7 +261,7 @@ fn doubling_round(
         },
 
         // - pushes: a (Fq2)
-        2 => {  // a (~ 13078 CUs)
+        2 => {  // a (CUs: Max: 10393 Avg: 10320 Min: 10254)
             let mut a = r.x * &r.y;
             a.mul_assign_by_fp(&TWO_INV);
 
@@ -269,7 +269,7 @@ fn doubling_round(
         },
 
         // - pops: a
-        3 => {  // set 2. coeff element & set r.x (~ 15379 CUs)
+        3 => {  // set 2. coeff element & set r.x (CUs: Max: 11970 Avg: 11860 Min: 11737)
             let a = account.pop_fq2();
             let f = account.peek_fq2(0);
             let b = account.peek_fq2(1);
@@ -282,7 +282,7 @@ fn doubling_round(
             account.stack_fq2.replace(5, j);
         },
 
-        4 => {  // set 1. coeff element & assign r.z (~ 15070 CUs)
+        4 => {  // set 1. coeff element & assign r.z (CUs: Max: 11906 Avg: 11785 Min: 11665)
             let b = account.peek_fq2(1);
             let c = account.peek_fq2(2);
 
@@ -295,7 +295,7 @@ fn doubling_round(
 
         // - pops: f, b
         // - pushes: g
-        5 => {
+        5 => {  // (CUs: Max: 10372 Avg: 9445 Min: 8814)
             let f = account.pop_fq2();
             let b = account.pop_fq2();
 
@@ -307,7 +307,7 @@ fn doubling_round(
         },
 
         // - pops: g, c, e
-        6 => {  // set r.y (~ 5567 CUs)
+        6 => {  // set r.y (CUs: Max: 5889 Avg: 5373 Min: 5004)
             let g = account.pop_fq2();
             account.stack_fq2.pop_empty();
             let e = account.pop_fq2();
@@ -323,7 +323,7 @@ fn doubling_round(
 const ELL_ROUNDS: usize = 6;
 
 /// Evaluates the line function at point p
-/// - CUs: [15000, 90000, 15000, 90000, 15000, 90000]
+/// - CUs: [11677, 92056, 10550, 92091, 10147, 91988]
 fn ell_round(
     account: &mut ProofVerificationAccount,
     round: usize,
@@ -335,7 +335,7 @@ fn ell_round(
         // - swaps: coeff1 and coeff3
         // - pops: coeff1, coeff2
         // - pushes: coeff2, coeff1
-        0 => {  // Multiply `a` by first coeff values (~ 15000 CUs CUs)
+        0 => {  // Multiply `a` by first coeff values (CUs: Max: 11677 Avg: 11234 Min: 9514)
             // Swap coeff1 and coeff3
             account.stack_fq2.swap(0, 2);
 
@@ -350,7 +350,7 @@ fn ell_round(
         },
 
         // - pops: coeff1, coeff2, coeff3
-        1 => {  // (~ 89310 CUs)
+        1 => {  // (CUs: Max: 92056 Avg: 90300 Min: 88569)
             miller_value.mul_by_034(
                 &account.pop_fq2(),
                 &account.pop_fq2(),
@@ -359,7 +359,7 @@ fn ell_round(
         },
 
         // - pushes: c1, c0
-        2 => {  // Multiply `p_inputs` by second coeff values (~ 15000 CUs)
+        2 => {  // Multiply `p_inputs` by second coeff values(CUs: Max: 10550 Avg: 10482 Min: 10462)
             let p_inputs = account.get_prepared_inputs();
             let mut c0 = super::gamma_g2_neg_pc(coeff_ic).0;
             c0.mul_assign_by_fp(&p_inputs.y);
@@ -372,7 +372,7 @@ fn ell_round(
         },
 
         // - pops: c0, c1
-        3 => {  // (~ 89985 CUs)
+        3 => {  // (CUs: Max: 92091 Avg: 90528 Min: 89564)
             miller_value.mul_by_034(
                 &account.pop_fq2(),
                 &account.pop_fq2(),
@@ -381,7 +381,7 @@ fn ell_round(
         },
 
         // - pushes: c1, c0
-        4 => {  // Multiply `c` by third coeff values (~ 15000 CUs)
+        4 => {  // Multiply `c` by third coeff values (CUs: Max: 10147 Avg: 10117 Min: 10102)
             let c = read_g1_affine(account.proof_c);
             let mut c0 = super::delta_g2_neg_pc(coeff_ic).0;
             c0.mul_assign_by_fp(&c.y);
@@ -395,7 +395,7 @@ fn ell_round(
         },
 
         // - pops: c0, c1
-        5 => {  // (~ 90117 CUs)
+        5 => {  // (CUs: Max: 91988 Avg: 90576 Min: 89615 )
             miller_value.mul_by_034(
                 &account.pop_fq2(),
                 &account.pop_fq2(),

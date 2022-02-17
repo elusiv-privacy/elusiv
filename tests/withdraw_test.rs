@@ -10,7 +10,7 @@ async fn test_withdraw() {
     check_compute_units();
 
     // Setup program and storage account
-    let (mut banks_client, payer, recent_blockhash) = start_program_with_program_accounts(1).await;
+    let (mut banks_client, payer, recent_blockhash) = start_program_with_program_accounts(elusiv::groth16::ITERATIONS as u64).await;
 
     // Withdrawal data
     let recipient = payer.pubkey();

@@ -1,14 +1,14 @@
-IDLE_CUS = 2000
+IDLE_CUS = 20000
 START_CUS = 0
 
 # ATE loop count reversed, first element removed and -1s squared
 ate_rev_normalized = [1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0]
 
 # Costs in CUs (BPF Compute Units)
-adding_rounds_cus = [12673, 23173, 15199, 27102, 12907, 12661]
-doubling_rounds_cus = [13078, 16767, 25817, 15379, 15070, 5567, 15070]
-ell_rounds_cus = [15000, 90000, 15000, 90000, 15000, 90000]
-square_in_place_cus = 90000
+adding_rounds_cus = [7247, 8442, 17450, 11901, 29344, 14668]
+doubling_rounds_cus = [11502, 6020, 10393, 11970, 11906, 10372, 5889]
+ell_rounds_cus = [11677, 92056, 10550, 92091, 10147, 91988]
+square_in_place_cus = 91923
 mul_by_char_cus = 18000
 
 rounds_cus = list()
@@ -16,13 +16,13 @@ rounds_cus = list()
 # Stub algorithm to sum up costs
 # 0 CUs are used to skip rounds and keep the total rounds count as multiple of a certain factor
 for i, complex_round in enumerate(ate_rev_normalized):
-    rounds_cus.extend(doubling_rounds_cus)
-    rounds_cus.extend(ell_rounds_cus)
-
     if i > 0:
         rounds_cus.append(square_in_place_cus)
     else:
         rounds_cus.append(0)
+
+    rounds_cus.extend(doubling_rounds_cus)
+    rounds_cus.extend(ell_rounds_cus)
 
     if complex_round == 1:
         rounds_cus.extend(adding_rounds_cus)

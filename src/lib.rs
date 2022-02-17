@@ -1,6 +1,6 @@
-mod instruction;
 mod error;
 mod storage_account;
+pub mod instruction;
 pub mod processor;
 pub mod scalar;
 pub mod merkle;
