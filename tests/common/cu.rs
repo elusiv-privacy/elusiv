@@ -41,8 +41,8 @@ pub fn check_compute_units() {
 
             if n > MAX {
                 overflow = format!("\t\x1b[31m{}\x1b[0m CUs too much!", n - MAX);
-            } else if n < MIN {
-                overflow = format!("\t\x1b[34m{}\x1b[0m CUs unused!", MIN - n);
+            //} else if n < MIN {
+                //overflow = format!("\t\x1b[34m{}\x1b[0m CUs unused!", MIN - n);
             }
 
             let color = if n > MAX {

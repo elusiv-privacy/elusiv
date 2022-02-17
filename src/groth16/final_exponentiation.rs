@@ -17,14 +17,10 @@ use super::super::state::ProofVerificationAccount;
 
 // TODO: Handle unwrap/zero cases
 
-pub const FINAL_EXPONENTIATION_ITERATIONS: usize = 123;
+pub const FINAL_EXPONENTIATION_ITERATIONS: usize = 151;
 pub const FINAL_EXPONENTIATION_ROUNDS: [usize; FINAL_EXPONENTIATION_ITERATIONS] = [
-    7, 5, 9, 10, 13, 10, 14, 13, 11, 6, 18, 10, 14, 6, 10, 10, 10, 6, 10, 14, 6, 18, 6, 10, 10, 10, 6, 10, 10, 10, 10, 10, 10, 6, 10, 14, 6, 10, 14, 10, 5, 10, 15, 10, 14, 13, 11, 6, 18, 10, 14, 6, 10, 10, 10, 6, 10, 14, 6, 18, 6, 10, 10, 10, 6, 10, 10, 10, 10, 10, 10, 6, 10, 14, 6, 10, 14, 10, 8, 15, 10, 14, 13, 11, 6, 18, 10, 14, 6, 10, 10, 10, 6, 10, 14, 6, 18, 6, 10, 10, 10, 6, 10, 10, 10, 10, 10, 10, 6, 10, 14, 6, 10, 14, 10, 10, 9, 10, 9, 9, 9, 9, 2
+    7, 2, 5, 7, 8, 4, 18, 5, 8, 5, 13, 5, 9, 9, 5, 8, 5, 13, 5, 9, 9, 5, 8, 5, 9, 9, 5, 13, 9, 9, 9, 9, 5, 8, 5, 9, 9, 5, 13, 5, 13, 13, 5, 9, 9, 18, 5, 13, 9, 5, 5, 8, 13, 9, 9, 5, 13, 5, 8, 5, 9, 9, 5, 13, 5, 8, 5, 9, 9, 5, 8, 5, 9, 9, 13, 5, 13, 5, 9, 9, 5, 8, 5, 9, 9, 9, 9, 18, 5, 8, 5, 18, 9, 9, 13, 6, 7, 13, 9, 9, 5, 13, 5, 8, 5, 9, 9, 5, 13, 5, 8, 5, 9, 9, 5, 8, 5, 9, 9, 13, 5, 13, 5, 9, 9, 5, 8, 5, 9, 9, 9, 9, 18, 5, 8, 5, 18, 9, 9, 13, 7, 6, 6, 6, 6, 6, 7, 7, 6, 7, 6
 ];
-
-//#[allow(dead_code)]
-//const RANGE_COUNT: usize = 38;
-//const LAST_ROUND: usize = 1238;
 
 pub fn partial_final_exponentiation(
     account: &mut ProofVerificationAccount,
@@ -34,7 +30,7 @@ pub fn partial_final_exponentiation(
     let rounds = FINAL_EXPONENTIATION_ROUNDS[iteration];
     let last_round = base_round + rounds;
 
-    for round in base_round..=last_round {
+    for round in base_round..last_round {
         match round {
             0 => {   // Check whether f is zero (if true, it cannot be inverted)
                 let f = account.peek_fq12(0);
@@ -310,7 +306,7 @@ pub fn partial_final_exponentiation(
         }
     }
 
-    account.set_round(last_round + 1);
+    account.set_round(last_round);
 }
 
 fn mul(account: &mut ProofVerificationAccount, round: usize) {
@@ -339,7 +335,7 @@ fn frobenius_map(account: &mut ProofVerificationAccount, power: usize, round: us
 }
 
 #[allow(dead_code)]
-const F12_INVERSE_ROUND_COUNT: usize = 3 + F6_INVERSE_ROUND_COUNT;
+pub const F12_INVERSE_ROUND_COUNT: usize = 3 + F6_INVERSE_ROUND_COUNT;
 
 fn f12_inverse(
     f: &Fq12,
@@ -348,14 +344,14 @@ fn f12_inverse(
 ) {
     match round {
         // - pushes: v1 (Fq6)
-        0 => {  // ~ 28000
+        0 => {  // ~ 30000
             let v1 = f.c1.square();
             account.push_fq6(v1);
         },
 
         // - pops: v1
         // - pushes: v0 (Fq6)
-        1 => {  // ~ 30000
+        1 => {  // ~ 32000
             let v1 = account.pop_fq6();
     
             let v2 = f.c0.square();
@@ -377,7 +373,7 @@ fn f12_inverse(
 
         // - pops: v0
         // - pushes: f2
-        F6_INVERSE_ROUND_COUNT_PLUS_TWO => {
+        F6_INVERSE_ROUND_COUNT_PLUS_TWO => {    // ~ 85200
             let _ = account.pop_fq6();
             let v0 = account.pop_fq6();
 
@@ -402,7 +398,7 @@ fn f6_inverse(
 ) {
     match round {
         // - pushes: s2 (Fq2)
-        0 => {  // ~ 11000
+        0 => {  // ~ 11000 
             let t1 = f.c1.square();
             let t4 = f.c0 * &f.c2;
             let s2 = t1 - &t4;
@@ -441,7 +437,7 @@ fn f6_inverse(
         },
 
         // - pushes: v0a (Fq)
-        3 => {  // ~ 3346
+        3 => {  // ~ 3600
             let t6 = account.peek_fq2(0);
     
             let v1a = t6.c1.square();
@@ -453,7 +449,7 @@ fn f6_inverse(
 
         // - pops: v0a
         // - pushes: v0a (Fq)
-        4 => {  // ~ 64678 - 100.000
+        4 => {  // ~ 65000
             let mut v0a = account.pop_fq();
 
             v0a = v0a.inverse().unwrap();
@@ -463,7 +459,7 @@ fn f6_inverse(
 
         // - pops: v0a, t6, s0, s1, s2
         // - pushes: v1 (Fq6)
-        5 => {   // ~ 23000
+        5 => {   // ~ 25000
             let v0a = account.pop_fq();
             let mut t6 = account.pop_fq2();
             let s0 = account.pop_fq2();
@@ -501,13 +497,13 @@ fn f12_frobenius_map(
 ) {
     match round {
         0 => {
-            f6_frobenius_map(&mut f.c0, power); // ~ 17625
+            f6_frobenius_map(&mut f.c0, power); // ~ 18000
         },
         1 => {
-            f6_frobenius_map(&mut f.c1, power); // ~ 17637
+            f6_frobenius_map(&mut f.c1, power); // ~ 18000
         },
         2 => {
-            f.c1.mul_assign_by_fp2(Fq12Parameters::FROBENIUS_COEFF_FP12_C1[power % 12]);    // ~ 18065
+            f.c1.mul_assign_by_fp2(Fq12Parameters::FROBENIUS_COEFF_FP12_C1[power % 12]);    // ~ 18000
         }
         _ => {}
     }
@@ -530,7 +526,7 @@ fn f2_frobenius_map(f: &mut Fq2, power: usize) {
 }
 
 #[allow(dead_code)]
-const EXP_BY_NEG_X_ROUND_COUNT: usize = 2 + CYCLOTOMIC_EXPRESSION_ROUND_COUNT;
+pub const EXP_BY_NEG_X_ROUND_COUNT: usize = 2 + CYCLOTOMIC_EXPRESSION_ROUND_COUNT;
 
 const CYCLOTOMIC_EXPRESSION_ROUND_COUNT: usize = X_WNAF_L * CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT;
 const CYCLOTOMIC_EXPRESSION_SUB_ROUND_COUNT: usize = F12_MUL_ROUND_COUNT + 1;
@@ -548,14 +544,14 @@ const X_WNAF: [i64; X_WNAF_L] = [1, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0
 /// - in the WNAF loop, we have `F12_MUL_ROUND_COUNT` * `X_WNAF_L` iterations (since we use `F12_MUL_ROUND_COUNT` per multiplication)
 /// - for the iterations in which we don't have any multiplication, we skip using a cost of 0 CUs
 /// - Question: more expensive to conjugate or to store and read?
-fn exp_by_neg_x(
+pub fn exp_by_neg_x(
     f: &mut Fq12,
     account: &mut ProofVerificationAccount,
     round: usize,
 ) {
     match round {
         // - pushes: fe, fe_inverse
-        0 => {  // (~ 1000 CUs)
+        0 => {  // (~ 1300 CUs)
             let mut fe_inverse = *f;
             fe_inverse.conjugate();
 
@@ -579,7 +575,7 @@ fn exp_by_neg_x(
 
             if sub_round == 0 {
                 if i > 0 {
-                    f.cyclotomic_square_in_place();
+                    f.cyclotomic_square_in_place(); // ~ 46020 CUs
                 }
             } else {
                 if value > 0 {
@@ -608,7 +604,7 @@ const F12_MUL_ROUND_COUNT: usize = 5;
 
 // Karatsuba multiplication;
 // Guide to Pairing-based cryprography, Algorithm 5.16.
-/// [20000, 20000, 20000, 20000, 46000]
+/// [20400, 25000, 20400, 25000, 46000]
 fn f12_mul_assign(
     a: &mut Fq12,
     b: &Fq12,
@@ -618,29 +614,29 @@ fn f12_mul_assign(
     // ~ 42000
     match round {
         // - pushes: v0
-        0 => {  
+        0 => {  // ~ 20421 CUs
             let v0 = f6_mul(a.c0, b.c0, Fq6::zero(), 0);
             account.push_fq6(v0);
         },
-        1 => { 
+        1 => { // ~ 25000 CUs
             let mut v0 = account.pop_fq6();
             v0 = f6_mul(a.c0, b.c0, v0, 1);
             account.push_fq6(v0);
         },
 
         // - pushes: v1
-        2 => {
+        2 => {  // ~ 20401 CUs
             let v1 = f6_mul(a.c1, b.c1, Fq6::zero(), 0);
             account.push_fq6(v1);
         },
-        3 => {  
+        3 => {  // ~ 25000 CUs
             let mut v1 = account.pop_fq6();
             v1 = f6_mul(a.c1, b.c1, v1, 1);
             account.push_fq6(v1);
         },
 
         // - pops: v1, v0
-        4 => {  
+        4 => {  // ~ 46211 CUs
             let v1 = account.pop_fq6();
             let v0 = account.pop_fq6();
 

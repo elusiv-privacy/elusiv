@@ -5,9 +5,10 @@ use solana_sdk::signature::Signer;
 use common::*;
 
 #[tokio::test]
+#[ignore]
 async fn test_withdraw() {
     //capture_compute_units();
-    check_compute_units();
+    //check_compute_units();
 
     // Setup program and storage account
     let (mut banks_client, payer, recent_blockhash) = start_program_with_program_accounts(elusiv::groth16::ITERATIONS as u64).await;
