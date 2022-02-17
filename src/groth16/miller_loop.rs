@@ -536,6 +536,7 @@ mod tests {
         // Computation
         for i in 0..PREPARE_INPUTS_ITERATIONS { partial_prepare_inputs(&mut account, i).unwrap(); }
         let p_inputs = account.get_prepared_inputs();
+        account.set_round(0);
         for iteration in 0..MILLER_LOOP_ITERATIONS {
             partial_miller_loop(&mut account, iteration).unwrap();
         }
