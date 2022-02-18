@@ -3,6 +3,8 @@ use super::super::instruction::{
     unpack_bool,
     unpack_limbs,
 };
+use super::super::scalar::write_g1_affine;
+use super::super::scalar::write_g2_affine;
 use ark_ff::biginteger::BigInteger256;
 use ark_bn254::{
     G1Affine, G2Affine,
@@ -59,5 +61,13 @@ impl Proof {
         };
 
         Ok(proof)
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        write_g1_affine(&mut bytes, self.a);
+        write_g2_affine(&mut bytes, self.b);
+        write_g1_affine(&mut bytes, self.c);
+        bytes
     }
 }
