@@ -61,6 +61,7 @@ pub enum ElusivInstruction {
 
         /// Groth16 proof
         /// 
+        /// - g1/g2 affines
         /// - in Montgomery form
         /// Consists of:
         /// - A: 2 [u64; 4] + 1 u8
