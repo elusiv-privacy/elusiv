@@ -12,15 +12,7 @@ env:
 jobs:
   install:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        case: ['npm run test:template', 'cargo test']
     steps:
-      - uses: actions/checkout@v2
-      - name: test
-        run: |
-          echo "${{ matrix.case }}"
-          
       - uses: actions/cache@v2
         name: Cache Cargo registry + index
         id: cache-anchor

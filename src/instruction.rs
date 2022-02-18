@@ -9,7 +9,6 @@ use super::scalar::*;
 use super::groth16::PROOF_BYTES_SIZE;
 
 pub const PUBLIC_INPUTS_COUNT: usize = 2;
-
 pub enum ElusivInstruction {
     /// Initialize deposit, store amount and start hashing
     /// 

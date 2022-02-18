@@ -277,6 +277,24 @@ fn init_withdraw(
     proof: &[u8],
     public_inputs: [[u8; 32]; super::instruction::PUBLIC_INPUTS_COUNT],
 ) -> ProgramResult {
+    // Verify all public inputs
+    verify_public_inputs(program_account, amount, public_inputs)?;
+
+    // Init values (~ 33081 CUs)
+    let proof = Proof::from_bytes(proof).unwrap();
+    proof_account.init(amount, proof, public_inputs)?;
+
+    // Start with computation
+    verify_withdraw(proof_account)?;
+
+    Ok(())
+}
+
+pub fn verify_public_inputs(
+    program_account: &ProgramAccount,
+    amount: u64,
+    public_inputs: [[u8; 32]; super::instruction::PUBLIC_INPUTS_COUNT],
+) -> ProgramResult {
     // Check the amount
     if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
 
@@ -287,13 +305,6 @@ fn init_withdraw(
 
     // Check merkle root
     //if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
-
-    // Init values (~ 33081 CUs)
-    let proof = Proof::from_bytes(proof).unwrap();
-    proof_account.init(amount, proof, public_inputs)?;
-
-    // Start with computation
-    verify_withdraw(proof_account)?;
 
     Ok(())
 }
