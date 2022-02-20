@@ -17,7 +17,7 @@ use {
     ark_ff::*,
 
     elusiv::state::*,
-    elusiv::scalar::*,
+    elusiv::fields::scalar::*,
     elusiv::poseidon,
     elusiv::state::TREE_HEIGHT,
 

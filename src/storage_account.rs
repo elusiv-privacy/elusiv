@@ -1,5 +1,5 @@
 use solana_program::entrypoint::ProgramResult;
-use super::scalar::*;
+use super::fields::scalar::*;
 
 /// Checks whether a word represented by 4 u64 limbs is contained inside a byte array
 /// 

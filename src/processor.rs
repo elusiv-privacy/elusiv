@@ -21,7 +21,7 @@ use solana_program::{
     system_program,
     native_token::LAMPORTS_PER_SOL,
 };
-use ark_ff::*;
+use ark_ff::Zero;
 use super::groth16::{
     PREPARE_INPUTS_ITERATIONS,
     MILLER_LOOP_ITERATIONS,
@@ -32,7 +32,7 @@ use super::groth16::{
     verify_proof,
     Proof,
 };
-use super::scalar::*;
+use super::fields::scalar::*;
 use super::poseidon::*;
 use super::poseidon;
 use super::merkle;

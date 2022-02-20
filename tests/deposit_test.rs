@@ -16,7 +16,7 @@ use {
     elusiv::state::TREE_HEIGHT,
     elusiv::merkle::node,
     elusiv::poseidon::ITERATIONS,
-    elusiv::scalar::*,
+    elusiv::fields::scalar::*,
     ark_ff::*,
     common::*,
 };

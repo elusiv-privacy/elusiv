@@ -1,4 +1,4 @@
-use super::scalar::*;
+use super::fields::scalar::*;
 use super::state::TREE_HEIGHT;
 
 /// Returns a tree node as a Scalar object
@@ -146,17 +146,17 @@ mod tests {
 
         assert_eq!(Scalar::zero(), node(&data, 0, 0));
 
-        let s = from_str_16("1").unwrap();
+        let s = from_str_10("1");
         set(&mut data, 0, 0, s);
         assert_eq!(s, node(&data, 0, 0));
 
-        set(&mut data, 1, 0, from_str_16("0xFF").unwrap());
-        assert_eq!(from_str_16("0xFF").unwrap(), node(&data, 1, 0));
+        set(&mut data, 1, 0, from_str_10("255"));
+        assert_eq!(from_str_10("255"), node(&data, 1, 0));
 
         assert_eq!(Scalar::zero(), node(&data, 1, 1));
 
-        set(&mut data, 1, 1, from_str_16("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").unwrap());
-        assert_eq!(from_str_16("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").unwrap(), node(&data, 1, 1));
+        set(&mut data, 1, 1, from_str_10("12345678910111213141516"));
+        assert_eq!(from_str_10("12345678910111213141516"), node(&data, 1, 1));
     }
 
     #[test]

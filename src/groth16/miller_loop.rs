@@ -2,7 +2,7 @@ use solana_program::entrypoint::ProgramResult;
 use ark_bn254::{ Fq, Fq2, G2Affine, Parameters };
 use ark_ec::models::bn::BnParameters;
 use ark_ff::*;
-use super::super::scalar::*;
+use super::super::fields::base::*;
 use super::super::state::ProofVerificationAccount;
 
 // TODO: mul_by_034, square_in_place
@@ -431,6 +431,8 @@ mod tests {
     use core::ops::Neg;
     use super::super::vkey::*;
     use super::super::{ PREPARE_INPUTS_ITERATIONS, partial_prepare_inputs };
+    use super::super::super::fields::scalar::*;
+    use super::super::super::fields::utils::*;
 
     #[test]
     fn test_addition_rounds() {

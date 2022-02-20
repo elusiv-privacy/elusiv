@@ -2,7 +2,7 @@ mod common;
 use ark_bn254::{ Bn254 };
 use ark_ec::{ AffineCurve, PairingEngine, ProjectiveCurve };
 use elusiv::state::ProofVerificationAccount;
-use elusiv::scalar::*;
+use elusiv::fields::{ utils::*, scalar::* };
 use elusiv::groth16::*;
 use ark_groth16::{ verify_proof };
 use common::*;

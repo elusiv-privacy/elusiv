@@ -4,7 +4,7 @@ use ark_groth16::PreparedVerifyingKey;
 use ark_groth16::VerifyingKey;
 use std::str::FromStr;
 use ark_ff::bytes::ToBytes;
-use elusiv::scalar::{ Scalar, from_str_10 };
+use elusiv::fields::scalar::{ Scalar, from_str_10 };
 use core::ops::Neg;
 
 pub struct ProofString {
@@ -153,7 +153,7 @@ pub fn test_inputs_fe() -> [Scalar; 2] {
 mod test {
     use super::*;
     use elusiv::groth16;
-    use elusiv::scalar::{ read_g1_affine, read_g2_affine };
+    use elusiv::fields::base::{ read_g1_affine, read_g2_affine };
 
     #[test]
     fn test_byte_conversion() {

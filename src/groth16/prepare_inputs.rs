@@ -180,7 +180,8 @@ mod tests {
     use ark_ec::AffineCurve;
     use ark_bn254::{ G2Affine, G1Affine };
     use core::ops::Neg;
-    use super::super::super::scalar::*;
+    use super::super::super::fields::scalar::*;
+    use super::super::super::fields::utils::*;
 
     #[test]
     fn test_mul_g1a_scalar() {

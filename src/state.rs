@@ -11,7 +11,7 @@ use super::error::ElusivError::{
     CommitmentAlreadyUsed,
     NoRoomForCommitment,
 };
-use super::scalar::*;
+use super::fields::scalar::*;
 
 pub use super::poseidon::DepositHashingAccount;
 pub use super::groth16::ProofVerificationAccount;

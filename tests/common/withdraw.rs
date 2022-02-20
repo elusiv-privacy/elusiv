@@ -13,7 +13,7 @@ use {
     },
     ark_ff::*,
 
-    elusiv::scalar::*,
+    elusiv::fields::scalar::*,
     elusiv::groth16,
 
     super::accounts::*,

@@ -7,7 +7,7 @@ use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G1Affine, G1Projective };
 use ark_ff::*;
 use super::lazy_stack::LazyHeapStack;
 use super::super::error::ElusivError::{ InvalidStorageAccount, InvalidStorageAccountSize };
-use super::super::scalar::*;
+use super::super::fields::base::*;
 use super::super::instruction::PUBLIC_INPUTS_COUNT;
 
 const ZERO_1: Fq = field_new!(Fq, "0");

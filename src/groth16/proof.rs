@@ -3,8 +3,7 @@ use super::super::instruction::{
     unpack_bool,
     unpack_limbs,
 };
-use super::super::scalar::write_g1_affine;
-use super::super::scalar::write_g2_affine;
+use super::super::fields::base::{ write_g1_affine, write_g2_affine };
 use ark_ff::biginteger::BigInteger256;
 use ark_bn254::{
     G1Affine, G2Affine,

@@ -3,7 +3,7 @@ use super::super::storage_account::*;
 use solana_program::program_error::ProgramError;
 use solana_program::entrypoint::ProgramResult;
 use super::super::error::ElusivError::{ InvalidStorageAccount, InvalidStorageAccountSize };
-use super::super::scalar::*;
+use super::super::fields::scalar::*;
 use super::super::state::TREE_HEIGHT;
 
 solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");

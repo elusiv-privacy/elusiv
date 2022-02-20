@@ -5,7 +5,7 @@ use solana_program::{
     },
 };
 use std::convert::TryInto;
-use super::scalar::*;
+use super::fields::{ utils::*, scalar::* };
 use super::groth16::PROOF_BYTES_SIZE;
 
 pub const PUBLIC_INPUTS_COUNT: usize = 2;
