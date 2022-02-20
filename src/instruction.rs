@@ -185,7 +185,7 @@ pub fn unpack_bool(data: &[u8]) -> Result<(bool, &[u8]), ProgramError> {
 
 pub fn generate_init_withdraw_data(
     amount: u64,
-    public_inputs: [Scalar; PUBLIC_INPUTS_COUNT],
+    public_inputs: [[u8; 32]; PUBLIC_INPUTS_COUNT],
     proof: super::groth16::Proof,
 ) -> Vec<u8> {
     let mut data = vec![INIT_WITHDRAW];
@@ -193,7 +193,7 @@ pub fn generate_init_withdraw_data(
     data.extend(amount.to_le_bytes());
 
     for input in public_inputs {
-        data.extend(to_bytes_le_mont(input));
+        data.extend(input);
     }
 
     data.extend(proof.to_bytes());

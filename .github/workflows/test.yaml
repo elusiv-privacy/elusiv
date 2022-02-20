@@ -1,4 +1,4 @@
-name: 
+name: Build
 
 on:
   push:
@@ -62,8 +62,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: build programs
+      - name: Run unit tests, codecoverage
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV }}
+        run: |
+          cargo install cargo-tarpaulin
+          cargo tarpaulin --out Xml
+          bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
+
+      - name: Run on chain integration tests
         run: |
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
-          cargo build
           cargo test-bpf

@@ -10,8 +10,8 @@ use solana_sdk::{
     transaction::Transaction,
     signature::Keypair,
 };
-use ark_ff::Zero;
 use elusiv::fields::scalar::*;
+use elusiv::fields::utils::*;
 use elusiv::groth16;
 use super::accounts::*;
 use super::proof::*;
@@ -62,9 +62,9 @@ pub async fn withdraw_transaction(payer: &Keypair, _recipient: Pubkey, recent_bl
 }
 
 pub fn withdraw_data(proof: &ProofString, inputs: &[&str]) -> Vec<u8> {
-    let mut public_inputs = [Scalar::zero(); elusiv::instruction::PUBLIC_INPUTS_COUNT];
+    let mut public_inputs = [[0; 32]; elusiv::instruction::PUBLIC_INPUTS_COUNT];
     for (i, input) in inputs.iter().enumerate() {
-        public_inputs[i] = from_str_10(input);
+        public_inputs[i] = vec_to_array_32(to_bytes_le_mont(from_str_10(input)));
     }
 
     elusiv::instruction::generate_init_withdraw_data(
