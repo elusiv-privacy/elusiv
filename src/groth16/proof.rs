@@ -13,6 +13,7 @@ use ark_bn254::{
 
 pub const PROOF_BYTES_SIZE: usize = 260;
 
+#[derive(Copy, Clone)]
 pub struct Proof {
     pub a: G1Affine,
     pub b: G2Affine,

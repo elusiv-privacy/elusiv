@@ -72,5 +72,6 @@ jobs:
 
       - name: Run on chain integration tests
         run: |
+          rustup component add rustfmt --toolchain nightly-x86_64-unknown-linux-gnu
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
           cargo test-bpf
