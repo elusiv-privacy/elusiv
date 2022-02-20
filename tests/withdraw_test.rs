@@ -1,12 +1,12 @@
 mod common;
 use assert_matches::*;
-use solana_program_test::*;
+//use solana_program_test::*;
 use solana_sdk::signature::Signer;
 use common::*;
 
-#[tokio::test]
-#[ignore]
-async fn test_withdraw() {
+//#[tokio::test]
+//#[ignore]
+async fn _test_withdraw() {
     //capture_compute_units();
     //check_compute_units();
 
