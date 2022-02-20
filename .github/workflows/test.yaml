@@ -7,7 +7,7 @@ on:
     branches: [ master ]
 
 env:
-  solana_version: 1.9.5
+  solana_version: 1.9.6
 
 jobs:
   install:
@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/cache@v2
         name: Cache Cargo registry + index
-        id: cache-anchor
+        id: cache-cargo
         with:
           path: |
             ~/.cargo/bin/
@@ -58,7 +58,8 @@ jobs:
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
           solana --version
 
-      - name: build programs
+      - uses: actions/checkout@v2
+        name: build programs
         run: |
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
           cargo build

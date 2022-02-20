@@ -45,7 +45,7 @@ pub async fn send_deposit_transaction(payer: &Keypair, recent_blockhash: Hash, d
         instructions.push(Instruction {
             program_id: elusiv::id(),
             accounts: vec![AccountMeta::new(deposit_account_id(), false)],
-            data: vec![1],
+            data: vec![elusiv::instruction::COMPUTE_DEPOSIT],
         });
     }
 
@@ -59,7 +59,7 @@ pub async fn send_deposit_transaction(payer: &Keypair, recent_blockhash: Hash, d
             AccountMeta::new(deposit_account_id(), false),
             AccountMeta::new(system_program::id(), false),
         ],
-        data: vec![2],
+        data: vec![elusiv::instruction::FINISH_DEPOSIT],
     });
 
     // Sign and send transaction
@@ -79,7 +79,7 @@ pub async fn send_valid_deposit(payer: &Keypair, banks_client: &mut BanksClient,
 }
 
 pub fn deposit_data(commitment: Scalar) -> Vec<u8> {
-    let mut data = vec![0];
+    let mut data = vec![elusiv::instruction::INIT_DEPOSIT];
     let amount: u64 = LAMPORTS_PER_SOL;
     data.extend_from_slice(&amount.to_le_bytes());
     data.extend_from_slice(&to_bytes_le_mont(commitment));

@@ -1,24 +1,20 @@
-use {
-    solana_program::{
-        instruction::Instruction,
-        instruction::AccountMeta,
-        hash::Hash,
-        pubkey::Pubkey,
-        native_token::LAMPORTS_PER_SOL,
-    },
-    solana_sdk::{
-        signature::Signer,
-        transaction::Transaction,
-        signature::Keypair,
-    },
-    ark_ff::*,
-
-    elusiv::fields::scalar::*,
-    elusiv::groth16,
-
-    super::accounts::*,
-    super::proof::*,
+use solana_program::{
+    instruction::Instruction,
+    instruction::AccountMeta,
+    hash::Hash,
+    pubkey::Pubkey,
+    native_token::LAMPORTS_PER_SOL,
 };
+use solana_sdk::{
+    signature::Signer,
+    transaction::Transaction,
+    signature::Keypair,
+};
+use ark_ff::Zero;
+use elusiv::fields::scalar::*;
+use elusiv::groth16;
+use super::accounts::*;
+use super::proof::*;
 
 pub const WITHDRAW_INSTRUCTIONS_COUNT: u64 = (groth16::ITERATIONS + 2) as u64;
 
@@ -40,7 +36,7 @@ pub async fn withdraw_transaction(payer: &Keypair, _recipient: Pubkey, recent_bl
         instructions.push(Instruction {
             program_id: elusiv::id(),
             accounts: vec![ AccountMeta::new(withdraw_account_id(), false) ],
-            data: vec![4],
+            data: vec![elusiv::instruction::COMPUTE_WITHDRAW],
         });
     }
 
@@ -53,9 +49,10 @@ pub async fn withdraw_transaction(payer: &Keypair, _recipient: Pubkey, recent_bl
             AccountMeta::new(payer.pubkey(), true),
             AccountMeta::new(program_account_id(), false),
             AccountMeta::new(withdraw_account_id(), false),
+            // TODO: Add relayer
             AccountMeta::new(recipient, true),
         ],
-        data: vec![5],
+        data: vec![elusiv::Instruction::FINISH_WITHDRAW],
     });*/
 
     // Sign and send transaction
@@ -65,16 +62,14 @@ pub async fn withdraw_transaction(payer: &Keypair, _recipient: Pubkey, recent_bl
 }
 
 pub fn withdraw_data(proof: &ProofString, inputs: &[&str]) -> Vec<u8> {
-    let mut data = vec![3];
-
-    let amount: u64 = LAMPORTS_PER_SOL;
-    data.extend(amount.to_le_bytes());
-
-    for input in inputs {
-        data.extend(to_bytes_le_mont(from_str_10(input)));
+    let mut public_inputs = [Scalar::zero(); elusiv::instruction::PUBLIC_INPUTS_COUNT];
+    for (i, input) in inputs.iter().enumerate() {
+        public_inputs[i] = from_str_10(input);
     }
 
-    proof.push_to_vec(&mut data);
-
-    data
+    elusiv::instruction::generate_init_withdraw_data(
+        LAMPORTS_PER_SOL,
+        public_inputs,
+        proof.generate_proof(),
+    )
 }

@@ -9,6 +9,14 @@ use super::fields::{ utils::*, scalar::* };
 use super::groth16::PROOF_BYTES_SIZE;
 
 pub const PUBLIC_INPUTS_COUNT: usize = 2;
+
+pub const INIT_DEPOSIT: u8 = 0;
+pub const COMPUTE_DEPOSIT: u8 = 1;
+pub const FINISH_DEPOSIT: u8 = 2;
+pub const INIT_WITHDRAW: u8 = 3;
+pub const COMPUTE_WITHDRAW: u8 = 4;
+pub const FINISH_WITHDRAW: u8 = 5;
+
 pub enum ElusivInstruction {
     /// Initialize deposit, store amount and start hashing
     /// 
@@ -103,15 +111,14 @@ impl ElusivInstruction {
             .ok_or(ProgramError::InvalidInstructionData)?;
 
         match tag {
-            0 => Self::unpack_deposit(&rest),
-            1 => Ok(Self::ComputeDeposit),
-            2 => Ok(Self::FinishDeposit),
+            INIT_DEPOSIT => Self::unpack_deposit(&rest),
+            COMPUTE_DEPOSIT => Ok(Self::ComputeDeposit),
+            FINISH_DEPOSIT => Ok(Self::FinishDeposit),
 
-            3 => Self::unpack_init_withdraw(&rest),
-            4 => Ok(Self::VerifyWithdraw),
-            5 => Ok(Self::FinishWithdraw),
+            INIT_WITHDRAW => Self::unpack_init_withdraw(&rest),
+            COMPUTE_WITHDRAW => Ok(Self::VerifyWithdraw),
+            FINISH_WITHDRAW => Ok(Self::FinishWithdraw),
 
-            6 => Self::unpack_log(&rest),
             _ => Err(InvalidArgument)
         }
     }
@@ -146,12 +153,6 @@ impl ElusivInstruction {
 
         Ok(ElusivInstruction::InitWithdraw{ amount, proof, public_inputs })
     }
-
-    fn unpack_log(data: &[u8]) -> Result<Self, ProgramError> {
-        let (&index, _) = data.split_first().ok_or(ProgramError::InvalidInstructionData)?;
-
-        Ok(ElusivInstruction::Log { index })
-    }
 }
 
 fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
@@ -180,6 +181,24 @@ pub fn unpack_bool(data: &[u8]) -> Result<(bool, &[u8]), ProgramError> {
     let (&byte, rest) = data.split_first().ok_or(ProgramError::InvalidInstructionData)?;
 
     Ok((byte == 1, rest))
+}
+
+pub fn generate_init_withdraw_data(
+    amount: u64,
+    public_inputs: [Scalar; PUBLIC_INPUTS_COUNT],
+    proof: super::groth16::Proof,
+) -> Vec<u8> {
+    let mut data = vec![INIT_WITHDRAW];
+
+    data.extend(amount.to_le_bytes());
+
+    for input in public_inputs {
+        data.extend(to_bytes_le_mont(input));
+    }
+
+    data.extend(proof.to_bytes());
+
+    data
 }
 
 #[cfg(test)]

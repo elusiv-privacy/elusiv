@@ -73,7 +73,7 @@ async fn test_deposit_finalize() {
                 AccountMeta::new(deposit_account_id(), false),
                 AccountMeta::new(system_program::id(), false),
             ],
-            data: vec![2],
+            data: vec![elusiv::instruction::FINISH_DEPOSIT],
         }],
         Some(&payer.pubkey()),
     );
