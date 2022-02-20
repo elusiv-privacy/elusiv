@@ -59,7 +59,10 @@ jobs:
           solana --version
 
       - uses: actions/checkout@v2
-        name: build programs
+        with:
+          fetch-depth: 0
+
+      - name: build programs
         run: |
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
           cargo build
