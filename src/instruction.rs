@@ -69,12 +69,12 @@ pub enum ElusivInstruction {
 
         /// Groth16 proof
         /// 
-        /// - g1/g2 affines
+        /// - g1/g2 affines (client uses projectives, relayer performs conversion)
         /// - in Montgomery form
         /// Consists of:
-        /// - A: 2 [u64; 4] + 1 u8
-        /// - B: 2 * (2 [u64; 4]) + 2 u8
-        /// - C: 2 [u64; 4] + 1 u8
+        /// - A: 2 * 32 bytes + infinity byte
+        /// - B: 2 * (2 * 32 bytes) + infinity byte
+        /// - C: 2 * 32 bytes + infinity byte
         proof: [u8; PROOF_BYTES_SIZE],
     },
 
@@ -155,7 +155,7 @@ impl ElusivInstruction {
     }
 }
 
-fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
+pub fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
     let value = data
         .get(..8)
         .and_then(|slice| slice.try_into().ok())
@@ -165,7 +165,7 @@ fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
     Ok((value, &data[8..]))
 }
 
-fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
+pub fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
     let bytes = data.get(..32).ok_or(InvalidArgument)?;
 
     Ok((bytes, &data[32..]))
