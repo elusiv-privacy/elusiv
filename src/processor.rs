@@ -121,10 +121,14 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
             let data = &mut withdraw_account.data.borrow_mut()[..];
             let mut withdraw_account = ProofVerificationAccount::new(&withdraw_account, data, program_id)?;
 
+            // Relayer (aka signer/payer)
+            let relayer = next_account_info(account_info_iter)?;
+            if !relayer.is_signer { return Err(SenderIsNotSigner.into()); }
+
             // Recipient
             let recipient = next_account_info(account_info_iter)?;
 
-            finish_withdraw(program_id, program_account, &mut withdraw_account, recipient)
+            finish_withdraw(program_id, program_account, &mut withdraw_account, relayer, recipient)
         }
         _ => Err(InvalidArgument)
     }
@@ -426,6 +430,7 @@ fn finish_withdraw(
     _program_id: &Pubkey,
     _program_account: &AccountInfo,
     proof_account: &mut ProofVerificationAccount,
+    _relayer: &AccountInfo,
     _recipient: &AccountInfo,
 ) -> ProgramResult {
     let iteration = proof_account.get_iteration();
@@ -444,6 +449,8 @@ fn finish_withdraw(
     }
 
     // Pay the signer (in most cases the relayer) RELAYER_FEE
+
+    //TODO: Send relayer his funds
 
     // Transfer funds using owned bank account
     //TODO: Add check

@@ -81,7 +81,8 @@ pub enum ElusivInstruction {
     /// Accounts expected:
     /// 0. [owned, writable] Program account
     /// 1. [owned, writable] Withdraw account
-    /// 2. [writable] Recipient account
+    /// 2. [signer, writable] Relayer
+    /// 3. [writable] Recipient account
     FinishWithdraw,
 
     /// Transfers the funds to the recipient
