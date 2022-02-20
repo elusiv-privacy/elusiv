@@ -1,4 +1,4 @@
-name: Cargo
+name: 
 
 on:
   push:
@@ -66,3 +66,4 @@ jobs:
         run: |
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
           cargo build
+          cargo test-bpf
