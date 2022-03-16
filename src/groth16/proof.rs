@@ -11,7 +11,7 @@ use ark_bn254::{
     Fq,
 };
 
-pub const PROOF_BYTES_SIZE: usize = 260;
+pub const PROOF_BYTES_SIZE: usize = 259;
 
 #[derive(Copy, Clone)]
 pub struct Proof {
@@ -64,10 +64,50 @@ impl Proof {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        write_g1_affine(&mut bytes, self.a);
-        write_g2_affine(&mut bytes, self.b);
-        write_g1_affine(&mut bytes, self.c);
+        let mut bytes = vec![0; PROOF_BYTES_SIZE];
+        write_g1_affine(&mut bytes[..65], self.a);
+        write_g2_affine(&mut bytes[65..194], self.b);
+        write_g1_affine(&mut bytes[194..259], self.c);
         bytes
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_proof_bytes() {
+        let proof = Proof {
+            a: G1Affine::new(
+                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
+                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
+                true
+            ),
+            b: G2Affine::new(
+                Fq2::new(
+                    Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+                    Fq::from_str("6039012589018526855429190661364232506642511499289558287989232491174672020857").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                    Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+                ),
+                false
+            ),
+            c: G1Affine::new(
+                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
+                Fq::from_str("5810683806126530275877423137657928095712201856589324885003647168396414659782").unwrap(),
+                true
+            ),
+        };
+
+        let bytes = proof.to_bytes();
+        let after = Proof::from_bytes(&bytes).unwrap();
+
+        assert_eq!(proof.a, after.a);
+        assert_eq!(proof.b, after.b);
+        assert_eq!(proof.c, after.c);
     }
 }

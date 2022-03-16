@@ -22,7 +22,7 @@ pub const STACK_FQ2_BYTES: usize = STACK_FQ2_SIZE * 2 * 32 + 4;
 pub const STACK_FQ6_BYTES: usize = STACK_FQ6_SIZE * 6 * 32 + 4;
 pub const STACK_FQ12_BYTES: usize = STACK_FQ12_SIZE * 12 * 32 + 4;
 
-solana_program::declare_id!("746Em3pvd2Rd2L3BRZ31RJ5qukorCiAw4kpudFkxgyBy");
+solana_program::declare_id!("FqzVTGujm9sjnzEaVQsZuahtpxDWBHQzSyqgTXYwyn19");
 
 pub struct ProofVerificationAccount<'a> {
     pub stack_fq: LazyHeapStack<'a, Fq, >,
