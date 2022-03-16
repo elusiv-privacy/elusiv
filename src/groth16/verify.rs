@@ -1,3 +1,5 @@
+use solana_program::pubkey::Pubkey;
+
 use super::*;
 use super::super::instruction::PUBLIC_INPUTS_COUNT;
 
@@ -11,12 +13,13 @@ pub fn verify_proof(
 
 pub fn full_verification(
     proof: super::Proof,
+    recipient: Pubkey,
     amount: u64,
     inputs: [[u8; 32]; PUBLIC_INPUTS_COUNT]
 ) -> bool {
     let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
     let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
-    account.init(amount, proof, inputs).unwrap();
+    account.init(amount, recipient, proof, inputs).unwrap();
 
     // Prepare inputs
     for i in 0..PREPARE_INPUTS_ITERATIONS {

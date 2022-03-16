@@ -68,6 +68,7 @@ pub fn withdraw_data(proof: &ProofString, inputs: &[&str]) -> Vec<u8> {
     }
 
     elusiv::instruction::generate_init_withdraw_data(
+        Pubkey::new_unique(),
         LAMPORTS_PER_SOL,
         public_inputs,
         proof.generate_proof(),

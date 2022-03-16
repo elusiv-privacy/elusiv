@@ -426,6 +426,7 @@ mod tests {
     use super::*;
     use ark_bn254::{ Fq12, Bn254, G1Affine, G2Affine };
     use ark_ec::models::bn::{ TwistType };
+    use solana_program::pubkey::Pubkey;
     use std::str::FromStr;
     use ark_ec::PairingEngine;
     use core::ops::Neg;
@@ -658,6 +659,7 @@ mod tests {
         ];
         account.init(
             0,
+            Pubkey::new_unique(),
             super::super::Proof{ a: get_a(), b: get_b(), c: get_c() },
             [
                 vec_to_array_32(to_bytes_le_repr(inputs[0])),

@@ -6,6 +6,7 @@ use elusiv::fields::{ utils::*, scalar::* };
 use elusiv::groth16::*;
 use ark_groth16::{ verify_proof };
 use common::*;
+use solana_program::pubkey::Pubkey;
 
 #[test]
 fn test_full_proof() {
@@ -22,6 +23,7 @@ fn test_full_proof() {
     let inputs = test_inputs_fe();
     account.init(
         0,
+        Pubkey::new_unique(),
         proof.generate_proof(),
         [
             vec_to_array_32(to_bytes_le_repr(inputs[0])),
@@ -81,6 +83,7 @@ fn test_verify_proof_computation() {
     let inputs = test_inputs_fe();
     account.init(
         0,
+        Pubkey::new_unique(),
         proof.generate_proof(),
         [
             vec_to_array_32(to_bytes_le_repr(inputs[0])),

@@ -1,3 +1,5 @@
+use crate::fields::utils::vec_to_array_32;
+
 use super::instruction::ElusivInstruction;
 use super::instruction::ElusivInstruction::*;
 use super::error::ElusivError::{
@@ -90,7 +92,7 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
 
             finish_deposit(&signer, program_id, program_account, &mut deposit_account, system_program)
         },
-        InitWithdraw { amount, proof, public_inputs } => {
+        InitWithdraw { recipient, amount, proof, public_inputs } => {
             // Program account
             let program_account = next_account_info(account_info_iter)?;
             let data = &mut program_account.data.borrow_mut()[..];
@@ -102,7 +104,7 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
             let mut withdraw_account = ProofVerificationAccount::new(&withdraw_account, data, program_id)?;
 
             // CUs consumed until this point: ~ 7270
-            init_withdraw(&program_account, &mut withdraw_account, amount, &proof, public_inputs)
+            init_withdraw(&program_account, &mut withdraw_account, amount, recipient, &proof, public_inputs)
         },
         VerifyWithdraw => {
             // Withdraw account (~ 5600)
@@ -113,6 +115,10 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
             verify_withdraw(&mut withdraw_account)
         },
         FinishWithdraw => {
+            // Relayer (aka signer/payer)
+            let relayer = next_account_info(account_info_iter)?;
+            if !relayer.is_signer { return Err(SenderIsNotSigner.into()); }
+
             // Program account
             let program_account = next_account_info(account_info_iter)?;
 
@@ -120,10 +126,6 @@ pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elusi
             let withdraw_account = next_account_info(account_info_iter)?;
             let data = &mut withdraw_account.data.borrow_mut()[..];
             let mut withdraw_account = ProofVerificationAccount::new(&withdraw_account, data, program_id)?;
-
-            // Relayer (aka signer/payer)
-            let relayer = next_account_info(account_info_iter)?;
-            if !relayer.is_signer { return Err(SenderIsNotSigner.into()); }
 
             // Recipient
             let recipient = next_account_info(account_info_iter)?;
@@ -278,15 +280,21 @@ fn init_withdraw(
     program_account: &ProgramAccount,
     proof_account: &mut ProofVerificationAccount,
     amount: u64,
+    recipient: Pubkey,
     proof: &[u8],
     public_inputs: [[u8; 32]; super::instruction::PUBLIC_INPUTS_COUNT],
 ) -> ProgramResult {
+    let program_recipient = Pubkey::new_from_array(vec_to_array_32(proof_account.recipient.to_vec()));
+    if program_recipient == recipient {
+        return verify_withdraw(proof_account);
+    }
+
     // Verify all public inputs
     verify_public_inputs(program_account, amount, public_inputs)?;
 
     // Init values (~ 33081 CUs)
     let proof = Proof::from_bytes(proof).unwrap();
-    proof_account.init(amount, proof, public_inputs)?;
+    proof_account.init(amount, recipient, proof, public_inputs)?;
 
     // Start with computation
     verify_withdraw(proof_account)?;
@@ -318,8 +326,6 @@ pub fn verify_withdraw(
 ) -> ProgramResult {
     let iteration = account.get_iteration();
 
-    // TODO: Add flag that checks whether init_withdraw has been called
-
     // Prevent any computations after the last iteration
     if iteration > super::groth16::ITERATIONS {
         return Err(InvalidProof.into())
@@ -345,83 +351,12 @@ pub fn verify_withdraw(
         if iteration == base { account.set_round(0); }
 
         partial_final_exponentiation(account, iteration - base);
+    } else {
+        return Ok(())
     }
 
     account.set_iteration(iteration + 1);
     account.serialize();
-
-    /*use ark_bn254::{ Fq12, Fq6, Fq2, Fq };
-    use std::str::FromStr;
-    use super::groth16::*;
-
-    let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
-    let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
-
-    let mut f1 = Fq12::new(
-        Fq6::new(
-            Fq2::new(
-                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
-                Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-            ),
-            Fq2::new(
-                Fq::from_str("5810683806126530275877423137657928095712201856589324885003647168396414659782").unwrap(),
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-            ),
-            Fq2::new(
-                Fq::from_str("6039012589018526855429190661364232506642511499289558287989232491174672020857").unwrap(),
-                Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            ),
-        ),
-        Fq6::new(
-            Fq2::new(
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-            ),
-            Fq2::new(
-                Fq::from_str("5810683806126530275877423131157928095712201856589324885003647168396414659782").unwrap(),
-                Fq::from_str("6039012589018526855429190661364232506642511499289558287989232491174672020857").unwrap(),
-            ),
-            Fq2::new(
-                Fq::from_str("6039012589018526855429190661364232506642511499289558287989232491174672020857").unwrap(),
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-            ),
-        ),
-    );*/
-
-    /*let mut f2 = Fq12::new(
-        Fq6::new(
-            Fq2::new(
-                Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-            ),
-            Fq2::new(
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-            ),
-            Fq2::new(
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-            ),
-        ),
-        Fq6::new(
-            Fq2::new(
-                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
-                Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-            ),
-            Fq2::new(
-                Fq::from_str("5810683806126530275877423131157928095712201856589324885003647168396414659782").unwrap(),
-                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
-            ),
-            Fq2::new(
-                Fq::from_str("6039012589018526855429190661364232506642511499289558287989232491174672020857").unwrap(),
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-            ),
-        ),
-    );*/
-
-    /*for round in 0..EXP_BY_NEG_X_ROUND_COUNT {
-        exp_by_neg_x(&mut f1, &mut account, round);
-    }*/
 
     Ok(())
 }
@@ -434,6 +369,11 @@ fn finish_withdraw(
     _recipient: &AccountInfo,
 ) -> ProgramResult {
     let iteration = proof_account.get_iteration();
+
+    // Continue computation
+    if iteration < super::groth16::ITERATIONS {
+        return verify_withdraw(proof_account);
+    }
 
     // Check if proof is verified
     if !verify_proof(proof_account, iteration) {

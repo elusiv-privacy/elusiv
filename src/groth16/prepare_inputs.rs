@@ -179,6 +179,7 @@ mod tests {
     };
     use ark_ec::AffineCurve;
     use ark_bn254::{ G2Affine, G1Affine };
+    use solana_program::pubkey::Pubkey;
     use core::ops::Neg;
     use super::super::super::fields::scalar::*;
     use super::super::super::fields::utils::*;
@@ -215,6 +216,7 @@ mod tests {
         let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
         account.init(
             0,
+            Pubkey::new_unique(),
             super::super::Proof{ a: G1Affine::zero(), b: G2Affine::zero(), c: G1Affine::zero() },
             [
                 vec_to_array_32(to_bytes_le_repr(inputs[0])),
@@ -240,7 +242,7 @@ mod tests {
             vk,
             alpha_g1_beta_g2: alpha_g1_beta_g2(),
             gamma_g2_neg_pc: gamma_g2().neg().into(),
-            delta_g2_neg_pc: gamma_g2().neg().into(),
+            delta_g2_neg_pc: delta_g2().neg().into(),
         };
         let expect: G1Projective = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
 

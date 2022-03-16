@@ -5,6 +5,7 @@ use solana_program::program_error::ProgramError;
 use byteorder::{ ByteOrder, LittleEndian };
 use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G1Affine, G1Projective };
 use ark_ff::*;
+use solana_program::pubkey::Pubkey;
 use super::lazy_stack::LazyHeapStack;
 use super::super::error::ElusivError::{ InvalidStorageAccount, InvalidStorageAccountSize };
 use super::super::fields::base::*;
@@ -25,6 +26,9 @@ pub const STACK_FQ12_BYTES: usize = STACK_FQ12_SIZE * 12 * 32 + 4;
 solana_program::declare_id!("FqzVTGujm9sjnzEaVQsZuahtpxDWBHQzSyqgTXYwyn19");
 
 pub struct ProofVerificationAccount<'a> {
+    pub amount: &'a mut [u8],
+    pub recipient: &'a mut [u8],
+
     pub stack_fq: LazyHeapStack<'a, Fq, >,
     pub stack_fq2: LazyHeapStack<'a, Fq2>,
     pub stack_fq6: LazyHeapStack<'a, Fq6>,
@@ -47,7 +51,7 @@ pub struct ProofVerificationAccount<'a> {
 }
 
 impl<'a> ProofVerificationAccount<'a> {
-    pub const TOTAL_SIZE: usize = STACK_FQ_BYTES + STACK_FQ2_BYTES + STACK_FQ6_BYTES + STACK_FQ12_BYTES + PUBLIC_INPUTS_COUNT * 32 + 4 + G1AFFINE_SIZE + G2AFFINE_SIZE + G1AFFINE_SIZE + G2AFFINE_SIZE + 4 + 4;
+    pub const TOTAL_SIZE: usize = 8 + 32 + STACK_FQ_BYTES + STACK_FQ2_BYTES + STACK_FQ6_BYTES + STACK_FQ12_BYTES + PUBLIC_INPUTS_COUNT * 32 + 4 + G1AFFINE_SIZE + G2AFFINE_SIZE + G1AFFINE_SIZE + G2AFFINE_SIZE + 4 + 4;
 
     pub fn new(
         account_info: &solana_program::account_info::AccountInfo,
@@ -63,6 +67,10 @@ impl<'a> ProofVerificationAccount<'a> {
 
     pub fn from_data(data: &'a mut [u8]) -> Result<Self, ProgramError> {
         if data.len() != Self::TOTAL_SIZE { return Err(InvalidStorageAccountSize.into()); }
+
+        let (amount, data) = data.split_at_mut(8);
+
+        let (recipient, data) = data.split_at_mut(32);
 
         let (stack_fq, data) = data.split_at_mut(STACK_FQ_BYTES);
         let stack_fq = LazyHeapStack::new(stack_fq, STACK_FQ_SIZE, 32, serialize_fq, deserialize_fq);
@@ -87,6 +95,8 @@ impl<'a> ProofVerificationAccount<'a> {
 
         Ok(
             ProofVerificationAccount {
+                amount,
+                recipient,
                 stack_fq,
                 stack_fq2,
                 stack_fq6,
@@ -106,10 +116,21 @@ impl<'a> ProofVerificationAccount<'a> {
 
     pub fn init(
         &mut self,
-        _amount: u64,
+        amount: u64,
+        recipient: Pubkey,
         proof: super::Proof,
         public_inputs: [[u8; 32]; PUBLIC_INPUTS_COUNT],
     ) -> ProgramResult {
+        // Amount
+        for (i, byte) in amount.to_le_bytes().iter().enumerate() {
+            self.amount[i] = *byte;
+        }
+
+        // Recipient
+        for (i, byte) in recipient.to_bytes().iter().enumerate() {
+            self.recipient[i] = *byte;
+        }
+
         // Parse inputs
         // - big endian
         for (i, input) in public_inputs.iter().enumerate() {

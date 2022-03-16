@@ -2,7 +2,7 @@ use solana_program::{
     program_error::{
         ProgramError,
         ProgramError::InvalidArgument,
-    },
+    }, pubkey::Pubkey,
 };
 use std::convert::TryInto;
 use super::fields::{ utils::*, scalar::* };
@@ -54,6 +54,9 @@ pub enum ElusivInstruction {
     /// 0. [owned, writable] Program account
     /// 1. [owned, writable] Withdraw account
     InitWithdraw {
+        /// Pubkey
+        recipient: Pubkey,
+
         /// Withdrawal amount in Lamports
         amount: u64,
 
@@ -87,21 +90,11 @@ pub enum ElusivInstruction {
     /// Transfers the funds to the recipient
     /// 
     /// Accounts expected:
-    /// 0. [owned, writable] Program account
-    /// 1. [owned, writable] Withdraw account
-    /// 2. [signer, writable] Relayer
+    /// 0. [signer, writable] Relayer
+    /// 1. [owned, writable] Program account
+    /// 2. [owned, writable] Withdraw account
     /// 3. [writable] Recipient account
     FinishWithdraw,
-
-    /// Transfers the funds to the recipient
-    /// 
-    /// Accounts expected:
-    /// 0. [owned] Program account
-    /// 1. [owned] Deposit account
-    /// 2. [owned] Withdraw account
-    Log {
-        index: u8
-    }
 }
 
 impl ElusivInstruction {
@@ -135,6 +128,10 @@ impl ElusivInstruction {
     }
 
     pub fn unpack_init_withdraw(data: &[u8]) -> Result<Self, ProgramError> {
+        // Recipient
+        let (recipient, data) = unpack_32_bytes(&data)?;
+        let recipient = Pubkey::new_from_array(vec_to_array_32(recipient.to_vec()));
+
         // Unpack withdrawal amount
         let (amount, data) = unpack_u64(&data)?;
 
@@ -151,7 +148,7 @@ impl ElusivInstruction {
         if data.len() != PROOF_BYTES_SIZE { return Err(ProgramError::InvalidInstructionData); }
         let proof: [u8; PROOF_BYTES_SIZE] = data.try_into().unwrap();
 
-        Ok(ElusivInstruction::InitWithdraw{ amount, proof, public_inputs })
+        Ok(ElusivInstruction::InitWithdraw{ recipient, amount, proof, public_inputs })
     }
 }
 
@@ -184,12 +181,14 @@ pub fn unpack_bool(data: &[u8]) -> Result<(bool, &[u8]), ProgramError> {
 }
 
 pub fn generate_init_withdraw_data(
+    recipient: Pubkey,
     amount: u64,
     public_inputs: [[u8; 32]; PUBLIC_INPUTS_COUNT],
     proof: super::groth16::Proof,
 ) -> Vec<u8> {
     let mut data = vec![INIT_WITHDRAW];
 
+    data.extend(recipient.to_bytes());
     data.extend(amount.to_le_bytes());
 
     for input in public_inputs {
