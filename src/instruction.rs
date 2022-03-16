@@ -131,9 +131,13 @@ impl ElusivInstruction {
         // Recipient
         let (recipient, data) = unpack_32_bytes(&data)?;
         let recipient = Pubkey::new_from_array(vec_to_array_32(recipient.to_vec()));
+        
+        solana_program::msg!("1A");
 
         // Unpack withdrawal amount
         let (amount, data) = unpack_u64(&data)?;
+
+        solana_program::msg!("1B");
 
         // Unpack public inputs
         let mut public_inputs = [[0; 32]; PUBLIC_INPUTS_COUNT];
@@ -144,9 +148,13 @@ impl ElusivInstruction {
             data = d;
         }
 
+        solana_program::msg!("1C");
+
         // Raw zkSNARK proof
         if data.len() != PROOF_BYTES_SIZE { return Err(ProgramError::InvalidInstructionData); }
         let proof: [u8; PROOF_BYTES_SIZE] = data.try_into().unwrap();
+
+        solana_program::msg!("1D");
 
         Ok(ElusivInstruction::InitWithdraw{ recipient, amount, proof, public_inputs })
     }

@@ -6,7 +6,7 @@ use super::super::error::ElusivError::{ InvalidStorageAccount, InvalidStorageAcc
 use super::super::fields::scalar::*;
 use super::super::state::TREE_HEIGHT;
 
-solana_program::declare_id!("7dARL8b6fJMTjc9q8QwoFkdKBWVtsYemnVKQ84ktSk2z");
+solana_program::declare_id!("FBLrmoE49FSQPHor34E8Pjoj5iAgH5EqmTYKU2h4UFPX");
 
 pub struct DepositHashingAccount<'a> {
     /// Next leaf index
