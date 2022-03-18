@@ -187,6 +187,8 @@ impl<'a> ProgramAccount<'a> {
     /// 
     /// * `root` - merkle root provided as 4 u64 limbs
     pub fn is_root_valid(&self, root: ScalarLimbs) -> bool {
+        let root = from_limbs_repr(&root).unwrap();
+        let root = bytes_to_limbs(&to_bytes_le_mont(root));
         // Checks for root equality with tree root
         if contains_limbs(root, &self.merkle_tree[..32]) { return true; }
 

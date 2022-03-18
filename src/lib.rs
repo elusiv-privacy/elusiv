@@ -9,4 +9,4 @@ pub mod poseidon;
 pub mod groth16;
 pub mod fields;
 
-solana_program::declare_id!("ArxGBiuKJmghJso8pGwgtxjBypWBJbP5mQk286nvKHg5");
+solana_program::declare_id!("AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7");

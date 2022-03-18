@@ -25,7 +25,7 @@ pub enum ElusivError {
 
     DidNotFinishHashing, // 15
 
-    ExplicitLogError, // 16
+    InvalidRecipient, // 16
 }
 
 impl From<ElusivError> for ProgramError {
@@ -67,8 +67,8 @@ impl fmt::Display for ElusivError {
                 write!(f, "NoRoomForCommitment"),
             Self::DidNotFinishHashing =>
                 write!(f, "DidNotFinishHashing"),
-            Self::ExplicitLogError =>
-                write!(f, "ExplicitLogError"),
+            Self::InvalidRecipient =>
+                write!(f, "InvalidRecipient"),
             Self::CouldNotParseProof =>
                 write!(f, "CouldNotParseProof"),
         }

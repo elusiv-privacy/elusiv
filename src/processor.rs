@@ -5,9 +5,10 @@ use super::instruction::ElusivInstruction::*;
 use super::error::ElusivError::{
     SenderIsNotSigner,
     InvalidAmount,
-    //InvalidMerkleRoot,
+    InvalidRecipient,
     DidNotFinishHashing,
     InvalidProof,
+    InvalidMerkleRoot,
 };
 use solana_program::{
     account_info::AccountInfo,
@@ -43,6 +44,8 @@ use super::merkle;
 use super::state::ProgramAccount;
 use super::poseidon::DepositHashingAccount;
 use super::groth16::ProofVerificationAccount;
+
+const MINIMUM_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 
 pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: ElusivInstruction) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
@@ -145,7 +148,7 @@ fn init_deposit(
 ) -> ProgramResult {
 
     // Check amount
-    if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
+    if amount < MINIMUM_AMOUNT { return Err(InvalidAmount.into()); }
 
     // Check commitment
     program_account.can_insert_commitment(commitment)?;
@@ -311,12 +314,13 @@ pub fn verify_public_inputs(
     if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
 
     { // Check if nullifier does not already exist (~ 35000 CUs)
-        let nullifier_hash = bytes_to_limbs(&public_inputs[0]);
+        let nullifier_hash = bytes_to_limbs(&public_inputs[1]);
         program_account.can_insert_nullifier_hash(nullifier_hash)?;
     }
 
     // Check merkle root
-    //if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
+    let root = bytes_to_limbs(&public_inputs[0]);
+    if !program_account.is_root_valid(root) { return Err(InvalidMerkleRoot.into()) }
 
     Ok(())
 }
@@ -325,11 +329,6 @@ pub fn verify_withdraw(
     account: &mut ProofVerificationAccount,
 ) -> ProgramResult {
     let iteration = account.get_iteration();
-
-    // Prevent any computations after the last iteration
-    if iteration > super::groth16::ITERATIONS {
-        return Err(InvalidProof.into())
-    }
 
     // Prepare inputs
     if iteration < PREPARE_INPUTS_ITERATIONS {
@@ -362,15 +361,15 @@ pub fn verify_withdraw(
 }
 
 fn finish_withdraw(
-    _program_id: &Pubkey,
-    _program_account: &AccountInfo,
+    program_id: &Pubkey,
+    program_account: &AccountInfo,
     proof_account: &mut ProofVerificationAccount,
     _relayer: &AccountInfo,
-    _recipient: &AccountInfo,
+    recipient: &AccountInfo,
 ) -> ProgramResult {
     let iteration = proof_account.get_iteration();
 
-    // Continue computation
+    // Continue computation if not already finished
     if iteration < super::groth16::ITERATIONS {
         return verify_withdraw(proof_account);
     }
@@ -382,21 +381,33 @@ fn finish_withdraw(
 
     // Save nullifier hash
     {
-        //let data = &mut program_account.data.borrow_mut()[..];
-        //let mut program_account = ProgramAccount::new(&program_account, data, program_id)?;
+        let nullifier_hash = &proof_account.inputs_be[..32];
+        let nullifier_hash: Vec<u8> = nullifier_hash.iter().copied().rev().collect();
+        let nullifier_hash = bytes_to_limbs(&nullifier_hash);
 
-        //program_account.insert_nullifier_hash(withdraw_account.get_nullifier_hash())?;
+        let data = &mut program_account.data.borrow_mut()[..];
+        let mut program_account = ProgramAccount::new(&program_account, data, program_id)?;
+        program_account.insert_nullifier_hash(nullifier_hash)?;
     }
 
     // Pay the signer (in most cases the relayer) RELAYER_FEE
-
     //TODO: Send relayer his funds
 
+    // Check if recipient is correct
+    let program_recipient = Pubkey::new_from_array(vec_to_array_32(proof_account.recipient.to_vec()));
+    if program_recipient != *recipient.key {
+        return Err(InvalidRecipient.into())
+    }
+
     // Transfer funds using owned bank account
-    //TODO: Add check
-    /*let amount = withdraw_account.get_amount();
+    let amount = u64::from_le_bytes([
+        proof_account.amount[0], proof_account.amount[1],
+        proof_account.amount[2], proof_account.amount[3],
+        proof_account.amount[4], proof_account.amount[5],
+        proof_account.amount[6], proof_account.amount[7],
+    ]);
     **program_account.try_borrow_mut_lamports()? -= amount;
-    **recipient.try_borrow_mut_lamports()? += amount;*/
+    **recipient.try_borrow_mut_lamports()? += amount;
 
     Ok(())
 }
