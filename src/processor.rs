@@ -311,7 +311,7 @@ pub fn verify_public_inputs(
     public_inputs: [[u8; 32]; super::instruction::PUBLIC_INPUTS_COUNT],
 ) -> ProgramResult {
     // Check the amount
-    if amount != LAMPORTS_PER_SOL { return Err(InvalidAmount.into()); }
+    if amount < MINIMUM_AMOUNT { return Err(InvalidAmount.into()); }
 
     { // Check if nullifier does not already exist (~ 35000 CUs)
         let nullifier_hash = bytes_to_limbs(&public_inputs[1]);
