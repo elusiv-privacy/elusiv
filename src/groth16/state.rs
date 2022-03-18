@@ -23,7 +23,7 @@ pub const STACK_FQ2_BYTES: usize = STACK_FQ2_SIZE * 2 * 32 + 4;
 pub const STACK_FQ6_BYTES: usize = STACK_FQ6_SIZE * 6 * 32 + 4;
 pub const STACK_FQ12_BYTES: usize = STACK_FQ12_SIZE * 12 * 32 + 4;
 
-solana_program::declare_id!("67QGFHAFAi7MW3bjkNPLidRzzZWJ4x5gvmSN3DfJq2ZY");
+solana_program::declare_id!("9KxywMSGSvk7yoVd3QV8bWbQd5EY4CPxxZZRtmAZaW2T");
 
 pub struct ProofVerificationAccount<'a> {
     pub amount: &'a mut [u8],

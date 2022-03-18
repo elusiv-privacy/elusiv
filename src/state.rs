@@ -28,7 +28,7 @@ const NULLIFIERS_SIZE: usize = NULLIFIERS_COUNT * 32;
 const HISTORY_ARRAY_COUNT: usize = 10;
 const HISTORY_ARRAY_SIZE: usize = HISTORY_ARRAY_COUNT * 32;
 
-solana_program::declare_id!("b1SxNn49PXAKqbRNESgfFX8BYdpuJwQaciLnWvzzZHA");
+solana_program::declare_id!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
 
 pub struct ProgramAccount<'a> {
     /// Merkle tree or arity 2
