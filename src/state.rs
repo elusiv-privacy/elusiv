@@ -25,14 +25,14 @@ mod tests {
 
     #[test]
     fn test_correct_size() {
-        let mut data = [0; StorageAccount::TOTAL_SIZE];
+        let mut data = vec![0; StorageAccount::TOTAL_SIZE];
         StorageAccount::from_data(&mut data).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_invalid_size() {
-        let mut data = [0; StorageAccount::TOTAL_SIZE - 1];
+        let mut data = vec![0; StorageAccount::TOTAL_SIZE - 1];
         StorageAccount::from_data(&mut data).unwrap();
     }
 }

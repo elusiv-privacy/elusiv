@@ -17,29 +17,83 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
 
     match instruction {
         Store { proof_data, unbound_commitment } => {
-            account!(Sender, signer);
             account!(Storage);
-            account!(Pool, pool);
 
-            store(sender, storage_account, pool)
+            store(storage_account)
+        },
+        Bind { proof_data, unbound_commitment, bound_commitment } => {
+            bind()
+        },
+        Send { proof_data, recipient } => {
+            send()
         },
         FinalizeSend => {
             finalize_send()
-        }
+        },
+
+        InitProof => {
+            init_proof()
+        },
+        ComputeProof => {
+            compute_proof()
+        },
+        FinalizeProof => {
+            finalize_proof()
+        },
+
+        InitCommitment => {
+            init_commitment()
+        },
+        ComputeCommitment => {
+            compute_commitment()
+        },
+        FinalizeCommitment => {
+            finalize_commitment()
+        },
     }
 }
 
 fn store(
-    sender: &AccountInfo,
     storage_account: StorageAccount,
-    pool: &AccountInfo,
 ) -> ProgramResult {
-
+    // Check public inputs
+    // Add store request to queue
+    // Transfer funds
     Ok(())
 }
 
-fn finalize_send(
+fn bind() -> ProgramResult {
+    Ok(())
+}
 
-) -> ProgramResult {
+fn send() -> ProgramResult {
+    Ok(())
+}
+
+fn finalize_send() -> ProgramResult {
+    Ok(())
+}
+
+fn init_proof() -> ProgramResult {
+    Ok(())
+}
+
+fn compute_proof() -> ProgramResult {
+    Ok(())
+}
+
+fn finalize_proof() -> ProgramResult {
+    Ok(())
+}
+
+fn init_commitment() -> ProgramResult {
+    Ok(())
+}
+
+fn compute_commitment() -> ProgramResult {
+    Ok(())
+}
+
+fn finalize_commitment() -> ProgramResult {
     Ok(())
 }
