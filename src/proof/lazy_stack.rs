@@ -1,4 +1,6 @@
-use super::super::storage_account::bytes_to_u32;
+use super::super::error::ElusivError;
+use super::super::bytes::bytes_to_u32;
+use solana_program::program_error::ProgramError;
 
 #[derive(Copy, Clone)]
 enum ValueState {
@@ -21,6 +23,10 @@ pub struct LazyHeapStack<'a, F: Copy> {
     deserialize: Box<dyn Fn(&[u8]) -> F + 'a>,
 }
 
+pub const fn stack_size(size: usize, bytecount: usize) -> usize {
+    size * bytecount + 4
+}
+
 impl<'a, F: Copy> LazyHeapStack<'a, F> {
     pub fn new<S, D>(
         data: &'a mut [u8],
@@ -28,24 +34,27 @@ impl<'a, F: Copy> LazyHeapStack<'a, F> {
         bytecount: usize,
         serialize: S,
         deserialize: D,
-    ) -> LazyHeapStack<'a, F>
+    ) -> Result<LazyHeapStack<'a, F>, ProgramError>
     where
         S:  Fn(F, &mut [u8]) + 'a,
         D:  Fn(&[u8]) -> F + 'a,
     {
-
-        if bytecount * size + 4 != data.len() { println!("WRONG SIZE {}", data.len()); panic!() }
+        if stack_size(size, bytecount) != data.len() {
+            return Err(ElusivError::InvalidAccountSize.into());
+        }
 
         let stack_pointer = bytes_to_u32(&data[..4]) as usize;
-        LazyHeapStack {
-            data,
-            bytecount,
-            stack: vec![None; size],
-            state: vec![ValueState::None; size],
-            stack_pointer,
-            serialize: Box::new(serialize),
-            deserialize: Box::new(deserialize),
-        }
+        Ok(
+            LazyHeapStack {
+                data,
+                bytecount,
+                stack: vec![None; size],
+                state: vec![ValueState::None; size],
+                stack_pointer,
+                serialize: Box::new(serialize),
+                deserialize: Box::new(deserialize),
+            }
+        )
     }
 
     pub fn push(&mut self, v: F) {

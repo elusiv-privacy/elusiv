@@ -91,7 +91,7 @@ pub fn to_hex_string(scalar: Scalar) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::super::poseidon::*;
+    use super::super::super::commitment::*;
     use ark_ff::Zero;
 
     #[test]

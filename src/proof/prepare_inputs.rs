@@ -5,20 +5,19 @@ use ark_ec::{
 };
 use ark_ff::*;
 use core::ops::{ AddAssign };
-use super::gamma_abc_g1;
-use super::state::*;
+use super::{state::*, VerificationKey};
 
 pub const PREPARE_INPUTS_ITERATIONS: usize = 104;
 pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 1];
 
 /// Prepares `INPUTS_COUNT` public inputs (into one `G1Affine`)
 /// - requires `PREPARATION_ITERATIONS` calls to complete
-pub fn partial_prepare_inputs(
-    account: &mut ProofVerificationAccount,
+pub fn partial_prepare_inputs<VKey: VerificationKey>(
+    account: &mut ProofAccount,
     iteration: usize
 ) -> ProgramResult {
 
-    let base_round = account.get_round();
+    let base_round = account.get_round() as usize;
     let rounds = PREPARE_INPUTS_ROUNDS[iteration];
 
     for round in base_round..(base_round + rounds) {
@@ -33,9 +32,9 @@ pub fn partial_prepare_inputs(
                 let mut product = pop_g1_projective(account);   // (~ 169 CUs)
 
                 partial_mul_g1a_scalar(
-                    &gamma_abc_g1()[input + 1],
+                    &VKey::gamma_abc_g1()[input + 1],
                     &mut product,
-                    &account.inputs_be[input * 32..(input + 1) * 32],
+                    &account.get_inputs_be(input),
                     round,
                 );
     
@@ -65,7 +64,7 @@ pub fn partial_prepare_inputs(
         }
     }
 
-    account.set_round(base_round + rounds);
+    account.set_round((base_round + rounds) as u64);
 
     Ok(())
 }
@@ -172,17 +171,17 @@ fn get_bit(bytes_be: &[u8], byte: usize, bit: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::vkey::*;
     use ark_groth16::{
         VerifyingKey,
         PreparedVerifyingKey,
     };
     use ark_ec::AffineCurve;
     use ark_bn254::{ G2Affine, G1Affine };
-    use solana_program::pubkey::Pubkey;
     use core::ops::Neg;
     use super::super::super::fields::scalar::*;
     use super::super::super::fields::utils::*;
+
+    type VKey = super::super::SendVerificationKey;
 
     #[test]
     fn test_mul_g1a_scalar() {
@@ -212,13 +211,11 @@ mod tests {
             from_str_10("20643720223837027367320733428836459266646763523911772324593310161284187566894"),
             from_str_10("19526707366532583397322534596786476145393586591811230548888354920504818678603"),
         ];
-        let mut data = vec![0; ProofVerificationAccount::TOTAL_SIZE];
-        let mut account = ProofVerificationAccount::from_data(&mut data).unwrap();
-        account.init(
-            0,
-            Pubkey::new_unique(),
+        let mut data = vec![0; ProofAccount::TOTAL_SIZE];
+        let mut account = ProofAccount::from_data(&mut data).unwrap();
+        account.reset::<VKey>(
             super::super::Proof{ a: G1Affine::zero(), b: G2Affine::zero(), c: G1Affine::zero() },
-            [
+            &[
                 vec_to_array_32(to_bytes_le_repr(inputs[0])),
                 vec_to_array_32(to_bytes_le_repr(inputs[1])),
             ],
@@ -226,23 +223,23 @@ mod tests {
 
         // Result
         for i in 0..PREPARE_INPUTS_ITERATIONS {
-            partial_prepare_inputs(&mut account, i).unwrap();
+            partial_prepare_inputs::<VKey>(&mut account, i).unwrap();
         }
         let result = pop_g1_affine(&mut account);
 
         // ark_groth16 result
         let vk: VerifyingKey<ark_bn254::Bn254> = VerifyingKey {
-            alpha_g1: alpha_g1(),
-            beta_g2: beta_g2(),
-            gamma_g2: gamma_g2(),
-            delta_g2: delta_g2(),
-            gamma_abc_g1: gamma_abc_g1(),
+            alpha_g1: VKey::alpha_g1(),
+            beta_g2: VKey::beta_g2(),
+            gamma_g2: VKey::gamma_g2(),
+            delta_g2: VKey::delta_g2(),
+            gamma_abc_g1: VKey::gamma_abc_g1(),
         };
         let pvk = PreparedVerifyingKey {
             vk,
-            alpha_g1_beta_g2: alpha_g1_beta_g2(),
-            gamma_g2_neg_pc: gamma_g2().neg().into(),
-            delta_g2_neg_pc: delta_g2().neg().into(),
+            alpha_g1_beta_g2: VKey::alpha_g1_beta_g2(),
+            gamma_g2_neg_pc: VKey::gamma_g2().neg().into(),
+            delta_g2_neg_pc: VKey::delta_g2().neg().into(),
         };
         let expect: G1Projective = ark_groth16::prepare_inputs(&pvk, &inputs).unwrap();
 
@@ -256,7 +253,7 @@ mod tests {
     /// Stack convention:
     /// - every private function has to clear the local stack
     /// - public functions are allowed to return values on the stack
-    fn assert_stack_is_cleared(account: &ProofVerificationAccount) {
-        assert_eq!(account.stack_fq.stack_pointer, 0);
+    fn assert_stack_is_cleared(account: &ProofAccount) {
+        assert_eq!(account.fq.stack_pointer, 0);
     }
 }

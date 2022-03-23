@@ -1,5 +1,5 @@
 use solana_program::program_error::ProgramError;
-use super::super::instruction::{
+use super::super::bytes::{
     unpack_bool,
     unpack_limbs,
 };

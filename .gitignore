@@ -2,3 +2,4 @@
 Cargo.lock
 /node_modules
 /optimization/__pycache__
+/elusiv_account/target

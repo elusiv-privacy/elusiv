@@ -1,0 +1,12 @@
+use super::proof::PROOF_BYTES_SIZE;
+
+pub type U256 = [u8; 32];
+
+pub type RawProof = [u8; PROOF_BYTES_SIZE];
+
+pub struct ProofData {
+    pub amount: u64,
+    pub nullifier_hash: U256,
+    pub root: U256,
+    pub proof: RawProof,
+}

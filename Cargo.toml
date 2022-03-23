@@ -12,6 +12,8 @@ ark-bn254 = "0.3.0"
 ark-ff = "0.3.0"
 ark-ec = "0.3.0"
 byteorder = "1.4.3"
+elusiv_account = { path = "elusiv_account" }
+quote = "1.0.16"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
