@@ -10,7 +10,8 @@ enum ValueState {
 }
 
 /// Stack that serializes values only if needed and stores them on the heap
-/// - storage layout:
+/// - serialization only happens when `serialize_stack` is called
+/// - storage layout: (use `stack_size` to compute the size)
 ///     - 4 bytes stack pointer
 ///     - stack values
 pub struct LazyHeapStack<'a, F: Copy> {
@@ -132,6 +133,55 @@ impl<'a, F: Copy> LazyHeapStack<'a, F> {
                 let slice = &mut slice[i * self.bytecount..(i + 1) * self.bytecount]; 
                 (self.serialize)(self.stack[i].unwrap(), slice);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SIZE: usize = 12;
+    const BYTES: usize = 4;
+
+    fn get_stack<'a>(data: &'a mut [u8]) -> LazyHeapStack<'a, u32> {
+        LazyHeapStack::new(
+            data,
+            SIZE,
+            BYTES,
+            |value: u32, buffer: &mut [u8]| {
+                let bytes = value.to_le_bytes().to_vec();
+                buffer[0] = bytes[0];
+                buffer[1] = bytes[1];
+                buffer[2] = bytes[2];
+                buffer[3] = bytes[3];
+            },
+            |bytes: &[u8]| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        ).unwrap()
+    }
+
+    #[test]
+    fn test_invalid_size() {
+        let mut data = vec![0; SIZE * BYTES];
+        let stack = LazyHeapStack::new(&mut data, SIZE, BYTES,
+            |_v: u32, _b: &mut [u8]| { },
+            |bytes: &[u8]| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        );
+
+        assert!(matches!(stack, Err(_)));
+    }
+
+    #[test]
+    fn test_stack() {
+        let mut data = vec![0; stack_size(SIZE, BYTES)];
+        let mut stack = get_stack(&mut data);
+
+        // Test LIFO
+        for i in 0..SIZE {
+            stack.push(i as u32);
+        }
+        for i in (0..SIZE).rev() {
+            assert_eq!(stack.pop(), i as u32);
         }
     }
 }

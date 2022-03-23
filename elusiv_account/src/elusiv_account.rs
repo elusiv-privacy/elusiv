@@ -40,7 +40,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                 },
                 _ => {  // Sub attributed accounts
                     let sub_attrs = attr.tokens.to_string();
-                    let sub_attrs: Vec<&str> = (&sub_attrs[1..&sub_attrs.len() - 1]).split(", ").collect();
+                    let sub_attrs: Vec<&str> = (&sub_attrs[1..&sub_attrs.len() - 1]).split(",").collect();
                     let sub_attrs: Vec<proc_macro2::TokenStream> = sub_attrs.iter().map(|&s| {
                         let x: proc_macro2::TokenStream = s.parse().unwrap();
                         x

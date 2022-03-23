@@ -1,14 +1,18 @@
+mod client;
+mod node;
+
+use client::*;
+use node::*;
+
 use solana_program::{
     entrypoint::ProgramResult,
     pubkey::Pubkey,
-    native_token::LAMPORTS_PER_SOL,
     account_info::AccountInfo,
 };
 use super::state::*;
+use super::queue::state::*;
 use super::instruction::ElusivInstruction;
 use elusiv_account::account;
-
-const MINIMUM_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 
 pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: ElusivInstruction) -> ProgramResult {
     use ElusivInstruction::*;
@@ -17,13 +21,43 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
 
     match instruction {
         Store { proof_data, unbound_commitment } => {
+            account!(sender, signer);
             account!(Storage);
+            account!(Queue);
+            account!(pool, pool);
+            account!(system_program, no_check);
 
-            store(storage_account)
+            store(
+                sender,
+                storage_account,
+                &mut queue_account,
+                pool,
+                system_program,
+                proof_data,
+                unbound_commitment
+            )
         },
         Bind { proof_data, unbound_commitment, bound_commitment } => {
-            bind()
+            account!(sender, signer);
+            account!(Storage);
+            account!(Queue);
+            account!(pool, pool);
+            account!(system_program, no_check);
+
+            bind(
+                sender,
+                storage_account,
+                &mut queue_account,
+                pool,
+                system_program,
+                proof_data,
+                [
+                    unbound_commitment,
+                    bound_commitment,
+                ]
+            )
         },
+
         Send { proof_data, recipient } => {
             send()
         },
@@ -51,49 +85,4 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
             finalize_commitment()
         },
     }
-}
-
-fn store(
-    storage_account: StorageAccount,
-) -> ProgramResult {
-    // Check public inputs
-    // Add store request to queue
-    // Transfer funds
-    Ok(())
-}
-
-fn bind() -> ProgramResult {
-    Ok(())
-}
-
-fn send() -> ProgramResult {
-    Ok(())
-}
-
-fn finalize_send() -> ProgramResult {
-    Ok(())
-}
-
-fn init_proof() -> ProgramResult {
-    Ok(())
-}
-
-fn compute_proof() -> ProgramResult {
-    Ok(())
-}
-
-fn finalize_proof() -> ProgramResult {
-    Ok(())
-}
-
-fn init_commitment() -> ProgramResult {
-    Ok(())
-}
-
-fn compute_commitment() -> ProgramResult {
-    Ok(())
-}
-
-fn finalize_commitment() -> ProgramResult {
-    Ok(())
 }

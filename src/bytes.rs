@@ -1,4 +1,5 @@
-use solana_program::entrypoint::ProgramResult;
+use crate::types::RawProof;
+
 use super::fields::scalar::*;
 use super::proof::PROOF_BYTES_SIZE;
 use solana_program::program_error::{
@@ -8,8 +9,7 @@ use solana_program::program_error::{
 use super::fields::utils::*;
 use super::types::{ U256, ProofData };
 
-pub fn contains_limbs(limbs: ScalarLimbs, buffer: &[u8]) -> bool {
-    let bytes: [u8; 32] = limbs_to_bytes(&limbs);
+pub fn contains(bytes: U256, buffer: &[u8]) -> bool {
     let length = buffer.len() >> 5;
     for i in 0..length {
         let index = i << 5;
@@ -21,14 +21,6 @@ pub fn contains_limbs(limbs: ScalarLimbs, buffer: &[u8]) -> bool {
         }
     }
     false
-}
-
-pub fn set(slice: &mut [u8], from: usize, bytecount: usize, bytes: &[u8]) -> ProgramResult {
-    for i in 0..bytecount {
-        slice[from + i] = bytes[i];
-    }
-
-    Ok(())
 }
 
 pub fn bytes_to_u64(bytes: &[u8]) -> u64 {
@@ -52,8 +44,7 @@ pub fn unpack_proof_data(data: &[u8]) -> Result<(ProofData, &[u8]), ProgramError
     let (root, data) = unpack_u256(&data)?;
 
     // Proof
-    if data.len() != PROOF_BYTES_SIZE { return Err(ProgramError::InvalidInstructionData); }
-    let proof: [u8; PROOF_BYTES_SIZE] = data.try_into().unwrap();
+    let (proof, data) = unpack_raw_proof(&data)?;
 
     Ok((
         ProofData {
@@ -77,7 +68,8 @@ pub fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
 }
 
 pub fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
-    let bytes = data.get(..32).ok_or(InvalidArgument)?;
+    let bytes = data.get(..32)
+        .ok_or(ProgramError::InvalidInstructionData)?;
 
     Ok((bytes, &data[32..]))
 }
@@ -101,13 +93,22 @@ pub fn unpack_bool(data: &[u8]) -> Result<(bool, &[u8]), ProgramError> {
     Ok((byte == 1, rest))
 }
 
-pub fn serialize_u256(data: &[u8]) -> U256 {
+pub fn unpack_raw_proof(data: &[u8]) -> Result<(RawProof, &[u8]), ProgramError> {
+    let bytes = data.get(..PROOF_BYTES_SIZE)
+        .ok_or(ProgramError::InvalidInstructionData)?;
+
+    let proof: [u8; PROOF_BYTES_SIZE] = bytes.try_into().unwrap();
+
+    Ok((proof, &data[PROOF_BYTES_SIZE..]))
+}
+
+pub fn deserialize_u256(data: &[u8]) -> U256 {
     let mut a = [0; 32];
     for i in 0..32 { a[i] = data[i]; }
     a
 }
 
-pub fn deserialize_u256(value: U256) -> Vec<u8> {
+pub fn serialize_u256(value: U256) -> Vec<u8> {
     value.to_vec()
 }
 
@@ -115,13 +116,12 @@ pub fn deserialize_u256(value: U256) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    // Test subsidiary unpacking functions
     #[test]
     fn test_unpack_u64() {
         let d: [u8; 8] = [0b00000001, 0, 0, 0, 0, 0, 0, 0b00000000];
 
-        // Test little endian interpretation
-        let (v, _) = unpack_u64(&d).unwrap();
+        let (v, data) = unpack_u64(&d).unwrap();
         assert_eq!(v, 1);
+        assert_eq!(data.len(), 0);
     }
 }

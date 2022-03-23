@@ -55,7 +55,7 @@ pub fn elusiv_instruction(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 ///     - Relayer
 ///     - Cranker
 /// - pool
-/// - user
+/// - no_check
 #[proc_macro]
 pub fn account(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     impl_account(&input).into()
