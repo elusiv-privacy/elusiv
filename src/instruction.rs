@@ -1,6 +1,5 @@
 use solana_program::program_error::{
     ProgramError,
-    ProgramError::InvalidArgument,
 };
 use super::types::*;
 use super::bytes::*;

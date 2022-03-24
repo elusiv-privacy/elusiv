@@ -7,6 +7,7 @@ use super::available_types::*;
 
 pub fn impl_elusiv_account(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
     let name = &ast.ident.clone();
+
     fn get_struct(ast: syn::DeriveInput) -> DataStruct {
         if let Data::Struct(input) = ast.data { return input; } else { panic!("Struct not found"); }
     }
@@ -21,6 +22,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
     for field in input.fields {
         // Add field to init
         let field_name = &field.ident.expect("Field has no name");
+        let getter_name = ident_with_prefix(field_name, "get_");
+        let setter_name = ident_with_prefix(field_name, "set_");
         fields.extend(quote! { #field_name, });
 
         // Attributed field
@@ -47,17 +50,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                     }).collect();
 
                     let ty = field.ty;
-                    definition.extend(quote! {
-                        pub #field_name: #ty,
-                    });
 
                     let size = sub_attrs[0].clone();
-                    let byte_count = sub_attrs[1].clone();
-                    let serialize = sub_attrs[2].clone();
-                    let deserialize = sub_attrs[3].clone();
 
                     match attr_name {
                         "lazy_stack" => {
+                            definition.extend(quote! { pub #field_name: #ty, });
+
+                            let byte_count = sub_attrs[1].clone();
+                            let serialize = sub_attrs[2].clone();
+                            let deserialize = sub_attrs[3].clone();
+
                             init.extend(quote! {
                                 let (#field_name, data) = data.split_at_mut(stack_size(#size, #byte_count));
                                 let #field_name = LazyHeapStack::new(#field_name, #size, #byte_count, #serialize, #deserialize)?;
@@ -65,11 +68,23 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                             total_size.extend(quote! { + stack_size(#size, #byte_count) });
                         },
                         "queue" => {
+                            definition.extend(quote! { pub #field_name: #ty, });
+
+                            let byte_count = sub_attrs[1].clone();
+                            let serialize = sub_attrs[2].clone();
+                            let deserialize = sub_attrs[3].clone();
+
                             init.extend(quote! {
                                 let (#field_name, data) = data.split_at_mut(queue_size(#size, #byte_count));
                                 let #field_name = RingQueue::new(#field_name, #size, #byte_count, #serialize, #deserialize)?;
                             });
                             total_size.extend(quote! { + queue_size(#size, #byte_count) });
+                        },
+                        "mut_bytes" => {
+                            definition.extend(quote! { pub #field_name: &'a mut [u8], });
+                            init.extend(quote! {
+                                let (#field_name, data) = data.split_at_mut(#size);
+                            });
                         },
                         _ => { panic!("Unknown attribute {}", attr_name); }
                     }
@@ -136,13 +151,11 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
 
         // Add getter
         if let Some(getter) = &t.getter {
-            let getter_name = ident_with_prefix(field_name, "get_");
             functions.extend((*getter)(&getter_name, field_name));
         }
 
         // Add setter
         if let Some(setter) = &t.setter {
-            let setter_name = ident_with_prefix(field_name, "set_");
             functions.extend((*setter)(&setter_name, field_name));
         }
     }

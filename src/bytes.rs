@@ -57,6 +57,24 @@ pub fn unpack_proof_data(data: &[u8]) -> Result<(ProofData, &[u8]), ProgramError
     ))
 }
 
+pub fn write_proof_data(proof_data: ProofData) -> Vec<u8> {
+    let mut buffer = Vec::new();
+
+    // Amount
+    buffer.extend(proof_data.amount.to_le_bytes());
+
+    // Nullifier hash
+    buffer.extend(serialize_u256(proof_data.nullifier_hash));
+
+    // Root
+    buffer.extend(serialize_u256(proof_data.nullifier_hash));
+
+    // Proof
+    buffer.extend(&proof_data.proof);
+
+    buffer
+}
+
 pub fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
     let value = data
         .get(..8)
@@ -110,6 +128,15 @@ pub fn deserialize_u256(data: &[u8]) -> U256 {
 
 pub fn serialize_u256(value: U256) -> Vec<u8> {
     value.to_vec()
+}
+
+pub fn u64_to_u256(value: u64) -> U256 {
+    let mut buffer = vec![0; 32];
+    let bytes = value.to_le_bytes();
+    for (i, &byte) in bytes.iter().enumerate() {
+        buffer[i] = byte;
+    }
+    vec_to_array_32(buffer)
 }
 
 #[cfg(test)]

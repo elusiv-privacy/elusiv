@@ -37,6 +37,22 @@ pub fn available_types() -> Vec<FieldType> {
         },
 
         FieldType {
+            ident: "bool",
+            byte_size: 1,
+            def: None, split: None,
+            getter: Some(Box::new(|getter_name: &Ident, field_name: &Ident| { quote! {
+                pub fn #getter_name(&self) -> bool {
+                    self.#field_name[0] == 1
+                }
+            }})),
+            setter: Some(Box::new(|setter_name: &Ident, field_name: &Ident| { quote! {
+                pub fn #setter_name(&mut self, value: bool) {
+                    self.#field_name[0] = if value { 1 } else { 0 };
+                }
+            }})),
+        },
+
+        FieldType {
             ident: "[U256]",
             byte_size: 32,
             def: None, split: None,

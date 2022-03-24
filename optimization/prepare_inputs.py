@@ -4,7 +4,7 @@ START_CUS = 70000 - IDLE_CUS
 # Costs in CUs (BPF Compute Units)
 mul_cus = 34000
 save_cus = 36000
-inputs_count = 2
+inputs_count = 4
 mul_rounds = 256
 
 rounds_cus = []

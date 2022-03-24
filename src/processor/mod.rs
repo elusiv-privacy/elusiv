@@ -1,8 +1,10 @@
-mod client;
-mod node;
+mod transfer;
+mod commitment;
+mod proof;
 
-use client::*;
-use node::*;
+use transfer::*;
+use commitment::*;
+use proof::*;
 
 use solana_program::{
     entrypoint::ProgramResult,
@@ -11,6 +13,7 @@ use solana_program::{
 };
 use super::state::*;
 use super::queue::state::*;
+use super::proof::state::*;
 use super::instruction::ElusivInstruction;
 use elusiv_account::account;
 
@@ -21,6 +24,7 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
 
     match instruction {
         Store { proof_data, unbound_commitment } => {
+
             account!(sender, signer);
             account!(Storage);
             account!(Queue);
@@ -38,6 +42,7 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
             )
         },
         Bind { proof_data, unbound_commitment, bound_commitment } => {
+
             account!(sender, signer);
             account!(Storage);
             account!(Queue);
@@ -51,14 +56,11 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
                 pool,
                 system_program,
                 proof_data,
-                [
-                    unbound_commitment,
-                    bound_commitment,
-                ]
+                [ unbound_commitment, bound_commitment, ]
             )
         },
 
-        Send { proof_data, recipient } => {
+        Send { .. } => {
             send()
         },
         FinalizeSend => {
@@ -66,13 +68,21 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
         },
 
         InitProof => {
-            init_proof()
+
+            account!(Queue);
+            account!(Proof);
+
+            init_proof(&mut queue_account, &mut proof_account)
         },
         ComputeProof => {
             compute_proof()
         },
         FinalizeProof => {
-            finalize_proof()
+
+            account!(Queue);
+            account!(Proof);
+
+            finalize_proof(&mut queue_account, &mut proof_account)
         },
 
         InitCommitment => {

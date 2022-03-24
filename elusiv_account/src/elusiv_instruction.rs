@@ -41,11 +41,11 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             pub fn unpack(data: &[u8]) -> Result<Self, ProgramError> {
                 let (&tag, data) = data
                     .split_first()
-                    .ok_or(ProgramError::InvalidInstructionData)?;
+                    .ok_or(solana_program::program_error::ProgramError::InvalidInstructionData)?;
                 
                 match tag {
                     #imp
-                    _ => Err(InvalidArgument)
+                    _ => Err(solana_program::program_error::ProgramError::InvalidArgument)
                 }
             }
         }

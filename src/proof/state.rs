@@ -1,11 +1,9 @@
 use elusiv_account::*;
-
 use solana_program::entrypoint::ProgramResult;
 use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective };
 use ark_ff::*;
-
 use crate::error::ElusivError;
-
+use crate::queue::proof_request::ProofRequest;
 use super::VerificationKey;
 use super::lazy_stack::{ LazyHeapStack, stack_size };
 use super::super::fields::base::*;
@@ -21,6 +19,9 @@ solana_program::declare_id!("9KxywMSGSvk7yoVd3QV8bWbQd5EY4CPxxZZRtmAZaW2T");
 #[derive(ElusivAccount)]
 #[remove_original_implementation]
 pub struct ProofAccount {
+    // Is finished (if true, the account can be reset)
+    is_finished: bool,
+
     // Verification key identifier
     vkey_id: u64,
 
@@ -55,6 +56,25 @@ pub struct ProofAccount {
 }
 
 impl<'a> ProofAccount<'a> {
+    pub fn reset_with_request<VKey: VerificationKey>(
+        &mut self,
+        request: ProofRequest,
+    ) -> ProgramResult {
+        // Check if account can be reset
+        if !self.get_is_finished() {
+            return Err(ElusivError::ProofAccountCannotBeReset.into());
+        }
+        self.set_is_finished(false);
+
+        // Parse proof
+        let proof = super::Proof::from_bytes(&request.get_proof_data().proof)?;
+
+        // Public inputs
+        let public_inputs = request.get_public_inputs();
+
+        self.reset::<VKey>(proof, &public_inputs)
+    }
+
     pub fn reset<VKey: VerificationKey>(
         &mut self,
         proof: super::Proof,

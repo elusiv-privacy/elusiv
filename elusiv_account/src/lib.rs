@@ -21,7 +21,7 @@ use account::*;
 /// * `[U256]` - 
 /// * `G1Affine` - 
 /// * `G2Affine` - 
-#[proc_macro_derive(ElusivAccount, attributes(lazy_option, lazy_stack, queue))]
+#[proc_macro_derive(ElusivAccount, attributes(lazy_option, proof_request, lazy_stack, queue))]
 pub fn elusiv_account(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     impl_elusiv_account(&ast).into()

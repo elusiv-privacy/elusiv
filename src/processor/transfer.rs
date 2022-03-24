@@ -1,5 +1,3 @@
-//! Processor instructions executed by client transactions
-
 use solana_program::{
     entrypoint::ProgramResult,
     pubkey::Pubkey,
@@ -7,10 +5,11 @@ use solana_program::{
     account_info::AccountInfo,
 };
 use crate::types::{ProofData, U256};
-use super::super::error::ElusivError;
+use crate::error::ElusivError;
 
-use super::super::state::*;
-use super::super::queue::state::*;
+use crate::state::*;
+use crate::queue::state::*;
+use crate::queue::proof_request::ProofRequest;
 
 const MINIMUM_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 
@@ -30,17 +29,12 @@ pub fn store<'a>(
         &vec![commitment],
     )?;
 
-    // Compute fee
+    // TODO: Compute fee
     let fee = 0;
 
     // Add store request to queue
-    queue_account.store_queue.enqueue(
-        StoreRequest {
-            proof: proof_data.proof,
-            nullifier_hash: proof_data.nullifier_hash,
-            commitment,
-            fee,
-        }
+    queue_account.proof_queue.enqueue(
+        ProofRequest::Store { proof_data, fee, commitment }
     )?;
 
     // Transfer funds + fees
@@ -64,17 +58,12 @@ pub fn bind<'a>(
         &commitments,
     )?;
 
-    // Compute fee
+    // TODO: Compute fee
     let fee = 0;
 
-    // Add store request to queue
-    queue_account.bind_queue.enqueue(
-        BindRequest {
-            proof: proof_data.proof,
-            nullifier_hash: proof_data.nullifier_hash,
-            commitments,
-            fee,
-        }
+    // Add bind request to queue
+    queue_account.proof_queue.enqueue(
+        ProofRequest::Bind { proof_data, fee, unbound_commitment: commitments[0], bound_commitments: commitments[1] }
     )?;
 
     // Transfer funds + fees
@@ -132,4 +121,14 @@ fn send_with_system_program<'a>(
         ],
         &[&[&b"elusiv"[..], &[bump_seed]]],
     )
+}
+
+pub fn send() -> ProgramResult {
+    Ok(())
+}
+
+pub fn finalize_send() -> ProgramResult {
+    // Check for nullifier_hash
+
+    Ok(())
 }
