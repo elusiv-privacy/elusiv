@@ -16,5 +16,3 @@ pub use verification_key::*;
 pub use proof::*;
 pub use vkey_send::*;
 pub use state::ProofAccount;
-
-pub const ITERATIONS: usize = PREPARE_INPUTS_ITERATIONS + MILLER_LOOP_ITERATIONS + FINAL_EXPONENTIATION_ITERATIONS - 1;

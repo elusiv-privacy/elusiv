@@ -67,15 +67,12 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
             finalize_send()
         },
 
-        InitProof => {
+        ComputeProof => {
 
             account!(Queue);
             account!(Proof);
 
-            init_proof(&mut queue_account, &mut proof_account)
-        },
-        ComputeProof => {
-            compute_proof()
+            compute_proof(&mut queue_account, &mut proof_account)
         },
         FinalizeProof => {
 

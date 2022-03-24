@@ -22,9 +22,6 @@ pub struct ProofAccount {
     // Is finished (if true, the account can be reset)
     is_finished: bool,
 
-    // Verification key identifier
-    vkey_id: u64,
-
     // Stacks
     #[lazy_stack(6, 32, serialize_fq, deserialize_fq)]
     pub fq: LazyHeapStack<'a, Fq>,
@@ -85,9 +82,6 @@ impl<'a> ProofAccount<'a> {
             return Err(ElusivError::InvalidPublicInputs.into());
         }
 
-        // Verification key ID
-        self.set_vkey_id(VKey::ID as u64);
-
         // Parse inputs
         // - big endian
         for (i, input) in public_inputs.iter().enumerate() {
@@ -130,14 +124,6 @@ impl<'a> ProofAccount<'a> {
 
         // Save stack changes
         self.serialize();
-
-        Ok(())
-    }
-
-    pub fn assert_correct_vkey<VKey: VerificationKey>(&self) -> ProgramResult {
-        if VKey::ID != self.get_vkey_id() as usize {
-            return Err(ElusivError::InvalidVerificationKey.into());
-        }
 
         Ok(())
     }

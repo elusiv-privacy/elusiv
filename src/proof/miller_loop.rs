@@ -428,7 +428,7 @@ mod tests {
     use std::str::FromStr;
     use ark_ec::PairingEngine;
     use core::ops::Neg;
-    use super::super::{ PREPARE_INPUTS_ITERATIONS, partial_prepare_inputs };
+    use super::super::{ partial_prepare_inputs };
     use super::super::super::fields::scalar::*;
     use super::super::super::fields::utils::*;
 
@@ -509,7 +509,7 @@ mod tests {
         let b = get_b();
         let mut r = G2HomProjective { x: b.x, y: b.y, z: Fq2::one() };
         let b_coeffs = doubling_step_original(&mut r, &TWO_INV);
-        for i in 0..PREPARE_INPUTS_ITERATIONS { partial_prepare_inputs::<VKey>(&mut account, i).unwrap(); }
+        for i in 0..VKey::PREPARE_INPUTS_ITERATIONS { partial_prepare_inputs::<VKey>(&mut account, i).unwrap(); }
 
         // Add coefficients
         account.fq2.push(b_coeffs.0);
@@ -536,7 +536,7 @@ mod tests {
         let mut account = init_account(&mut data);
 
         // Computation
-        for i in 0..PREPARE_INPUTS_ITERATIONS { partial_prepare_inputs::<VKey>(&mut account, i).unwrap(); }
+        for i in 0..VKey::PREPARE_INPUTS_ITERATIONS { partial_prepare_inputs::<VKey>(&mut account, i).unwrap(); }
         let p_inputs = account.get_prepared_inputs();
         account.set_round(0);
         for iteration in 0..MILLER_LOOP_ITERATIONS {

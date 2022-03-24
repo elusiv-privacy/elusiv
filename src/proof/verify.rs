@@ -6,9 +6,6 @@ pub fn verify_proof<VKey: VerificationKey>(
     account: &mut ProofAccount,
     _iteration: usize
 ) -> Result<bool, ProgramError> {
-    // Check vkey
-    account.assert_correct_vkey::<VKey>()?;
-
     // Final verification check
     let result = account.fq12.pop();
     Ok(result == VKey::alpha_g1_beta_g2())
@@ -23,7 +20,7 @@ pub fn full_verification<VKey: VerificationKey>(
     account.reset::<VKey>(proof, inputs).unwrap();
 
     // Prepare inputs
-    for i in 0..PREPARE_INPUTS_ITERATIONS {
+    for i in 0..VKey::PREPARE_INPUTS_ITERATIONS {
         partial_prepare_inputs::<VKey>(&mut account, i).unwrap();
     }
     account.set_round(0);
@@ -39,5 +36,5 @@ pub fn full_verification<VKey: VerificationKey>(
         partial_final_exponentiation(&mut account, i);
     }
 
-    verify_proof::<VKey>(&mut account, ITERATIONS).unwrap()
+    verify_proof::<VKey>(&mut account, VKey::FULL_ITERATIONS).unwrap()
 }

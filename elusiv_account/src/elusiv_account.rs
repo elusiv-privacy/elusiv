@@ -50,17 +50,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                     }).collect();
 
                     let ty = field.ty;
+                    definition.extend(quote! {
+                        pub #field_name: #ty,
+                    });
 
                     let size = sub_attrs[0].clone();
+                    let byte_count = sub_attrs[1].clone();
+                    let serialize = sub_attrs[2].clone();
+                    let deserialize = sub_attrs[3].clone();
 
                     match attr_name {
                         "lazy_stack" => {
-                            definition.extend(quote! { pub #field_name: #ty, });
-
-                            let byte_count = sub_attrs[1].clone();
-                            let serialize = sub_attrs[2].clone();
-                            let deserialize = sub_attrs[3].clone();
-
                             init.extend(quote! {
                                 let (#field_name, data) = data.split_at_mut(stack_size(#size, #byte_count));
                                 let #field_name = LazyHeapStack::new(#field_name, #size, #byte_count, #serialize, #deserialize)?;
@@ -68,23 +68,11 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                             total_size.extend(quote! { + stack_size(#size, #byte_count) });
                         },
                         "queue" => {
-                            definition.extend(quote! { pub #field_name: #ty, });
-
-                            let byte_count = sub_attrs[1].clone();
-                            let serialize = sub_attrs[2].clone();
-                            let deserialize = sub_attrs[3].clone();
-
                             init.extend(quote! {
                                 let (#field_name, data) = data.split_at_mut(queue_size(#size, #byte_count));
                                 let #field_name = RingQueue::new(#field_name, #size, #byte_count, #serialize, #deserialize)?;
                             });
                             total_size.extend(quote! { + queue_size(#size, #byte_count) });
-                        },
-                        "mut_bytes" => {
-                            definition.extend(quote! { pub #field_name: &'a mut [u8], });
-                            init.extend(quote! {
-                                let (#field_name, data) = data.split_at_mut(#size);
-                            });
                         },
                         _ => { panic!("Unknown attribute {}", attr_name); }
                     }

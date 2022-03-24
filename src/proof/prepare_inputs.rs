@@ -7,8 +7,12 @@ use ark_ff::*;
 use core::ops::{ AddAssign };
 use super::{state::*, VerificationKey};
 
-pub const PREPARE_INPUTS_ITERATIONS: usize = 104;
-pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 1];
+//pub const PREPARE_INPUTS_ITERATIONS: usize = 104;
+pub const PREPARE_INPUTS_BASE_ITERATIONS: usize = 52;
+//pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 1];
+
+// Solution: at the moment we can just take 52 * PUBLIC_INPUTS_COUNt
+// -> we can set the number of iterations per verification key
 
 /// Prepares `INPUTS_COUNT` public inputs (into one `G1Affine`)
 /// - requires `PREPARATION_ITERATIONS` calls to complete
@@ -18,7 +22,7 @@ pub fn partial_prepare_inputs<VKey: VerificationKey>(
 ) -> ProgramResult {
 
     let base_round = account.get_round() as usize;
-    let rounds = PREPARE_INPUTS_ROUNDS[iteration];
+    let rounds = VKey::prepapre_inputs_rounds()[iteration];
 
     for round in base_round..(base_round + rounds) {
         let input = round / (MUL_G1A_SCALAR_ROUNDS + 1);
@@ -52,7 +56,7 @@ pub fn partial_prepare_inputs<VKey: VerificationKey>(
                 g_ic.add_assign(product);
 
                 // Convert value from projective to affine form after last iteration
-                if iteration == PREPARE_INPUTS_ITERATIONS - 1 {
+                if iteration == VKey::PREPARE_INPUTS_ITERATIONS - 1 {
                     push_g1_affine(account, g_ic.into());
                 } else {
                     push_g1_projective(account, g_ic);
@@ -222,7 +226,7 @@ mod tests {
         ).unwrap();
 
         // Result
-        for i in 0..PREPARE_INPUTS_ITERATIONS {
+        for i in 0..VKey::PREPARE_INPUTS_ITERATIONS {
             partial_prepare_inputs::<VKey>(&mut account, i).unwrap();
         }
         let result = pop_g1_affine(&mut account);

@@ -5,7 +5,6 @@ use super::VerificationKey;
 pub struct SendVerificationKey {}
 impl VerificationKey for SendVerificationKey {
 	const PUBLIC_INPUTS_COUNT: usize = 2;
-	const ID: usize = 0;
 
 	fn gamma_abc_g1_0() -> G1Projective {
 		G1Projective::new(

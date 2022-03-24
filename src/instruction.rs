@@ -24,7 +24,6 @@ pub enum ElusivInstruction {
 
     FinalizeSend,
 
-    InitProof,
     ComputeProof,
     FinalizeProof,
 

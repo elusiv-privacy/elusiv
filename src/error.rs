@@ -33,6 +33,7 @@ pub enum ElusivError {
     InvalidPublicInputs,    // 19
     InvalidVerificationKey,    // 20
     ProofAccountCannotBeReset,    // 21
+    ProofComputationIsAlreadyFinished,    // 22
 }
 
 impl From<ElusivError> for ProgramError {
@@ -66,6 +67,7 @@ impl fmt::Display for ElusivError {
             Self::InvalidPublicInputs => write!(f, "InvalidPublicInputs"),
             Self::InvalidVerificationKey => write!(f, "InvalidVerificationKey"),
             Self::ProofAccountCannotBeReset => write!(f, "ProofAccountCannotBeReset"),
+            Self::ProofComputationIsAlreadyFinished => write!(f, "ProofComputationIsAlreadyFinished"),
         }
     }
 }
