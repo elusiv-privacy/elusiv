@@ -1,5 +1,6 @@
-use super::super::error::ElusivError;
-use super::super::bytes::bytes_to_u64;
+use crate::error::ElusivError;
+use crate::bytes::bytes_to_u64;
+use std::cmp::PartialEq;
 use solana_program::program_error::ProgramError;
 
 /// Ring queue with `size - 1` elements that can be stored at a given time
@@ -8,7 +9,7 @@ use solana_program::program_error::ProgramError;
 ///     - 8 bytes head
 ///     - 8 bytes tail
 ///     - queue
-pub struct RingQueue<'a, N: Copy> {
+pub struct RingQueue<'a, N: Copy + PartialEq> {
     size: usize,
     bytes: usize,
     data: &'a mut [u8],
@@ -20,7 +21,7 @@ pub const fn queue_size(size: usize, bytecount: usize) -> usize {
     size * bytecount + 2 * 16
 }
 
-impl<'a, N: Copy> RingQueue<'a, N> {
+impl<'a, N: Copy+ PartialEq> RingQueue<'a, N> {
     pub fn new<S, D>(
         data: &'a mut [u8],
         size: usize,
@@ -108,6 +109,21 @@ impl<'a, N: Copy> RingQueue<'a, N> {
         self.set_head((head + 1) % self.size);
 
         Ok(())
+    }
+
+    pub fn contains(&self, value: N) -> bool {
+        let mut ptr = self.get_head();
+        let tail = self.get_tail();
+
+        while ptr != tail {
+            if self.get(ptr) == value {
+                return true;
+            }
+
+            ptr = (ptr + 1) % self.size;
+        }
+
+        false
     }
 
     fn get(&self, i: usize) -> N {

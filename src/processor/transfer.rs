@@ -15,7 +15,7 @@ const MINIMUM_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 
 pub fn store<'a>(
     sender: &AccountInfo<'a>,
-    storage_account: StorageAccount,
+    storage_account: &StorageAccount,
     queue_account: &mut QueueAccount,
     pool: &AccountInfo<'a>,
     system_program: &AccountInfo<'a>,
@@ -44,7 +44,7 @@ pub fn store<'a>(
 
 pub fn bind<'a>(
     sender: &AccountInfo<'a>,
-    storage_account: StorageAccount,
+    storage_account: &StorageAccount,
     queue_account: &mut QueueAccount,
     pool: &AccountInfo<'a>,
     system_program: &AccountInfo<'a>,
@@ -63,7 +63,7 @@ pub fn bind<'a>(
 
     // Add bind request to queue
     queue_account.proof_queue.enqueue(
-        ProofRequest::Bind { proof_data, fee, unbound_commitment: commitments[0], bound_commitments: commitments[1] }
+        ProofRequest::Bind { proof_data, fee, unbound_commitment: commitments[0], bound_commitment: commitments[1] }
     )?;
 
     // Transfer funds + fees
@@ -72,7 +72,7 @@ pub fn bind<'a>(
 }
 
 fn check_public_inputs(
-    storage_account: StorageAccount,
+    storage_account: &StorageAccount,
     proof_data: &ProofData,
     commitments: &[U256],
 ) -> ProgramResult {

@@ -37,6 +37,13 @@ impl<'a> StorageAccount<'a> {
         Ok(())
     }
 
+    pub fn insert_nullifier_hash(&mut self, nullifier_hash: U256) -> ProgramResult {
+        let index = self.get_next_nullifier();
+        self.set_nullifier_hashes(index as usize, &nullifier_hash);
+
+        Ok(())
+    }
+
     pub fn can_insert_commitment(&self, commitment: U256) -> ProgramResult {
         if self.get_next_leaf() >= TREE_LEAF_COUNT as u64 {
             return Err(ElusivError::NoRoomForCommitment.into());

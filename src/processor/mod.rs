@@ -33,7 +33,7 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
 
             store(
                 sender,
-                storage_account,
+                &storage_account,
                 &mut queue_account,
                 pool,
                 system_program,
@@ -51,7 +51,7 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
 
             bind(
                 sender,
-                storage_account,
+                &storage_account,
                 &mut queue_account,
                 pool,
                 system_program,
@@ -76,10 +76,11 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
         },
         FinalizeProof => {
 
+            account!(Storage);
             account!(Queue);
             account!(Proof);
 
-            finalize_proof(&mut queue_account, &mut proof_account)
+            finalize_proof(&mut storage_account, &mut queue_account, &mut proof_account)
         },
 
         InitCommitment => {

@@ -3,7 +3,7 @@ use crate::proof::{PROOF_BYTES_SIZE };
 use crate::bytes::*;
 use crate::types::{ ProofData, U256 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 #[derive(elusiv_account::ElusivInstruction)]
 pub enum ProofRequest {
     Store {
@@ -15,7 +15,7 @@ pub enum ProofRequest {
         proof_data: ProofData,
         fee: u64,
         unbound_commitment: U256,
-        bound_commitments: U256,
+        bound_commitment: U256,
     },
     Send {
         proof_data: ProofData,
@@ -42,13 +42,13 @@ impl ProofRequest {
                 buffer.extend(fee.to_le_bytes());
                 buffer.extend(serialize_u256(commitment));
             },
-            ProofRequest::Bind { proof_data, fee, unbound_commitment, bound_commitments } => {
+            ProofRequest::Bind { proof_data, fee, unbound_commitment, bound_commitment } => {
                 buffer.push(1);
 
                 buffer.extend(write_proof_data(proof_data));
                 buffer.extend(fee.to_le_bytes());
                 buffer.extend(serialize_u256(unbound_commitment));
-                buffer.extend(serialize_u256(bound_commitments));
+                buffer.extend(serialize_u256(bound_commitment));
             },
             ProofRequest::Send { proof_data, fee, recipient } => {
                 buffer.push(2);
@@ -78,6 +78,23 @@ impl ProofRequest {
         }
     }
 
+    pub fn get_commitments(&self) -> Vec<U256> {
+        match *self {
+            ProofRequest::Store { commitment, .. } => {
+                vec![commitment]
+            },
+            ProofRequest::Bind { unbound_commitment, bound_commitment, .. } => {
+                vec![
+                    unbound_commitment,
+                    bound_commitment,
+                ]
+             },
+            ProofRequest::Send { .. } => {
+                vec![]
+            },
+        }
+    }
+
     pub fn get_public_inputs(&self) -> Vec<U256> {
         let proof_data = self.get_proof_data();
         let mut public_inputs = vec![
@@ -92,9 +109,9 @@ impl ProofRequest {
             ProofRequest::Store { commitment, .. } => {
                 public_inputs.push(commitment);
             },
-            ProofRequest::Bind { unbound_commitment, bound_commitments, .. } => {
+            ProofRequest::Bind { unbound_commitment, bound_commitment, .. } => {
                 public_inputs.push(unbound_commitment);
-                public_inputs.push(bound_commitments);
+                public_inputs.push(bound_commitment);
             },
             ProofRequest::Send { recipient, .. } => {
                 public_inputs.push(recipient);

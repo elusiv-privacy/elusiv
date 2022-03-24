@@ -4,7 +4,7 @@ pub type U256 = [u8; 32];
 
 pub type RawProof = [u8; PROOF_BYTES_SIZE];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ProofData {
     pub amount: u64,
     pub nullifier_hash: U256,

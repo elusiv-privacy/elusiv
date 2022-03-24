@@ -13,6 +13,7 @@ use ark_ff::fields::{
     }
 };
 use ark_ff::{ One, Zero };
+use solana_program::entrypoint::ProgramResult;
 use super::state::ProofAccount;
 
 // TODO: Handle unwrap/zero cases
@@ -25,7 +26,7 @@ pub const FINAL_EXPONENTIATION_ROUNDS: [usize; FINAL_EXPONENTIATION_ITERATIONS] 
 pub fn partial_final_exponentiation(
     account: &mut ProofAccount,
     iteration: usize,
-) {
+) -> ProgramResult {
     let base_round = account.get_round() as usize;
     let rounds = FINAL_EXPONENTIATION_ROUNDS[iteration];
     let last_round = base_round + rounds;
@@ -307,6 +308,8 @@ pub fn partial_final_exponentiation(
     }
 
     account.set_round(last_round as u64);
+
+    Ok(())
 }
 
 fn mul(account: &mut ProofAccount, round: usize) {
@@ -782,7 +785,7 @@ mod tests {
         let expected = Bn254::final_exponentiation(&f).unwrap();
             
         for iteration in 0..FINAL_EXPONENTIATION_ITERATIONS {
-            partial_final_exponentiation(&mut account, iteration);
+            partial_final_exponentiation(&mut account, iteration).unwrap();
         }
         let result = account.fq12.pop();
 

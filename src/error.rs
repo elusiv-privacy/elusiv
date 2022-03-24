@@ -34,6 +34,7 @@ pub enum ElusivError {
     InvalidVerificationKey,    // 20
     ProofAccountCannotBeReset,    // 21
     ProofComputationIsAlreadyFinished,    // 22
+    ProofComputationIsNotYetFinished,    // 23
 }
 
 impl From<ElusivError> for ProgramError {
@@ -68,6 +69,7 @@ impl fmt::Display for ElusivError {
             Self::InvalidVerificationKey => write!(f, "InvalidVerificationKey"),
             Self::ProofAccountCannotBeReset => write!(f, "ProofAccountCannotBeReset"),
             Self::ProofComputationIsAlreadyFinished => write!(f, "ProofComputationIsAlreadyFinished"),
+            Self::ProofComputationIsNotYetFinished => write!(f, "ProofComputationIsNotYetFinished"),
         }
     }
 }

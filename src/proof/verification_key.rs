@@ -11,6 +11,20 @@ pub trait VerificationKey {
     const PREPARE_INPUTS_ITERATIONS: usize = Self::PUBLIC_INPUTS_COUNT * PREPARE_INPUTS_BASE_ITERATIONS;
     const FULL_ITERATIONS: usize = Self::PREPARE_INPUTS_ITERATIONS + MILLER_LOOP_ITERATIONS + FINAL_EXPONENTIATION_ITERATIONS;
 
+    // Ranges
+    const PREPARE_INPUTS: (usize, usize) = (
+        0,
+        Self::PREPARE_INPUTS_ITERATIONS
+    );
+    const MILLER_LOOP: (usize, usize) = (
+        Self::PREPARE_INPUTS.1,
+        Self::PREPARE_INPUTS.1 + MILLER_LOOP_ITERATIONS
+    );
+    const FINAL_EXPONENTIATION: (usize, usize) = (
+        Self::MILLER_LOOP.1,
+        Self::MILLER_LOOP.1 + FINAL_EXPONENTIATION_ITERATIONS
+    );
+
     fn gamma_abc_g1_0() -> G1Projective;
     fn gamma_abc_g1() -> Vec<G1Affine>;
     fn alpha_g1_beta_g2() -> Fq12;
@@ -23,7 +37,7 @@ pub trait VerificationKey {
 
     fn prepapre_inputs_rounds() -> Vec<usize> {
         let mut rounds = vec![3];
-        for i in 0..Self::PREPARE_INPUTS_ITERATIONS {
+        for _ in 0..Self::PREPARE_INPUTS_ITERATIONS {
             rounds.push(5);
         }
         rounds.push(1);
