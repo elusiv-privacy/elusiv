@@ -1,6 +1,7 @@
 use super::proof::PROOF_BYTES_SIZE;
 
 pub type U256 = [u8; 32];
+pub const U256_ZERO: U256 = [0; 32];
 
 pub type RawProof = [u8; PROOF_BYTES_SIZE];
 

@@ -61,7 +61,7 @@ fn compute_proof_with_vkey<VKey: VerificationKey>(
     proof_account: &mut ProofAccount,
     request: ProofRequest,
 ) -> ProgramResult {
-    if !proof_account.get_is_finished() {   // Computation
+    if proof_account.get_is_active() {   // Computation
         let iteration = proof_account.get_iteration() as usize;
 
         // Check whether verification is complete
@@ -141,7 +141,7 @@ fn finalize_proof_with_vkey<VKey: VerificationKey>(
     }
 
     // Reset proof account (set is_finished to true)
-    proof_account.set_is_finished(true);
+    proof_account.set_is_active(false);
 
     Ok(())
 }

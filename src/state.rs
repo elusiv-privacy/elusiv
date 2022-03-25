@@ -1,5 +1,6 @@
 use elusiv_account::*;
 use solana_program::entrypoint::ProgramResult;
+use solana_program::program_error::ProgramError;
 use super::types::U256;
 use super::bytes::contains;
 use super::error::ElusivError;
@@ -24,6 +25,7 @@ struct StorageAccount {
     root_history: [U256; HISTORY_ARRAY_COUNT],
 }
 
+// Nullifier hashes and commitment
 impl<'a> StorageAccount<'a> {
     pub fn can_insert_nullifier_hash(&self, nullifier_hash: U256) -> ProgramResult {
         if self.get_next_nullifier() >= NULLIFIERS_COUNT as u64 {
@@ -57,6 +59,31 @@ impl<'a> StorageAccount<'a> {
         Ok(())
     }
 
+    /// Inserts commitment and the above hashes
+    pub fn insert_commitment(&mut self, values: [U256; TREE_HEIGHT + 1]) -> ProgramResult {
+        let leaf_index = self.get_next_leaf() as usize;
+
+        // Additional commitment security check
+        let commitment = values[0];
+        self.can_insert_commitment(commitment)?;
+
+        // Save last root
+        let root = self.get_tree_node(0, 0)?;
+        self.set_root_history(leaf_index % HISTORY_ARRAY_COUNT, &root);
+
+        // Insert values into the tree
+        for (i, &value) in values.iter().enumerate() {
+            let layer = TREE_HEIGHT - i;
+            let index = leaf_index >> i;
+            self.set_tree_node(layer, index, value)?;
+        }
+
+        // Increment pointer
+        self.set_next_leaf(leaf_index as u64 + 1);
+
+        Ok(())
+    }
+
     pub fn is_root_valid(&self, root: U256) -> ProgramResult {
         // Checks for root equality with tree root
         if contains(root, &self.merkle_tree[..32]) {
@@ -70,6 +97,57 @@ impl<'a> StorageAccount<'a> {
 
         Err(ElusivError::InvalidMerkleRoot.into())
     }
+}
+
+macro_rules! assert_valid_tree_access {
+    ($layer: expr, $index: expr) => {
+        if $layer > TREE_HEIGHT || $index > size_of_tree_layer($layer) {
+            return Err(ElusivError::InvalidMerkleTreeAccess.into());
+        }
+    };
+}
+
+// Merkle tree
+// - `layer` 0 is the root
+impl<'a> StorageAccount<'a> {
+    #[allow(unused_comparisons)]
+    pub fn get_tree_opening(&self, index: usize) -> Result<[U256; TREE_HEIGHT], ProgramError> {
+        assert_valid_tree_access!(0, index);
+
+        let mut opening = [[0; 32]; TREE_HEIGHT];
+        let mut index = index;
+
+        for i in 0..TREE_HEIGHT {
+            let layer = TREE_HEIGHT - i;
+            let n_index = if index % 2 == 0 { index + 1 } else { index - 1};
+            opening[i] = self.get_tree_node(layer, n_index)?;
+            index = index >> 1;
+        }
+
+        Ok(opening)
+    }
+
+    pub fn get_tree_node(&self, layer: usize, index: usize) -> Result<U256, ProgramError> {
+        assert_valid_tree_access!(layer, index);
+
+        Ok(self.get_merkle_tree(tree_array_index(layer, index)))
+    }
+
+    pub fn set_tree_node(&mut self, layer: usize, index: usize, value: U256) -> Result<(), ProgramError> {
+        assert_valid_tree_access!(layer, index);
+
+        self.set_merkle_tree(tree_array_index(layer, index), &value);
+
+        Ok(())
+    }
+}
+
+pub fn tree_array_index(layer: usize, index: usize) -> usize {
+    (1 << layer) - 1 + index
+}
+
+fn size_of_tree_layer(layer: usize) -> usize {
+    1 << layer
 }
 
 #[cfg(test)]

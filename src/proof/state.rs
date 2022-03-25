@@ -19,8 +19,8 @@ solana_program::declare_id!("9KxywMSGSvk7yoVd3QV8bWbQd5EY4CPxxZZRtmAZaW2T");
 #[derive(ElusivAccount)]
 #[remove_original_implementation]
 pub struct ProofAccount {
-    // Is finished (if true, the account can be reset)
-    is_finished: bool,
+    // If `false` account can be reset
+    is_active: bool,
 
     // Stacks
     #[lazy_stack(6, 32, serialize_fq, deserialize_fq)]
@@ -58,10 +58,10 @@ impl<'a> ProofAccount<'a> {
         request: ProofRequest,
     ) -> ProgramResult {
         // Check if account can be reset
-        if !self.get_is_finished() {
+        if self.get_is_active() {
             return Err(ElusivError::ProofAccountCannotBeReset.into());
         }
-        self.set_is_finished(false);
+        self.set_is_active(true);
 
         // Parse proof
         let proof = super::Proof::from_bytes(&request.get_proof_data().proof)?;

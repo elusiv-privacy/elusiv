@@ -35,6 +35,10 @@ pub enum ElusivError {
     ProofAccountCannotBeReset,    // 21
     ProofComputationIsAlreadyFinished,    // 22
     ProofComputationIsNotYetFinished,    // 23
+    InvalidMerkleTreeAccess,
+    CommitmentComputationIsNotYetFinished,
+    CommitmentComputationIsAlreadyFinished,
+    HashingIsAlreadyComplete,
 }
 
 impl From<ElusivError> for ProgramError {
@@ -70,6 +74,10 @@ impl fmt::Display for ElusivError {
             Self::ProofAccountCannotBeReset => write!(f, "ProofAccountCannotBeReset"),
             Self::ProofComputationIsAlreadyFinished => write!(f, "ProofComputationIsAlreadyFinished"),
             Self::ProofComputationIsNotYetFinished => write!(f, "ProofComputationIsNotYetFinished"),
+            Self::InvalidMerkleTreeAccess => write!(f, "InvalidMerkleTreeAccess"),
+            Self::CommitmentComputationIsNotYetFinished => write!(f, "CommitmentComputationIsNotYetFinished"),
+            Self::CommitmentComputationIsAlreadyFinished => write!(f, "CommitmentComputationIsAlreadyFinished"),
+            Self::HashingIsAlreadyComplete => write!(f, "HashingIsAlreadyComplete"),
         }
     }
 }

@@ -14,6 +14,7 @@ use solana_program::{
 use super::state::*;
 use super::queue::state::*;
 use super::proof::state::*;
+use super::commitment::state::*;
 use super::instruction::ElusivInstruction;
 use elusiv_account::account;
 
@@ -84,13 +85,25 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
         },
 
         InitCommitment => {
-            init_commitment()
+
+            account!(Storage);
+            account!(Queue);
+            account!(Commitment);
+
+            init_commitment( &storage_account, &mut queue_account, &mut commitment_account )
         },
         ComputeCommitment => {
-            compute_commitment()
+
+            account!(Commitment);
+
+            compute_commitment( &mut commitment_account )
         },
         FinalizeCommitment => {
-            finalize_commitment()
+
+            account!(Storage);
+            account!(Commitment);
+
+            finalize_commitment( &mut storage_account, &mut commitment_account )
         },
     }
 }

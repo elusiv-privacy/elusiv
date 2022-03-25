@@ -4,7 +4,6 @@ mod types;
 pub mod instruction;
 pub mod queue;
 pub mod processor;
-pub mod merkle;
 pub mod state;
 pub mod entrypoint;
 pub mod fields;
