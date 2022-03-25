@@ -123,12 +123,56 @@ fn send_with_system_program<'a>(
     )
 }
 
-pub fn send() -> ProgramResult {
+pub fn send(
+    storage_account: &StorageAccount,
+    queue_account: &mut QueueAccount,
+    proof_data: ProofData,
+    recipient: U256,
+) -> ProgramResult {
+    // Check public inputs
+    check_public_inputs(
+        storage_account,
+        &proof_data,
+        &vec![],
+    )?;
+
+    // TODO: Compute fee
+    let fee = 0;
+
+    // Add send request to queue
+    queue_account.proof_queue.enqueue(
+        ProofRequest::Send { proof_data, fee, recipient }
+    )?;
+
     Ok(())
 }
 
-pub fn finalize_send() -> ProgramResult {
-    // Check for nullifier_hash
+pub fn finalize_send(
+    queue_account: &mut QueueAccount,
+    pool: &AccountInfo,
+    recipient: &AccountInfo,
+) -> ProgramResult {
+    // Get and dequeue request
+    let request = queue_account.send_queue.first()?;
+    queue_account.send_queue.dequeue()?;
+
+    // Check recipient
+    if *recipient.key != Pubkey::new_from_array(request.recipient) {
+        return Err(ElusivError::InvalidRecipient.into());
+    }
+
+    // Transfer funds from pool to recipient
+    let pool_balance = pool.try_lamports()?;
+    let recipient_balance = pool.try_lamports()?;
+
+    match pool_balance.checked_sub(request.amount) {
+        Some(balance) => { **pool.try_borrow_mut_lamports()? = balance; },
+        None => { return Err(ElusivError::InvalidAmount.into()); }
+    }
+    match recipient_balance.checked_add(request.amount) {
+        Some(balance) => { **recipient.try_borrow_mut_lamports()? = balance; },
+        None => { return Err(ElusivError::InvalidAmount.into()); }
+    }
 
     Ok(())
 }

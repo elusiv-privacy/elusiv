@@ -61,11 +61,25 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
             )
         },
 
-        Send { .. } => {
-            send()
+        Send { proof_data, recipient } => {
+
+            account!(Storage);
+            account!(Queue);
+
+            send(
+                &storage_account,
+                &mut queue_account,
+                proof_data,
+                recipient,
+            )
         },
         FinalizeSend => {
-            finalize_send()
+
+            account!(Queue);
+            account!(pool, pool);
+            account!(recipient, no_check);
+
+            finalize_send( &mut queue_account, &pool, &recipient )
         },
 
         ComputeProof => {
