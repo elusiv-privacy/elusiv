@@ -28,12 +28,31 @@ macro_rules! execute_with_vkey {
     };
 }
 
-/// Reset proof account or verify proof
-pub fn compute_proof(
+pub fn init_proof(
     queue_account: &mut QueueAccount,
     proof_account: &mut ProofAccount,
 ) -> ProgramResult {
-    let request = queue_account.proof_queue.first()?;
+    // Check wheter proof account can be reset
+    if proof_account.get_is_active() {
+        return Err(ElusivError::ProofComputationIsNotYetFinished.into());
+    }
+
+    // Dequeue request
+    let request = queue_account.proof_queue.dequeue_first()?;
+
+    execute_with_vkey!(request, reset_with_request, proof_account)
+}
+
+/// Reset proof account or verify proof
+pub fn compute_proof(
+    proof_account: &mut ProofAccount,
+) -> ProgramResult {
+    if proof_account.get_is_active() {
+        return Err(ElusivError::ProofComputationIsNotYetFinished.into());
+    }
+
+    let request = ProofRequest::deserialize(proof_account.request);
+
     execute_with_vkey!(request, compute_proof_with_vkey, proof_account)
 }
 
@@ -59,29 +78,25 @@ macro_rules! match_partial_computation {
 
 fn compute_proof_with_vkey<VKey: VerificationKey>(
     proof_account: &mut ProofAccount,
-    request: ProofRequest,
+    _request: ProofRequest,
 ) -> ProgramResult {
-    if proof_account.get_is_active() {   // Computation
-        let iteration = proof_account.get_iteration() as usize;
+    let iteration = proof_account.get_iteration() as usize;
 
-        // Check whether verification is complete
-        if iteration >= VKey::FULL_ITERATIONS {
-            return Err(ElusivError::ProofComputationIsAlreadyFinished.into());
-        }
+    // Check whether verification is complete
+    if iteration >= VKey::FULL_ITERATIONS {
+        return Err(ElusivError::ProofComputationIsAlreadyFinished.into());
+    }
 
-        // Prepare inputs
-        match_partial_computation!(VKey::PREPARE_INPUTS, partial_prepare_inputs::<VKey>, iteration, proof_account);
+    // Prepare inputs
+    match_partial_computation!(VKey::PREPARE_INPUTS, partial_prepare_inputs::<VKey>, iteration, proof_account);
 
-        // Miller loop
-        match_partial_computation!(VKey::MILLER_LOOP, partial_miller_loop::<VKey>, iteration, proof_account);
+    // Miller loop
+    match_partial_computation!(VKey::MILLER_LOOP, partial_miller_loop::<VKey>, iteration, proof_account);
 
-        // Final exponentiation
-        match_partial_computation!(VKey::FINAL_EXPONENTIATION, partial_final_exponentiation, iteration, proof_account);
-        
-        Ok(())
-    } else {    // Reset
-        proof_account.reset_with_request::<VKey>(request)
-    }    
+    // Final exponentiation
+    match_partial_computation!(VKey::FINAL_EXPONENTIATION, partial_final_exponentiation, iteration, proof_account);
+    
+    Ok(())
 }
 
 /// Check if proof is valid, store nullifier_hash, enqueue commitments or send finalization request
@@ -90,7 +105,7 @@ pub fn finalize_proof(
     queue_account: &mut QueueAccount,
     proof_account: &mut ProofAccount,
 ) -> ProgramResult {
-    let request = queue_account.proof_queue.first()?;
+    let request = ProofRequest::deserialize(proof_account.request);
 
     // Verify proof
     execute_with_vkey!(request, finalize_proof_with_vkey, proof_account)?;
@@ -107,9 +122,6 @@ pub fn finalize_proof(
             return Err(ElusivError::CommitmentAlreadyUsed.into());
         }
     }
-
-    // Remove request from queue
-    queue_account.proof_queue.dequeue()?;
 
     // Enqueue commitments
     for commitment in request.get_commitments() {

@@ -22,6 +22,9 @@ pub struct ProofAccount {
     // If `false` account can be reset
     is_active: bool,
 
+    #[buffer(ProofRequest::SIZE)]
+    request: ProofRequest,
+
     // Stacks
     #[lazy_stack(6, 32, serialize_fq, deserialize_fq)]
     pub fq: LazyHeapStack<'a, Fq>,
@@ -52,26 +55,31 @@ pub struct ProofAccount {
     round: u64,
 }
 
-impl<'a> ProofAccount<'a> {
-    pub fn reset_with_request<VKey: VerificationKey>(
-        &mut self,
-        request: ProofRequest,
-    ) -> ProgramResult {
-        // Check if account can be reset
-        if self.get_is_active() {
-            return Err(ElusivError::ProofAccountCannotBeReset.into());
-        }
-        self.set_is_active(true);
+pub fn reset_with_request<VKey: VerificationKey>(
+    account: &mut ProofAccount,
+    request: ProofRequest,
+) -> ProgramResult {
+    // Check if account can be reset
+    if account.get_is_active() {
+        return Err(ElusivError::ProofAccountCannotBeReset.into());
+    }
+    account.set_is_active(true);
 
-        // Parse proof
-        let proof = super::Proof::from_bytes(&request.get_proof_data().proof)?;
-
-        // Public inputs
-        let public_inputs = request.get_public_inputs();
-
-        self.reset::<VKey>(proof, &public_inputs)
+    // Save request
+    for (i, &byte) in ProofRequest::serialize(request).iter().enumerate() {
+        account.request[i] = byte;
     }
 
+    // Parse proof
+    let proof = super::Proof::from_bytes(&request.get_proof_data().proof)?;
+
+    // Public inputs
+    let public_inputs = request.get_public_inputs();
+
+    account.reset::<VKey>(proof, &public_inputs)
+}
+
+impl<'a> ProofAccount<'a> {
     pub fn reset<VKey: VerificationKey>(
         &mut self,
         proof: super::Proof,

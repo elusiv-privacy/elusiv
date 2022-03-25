@@ -87,7 +87,7 @@ impl<'a, N: Copy+ PartialEq> RingQueue<'a, N> {
         Ok(())
     }
 
-    pub fn first(&self) -> Result<N, ElusivError> {
+    pub fn view_first(&self) -> Result<N, ElusivError> {
         let head = self.get_head();
         let tail = self.get_tail();
 
@@ -98,7 +98,7 @@ impl<'a, N: Copy+ PartialEq> RingQueue<'a, N> {
         Ok(self.get(head))
     }
 
-    pub fn dequeue(&mut self) -> Result<(), ElusivError> {
+    pub fn dequeue_first(&mut self) -> Result<N, ElusivError> {
         let head = self.get_head();
         let tail = self.get_tail();
 
@@ -106,9 +106,10 @@ impl<'a, N: Copy+ PartialEq> RingQueue<'a, N> {
             return Err(ElusivError::QueueIsEmpty);
         }
 
+        let value = self.get(head);
         self.set_head((head + 1) % self.size);
 
-        Ok(())
+        Ok(value)
     }
 
     pub fn contains(&self, value: N) -> bool {
@@ -177,7 +178,7 @@ mod tests {
         for i in 1..SIZE {
             queue.enqueue(i as u32).unwrap();
             assert_eq!(
-                queue.first().unwrap(),
+                queue.view_first().unwrap(),
                 1
             );
         }
@@ -188,23 +189,23 @@ mod tests {
         // Test the queue ordering
         for i in 1..SIZE {
             assert_eq!(
-                queue.first().unwrap(),
+                queue.view_first().unwrap(),
                 i as u32
             );
-            queue.dequeue().unwrap();
+            queue.dequeue_first().unwrap();
         }
 
         // Test queue is empty
-        assert!(matches!(queue.dequeue(), Err(_)));
+        assert!(matches!(queue.dequeue_first(), Err(_)));
 
         // Test multiple fillings
         for i in 1..SIZE * 3 {
             queue.enqueue(i as u32).unwrap();
             assert_eq!(
-                queue.first().unwrap(),
+                queue.view_first().unwrap(),
                 i as u32
             );
-            queue.dequeue().unwrap();
+            queue.dequeue_first().unwrap();
         }
     }
 }

@@ -152,9 +152,8 @@ pub fn finalize_send(
     pool: &AccountInfo,
     recipient: &AccountInfo,
 ) -> ProgramResult {
-    // Get and dequeue request
-    let request = queue_account.send_queue.first()?;
-    queue_account.send_queue.dequeue()?;
+    // Dequeue request
+    let request = queue_account.send_queue.dequeue_first()?;
 
     // Check recipient
     if *recipient.key != Pubkey::new_from_array(request.recipient) {

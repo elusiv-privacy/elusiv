@@ -12,7 +12,8 @@ pub fn init_commitment(
     queue_account: &mut QueueAccount,
     commitment_account: &mut CommitmentAccount,
 ) -> ProgramResult {
-    let commitment = queue_account.commitment_queue.first()?;
+    // Dequeue commitment
+    let commitment = queue_account.commitment_queue.dequeue_first()?;
 
     // Check if commitment account is in reset state
     if commitment_account.get_is_active() {
@@ -27,9 +28,6 @@ pub fn init_commitment(
 
     // Reset commitment account
     commitment_account.reset(storage_account, commitment)?;
-
-    // Dequeue commitment
-    queue_account.commitment_queue.dequeue()?;
 
     Ok(())
 }
