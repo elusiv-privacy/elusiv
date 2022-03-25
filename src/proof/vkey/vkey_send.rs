@@ -1,6 +1,6 @@
 use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective };
 use ark_ff::{BigInteger256, Zero};
-use super::VerificationKey;
+use crate::proof::VerificationKey;
 
 pub struct SendVerificationKey {}
 impl VerificationKey for SendVerificationKey {

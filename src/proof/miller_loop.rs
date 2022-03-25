@@ -432,7 +432,7 @@ mod tests {
     use super::super::super::fields::scalar::*;
     use super::super::super::fields::utils::*;
 
-    type VKey = super::super::SendVerificationKey;
+    type VKey = crate::proof::vkey::SendVerificationKey;
 
     #[test]
     fn test_addition_rounds() {

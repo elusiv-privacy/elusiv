@@ -2,7 +2,7 @@ use solana_program::{
     entrypoint::ProgramResult,
 };
 use crate::proof::{
-    SendVerificationKey,
+    vkey::*,
     partial_prepare_inputs,
     partial_miller_loop,
     partial_final_exponentiation,
@@ -21,9 +21,9 @@ use crate::state::StorageAccount;
 macro_rules! execute_with_vkey {
     ($request: expr, $fun: ident, $proof_account: expr) => {
         match $request {
-            Store { .. } => { $fun::<SendVerificationKey>($proof_account, $request) },
+            Store { .. } => { $fun::<StoreVerificationKey>($proof_account, $request) },
             Bind { .. } => { $fun::<SendVerificationKey>($proof_account, $request) },
-            Send { .. } => { $fun::<SendVerificationKey>($proof_account, $request) },
+            Send { .. } => { $fun::<BindVerificationKey>($proof_account, $request) },
         }
     };
 }
