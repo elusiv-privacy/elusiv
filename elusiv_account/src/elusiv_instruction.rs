@@ -61,6 +61,10 @@ pub fn get_field_unpack(field: Field, field_name: &Ident) -> proc_macro2::TokenS
                 "u64" => { quote! {
                     let (#field_name, data) = unpack_u64(&data)?;
                 } },
+                "u8" => { quote! {
+                    let (&#field_name, data) = data.split_first()
+                        .ok_or(solana_program::program_error::ProgramError::InvalidInstructionData)?;
+                } },
                 "U256" => { quote! {
                     let (#field_name, data) = unpack_u256(&data)?;
                 } },

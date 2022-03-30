@@ -2,9 +2,16 @@ use crate::macros::{ ElusivAccount, remove_original_implementation };
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use crate::types::U256;
-use crate::bytes::contains;
-use crate::error::ElusivError;
+use crate::bytes::{ not_contains, contains };
+use crate::error::ElusivError::{
+    CommitmentAlreadyExists,
+    NoRoomForCommitment,
+    InvalidMerkleTreeAccess,
+    InvalidMerkleRoot,
+    NullifierAccountDoesNotExist,
+};
 use super::NullifierAccount;
+use crate::macros::guard;
 
 pub const TREE_HEIGHT: usize = 16;
 pub const TREE_SIZE: usize = 1 << (TREE_HEIGHT + 1);
@@ -17,25 +24,44 @@ const HISTORY_ARRAY_COUNT: usize = 10;
 struct StorageAccount {
     merkle_tree: [U256; TREE_SIZE],
     next_commitment: u64,
-
     root_history: [U256; HISTORY_ARRAY_COUNT],
-
     nullifier_account: Option<U256>,
+}
+
+impl<'a> StorageAccount<'a> {
+    crate::macros::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
+
+    pub fn reset(&mut self) {
+        for i in 0..self.merkle_tree.len() {
+            self.merkle_tree[i] = 0;
+        }
+
+        self.set_next_commitment(0);
+
+        for i in 0..self.root_history.len() {
+            self.root_history[i] = 0;
+        }
+
+        self.set_nullifier_account(None);
+    }
 }
 
 // Commitments
 impl<'a> StorageAccount<'a> {
-    elusiv_account::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
 
     pub fn can_insert_commitment(&self, commitment: U256) -> ProgramResult {
-        if self.get_next_commitment() >= TREE_LEAF_COUNT as u64 {
-            return Err(ElusivError::NoRoomForCommitment.into());
-        }
+        // Room for commitment
+        guard!(
+            self.get_next_commitment() < TREE_LEAF_COUNT as u64,
+            NoRoomForCommitment
+        );
 
+        // Check for duplicate
         let tree_leaves = &self.merkle_tree[TREE_LEAF_START..(TREE_LEAF_START + self.get_next_commitment() as usize)];
-        if contains(commitment, tree_leaves) {
-            return Err(ElusivError::CommitmentAlreadyUsed.into());
-        }
+        guard!(
+            not_contains(commitment, tree_leaves),
+            CommitmentAlreadyExists
+        );
 
         Ok(())
     }
@@ -68,7 +94,11 @@ impl<'a> StorageAccount<'a> {
 
 // Root
 impl<'a> StorageAccount<'a> {
-    pub fn is_root_valid(&self, nullifier_account: &NullifierAccount, root: U256) -> ProgramResult {
+    pub fn is_root_valid(
+        &self,
+        nullifier_account: &NullifierAccount,
+        root: U256
+    ) -> ProgramResult {
         // If nullifier account is active, just check storage account roots
         match self.get_nullifier_account() {
             Some(active_nullifier_account) => {
@@ -88,19 +118,21 @@ impl<'a> StorageAccount<'a> {
         }
 
         // Archived nullifier account
-        if nullifier_account.get_root() == root {
-            return Ok(())
-        }
+        guard!(
+            nullifier_account.get_root() == root,
+            InvalidMerkleRoot
+        );
 
-        Err(ElusivError::InvalidMerkleRoot.into())
+        Ok(())
     }
 }
 
 macro_rules! assert_valid_tree_access {
     ($layer: expr, $index: expr) => {
-        if $layer > TREE_HEIGHT || $index > size_of_tree_layer($layer) {
-            return Err(ElusivError::InvalidMerkleTreeAccess.into());
-        }
+        guard!(
+            $layer <= TREE_HEIGHT && $index <= size_of_tree_layer($layer),
+            InvalidMerkleTreeAccess
+        );
     };
 }
 
@@ -141,7 +173,12 @@ impl<'a> StorageAccount<'a> {
 
 // Nullifiers
 impl<'a> StorageAccount<'a> {
-    
+    pub fn try_get_nullifier_account(&self) -> Result<U256, ProgramError> {
+        match self.get_nullifier_account() {
+            Some(nullifier_account) => Ok(nullifier_account),
+            None => Err(NullifierAccountDoesNotExist.into())
+        }
+    }
 }
 
 pub fn tree_array_index(layer: usize, index: usize) -> usize {

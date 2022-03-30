@@ -8,7 +8,7 @@ use crate::{
     error::ElusivError::{
         CommitmentComputationIsNotYetFinished,
         CommitmentComputationIsAlreadyFinished,
-        CommitmentAlreadyUsed,
+        CommitmentAlreadyExists,
         HashingIsAlreadyComplete,
         DidNotFinishHashing,
     },
@@ -36,7 +36,7 @@ pub fn init_commitment(
     storage_account.can_insert_commitment(commitment)?;
     guard!(
         !queue_account.commitment_queue.contains(commitment),
-        CommitmentAlreadyUsed
+        CommitmentAlreadyExists
     );
 
     // Reset commitment account
@@ -65,7 +65,7 @@ pub fn compute_commitment(
 
     // Check that computation is complete
     guard!(
-        tree_position < crate::state::TREE_HEIGHT || iteration == crate::commitment::ITERATIONS,
+        tree_position < crate::state::TREE_HEIGHT && iteration == crate::commitment::ITERATIONS,
         HashingIsAlreadyComplete
     );
 
@@ -120,7 +120,7 @@ pub fn finalize_commitment(
 
     // Check that computation is complete
     guard!(
-        iteration == crate::commitment::ITERATIONS || tree_position == crate::state::TREE_HEIGHT,
+        iteration == crate::commitment::ITERATIONS && tree_position == crate::state::TREE_HEIGHT,
         DidNotFinishHashing
     );
 

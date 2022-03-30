@@ -1,8 +1,12 @@
-use crate::macros::{ ElusivAccount, remove_original_implementation };
+use crate::macros::{ ElusivAccount, remove_original_implementation, guard };
 use solana_program::entrypoint::ProgramResult;
 use crate::types::U256;
 use crate::bytes::{find, contains};
 use crate::state::StorageAccount;
+use crate::error::ElusivError::{
+    UnableToArchiveNullifierAccount,
+    InvalidNullifierAccount,
+};
 
 const NULLIFIER_ACCOUNTS_COUNT: usize = 312500;
 
@@ -15,14 +19,15 @@ struct ArchiveAccount {
 }
 
 impl<'a> ArchiveAccount<'a> {
-    elusiv_account::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
+    crate::macros::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
 
     pub fn archive_nullifier_account(&mut self, account: U256, root: U256) -> ProgramResult {
         let ptr = self.get_next_account();
 
-        if ptr >= NULLIFIER_ACCOUNTS_COUNT as u64 {
-            return Err(crate::error::ElusivError::UnableToArchiveNullifierAccount.into());
-        }
+        guard!(
+            ptr < NULLIFIER_ACCOUNTS_COUNT as u64,
+            UnableToArchiveNullifierAccount
+        );
 
         self.set_nullifier_accounts(ptr as usize, &account);
         self.set_roots(ptr as usize, &root);
@@ -47,15 +52,21 @@ impl<'a> ArchiveAccount<'a> {
         account: U256
     ) -> ProgramResult {
         // Active nullifier account
-        if account == storage_account.get_nullifier_account().expect("No active nullifier account") {
-            return Ok(())
+        match storage_account.get_nullifier_account() {
+            Some(nullifier_account) => {
+                if nullifier_account == account {
+                    return Ok(())
+                }
+            },
+            None => {}
         }
 
         // Archived
-        if contains(account, self.nullifier_accounts) {
-            return Ok(())
-        }
+        guard!(
+            contains(account, self.nullifier_accounts),
+            InvalidNullifierAccount
+        );
 
-        return Err(crate::error::ElusivError::InvalidNullifierAccount.into())
+        Ok(())
     }
 }

@@ -64,7 +64,7 @@ pub fn available_types() -> Vec<FieldType> {
                 }
             }})),
             setter: Some(Box::new(|setter_name: &Ident, field_name: &Ident| { quote! {
-                pub fn #setter_name(&mut self, i: usize, bytes: &[u8]) {
+                pub fn #setter_name(&mut self, bytes: &[u8]) {
                     for (i, &byte) in bytes.iter().enumerate() {
                         self.#field_name[i] = byte;
                     }
@@ -90,7 +90,7 @@ pub fn available_types() -> Vec<FieldType> {
                 }
             }})),
             setter: Some(Box::new(|setter_name: &Ident, field_name: &Ident| { quote! {
-                pub fn #setter_name(&mut self, i: usize, value: Option<U256>) {
+                pub fn #setter_name(&mut self, value: Option<U256>) {
                     match value {
                         None => {
                             self.#field_name[0] = 0;

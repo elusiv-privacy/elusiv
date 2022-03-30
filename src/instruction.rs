@@ -4,7 +4,7 @@ use solana_program::program_error::{
 use super::types::*;
 use super::bytes::*;
 
-#[derive(elusiv_account::ElusivInstruction)]
+#[derive(crate::macros::ElusivInstruction)]
 pub enum ElusivInstruction {
     Store {
         proof_data: ProofData,
@@ -32,6 +32,8 @@ pub enum ElusivInstruction {
     ComputeCommitment,
     FinalizeCommitment,
 
-    InitStorage,
+    InitStorage {
+        bump_seed: u8,
+    },
     ArchiveStorage,
 }

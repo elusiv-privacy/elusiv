@@ -16,6 +16,10 @@ pub fn contains(bytes: U256, buffer: &[u8]) -> bool {
     }
 }
 
+pub fn not_contains(bytes: U256, buffer: &[u8]) -> bool {
+    !contains(bytes, buffer)
+}
+
 pub fn find(bytes: U256, buffer: &[u8]) -> Option<usize> {
     let length = buffer.len() >> 5;
     for i in 0..length {

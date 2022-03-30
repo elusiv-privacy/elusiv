@@ -82,11 +82,8 @@ pub fn impl_account(ast: &proc_macro::TokenStream) -> proc_macro2::TokenStream {
                     let acc_data = &mut nullifier_acc_info.data.borrow_mut()[..];
                     let mut #name = NullifierAccount::new(&nullifier_acc_info, acc_data)?;
 
-                    // Check that key saved in nullifier account matches too
-                    guard!(
-                        nullifier_acc_info.key.to_bytes() == #name.get_key(),
-                        crate::error::ElusivError::InvalidAccount
-                    );
+                    // Set key in nullifier_account
+                    #name.set_key(&nullifier_acc_info.key.to_bytes());
                 }
             }
             _ => { panic!("Invalid role {}", role); }

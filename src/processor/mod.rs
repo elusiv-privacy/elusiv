@@ -93,7 +93,7 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
             account!(pool, pool);
             account!(recipient, no_check);
 
-            finalize_send( &mut queue_account, &pool, &recipient )
+            finalize_send(&mut queue_account, &pool, &recipient)
         },
 
         InitProof => {
@@ -131,28 +131,29 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
             account!(Queue);
             account!(Commitment);
 
-            init_commitment( &storage_account, &mut queue_account, &mut commitment_account )
+            init_commitment(&storage_account, &mut queue_account, &mut commitment_account)
         },
         ComputeCommitment => {
 
             account!(Commitment);
 
-            compute_commitment( &mut commitment_account )
+            compute_commitment(&mut commitment_account)
         },
         FinalizeCommitment => {
 
             account!(Storage);
             account!(Commitment);
 
-            finalize_commitment( &mut storage_account, &mut commitment_account )
+            finalize_commitment(&mut storage_account, &mut commitment_account)
         },
 
-        InitStorage => {
+        InitStorage  { bump_seed } => {
 
             account!(Storage);
             account!(reserve, reserve);
+            account!(pda_account, no_check);
 
-            init_storage(&mut storage_account, &reserve)
+            init_storage(&mut storage_account, &reserve, &pda_account, bump_seed)
         },
         ArchiveStorage => {
 
@@ -160,7 +161,7 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
             account!(Archive);
             account!(nullifier_account, nullifier);
 
-            archive_storage(&mut storage_account, &mut archive_account, &nullifier_account)
+            archive_storage(&mut storage_account, &mut archive_account, &mut nullifier_account)
         }
     }
 }

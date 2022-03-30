@@ -21,7 +21,7 @@ struct CommitmentAccount {
 }
 
 impl<'a> CommitmentAccount<'a> {
-    elusiv_account::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
+    crate::macros::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
 
     pub fn reset(
         &mut self,

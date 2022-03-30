@@ -56,7 +56,7 @@ pub struct ProofAccount {
 }
 
 impl<'a> ProofAccount<'a> {
-    elusiv_account::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
+    crate::macros::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
 }
 
 pub fn reset_with_request<VKey: VerificationKey>(

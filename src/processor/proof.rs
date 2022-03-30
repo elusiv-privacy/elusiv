@@ -13,7 +13,7 @@ use crate::error::ElusivError:: {
     ProofComputationIsNotYetFinished,
     ProofComputationIsAlreadyFinished,
     InvalidNullifierAccount,
-    CommitmentAlreadyUsed,
+    CommitmentAlreadyExists,
 };
 use crate::queue::send_finalization_request::SendFinalizationRequest;
 use crate::queue::state::*;
@@ -163,7 +163,7 @@ pub fn finalize_proof(
             storage_account.can_insert_commitment(commitment)?;
             guard!(
                 !queue_account.commitment_queue.contains(commitment),
-                CommitmentAlreadyUsed
+                CommitmentAlreadyExists
             );
         }
 
