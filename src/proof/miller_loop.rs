@@ -660,7 +660,7 @@ mod tests {
             super::super::Proof{ a: get_a(), b: get_b(), c: get_c() },
             &[
                 vec_to_array_32(to_bytes_le_repr(inputs[0])),
-                vec_to_array_32(to_bytes_le_repr(inputs[1]))
+                vec_to_array_32(to_bytes_le_repr(inputs[1])),
             ],
         ).unwrap();
 

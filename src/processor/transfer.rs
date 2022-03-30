@@ -35,8 +35,7 @@ pub fn store<'a>(
         &commitments,
     )?;
 
-    // TODO: Compute fee
-    let fee = 0;
+    let fee = compute_fee(0);
 
     // Add store/bind request to queue
     queue_account.proof_queue.enqueue(
@@ -87,6 +86,11 @@ fn check_public_inputs(
     Ok(())
 }
 
+fn compute_fee(tx_count: u64) -> u64 {
+    let fee_calculator = solana_program::fee_calculator::FeeCalculator::default();
+    tx_count * fee_calculator.lamports_per_signature
+}
+
 fn send_with_system_program<'a>(
     sender: &AccountInfo<'a>,
     recipient: &AccountInfo<'a>,
@@ -131,8 +135,7 @@ pub fn send(
         &vec![],
     )?;
 
-    // TODO: Compute fee
-    let fee = 0;
+    let fee = compute_fee(0);
 
     // Add send request to queue
     queue_account.proof_queue.enqueue(

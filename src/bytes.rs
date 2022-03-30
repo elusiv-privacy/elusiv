@@ -21,14 +21,14 @@ pub fn not_contains(bytes: U256, buffer: &[u8]) -> bool {
 }
 
 pub fn find(bytes: U256, buffer: &[u8]) -> Option<usize> {
-    let length = buffer.len() >> 5;
-    for i in 0..length {
-        let index = i << 5;
+    let length = buffer.len() / 32;
+    'A: for i in 0..length {
+        let index = i * 32;
         if buffer[index] == bytes[0] {
-            for j in 1..4 {
-                if buffer[index + 1] != bytes[j] { continue; }
-                return Some(i);
+            for j in 1..32 {
+                if buffer[index + j] != bytes[j] { continue 'A; }
             }
+            return Some(i);
         }
     }
     None
@@ -161,5 +161,60 @@ mod tests {
         let (v, data) = unpack_u64(&d).unwrap();
         assert_eq!(v, 1);
         assert_eq!(data.len(), 0);
+    }
+
+    const SIZE: usize = 256;    // Max using 256 here because of u8 then there are duplicates
+
+    fn generate_buffer() -> Vec<u8> {
+        let mut buffer = Vec::new();
+        for i in 0..SIZE {
+            for _ in 0..32 {
+                buffer.push(i as u8);
+            }
+        }
+        buffer
+    }
+
+    #[test]
+    fn test_find() {
+        let buffer = generate_buffer();
+
+        // Finds
+        for i in 0..SIZE {
+            let bytes = [i as u8; 32];
+
+            let index = find(bytes, &buffer).unwrap();
+            assert_eq!(index, i);
+        }
+
+        // Doesn't find
+        for i in 0..32 {
+            let mut bytes = [0; 32];
+            bytes[i] = 1;
+
+            assert!(matches!(find(bytes, &buffer), None));
+        }
+    }
+
+    #[test]
+    fn test_contains() {
+        let buffer = generate_buffer();
+
+        // Contains
+        for i in 0..SIZE {
+            let bytes = [i as u8; 32];
+
+            assert!(contains(bytes, &buffer));
+            assert_eq!(not_contains(bytes, &buffer), false);
+        }
+
+        // Doesn't contain
+        for i in 0..32 {
+            let mut bytes = [0; 32];
+            bytes[i] = 1;
+
+            assert!(not_contains(bytes, &buffer));
+            assert_eq!(contains(bytes, &buffer), false);
+        }
     }
 }

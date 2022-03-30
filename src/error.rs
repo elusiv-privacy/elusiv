@@ -4,13 +4,13 @@ use solana_program::program_error::ProgramError;
 #[derive(Copy, Clone)]
 #[derive(Debug)]
 pub enum ElusivError {
-    InvalidInstructionData,
+    InvalidInstructionData, // 0
     InvalidAmount,
     InvalidRecipient,
     InvalidAccount,
     InvalidAccountSize,
 
-    SenderIsNotSigner,
+    SenderIsNotSigner,  // 5
     SenderIsNotWritable,
 
     // Merkle tree
@@ -19,26 +19,26 @@ pub enum ElusivError {
 
     // Nullifier
     NullifierAlreadyExists,
-    NoRoomForNullifier,
+    NoRoomForNullifier, // 10
     InvalidNullifierAccount,
     NullifierAccountDoesNotExist,
 
     // Commitment
     CommitmentAlreadyExists,
     NoRoomForCommitment,
-    CommitmentComputationIsNotYetFinished,
+    CommitmentComputationIsNotYetFinished,  // 15
     CommitmentComputationIsAlreadyFinished,
     HashingIsAlreadyComplete,
     DidNotFinishHashing,
 
     // Proof
     InvalidProof,
-    InvalidPublicInputs,
+    InvalidPublicInputs,    // 20
     InvalidVerificationKey,
     CouldNotParseProof,
     CouldNotProcessProof,
     ProofAccountCannotBeReset,
-    ProofComputationIsAlreadyFinished,
+    ProofComputationIsAlreadyFinished,  // 25
     ProofComputationIsNotYetFinished,
 
     // Queue
@@ -47,7 +47,7 @@ pub enum ElusivError {
 
     // Archiving
     UnableToArchiveNullifierAccount,
-    MerkleTreeIsNotFullYet,
+    MerkleTreeIsNotFullYet, // 30
 }
 
 impl From<ElusivError> for ProgramError {
