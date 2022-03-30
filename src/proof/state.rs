@@ -1,4 +1,4 @@
-use elusiv_account::*;
+use crate::macros::{ ElusivAccount, remove_original_implementation };
 use solana_program::entrypoint::ProgramResult;
 use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective };
 use ark_ff::*;

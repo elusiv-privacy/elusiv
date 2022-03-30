@@ -1,0 +1,3 @@
+//! The DAOs main reserve account
+ 
+elusiv_account::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");

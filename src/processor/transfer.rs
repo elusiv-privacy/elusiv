@@ -4,9 +4,13 @@ use solana_program::{
     native_token::LAMPORTS_PER_SOL,
     account_info::AccountInfo,
 };
-use crate::types::{ProofData, U256};
-use crate::error::ElusivError;
-
+use crate::macros::guard;
+use crate::types::{ ProofData, U256 };
+use crate::error::ElusivError::{
+    InvalidAmount,
+    InvalidAccount,
+    InvalidRecipient,
+};
 use crate::state::*;
 use crate::queue::state::*;
 use crate::queue::proof_request::{ProofRequest, ProofRequestKind};
@@ -75,9 +79,10 @@ fn check_public_inputs(
     nullifier_account.can_insert_nullifier(proof_data.nullifier)?;
 
     // Check amount
-    if proof_data.amount < MINIMUM_AMOUNT {
-        return Err(ElusivError::InvalidAmount.into());
-    }
+    guard!(
+        proof_data.amount >= MINIMUM_AMOUNT,
+        InvalidAmount
+    );
 
     Ok(())
 }
@@ -89,9 +94,10 @@ fn send_with_system_program<'a>(
     lamports: u64,
 ) -> ProgramResult {
     // Check if system_program is correct
-    if *system_program.key != solana_program::system_program::ID {
-        return Err(ElusivError::InvalidAccount.into());
-    }
+    guard!(
+        *system_program.key == solana_program::system_program::ID,
+        InvalidAccount
+    );
 
     let instruction = solana_program::system_instruction::transfer(
         &sender.key,
@@ -150,9 +156,10 @@ pub fn finalize_send(
     let request = queue_account.send_queue.dequeue_first()?;
 
     // Check recipient
-    if *recipient.key != Pubkey::new_from_array(request.recipient) {
-        return Err(ElusivError::InvalidRecipient.into());
-    }
+    guard!(
+        *recipient.key == Pubkey::new_from_array(request.recipient),
+        InvalidRecipient
+    );
 
     // Transfer funds from pool to recipient
     let pool_balance = pool.try_lamports()?;
@@ -160,11 +167,11 @@ pub fn finalize_send(
 
     match pool_balance.checked_sub(request.amount) {
         Some(balance) => { **pool.try_borrow_mut_lamports()? = balance; },
-        None => { return Err(ElusivError::InvalidAmount.into()); }
+        None => { return Err(InvalidAmount.into()); }
     }
     match recipient_balance.checked_add(request.amount) {
         Some(balance) => { **recipient.try_borrow_mut_lamports()? = balance; },
-        None => { return Err(ElusivError::InvalidAmount.into()); }
+        None => { return Err(InvalidAmount.into()); }
     }
 
     Ok(())

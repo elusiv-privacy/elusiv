@@ -1,4 +1,4 @@
-use elusiv_account::*;
+use crate::macros::{ ElusivAccount, remove_original_implementation };
 use solana_program::entrypoint::ProgramResult;
 use crate::types::U256;
 use crate::bytes::contains;
@@ -13,6 +13,7 @@ struct NullifierAccount {
     key: U256,
 
     nullifiers: [U256; NULLIFIERS_COUNT],
+    // The root is only set AFTER the nullifier account is archived!
     root: U256,
     next_nullifier: u64,
 }

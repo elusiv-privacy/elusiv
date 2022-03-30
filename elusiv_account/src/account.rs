@@ -27,9 +27,10 @@ pub fn impl_account(ast: &proc_macro::TokenStream) -> proc_macro2::TokenStream {
             "signer" => {
                 quote! {
                     let #name = solana_program::account_info::next_account_info(account_info_iter)?;
-                    if !#name.is_signer {
-                        return Err(crate::error::ElusivError::SenderIsNotSigner.into());
-                    }
+                    guard!(
+                        #name.is_signer,
+                        crate::error::ElusivError::SenderIsNotSigner
+                    );
                 }
             },
             "no_check" => {
@@ -41,21 +42,39 @@ pub fn impl_account(ast: &proc_macro::TokenStream) -> proc_macro2::TokenStream {
                 quote! {
                     let #name = solana_program::account_info::next_account_info(account_info_iter)?;
 
-                    if *#name.owner != crate::id() {
-                        return Err(crate::error::ElusivError::InvalidAccount.into());
-                    }
+                    guard!(
+                        *#name.owner == crate::id(),
+                        crate::error::ElusivError::InvalidAccount
+                    );
 
-                    if *#name.key != crate::pool::ID {
-                        return Err(crate::error::ElusivError::InvalidAccount.into());
-                    }
+                    guard!(
+                        *#name.key == crate::state::pool::ID,
+                        crate::error::ElusivError::InvalidAccount
+                    );
+                }
+            },
+            "reserve" => {
+                quote! {
+                    let #name = solana_program::account_info::next_account_info(account_info_iter)?;
+
+                    guard!(
+                        *#name.owner == crate::id(),
+                        crate::error::ElusivError::InvalidAccount
+                    );
+
+                    guard!(
+                        *#name.key == crate::state::reserve::ID,
+                        crate::error::ElusivError::InvalidAccount
+                    );
                 }
             },
             "nullifier" => {
                 quote! {
                     let nullifier_acc_info = solana_program::account_info::next_account_info(account_info_iter)?;
-                    if *nullifier_acc_info.owner != crate::id() {
-                        return Err(crate::error::ElusivError::InvalidAccount.into());
-                    }
+                    guard!(
+                        *nullifier_acc_info.owner == crate::id(),
+                        crate::error::ElusivError::InvalidAccount
+                    );
 
                     // Check if nullifier account is active or archived
                     archive_account.is_nullifier_account_valid(&storage_account, nullifier_acc_info.key.to_bytes())?; 
@@ -64,9 +83,10 @@ pub fn impl_account(ast: &proc_macro::TokenStream) -> proc_macro2::TokenStream {
                     let mut #name = NullifierAccount::new(&nullifier_acc_info, acc_data)?;
 
                     // Check that key saved in nullifier account matches too
-                    if nullifier_acc_info.key.to_bytes() != #name.get_key() {
-                        return Err(crate::error::ElusivError::InvalidAccount.into());
-                    }
+                    guard!(
+                        nullifier_acc_info.key.to_bytes() == #name.get_key(),
+                        crate::error::ElusivError::InvalidAccount
+                    );
                 }
             }
             _ => { panic!("Invalid role {}", role); }

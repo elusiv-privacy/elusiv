@@ -1,4 +1,4 @@
-use elusiv_account::{ ElusivAccount, remove_original_implementation };
+use crate::macros::{ ElusivAccount, remove_original_implementation };
 use solana_program::entrypoint::ProgramResult;
 use crate::types::U256;
 use crate::bytes::{find, contains};

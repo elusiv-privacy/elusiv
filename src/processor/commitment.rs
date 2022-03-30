@@ -1,8 +1,19 @@
-use solana_program::{
-    entrypoint::ProgramResult,
-};
+use solana_program::entrypoint::ProgramResult;
 use crate::state::TREE_HEIGHT;
-use crate::{commitment::CommitmentAccount, queue::state::QueueAccount, state::StorageAccount, error::ElusivError, types::U256_ZERO};
+use crate::macros::guard;
+use crate::{
+    commitment::CommitmentAccount,
+    queue::state::QueueAccount,
+    state::StorageAccount,
+    error::ElusivError::{
+        CommitmentComputationIsNotYetFinished,
+        CommitmentComputationIsAlreadyFinished,
+        CommitmentAlreadyUsed,
+        HashingIsAlreadyComplete,
+        DidNotFinishHashing,
+    },
+    types::U256_ZERO
+};
 use crate::commitment::Poseidon2;
 use crate::fields::scalar::{ from_bytes_le_mont, to_bytes_le_mont };
 
@@ -16,15 +27,17 @@ pub fn init_commitment(
     let commitment = queue_account.commitment_queue.dequeue_first()?;
 
     // Check if commitment account is in reset state
-    if commitment_account.get_is_active() {
-        return Err(ElusivError::CommitmentComputationIsNotYetFinished.into());
-    }
+    guard!(
+        !commitment_account.get_is_active(),
+        CommitmentComputationIsNotYetFinished
+    );
 
     // Check if commitment is new
     storage_account.can_insert_commitment(commitment)?;
-    if queue_account.commitment_queue.contains(commitment) {
-        return Err(ElusivError::CommitmentAlreadyUsed.into());
-    }
+    guard!(
+        !queue_account.commitment_queue.contains(commitment),
+        CommitmentAlreadyUsed
+    );
 
     // Reset commitment account
     commitment_account.reset(storage_account, commitment)?;
@@ -36,10 +49,11 @@ pub fn init_commitment(
 pub fn compute_commitment(
     commitment_account: &mut CommitmentAccount,
 ) -> ProgramResult {
-    // Check if commitment account is active
-    if !commitment_account.get_is_active() {
-        return Err(ElusivError::CommitmentComputationIsAlreadyFinished.into());
-    }
+    // Check that commitment account is active
+    guard!(
+        commitment_account.get_is_active(),
+        CommitmentComputationIsAlreadyFinished
+    );
 
     let mut iteration = commitment_account.get_current_hash_iteration() as usize;
     let mut tree_position = commitment_account.get_current_hash_tree_position() as usize;
@@ -49,10 +63,11 @@ pub fn compute_commitment(
         commitment_account.get_hashing_state(2),
     ];
 
-    // Check if computation is incomplete
-    if tree_position >= crate::state::TREE_HEIGHT || iteration > crate::commitment::ITERATIONS {
-        return Err(ElusivError::HashingIsAlreadyComplete.into());
-    }
+    // Check that computation is complete
+    guard!(
+        tree_position < crate::state::TREE_HEIGHT || iteration == crate::commitment::ITERATIONS,
+        HashingIsAlreadyComplete
+    );
 
     // Move to next tree level
     if iteration as usize == crate::commitment::ITERATIONS {
@@ -103,10 +118,11 @@ pub fn finalize_commitment(
     let iteration = commitment_account.get_current_hash_iteration() as usize;
     let tree_position = commitment_account.get_current_hash_tree_position() as usize;
 
-    // Check if computation is complete
-    if iteration != crate::commitment::ITERATIONS || tree_position != crate::state::TREE_HEIGHT {
-        return Err(ElusivError::DidNotFinishHashing.into())
-    }
+    // Check that computation is complete
+    guard!(
+        iteration == crate::commitment::ITERATIONS || tree_position == crate::state::TREE_HEIGHT,
+        DidNotFinishHashing
+    );
 
     // Add commitment and hashes into storage account
     let mut values = [U256_ZERO; TREE_HEIGHT + 1];

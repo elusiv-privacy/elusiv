@@ -1,10 +1,12 @@
 mod transfer;
 mod commitment;
 mod proof;
+mod accounts;
 
 use transfer::*;
 use commitment::*;
 use proof::*;
+use accounts::*;
 
 use solana_program::{
     entrypoint::ProgramResult,
@@ -16,7 +18,7 @@ use super::queue::state::*;
 use super::proof::state::*;
 use super::commitment::state::*;
 use super::instruction::ElusivInstruction;
-use elusiv_account::account;
+use crate::macros::{ account, guard };
 
 pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: ElusivInstruction) -> ProgramResult {
     use ElusivInstruction::*;
@@ -144,5 +146,21 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
 
             finalize_commitment( &mut storage_account, &mut commitment_account )
         },
+
+        InitStorage => {
+
+            account!(Storage);
+            account!(reserve, reserve);
+
+            init_storage(&mut storage_account, &reserve)
+        },
+        ArchiveStorage => {
+
+            account!(Storage);
+            account!(Archive);
+            account!(nullifier_account, nullifier);
+
+            archive_storage(&mut storage_account, &mut archive_account, &nullifier_account)
+        }
     }
 }

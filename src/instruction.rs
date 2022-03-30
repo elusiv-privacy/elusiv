@@ -31,4 +31,7 @@ pub enum ElusivInstruction {
     InitCommitment,
     ComputeCommitment,
     FinalizeCommitment,
+
+    InitStorage,
+    ArchiveStorage,
 }

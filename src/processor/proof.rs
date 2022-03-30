@@ -1,6 +1,5 @@
-use solana_program::{
-    entrypoint::ProgramResult,
-};
+use solana_program::entrypoint::ProgramResult;
+use crate::macros::guard;
 use crate::proof::{
     vkey::*,
     partial_prepare_inputs,
@@ -10,8 +9,12 @@ use crate::proof::{
     VerificationKey,
 };
 use crate::queue::proof_request::*;
-use crate::error::ElusivError;
-
+use crate::error::ElusivError:: {
+    ProofComputationIsNotYetFinished,
+    ProofComputationIsAlreadyFinished,
+    InvalidNullifierAccount,
+    CommitmentAlreadyUsed,
+};
 use crate::queue::send_finalization_request::SendFinalizationRequest;
 use crate::queue::state::*;
 use crate::queue::proof_request::ProofRequestKind::*;
@@ -34,10 +37,11 @@ pub fn init_proof(
     queue_account: &mut QueueAccount,
     proof_account: &mut ProofAccount,
 ) -> ProgramResult {
-    // Check wheter proof account can be reset
-    if proof_account.get_is_active() {
-        return Err(ElusivError::ProofComputationIsNotYetFinished.into());
-    }
+    // Check that proof account can be reset
+    guard!(
+        !proof_account.get_is_active(),
+        ProofComputationIsNotYetFinished
+    );
 
     // Dequeue request
     let request = queue_account.proof_queue.dequeue_first()?;
@@ -49,9 +53,11 @@ pub fn init_proof(
 pub fn compute_proof(
     proof_account: &mut ProofAccount,
 ) -> ProgramResult {
-    if proof_account.get_is_active() {
-        return Err(ElusivError::ProofComputationIsNotYetFinished.into());
-    }
+    // Check that proof account is active
+    guard!(
+        proof_account.get_is_active(),
+        ProofComputationIsAlreadyFinished
+    );
 
     let request = ProofRequest::deserialize(proof_account.request);
 
@@ -84,10 +90,11 @@ fn compute_proof_with_vkey<VKey: VerificationKey>(
 ) -> ProgramResult {
     let iteration = proof_account.get_iteration() as usize;
 
-    // Check whether verification is complete
-    if iteration >= VKey::FULL_ITERATIONS {
-        return Err(ElusivError::ProofComputationIsAlreadyFinished.into());
-    }
+    // Check that verification is not yet complete
+    guard!(
+        iteration < VKey::FULL_ITERATIONS,
+        ProofComputationIsAlreadyFinished
+    );
 
     {
         // Prepare inputs
@@ -133,9 +140,10 @@ pub fn finalize_proof(
     let request = ProofRequest::deserialize(proof_account.request);
 
     // Check that nullifier account is correct
-    if nullifier_account.get_key() != request.nullifier_account {
-        return Err(ElusivError::InvalidNullifierAccount.into());
-    }
+    guard!(
+        nullifier_account.get_key() == request.nullifier_account,
+        InvalidNullifierAccount
+    );
 
     // Check that computation is finished
     execute_with_vkey!(request, is_computation_finished, proof_account)?;
@@ -153,9 +161,10 @@ pub fn finalize_proof(
         // Check for commitments in storage account and queue
         for commitment in request.get_commitments() {
             storage_account.can_insert_commitment(commitment)?;
-            if queue_account.commitment_queue.contains(commitment) {
-                return Err(ElusivError::CommitmentAlreadyUsed.into());
-            }
+            guard!(
+                !queue_account.commitment_queue.contains(commitment),
+                CommitmentAlreadyUsed
+            );
         }
 
         // Enqueue commitments
@@ -181,9 +190,10 @@ fn is_computation_finished<VKey: VerificationKey>(
     proof_account: &mut ProofAccount,
     _request: ProofRequest,
 ) -> ProgramResult {
-    if !crate::proof::is_computation_finished::<VKey>(proof_account) {
-        return Err(ElusivError::ProofComputationIsNotYetFinished.into());
-    }
+    guard!(
+        crate::proof::is_computation_finished::<VKey>(proof_account),
+        ProofComputationIsNotYetFinished
+    );
 
     Ok(())
 }

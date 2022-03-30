@@ -1,4 +1,4 @@
-use elusiv_account::*;
+use crate::macros::{ ElusivAccount, remove_original_implementation };
 use solana_program::entrypoint::ProgramResult;
 use crate::error::ElusivError;
 use crate::types::U256;
