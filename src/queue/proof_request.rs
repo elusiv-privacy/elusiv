@@ -1,119 +1,121 @@
 use solana_program::program_error::ProgramError;
-use crate::proof::{PROOF_BYTES_SIZE };
 use crate::bytes::*;
 use crate::types::{ ProofData, U256 };
 
 #[derive(Clone, Copy, PartialEq)]
+pub struct ProofRequest {
+    pub proof_data: ProofData,
+    pub nullifier_account: U256,
+    pub fee: u64,
+    pub kind: ProofRequestKind,
+}
+
+#[derive(Clone, Copy, PartialEq)]
 #[derive(elusiv_account::ElusivInstruction)]
-pub enum ProofRequest {
+pub enum ProofRequestKind {
     Store {
-        proof_data: ProofData,
-        fee: u64,
         commitment: U256,
     },
     Bind {
-        proof_data: ProofData,
-        fee: u64,
         unbound_commitment: U256,
         bound_commitment: U256,
     },
     Send {
-        proof_data: ProofData,
-        fee: u64,
         recipient: U256,
     },
 }
 
-impl ProofRequest {
-    pub const SIZE: usize = 8 + 32 + 32 + PROOF_BYTES_SIZE + 8 + 32 + 32;
+impl ProofRequestKind {
+    pub const SIZE: usize = 32 + 32;
 
-    pub fn deserialize(data: &[u8]) -> ProofRequest {
+    pub fn deserialize(data: &[u8]) -> ProofRequestKind {
         Self::unpack(data).unwrap()
     }
 
-    pub fn serialize(value: ProofRequest) -> Vec<u8> {
+    pub fn serialize(&self) -> Vec<u8> {
         let mut buffer = Vec::new();
         
-        match value {
-            ProofRequest::Store { proof_data, fee, commitment } => {
+        match *self {
+            Self::Store { commitment } => {
                 buffer.push(0);
 
-                buffer.extend(write_proof_data(proof_data));
-                buffer.extend(fee.to_le_bytes());
                 buffer.extend(serialize_u256(commitment));
             },
-            ProofRequest::Bind { proof_data, fee, unbound_commitment, bound_commitment } => {
+            Self::Bind { unbound_commitment, bound_commitment } => {
                 buffer.push(1);
 
-                buffer.extend(write_proof_data(proof_data));
-                buffer.extend(fee.to_le_bytes());
                 buffer.extend(serialize_u256(unbound_commitment));
                 buffer.extend(serialize_u256(bound_commitment));
             },
-            ProofRequest::Send { proof_data, fee, recipient } => {
+            Self::Send { recipient } => {
                 buffer.push(2);
 
-                buffer.extend(write_proof_data(proof_data));
-                buffer.extend(fee.to_le_bytes());
                 buffer.extend(serialize_u256(recipient));
             },
         }
 
         buffer
     }
+}
 
-    pub fn get_proof_data(&self) -> ProofData {
-        match *self {
-            ProofRequest::Store { proof_data, .. } => { proof_data },
-            ProofRequest::Bind { proof_data, .. } => { proof_data },
-            ProofRequest::Send { proof_data, .. } => { proof_data },
-        }
+impl ProofRequest {
+    pub const SIZE: usize = ProofData::SIZE + 32 + 32 + 8 + ProofRequestKind::SIZE;
+
+    pub fn deserialize(data: &[u8]) -> ProofRequest {
+        let (proof_data, data) = unpack_proof_data(data).unwrap();
+        let (nullifier_account, data) = unpack_u256(data).unwrap();
+        let (fee, data) = unpack_u64(data).unwrap();
+        let kind = ProofRequestKind::deserialize(data);
+
+        ProofRequest { proof_data, nullifier_account, fee, kind }
     }
 
-    pub fn get_fee(&self) -> u64 {
-        match *self {
-            ProofRequest::Store { fee, .. } => { fee },
-            ProofRequest::Bind { fee, .. } => { fee },
-            ProofRequest::Send { fee, .. } => { fee },
-        }
+    pub fn serialize(value: ProofRequest) -> Vec<u8> {
+        let mut buffer = Vec::new();
+
+        buffer.extend(write_proof_data(value.proof_data));
+        buffer.extend(serialize_u256(value.nullifier_account));
+        buffer.extend(value.fee.to_le_bytes());
+        buffer.extend(value.kind.serialize());
+        
+        buffer
     }
 
     pub fn get_commitments(&self) -> Vec<U256> {
-        match *self {
-            ProofRequest::Store { commitment, .. } => {
+        match self.kind {
+            ProofRequestKind::Store { commitment } => {
                 vec![commitment]
             },
-            ProofRequest::Bind { unbound_commitment, bound_commitment, .. } => {
+            ProofRequestKind::Bind { unbound_commitment, bound_commitment } => {
                 vec![
                     unbound_commitment,
                     bound_commitment,
                 ]
              },
-            ProofRequest::Send { .. } => {
+             ProofRequestKind::Send { .. } => {
                 vec![]
             },
         }
     }
 
     pub fn get_public_inputs(&self) -> Vec<U256> {
-        let proof_data = self.get_proof_data();
         let mut public_inputs = vec![
-            proof_data.nullifier_hash,
-            proof_data.root,
+            self.proof_data.nullifier,
+            self.proof_data.root,
             u64_to_u256(
-                proof_data.amount
+                self.proof_data.amount
             ),
         ];
 
-        match *self {
-            ProofRequest::Store { commitment, .. } => {
+        match self.kind {
+            ProofRequestKind::Store { commitment, .. } => {
                 public_inputs.push(commitment);
             },
-            ProofRequest::Bind { unbound_commitment, bound_commitment, .. } => {
+            ProofRequestKind::Bind { unbound_commitment, bound_commitment, .. } => {
                 public_inputs.push(unbound_commitment);
                 public_inputs.push(bound_commitment);
             },
-            ProofRequest::Send { recipient, .. } => {
+            ProofRequestKind::Send { recipient, .. } => {
                 public_inputs.push(recipient);
             },
         }

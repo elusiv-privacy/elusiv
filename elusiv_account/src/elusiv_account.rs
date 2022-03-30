@@ -176,11 +176,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                     return Err(crate::error::ElusivError::InvalidAccount.into());
                 }
 
-                // Check for correct account id
-                if *account_info.key != id() {
-                    return Err(crate::error::ElusivError::InvalidAccount.into());
-                }
-
                 // Check for writability
                 if !account_info.is_writable {
                     return Err(crate::error::ElusivError::InvalidAccount.into());

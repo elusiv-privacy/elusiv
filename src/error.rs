@@ -39,6 +39,8 @@ pub enum ElusivError {
     CommitmentComputationIsNotYetFinished,
     CommitmentComputationIsAlreadyFinished,
     HashingIsAlreadyComplete,
+    UnableToArchiveNullifierAccount,
+    InvalidNullifierAccount,
 }
 
 impl From<ElusivError> for ProgramError {
@@ -78,6 +80,8 @@ impl fmt::Display for ElusivError {
             Self::CommitmentComputationIsNotYetFinished => write!(f, "CommitmentComputationIsNotYetFinished"),
             Self::CommitmentComputationIsAlreadyFinished => write!(f, "CommitmentComputationIsAlreadyFinished"),
             Self::HashingIsAlreadyComplete => write!(f, "HashingIsAlreadyComplete"),
+            Self::UnableToArchiveNullifierAccount => write!(f, "UnableToArchiveNullifierAccount"),
+            Self::InvalidNullifierAccount => write!(f, "InvalidNullifierAccount"),
         }
     }
 }

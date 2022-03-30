@@ -1,57 +1,38 @@
 use elusiv_account::*;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
-use super::types::U256;
-use super::bytes::contains;
-use super::error::ElusivError;
+use crate::types::U256;
+use crate::bytes::contains;
+use crate::error::ElusivError;
+use super::NullifierAccount;
 
 pub const TREE_HEIGHT: usize = 16;
 pub const TREE_SIZE: usize = 1 << (TREE_HEIGHT + 1);
 pub const TREE_LEAF_START: usize = (1 << TREE_HEIGHT) - 1;
 pub const TREE_LEAF_COUNT: usize = 1 << TREE_HEIGHT;
-const NULLIFIERS_COUNT: usize = 1 << (TREE_HEIGHT);
 const HISTORY_ARRAY_COUNT: usize = 10;
-
-solana_program::declare_id!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
 
 #[derive(ElusivAccount)]
 #[remove_original_implementation]
 struct StorageAccount {
-    next_leaf: u64,
-    next_nullifier: u64,
-
     merkle_tree: [U256; TREE_SIZE],
-    nullifier_hashes: [U256; NULLIFIERS_COUNT],
+    next_commitment: u64,
+
     root_history: [U256; HISTORY_ARRAY_COUNT],
+
+    nullifier_account: Option<U256>,
 }
 
-// Nullifier hashes and commitment
+// Commitments
 impl<'a> StorageAccount<'a> {
-    pub fn can_insert_nullifier_hash(&self, nullifier_hash: U256) -> ProgramResult {
-        if self.get_next_nullifier() >= NULLIFIERS_COUNT as u64 {
-            return Err(ElusivError::NullifierAlreadyUsed.into());
-        }
-
-        if contains(nullifier_hash, &self.nullifier_hashes) {
-            return Err(ElusivError::NoRoomForNullifier.into());
-        }
-
-        Ok(())
-    }
-
-    pub fn insert_nullifier_hash(&mut self, nullifier_hash: U256) -> ProgramResult {
-        let index = self.get_next_nullifier();
-        self.set_nullifier_hashes(index as usize, &nullifier_hash);
-
-        Ok(())
-    }
+    elusiv_account::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
 
     pub fn can_insert_commitment(&self, commitment: U256) -> ProgramResult {
-        if self.get_next_leaf() >= TREE_LEAF_COUNT as u64 {
+        if self.get_next_commitment() >= TREE_LEAF_COUNT as u64 {
             return Err(ElusivError::NoRoomForCommitment.into());
         }
 
-        let tree_leaves = &self.merkle_tree[TREE_LEAF_START..(TREE_LEAF_START + self.get_next_leaf() as usize)];
+        let tree_leaves = &self.merkle_tree[TREE_LEAF_START..(TREE_LEAF_START + self.get_next_commitment() as usize)];
         if contains(commitment, tree_leaves) {
             return Err(ElusivError::CommitmentAlreadyUsed.into());
         }
@@ -61,7 +42,7 @@ impl<'a> StorageAccount<'a> {
 
     /// Inserts commitment and the above hashes
     pub fn insert_commitment(&mut self, values: [U256; TREE_HEIGHT + 1]) -> ProgramResult {
-        let leaf_index = self.get_next_leaf() as usize;
+        let leaf_index = self.get_next_commitment() as usize;
 
         // Additional commitment security check
         let commitment = values[0];
@@ -79,20 +60,36 @@ impl<'a> StorageAccount<'a> {
         }
 
         // Increment pointer
-        self.set_next_leaf(leaf_index as u64 + 1);
+        self.set_next_commitment(leaf_index as u64 + 1);
 
         Ok(())
     }
+}
 
-    pub fn is_root_valid(&self, root: U256) -> ProgramResult {
-        // Checks for root equality with tree root
-        if contains(root, &self.merkle_tree[..32]) {
-            return Ok(());
+// Root
+impl<'a> StorageAccount<'a> {
+    pub fn is_root_valid(&self, nullifier_account: &NullifierAccount, root: U256) -> ProgramResult {
+        // If nullifier account is active, just check storage account roots
+        match self.get_nullifier_account() {
+            Some(active_nullifier_account) => {
+                if nullifier_account.get_key() == active_nullifier_account {
+                    // Checks for root equality with tree root
+                    if contains(root, &self.merkle_tree[..32]) {
+                        return Ok(());
+                    }
+
+                    // Checks for root in root history
+                    if contains(root, self.root_history) {
+                        return Ok(());
+                    }
+                }
+            },
+            None => {}
         }
 
-        // Checks for root in root history
-        if contains(root, self.root_history) {
-            return Ok(());
+        // Archived nullifier account
+        if nullifier_account.get_root() == root {
+            return Ok(())
         }
 
         Err(ElusivError::InvalidMerkleRoot.into())
@@ -140,6 +137,11 @@ impl<'a> StorageAccount<'a> {
 
         Ok(())
     }
+}
+
+// Nullifiers
+impl<'a> StorageAccount<'a> {
+    
 }
 
 pub fn tree_array_index(layer: usize, index: usize) -> usize {

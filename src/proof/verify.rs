@@ -3,12 +3,15 @@ use super::*;
 use crate::types::U256;
 use crate::error::ElusivError;
 
-pub fn verify_proof<VKey: VerificationKey>(
-    account: &mut ProofAccount,
-    iteration: usize
-) -> Result<bool, ProgramError> {
+pub fn is_computation_finished<VKey: VerificationKey>(account: &mut ProofAccount) -> bool {
+    let iteration = account.get_iteration() as usize;
+
+    iteration != VKey::FULL_ITERATIONS
+}
+
+pub fn verify_proof<VKey: VerificationKey>(account: &mut ProofAccount) -> Result<bool, ProgramError> {
     // Check that computation is complete
-    if iteration != VKey::FULL_ITERATIONS {
+    if !is_computation_finished::<VKey>(account) {
         return Err(ElusivError::ProofComputationIsNotYetFinished.into());
     }
 
@@ -42,5 +45,7 @@ pub fn full_verification<VKey: VerificationKey>(
         partial_final_exponentiation(&mut account, i)?;
     }
 
-    verify_proof::<VKey>(&mut account, VKey::FULL_ITERATIONS)
+    account.set_iteration(VKey::FULL_ITERATIONS as u64);
+
+    verify_proof::<VKey>(&mut account)
 }

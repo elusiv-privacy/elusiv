@@ -9,51 +9,24 @@ use crate::error::ElusivError;
 
 use crate::state::*;
 use crate::queue::state::*;
-use crate::queue::proof_request::ProofRequest;
+use crate::queue::proof_request::{ProofRequest, ProofRequestKind};
 
 const MINIMUM_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 
 pub fn store<'a>(
     sender: &AccountInfo<'a>,
     storage_account: &StorageAccount,
+    nullifier_account: &NullifierAccount,
     queue_account: &mut QueueAccount,
     pool: &AccountInfo<'a>,
     system_program: &AccountInfo<'a>,
     proof_data: ProofData,
-    commitment: U256,
+    commitments: Vec<U256>,
 ) -> ProgramResult {
     // Check public inputs
     check_public_inputs(
         storage_account,
-        &proof_data,
-        &vec![commitment],
-    )?;
-
-    // TODO: Compute fee
-    let fee = 0;
-
-    // Add store request to queue
-    queue_account.proof_queue.enqueue(
-        ProofRequest::Store { proof_data, fee, commitment }
-    )?;
-
-    // Transfer funds + fees
-    let lamports = proof_data.amount + fee;
-    send_with_system_program(sender, pool, system_program, lamports)
-}
-
-pub fn bind<'a>(
-    sender: &AccountInfo<'a>,
-    storage_account: &StorageAccount,
-    queue_account: &mut QueueAccount,
-    pool: &AccountInfo<'a>,
-    system_program: &AccountInfo<'a>,
-    proof_data: ProofData,
-    commitments: [U256; 2],
-) -> ProgramResult {
-    // Check public inputs
-    check_public_inputs(
-        storage_account,
+        nullifier_account,
         &proof_data,
         &commitments,
     )?;
@@ -61,9 +34,19 @@ pub fn bind<'a>(
     // TODO: Compute fee
     let fee = 0;
 
-    // Add bind request to queue
+    // Add store/bind request to queue
     queue_account.proof_queue.enqueue(
-        ProofRequest::Bind { proof_data, fee, unbound_commitment: commitments[0], bound_commitment: commitments[1] }
+        ProofRequest {
+            proof_data,
+            nullifier_account: nullifier_account.get_key(),
+            fee,
+            kind: 
+                if commitments.len() == 1 {
+                    ProofRequestKind::Store { commitment: commitments[0] }
+                } else {
+                    ProofRequestKind::Bind { unbound_commitment: commitments[0], bound_commitment: commitments[1] }
+                }
+        }
     )?;
 
     // Transfer funds + fees
@@ -73,6 +56,7 @@ pub fn bind<'a>(
 
 fn check_public_inputs(
     storage_account: &StorageAccount,
+    nullifier_account: &NullifierAccount,
     proof_data: &ProofData,
     commitments: &[U256],
 ) -> ProgramResult {
@@ -81,11 +65,14 @@ fn check_public_inputs(
         storage_account.can_insert_commitment(commitment)?;
     }
 
-    // Check if nullifier_hash is new
-    storage_account.can_insert_nullifier_hash(proof_data.nullifier_hash)?;
+    // Check if root is valid by matching the nullifier account
+    storage_account.is_root_valid(nullifier_account, proof_data.root)?;
 
-    // Check root
-    storage_account.is_root_valid(proof_data.root)?;
+    // Check if nullifier is new and not in queue
+    // Note:
+    // - This check itself does not prevent double spending, just a check to prevent spam/mistaken double
+    // - The important check happens at the end of the proof verification
+    nullifier_account.can_insert_nullifier(proof_data.nullifier)?;
 
     // Check amount
     if proof_data.amount < MINIMUM_AMOUNT {
@@ -125,6 +112,7 @@ fn send_with_system_program<'a>(
 
 pub fn send(
     storage_account: &StorageAccount,
+    nullifier_account: &NullifierAccount,
     queue_account: &mut QueueAccount,
     proof_data: ProofData,
     recipient: U256,
@@ -132,6 +120,7 @@ pub fn send(
     // Check public inputs
     check_public_inputs(
         storage_account,
+        nullifier_account,
         &proof_data,
         &vec![],
     )?;
@@ -141,7 +130,12 @@ pub fn send(
 
     // Add send request to queue
     queue_account.proof_queue.enqueue(
-        ProofRequest::Send { proof_data, fee, recipient }
+        ProofRequest {
+            proof_data,
+            nullifier_account: nullifier_account.get_key(),
+            fee,
+            kind: ProofRequestKind::Send { recipient }
+        }
     )?;
 
     Ok(())

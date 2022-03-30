@@ -53,6 +53,60 @@ pub fn available_types() -> Vec<FieldType> {
         },
 
         FieldType {
+            ident: "U256",
+            byte_size: 32,
+            def: None, split: None,
+            getter: Some(Box::new(|getter_name: &Ident, field_name: &Ident| { quote! {
+                pub fn #getter_name(&self) -> U256 {
+                    let mut a = [0; 32];
+                    for i in 0..32 { a[i] = self.#field_name[i]; }
+                    a
+                }
+            }})),
+            setter: Some(Box::new(|setter_name: &Ident, field_name: &Ident| { quote! {
+                pub fn #setter_name(&mut self, i: usize, bytes: &[u8]) {
+                    for (i, &byte) in bytes.iter().enumerate() {
+                        self.#field_name[i] = byte;
+                    }
+                }
+            }})),
+        },
+        
+        FieldType {
+            ident: "Option < U256 >",
+            byte_size: 32 + 1,
+            def: None, split: None,
+            getter: Some(Box::new(|getter_name: &Ident, field_name: &Ident| { quote! {
+                pub fn #getter_name(&self) -> Option<U256> {
+                    let mut option = self.#field_name[0];
+                    let mut a = [0; 32];
+                    for i in 0..32 { a[i] = self.#field_name[i + 1]; }
+
+                    if option == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                }
+            }})),
+            setter: Some(Box::new(|setter_name: &Ident, field_name: &Ident| { quote! {
+                pub fn #setter_name(&mut self, i: usize, value: Option<U256>) {
+                    match value {
+                        None => {
+                            self.#field_name[0] = 0;
+                        },
+                        Some(v) => {
+                            self.#field_name[0] = 1;
+                            for (i, &byte) in v.iter().enumerate() {
+                                self.#field_name[i + 1] = byte;
+                            }
+                        }
+                    }
+                }
+            }})),
+        },
+
+        FieldType {
             ident: "[U256]",
             byte_size: 32,
             def: None, split: None,

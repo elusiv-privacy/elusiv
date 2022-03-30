@@ -4,7 +4,6 @@ use crate::error::ElusivError;
 use crate::types::U256;
 use crate::state::{TREE_HEIGHT, StorageAccount};
 
-solana_program::declare_id!("CJ4PyZKqLUCf4XMZbsbX9WMCuFLNR37PejKtLjVbxXHN");
 #[derive(ElusivAccount)]
 #[remove_original_implementation]
 struct CommitmentAccount {
@@ -22,6 +21,8 @@ struct CommitmentAccount {
 }
 
 impl<'a> CommitmentAccount<'a> {
+    elusiv_account::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
+
     pub fn reset(
         &mut self,
         storage_account: &StorageAccount,
@@ -38,7 +39,7 @@ impl<'a> CommitmentAccount<'a> {
         self.set_current_hash_tree_position(0);
 
         // Store hashing partners (aka opening)
-        let leaf_index = storage_account.get_next_leaf();
+        let leaf_index = storage_account.get_next_commitment();
         self.set_leaf_index(leaf_index);
         let opening = storage_account.get_tree_opening(leaf_index as usize)?;
         for (i, partner) in opening.iter().enumerate() {

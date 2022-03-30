@@ -28,6 +28,8 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
 
             account!(sender, signer);
             account!(Storage);
+            account!(Archive);
+            account!(nullifier_account, nullifier);
             account!(Queue);
             account!(pool, pool);
             account!(system_program, no_check);
@@ -35,39 +37,49 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
             store(
                 sender,
                 &storage_account,
+                &nullifier_account,
                 &mut queue_account,
                 pool,
                 system_program,
                 proof_data,
-                unbound_commitment
+                vec![unbound_commitment]
             )
         },
         Bind { proof_data, unbound_commitment, bound_commitment } => {
 
             account!(sender, signer);
             account!(Storage);
+            account!(Archive);
+            account!(nullifier_account, nullifier);
             account!(Queue);
             account!(pool, pool);
             account!(system_program, no_check);
 
-            bind(
+            store(
                 sender,
                 &storage_account,
+                &nullifier_account,
                 &mut queue_account,
                 pool,
                 system_program,
                 proof_data,
-                [ unbound_commitment, bound_commitment, ]
+                vec![
+                    unbound_commitment,
+                    bound_commitment,
+                ]
             )
         },
 
         Send { proof_data, recipient } => {
 
             account!(Storage);
+            account!(Archive);
+            account!(nullifier_account, nullifier);
             account!(Queue);
 
             send(
                 &storage_account,
+                &nullifier_account,
                 &mut queue_account,
                 proof_data,
                 recipient,
@@ -98,10 +110,17 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
         FinalizeProof => {
 
             account!(Storage);
+            account!(Archive);
+            account!(nullifier_account, nullifier);
             account!(Queue);
             account!(Proof);
 
-            finalize_proof(&mut storage_account, &mut queue_account, &mut proof_account)
+            finalize_proof(
+                &mut storage_account,
+                &mut nullifier_account,
+                &mut queue_account,
+                &mut proof_account
+            )
         },
 
         InitCommitment => {

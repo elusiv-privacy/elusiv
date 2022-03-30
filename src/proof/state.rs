@@ -14,16 +14,16 @@ const ONE_1: Fq = field_new!(Fq, "1");
 
 const MAX_PUBLIC_INPUTS_COUNT: usize = 6;
 
-solana_program::declare_id!("9KxywMSGSvk7yoVd3QV8bWbQd5EY4CPxxZZRtmAZaW2T");
-
 #[derive(ElusivAccount)]
 #[remove_original_implementation]
 pub struct ProofAccount {
     // If `false` account can be reset
     is_active: bool,
+    is_verified: bool,
 
     #[buffer(ProofRequest::SIZE)]
     request: ProofRequest,
+    nullifier_account: U256,
 
     // Stacks
     #[lazy_stack(6, 32, serialize_fq, deserialize_fq)]
@@ -55,6 +55,10 @@ pub struct ProofAccount {
     round: u64,
 }
 
+impl<'a> ProofAccount<'a> {
+    elusiv_account::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
+}
+
 pub fn reset_with_request<VKey: VerificationKey>(
     account: &mut ProofAccount,
     request: ProofRequest,
@@ -64,6 +68,7 @@ pub fn reset_with_request<VKey: VerificationKey>(
         return Err(ElusivError::ProofAccountCannotBeReset.into());
     }
     account.set_is_active(true);
+    account.set_is_verified(false);
 
     // Save request
     for (i, &byte) in ProofRequest::serialize(request).iter().enumerate() {
@@ -71,7 +76,7 @@ pub fn reset_with_request<VKey: VerificationKey>(
     }
 
     // Parse proof
-    let proof = super::Proof::from_bytes(&request.get_proof_data().proof)?;
+    let proof = super::Proof::from_bytes(&request.proof_data.proof)?;
 
     // Public inputs
     let public_inputs = request.get_public_inputs();

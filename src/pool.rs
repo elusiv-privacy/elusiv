@@ -1,1 +1,1 @@
-solana_program::declare_id!("AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7");
+elusiv_account::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");

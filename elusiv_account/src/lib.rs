@@ -6,6 +6,7 @@ mod account;
 mod elusiv_instruction;
 mod utils;
 
+use proc_macro2::TokenStream;
 use syn::{ parse_macro_input, DeriveInput };
 use elusiv_account::*;
 use elusiv_instruction::*;
@@ -25,8 +26,6 @@ use account::*;
 pub fn elusiv_account(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     impl_elusiv_account(&ast).into()
-    //let k = impl_elusiv_account(&ast);
-    //panic!("{}", k);
 }
 
 /// Removes the complete TokenStream
@@ -59,4 +58,12 @@ pub fn elusiv_instruction(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 #[proc_macro]
 pub fn account(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     impl_account(&input).into()
+}
+
+#[proc_macro]
+pub fn pubkey(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let id: TokenStream = input.into();
+    quote::quote! {
+        pub const ID: solana_program::pubkey::Pubkey = solana_program::pubkey!(#id);
+    }.into()
 }

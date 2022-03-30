@@ -9,8 +9,12 @@ pub fn impl_account(ast: &proc_macro::TokenStream) -> proc_macro2::TokenStream {
     if args.len() == 1 {   // Program account objects
         let (name, ty) = get_account(ident);
 
+        // Unpack account and check for correct account id
         quote! {
             let #name = solana_program::account_info::next_account_info(account_info_iter)?;
+            if *#name.key != #ty::ID {
+                return Err(crate::error::ElusivError::InvalidAccount.into());
+            }
             let acc_data = &mut #name.data.borrow_mut()[..];
             let mut #name = #ty::new(&#name, acc_data)?;
         }
@@ -41,11 +45,30 @@ pub fn impl_account(ast: &proc_macro::TokenStream) -> proc_macro2::TokenStream {
                         return Err(crate::error::ElusivError::InvalidAccount.into());
                     }
 
-                    if *#name.key != crate::pool::id() {
+                    if *#name.key != crate::pool::ID {
                         return Err(crate::error::ElusivError::InvalidAccount.into());
                     }
                 }
             },
+            "nullifier" => {
+                quote! {
+                    let nullifier_acc_info = solana_program::account_info::next_account_info(account_info_iter)?;
+                    if *nullifier_acc_info.owner != crate::id() {
+                        return Err(crate::error::ElusivError::InvalidAccount.into());
+                    }
+
+                    // Check if nullifier account is active or archived
+                    archive_account.is_nullifier_account_valid(&storage_account, nullifier_acc_info.key.to_bytes())?; 
+
+                    let acc_data = &mut nullifier_acc_info.data.borrow_mut()[..];
+                    let mut #name = NullifierAccount::new(&nullifier_acc_info, acc_data)?;
+
+                    // Check that key saved in nullifier account matches too
+                    if nullifier_acc_info.key.to_bytes() != #name.get_key() {
+                        return Err(crate::error::ElusivError::InvalidAccount.into());
+                    }
+                }
+            }
             _ => { panic!("Invalid role {}", role); }
         }
     } else {
@@ -53,8 +76,9 @@ pub fn impl_account(ast: &proc_macro::TokenStream) -> proc_macro2::TokenStream {
     }
 }
 
-const ACCOUNTS: [&'static str; 4] = [
+const ACCOUNTS: [&'static str; 5] = [
     "Storage",
+    "Archive",
     "Queue",
     "Commitment",
     "Proof",

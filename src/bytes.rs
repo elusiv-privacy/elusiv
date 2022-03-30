@@ -10,17 +10,24 @@ use super::fields::utils::*;
 use super::types::{ U256, ProofData };
 
 pub fn contains(bytes: U256, buffer: &[u8]) -> bool {
+    match find(bytes, buffer) {
+        Some(_) => true,
+        None => false
+    }
+}
+
+pub fn find(bytes: U256, buffer: &[u8]) -> Option<usize> {
     let length = buffer.len() >> 5;
     for i in 0..length {
         let index = i << 5;
         if buffer[index] == bytes[0] {
             for j in 1..4 {
                 if buffer[index + 1] != bytes[j] { continue; }
-                return true;
+                return Some(i);
             }
         }
     }
-    false
+    None
 }
 
 pub fn bytes_to_u64(bytes: &[u8]) -> u64 {
@@ -38,7 +45,7 @@ pub fn unpack_proof_data(data: &[u8]) -> Result<(ProofData, &[u8]), ProgramError
     let (amount, data) = unpack_u64(&data)?;
 
     // Nullifier hash
-    let (nullifier_hash, data) = unpack_u256(&data)?;
+    let (nullifier, data) = unpack_u256(&data)?;
 
     // Root
     let (root, data) = unpack_u256(&data)?;
@@ -49,7 +56,7 @@ pub fn unpack_proof_data(data: &[u8]) -> Result<(ProofData, &[u8]), ProgramError
     Ok((
         ProofData {
             amount,
-            nullifier_hash,
+            nullifier,
             root,
             proof,
         },
@@ -64,10 +71,10 @@ pub fn write_proof_data(proof_data: ProofData) -> Vec<u8> {
     buffer.extend(proof_data.amount.to_le_bytes());
 
     // Nullifier hash
-    buffer.extend(serialize_u256(proof_data.nullifier_hash));
+    buffer.extend(serialize_u256(proof_data.nullifier));
 
     // Root
-    buffer.extend(serialize_u256(proof_data.nullifier_hash));
+    buffer.extend(serialize_u256(proof_data.nullifier));
 
     // Proof
     buffer.extend(&proof_data.proof);
