@@ -1,18 +1,15 @@
 use solana_program::entrypoint::ProgramResult;
 use ark_bn254::{ Fq, G1Affine, G1Projective };
-use ark_ec::{
-    ProjectiveCurve,
-};
+use ark_ec::ProjectiveCurve;
 use ark_ff::*;
-use core::ops::{ AddAssign };
+use core::ops::AddAssign;
 use super::{state::*, VerificationKey};
 
-//pub const PREPARE_INPUTS_ITERATIONS: usize = 104;
-pub const PREPARE_INPUTS_BASE_ITERATIONS: usize = 52;
-//pub const PREPARE_INPUTS_ROUNDS: [usize; PREPARE_INPUTS_ITERATIONS] = [3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 1];
+const ROUND_INC: usize = 29;
+const TX_PER_INPUT: usize = 9;
+const ROUNDS_PER_ITERATION: usize = TX_PER_INPUT * ROUND_INC;
 
-// Solution: at the moment we can just take 52 * PUBLIC_INPUTS_COUNt
-// -> we can set the number of iterations per verification key
+pub const fn prepare_inputs_tx_count(inputs_count: usize) -> usize { inputs_count * TX_PER_INPUT }
 
 /// Prepares `INPUTS_COUNT` public inputs (into one `G1Affine`)
 /// - requires `PREPARATION_ITERATIONS` calls to complete
@@ -22,18 +19,17 @@ pub fn partial_prepare_inputs<VKey: VerificationKey>(
 ) -> ProgramResult {
 
     let base_round = account.get_round() as usize;
-    let rounds = VKey::prepapre_inputs_rounds()[iteration];
 
-    for round in base_round..(base_round + rounds) {
-        let input = round / (MUL_G1A_SCALAR_ROUNDS + 1);
-        let round = round % (MUL_G1A_SCALAR_ROUNDS + 1);
+    for round in base_round..(base_round + ROUND_INC) {
+        let input = round / (ROUNDS_PER_ITERATION + 1);
+        let round = round % (ROUNDS_PER_ITERATION + 1);
 
         match round {
             // - pops: product (G1Projective, 3 Fqs)
             // - pushes: product (G1Projective)
             // Multiplication of gamma_abc_g1[input + 1] and input[input] (~ 34000 CUs)
             0..=MUL_G1A_SCALAR_ROUNDS_MINUS_ONE => {
-                let mut product = pop_g1_projective(account);   // (~ 169 CUs)
+                let mut product = pop_g1_projective(account);
 
                 partial_mul_g1a_scalar(
                     &VKey::gamma_abc_g1()[input + 1],
@@ -68,7 +64,7 @@ pub fn partial_prepare_inputs<VKey: VerificationKey>(
         }
     }
 
-    account.set_round((base_round + rounds) as u64);
+    account.set_round((base_round + ROUND_INC) as u64);
 
     Ok(())
 }
@@ -87,12 +83,11 @@ pub fn partial_mul_g1a_scalar(
 ) {
     let first_non_zero = find_first_non_zero(bytes_be);
 
-    if round < first_non_zero { return; }
-
-    // Multiplication core
-    double_in_place(acc); // ~ 13014 CUs
-    if get_bit(bytes_be, round / 8, 7 - (round % 8)) {
-        add_assign_mixed(acc, &g1a); // ~ 21000 CUs
+    if round >= first_non_zero { 
+        double_in_place(acc); // ~ 13014 CUs
+        if get_bit(bytes_be, round / 8, 7 - (round % 8)) {
+            add_assign_mixed(acc, &g1a); // ~ 21000 CUs
+        }
     }
 }
 
@@ -133,7 +128,6 @@ fn add_assign_mixed(g1p: &mut G1Projective, other: &G1Affine) {
     }
 
     // (~ 7417 CUs)
-
     let z1z1 = g1p.z.square();
     let u2 = other.x * &z1z1;
     let s2 = (other.y * &g1p.z) * &z1z1;

@@ -15,8 +15,8 @@ use crate::macros::guard;
 
 pub const TREE_HEIGHT: usize = 16;
 pub const TREE_SIZE: usize = 1 << (TREE_HEIGHT + 1);
-pub const TREE_LEAF_START: usize = (1 << TREE_HEIGHT) - 1;
-pub const TREE_LEAF_COUNT: usize = 1 << TREE_HEIGHT;
+pub const TREE_COMMITMENT_START: usize = (1 << TREE_HEIGHT) - 1;
+pub const TREE_COMMITMENT_COUNT: usize = 1 << TREE_HEIGHT;
 const HISTORY_ARRAY_COUNT: usize = 10;
 
 #[derive(ElusivAccount)]
@@ -99,6 +99,8 @@ impl<'a> StorageAccount<'a> {
         nullifier_account: &NullifierAccount,
         root: U256
     ) -> ProgramResult {
+        // TODO: Check that two different roots are from different trees/nullifier accounts
+        
         // If nullifier account is active, just check storage account roots
         match self.get_nullifier_account() {
             Some(active_nullifier_account) => {

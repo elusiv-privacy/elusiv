@@ -15,8 +15,6 @@ use crate::state::*;
 use crate::queue::state::*;
 use crate::queue::proof_request::{ProofRequest, ProofRequestKind};
 
-const MINIMUM_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
-
 pub fn store<'a>(
     sender: &AccountInfo<'a>,
     storage_account: &StorageAccount,
@@ -86,10 +84,7 @@ fn check_public_inputs(
     Ok(())
 }
 
-fn compute_fee(tx_count: u64) -> u64 {
-    let fee_calculator = solana_program::fee_calculator::FeeCalculator::default();
-    tx_count * fee_calculator.lamports_per_signature
-}
+
 
 fn send_with_system_program<'a>(
     sender: &AccountInfo<'a>,
@@ -97,27 +92,9 @@ fn send_with_system_program<'a>(
     system_program: & AccountInfo<'a>,
     lamports: u64,
 ) -> ProgramResult {
-    // Check if system_program is correct
-    guard!(
-        *system_program.key == solana_program::system_program::ID,
-        InvalidAccount
-    );
+    
 
-    let instruction = solana_program::system_instruction::transfer(
-        &sender.key,
-        recipient.key,
-        lamports
-    );
-    let (_, bump_seed) = Pubkey::find_program_address(&[b"elusiv"], &super::super::id());
-    solana_program::program::invoke_signed(
-        &instruction,
-        &[
-            sender.clone(),
-            recipient.clone(),
-            system_program.clone(),
-        ],
-        &[&[&b"elusiv"[..], &[bump_seed]]],
-    )
+    
 }
 
 pub fn send(

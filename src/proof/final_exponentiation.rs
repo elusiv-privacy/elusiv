@@ -18,10 +18,8 @@ use super::state::ProofAccount;
 
 // TODO: Handle unwrap/zero cases
 
-pub const FINAL_EXPONENTIATION_ITERATIONS: usize = 151;
-pub const FINAL_EXPONENTIATION_ROUNDS: [usize; FINAL_EXPONENTIATION_ITERATIONS] = [
-    7, 2, 5, 7, 8, 4, 18, 5, 8, 5, 13, 5, 9, 9, 5, 8, 5, 13, 5, 9, 9, 5, 8, 5, 9, 9, 5, 13, 9, 9, 9, 9, 5, 8, 5, 9, 9, 5, 13, 5, 13, 13, 5, 9, 9, 18, 5, 13, 9, 5, 5, 8, 13, 9, 9, 5, 13, 5, 8, 5, 9, 9, 5, 13, 5, 8, 5, 9, 9, 5, 8, 5, 9, 9, 13, 5, 13, 5, 9, 9, 5, 8, 5, 9, 9, 9, 9, 18, 5, 8, 5, 18, 9, 9, 13, 6, 7, 13, 9, 9, 5, 13, 5, 8, 5, 9, 9, 5, 13, 5, 8, 5, 9, 9, 5, 8, 5, 9, 9, 13, 5, 13, 5, 9, 9, 5, 8, 5, 9, 9, 9, 9, 18, 5, 8, 5, 18, 9, 9, 13, 7, 6, 6, 6, 6, 6, 7, 7, 6, 7, 6
-];
+pub const FINAL_EXPONENTIATION_ITERATIONS: usize = 23;
+pub const FINAL_EXPONENTIATION_ROUNDS: [usize; FINAL_EXPONENTIATION_ITERATIONS] = [51, 48, 53, 48, 61, 48, 70, 60, 48, 53, 48, 61, 48, 70, 59, 53, 52, 57, 48, 66, 66, 39, 32];
 
 pub fn partial_final_exponentiation(
     account: &mut ProofAccount,

@@ -1,4 +1,4 @@
-MAX_CUS = 1000000
+MAX_CUS = 1400000
 SECURITY_PADDING = 2000
 
 # Calculate the optimal distribution

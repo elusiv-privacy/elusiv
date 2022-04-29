@@ -68,8 +68,13 @@ pub fn get_field_unpack(field: Field, field_name: &Ident) -> proc_macro2::TokenS
                 "U256" => { quote! {
                     let (#field_name, data) = unpack_u256(&data)?;
                 } },
-                "ProofData" => { quote! {
-                    let (#field_name, data) = unpack_proof_data(&data)?;
+                "[U256; 2]" => { quote! {
+                    let (a, data) = unpack_u256(&data)?;
+                    let (b, data) = unpack_u256(&data)?;
+                    let #field_name = [a, b];
+                } },
+                "RawProof" => { quote! {
+                    let (#field_name, data) = unpack_raw_proof(&data)?;
                 } },
                 _ => { panic!("Invalid field {} type {}", field_name, type_name); }
             }

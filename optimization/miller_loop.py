@@ -5,8 +5,8 @@ START_CUS = 0
 ate_rev_normalized = [1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0]
 
 # Costs in CUs (BPF Compute Units)
-adding_rounds_cus = [7247, 8442, 17450, 11901, 29344, 14668]
-doubling_rounds_cus = [11502, 6020, 10393, 11970, 11906, 10372, 5889]
+adding_rounds_cus = [90000]
+doubling_rounds_cus = [70000]
 ell_rounds_cus = [11677, 92056, 10550, 92091, 10147, 91988]
 square_in_place_cus = 91923
 mul_by_char_cus = 18000

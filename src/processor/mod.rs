@@ -1,9 +1,14 @@
-mod transfer;
+mod store;
+mod send;
+mod merge;
 mod commitment;
 mod proof;
 mod accounts;
+mod utils;
 
-use transfer::*;
+use store::*;
+use send::*;
+use merge::*;
 use commitment::*;
 use proof::*;
 use accounts::*;
@@ -26,12 +31,10 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
     let account_info_iter = &mut accounts.iter();
 
     match instruction {
-        Store { proof_data, unbound_commitment } => {
+        Store { commitment_core, amount, commitment } => {
 
             account!(sender, signer);
             account!(Storage);
-            account!(Archive);
-            account!(nullifier_account, nullifier);
             account!(Queue);
             account!(pool, pool);
             account!(system_program, no_check);
@@ -39,51 +42,47 @@ pub fn process(_program_id: &Pubkey, accounts: &[AccountInfo], instruction: Elus
             store(
                 sender,
                 &storage_account,
-                &nullifier_account,
                 &mut queue_account,
                 pool,
                 system_program,
-                proof_data,
-                vec![unbound_commitment]
+                commitment_core,
+                amount,
+                commitment,
             )
         },
-        Bind { proof_data, unbound_commitment, bound_commitment } => {
 
-            account!(sender, signer);
+        Merge { proof_data } => {
+
             account!(Storage);
             account!(Archive);
-            account!(nullifier_account, nullifier);
+            account!(nullifier_account_a, nullifier);
+            account!(nullifier_account_b, nullifier);
             account!(Queue);
-            account!(pool, pool);
-            account!(system_program, no_check);
 
-            store(
-                sender,
+            merge(
                 &storage_account,
-                &nullifier_account,
+                [ &nullifier_account_a, &nullifier_account_b, ],
                 &mut queue_account,
-                pool,
-                system_program,
                 proof_data,
-                vec![
-                    unbound_commitment,
-                    bound_commitment,
-                ]
+                amount,
+                recipient,
             )
         },
 
-        Send { proof_data, recipient } => {
+        Send { proof_data, amount, recipient  } => { 
 
             account!(Storage);
             account!(Archive);
-            account!(nullifier_account, nullifier);
+            account!(nullifier_account_a, nullifier);
+            account!(nullifier_account_b, nullifier);
             account!(Queue);
 
             send(
                 &storage_account,
-                &nullifier_account,
+                [ &nullifier_account_a, &nullifier_account_b, ],
                 &mut queue_account,
                 proof_data,
+                amount,
                 recipient,
             )
         },

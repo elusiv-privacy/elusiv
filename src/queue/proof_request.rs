@@ -1,32 +1,28 @@
 use solana_program::program_error::ProgramError;
 use crate::bytes::*;
-use crate::types::{ ProofData, U256 };
+use crate::proof::PROOF_BYTES_SIZE;
+use crate::types::{ RawProof, U256 };
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, PartialEq)]
 pub struct ProofRequest {
-    pub proof_data: ProofData,
-    pub nullifier_account: U256,
-    pub fee: u64,
+    pub proof: RawProof,
+    pub nullifier_accounts: [U256; 2],
+    pub nullifiers: [U256; 2],
+    pub commitment: U256,
     pub kind: ProofRequestKind,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-#[derive(elusiv_account::ElusivInstruction)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, PartialEq)]
 pub enum ProofRequestKind {
-    Store {
-        commitment: U256,
-    },
-    Bind {
-        unbound_commitment: U256,
-        bound_commitment: U256,
-    },
     Send {
         recipient: U256,
+        amount: u64,
     },
+    Merge,
 }
 
 impl ProofRequestKind {
-    pub const SIZE: usize = 32 + 32;
+    pub const SIZE: usize = 32 + 8;
 
     pub fn deserialize(data: &[u8]) -> ProofRequestKind {
         Self::unpack(data).unwrap()
@@ -36,22 +32,14 @@ impl ProofRequestKind {
         let mut buffer = Vec::new();
         
         match *self {
-            Self::Store { commitment } => {
+            Self::Send { recipient, amount } => {
                 buffer.push(0);
-
-                buffer.extend(serialize_u256(commitment));
-            },
-            Self::Bind { unbound_commitment, bound_commitment } => {
-                buffer.push(1);
-
-                buffer.extend(serialize_u256(unbound_commitment));
-                buffer.extend(serialize_u256(bound_commitment));
-            },
-            Self::Send { recipient } => {
-                buffer.push(2);
-
                 buffer.extend(serialize_u256(recipient));
+                buffer.extend(amount.to_le_bytes());
             },
+            Self::Merge => {
+                buffer.push(1);
+            }
         }
 
         buffer
@@ -59,22 +47,35 @@ impl ProofRequestKind {
 }
 
 impl ProofRequest {
-    pub const SIZE: usize = ProofData::SIZE + 32 + 32 + 8 + ProofRequestKind::SIZE;
+    pub const SIZE: usize = PROOF_BYTES_SIZE + 64 + 64 + 32 + ProofRequestKind::SIZE;
 
     pub fn deserialize(data: &[u8]) -> ProofRequest {
-        let (proof_data, data) = unpack_proof_data(data).unwrap();
-        let (nullifier_account, data) = unpack_u256(data).unwrap();
-        let (fee, data) = unpack_u64(data).unwrap();
+        let (proof, data) = unpack_raw_proof(data).unwrap();
+
+        let (nullifier_account_a, data) = unpack_u256(data).unwrap();
+        let (nullifier_account_b, data) = unpack_u256(data).unwrap();
+        let nullifier_accounts = [nullifier_account_a, nullifier_account_b];
+
+        let (nullifier_a, data) = unpack_u256(data).unwrap();
+        let (nullifier_b, data) = unpack_u256(data).unwrap();
+        let nullifiers = [nullifier_a, nullifier_b];
+
+        let (commitment, data) = unpack_u256(data).unwrap();
         let kind = ProofRequestKind::deserialize(data);
 
-        ProofRequest { proof_data, nullifier_account, fee, kind }
+        ProofRequest { proof, nullifier_accounts, nullifiers, commitment, kind }
     }
 
     pub fn serialize(value: ProofRequest) -> Vec<u8> {
         let mut buffer = Vec::new();
 
-        buffer.extend(write_proof_data(value.proof_data));
-        buffer.extend(serialize_u256(value.nullifier_account));
+        buffer.extend(write_raw_proof(value.proof));
+
+        buffer.extend(serialize_u256(value.nullifier_accounts[0]));
+        buffer.extend(serialize_u256(value.nullifier_accounts[1]));
+
+        buffer.extend(serialize_u256(value.nullifier_accounts[1]));
+
         buffer.extend(value.fee.to_le_bytes());
         buffer.extend(value.kind.serialize());
         

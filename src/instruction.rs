@@ -7,18 +7,18 @@ use super::bytes::*;
 #[derive(crate::macros::ElusivInstruction)]
 pub enum ElusivInstruction {
     Store {
-        proof_data: ProofData,
-        unbound_commitment: U256,
+        base_commitment: U256,  // h(nullifier, timestamp)
+        amount: u64,
+        commitment: U256,
     },
 
-    Bind {
-        proof_data: ProofData,
-        unbound_commitment: U256,
-        bound_commitment: U256,
+    Merge {
+        proof_data: ProofDataBinary,
     },
 
     Send {
-        proof_data: ProofData,
+        proof_data: ProofDataBinary,
+        amount: u64,
         recipient: U256,
     },
 

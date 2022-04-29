@@ -44,22 +44,17 @@ pub fn elusiv_instruction(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 /// Brings program accounts or Account Info's into scope
 /// ### Usage
 /// - account!(ident, role)
-/// - no role (program accounts):
-///     - Storage
-///     - Queue
-///     - Commitment
-///     - Proof
-/// - signer:
-///     - Sender
-///     - Relayer
-///     - Cranker
+/// - no role (program accounts): Storage, Queue, Commitment, Proof, Archive, 
+/// - signer
 /// - pool
+/// - nullifier
 /// - no_check
 #[proc_macro]
 pub fn account(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     impl_account(&input).into()
 }
 
+/// Creates a constant `ID: Pubkey`
 #[proc_macro]
 pub fn pubkey(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let id: TokenStream = input.into();

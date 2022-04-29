@@ -1,5 +1,4 @@
 use crate::types::RawProof;
-
 use super::fields::scalar::*;
 use super::proof::PROOF_BYTES_SIZE;
 use solana_program::program_error::{
@@ -42,48 +41,6 @@ pub fn bytes_to_u64(bytes: &[u8]) -> u64 {
 pub fn bytes_to_u32(bytes: &[u8]) -> u32 {
     let a: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
     u32::from_le_bytes(a)
-}
-
-pub fn unpack_proof_data(data: &[u8]) -> Result<(ProofData, &[u8]), ProgramError> {
-    // Amount
-    let (amount, data) = unpack_u64(&data)?;
-
-    // Nullifier hash
-    let (nullifier, data) = unpack_u256(&data)?;
-
-    // Root
-    let (root, data) = unpack_u256(&data)?;
-
-    // Proof
-    let (proof, data) = unpack_raw_proof(&data)?;
-
-    Ok((
-        ProofData {
-            amount,
-            nullifier,
-            root,
-            proof,
-        },
-        data
-    ))
-}
-
-pub fn write_proof_data(proof_data: ProofData) -> Vec<u8> {
-    let mut buffer = Vec::new();
-
-    // Amount
-    buffer.extend(proof_data.amount.to_le_bytes());
-
-    // Nullifier hash
-    buffer.extend(serialize_u256(proof_data.nullifier));
-
-    // Root
-    buffer.extend(serialize_u256(proof_data.nullifier));
-
-    // Proof
-    buffer.extend(&proof_data.proof);
-
-    buffer
 }
 
 pub fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {

@@ -73,19 +73,18 @@ rounds_cus = list()
 
 # Stub algorithm to sum up costs
 for arm in arms:
-    match arm:
-        case Arm.One:
-            rounds_cus.append(conjugate_swap_cus)
-        case Arm.Inverse:
-            rounds_cus.extend(inverse_cus)
-        case Arm.Mul:
-            rounds_cus.extend(mul_cus)
-        case Arm.Frobenius:
-            rounds_cus.extend(frobenius_cus)
-        case Arm.CyclotomicSquare:
-            rounds_cus.append(cyclotomic_square_cus)
-        case Arm.ExpByNegX:
-            rounds_cus.extend(exp_cus)
+    if arm == Arm.One:
+        rounds_cus.append(conjugate_swap_cus)
+    elif arm == Arm.Inverse:
+        rounds_cus.extend(inverse_cus)
+    elif arm == Arm.Mul:
+        rounds_cus.extend(mul_cus)
+    elif arm == Arm.Frobenius:
+        rounds_cus.extend(frobenius_cus)
+    elif arm == Arm.CyclotomicSquare:
+        rounds_cus.append(cyclotomic_square_cus)
+    elif arm == Arm.ExpByNegX:
+        rounds_cus.extend(exp_cus)
 
 # Calculate the optimal distribution
 from optimize_distribution import find_optimal_distribution

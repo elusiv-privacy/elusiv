@@ -19,12 +19,10 @@ struct G2HomProjective {
     pub z: Fq2,
 }
 
-pub const MILLER_LOOP_ITERATIONS: usize = 336;
-const ITERATION_ROUNDS: [usize; MILLER_LOOP_ITERATIONS] = [
-    10, 3, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 6, 4, 2, 1, 9, 2, 2, 13, 9, 2, 2, 13, 9, 2, 2, 18, 5, 2, 6, 5, 2, 1
-];
-const MAIN_ROUNDS: usize = 1664;
-const FULL_ROUNDS: usize = ADDITION_ROUNDS + DOUBLING_ROUNDS + 2 * ELL_ROUNDS + 1;
+pub const MILLER_LOOP_ITERATIONS: usize = 43;
+const ITERATION_ROUNDS: [usize; MILLER_LOOP_ITERATIONS] = [18, 24, 23, 24, 23, 16, 23, 30, 17, 30, 17, 17, 30, 23, 30, 30, 16, 30, 17, 30, 17, 17, 23, 30, 23, 23, 17, 30, 17, 24, 16, 30, 16, 30, 17, 17, 30, 17, 23, 23, 23, 32, 13];
+const MAIN_ROUNDS: usize = 960;
+const FULL_ROUNDS: usize = 1 + 1 + 2 * ELL_ROUNDS + 1;
 
 /// Computes the `miller_value` (12 q field elements)
 /// - requires `MILLER_LOOP_ITERATIONS` calls to complete
@@ -63,24 +61,24 @@ pub fn partial_miller_loop<VKey: VerificationKey>(
                     }
                 },
 
-                1..=7 => {  // DOUBLING_ROUNDS
-                    doubling_round(account, &mut r, round - 1);
+                1 => {
+                    doubling_round(account, &mut r);
                 },
-                8..=13 => { // DOUBLING_ROUNDS + ELL_ROUNDS
-                    ell_round::<VKey>(account, round - 8);
+                2..=7 => { // 6
+                    ell_round::<VKey>(account, round - 2);
                 },
 
-                14..=19 => {    // ADDITION_ROUNDS
+                8 => {
                     let bit = Parameters::ATE_LOOP_COUNT[63 - i];
                     if bit == 1 {
-                        addition_round(account, &mut r, &b, round - 14);
+                        addition_round(account, &mut r, &b);
                     } else if bit == -1 {
-                        addition_round(account, &mut r, &neg_b, round - 14);
+                        addition_round(account, &mut r, &neg_b);
                     }
                 },
-                20..=25 => {
+                9..=14 => {
                     if Parameters::ATE_LOOP_COUNT[63 - i] != 0 {
-                        ell_round::<VKey>(account, round - 20);
+                        ell_round::<VKey>(account, round - 9);
                     }
                 },
                 _ => {}
@@ -94,24 +92,24 @@ pub fn partial_miller_loop<VKey: VerificationKey>(
                     account.set_proof_b(b);
                 },
 
-                1..=6 => {  // ADDITION_ROUNDS
-                    addition_round(account, &mut r, &b, round - 1);
+                1 => {
+                    addition_round(account, &mut r, &b);
                 },
-                7..=12 => { // ADDITION_ROUNDS + ELL_ROUNDS
+                2..=7 => { // ADDITION_ROUNDS + ELL_ROUNDS
                     ell_round::<VKey>(account, round - 7);
                 },
 
-                13 => {
+                8 => {
                     b = mul_by_char(b);
                     b.y = -b.y;
                     account.set_proof_b(b);
                 },
 
-                14..=19 => {
-                    addition_round(account, &mut r, &b, round - 14);
+                9 => {
+                    addition_round(account, &mut r, &b);
                 },
-                20..=25 => {
-                    ell_round::<VKey>(account, round - 20);
+                10..=15 => {
+                    ell_round::<VKey>(account, round - 10);
                 },
                 _ => {}
             }
@@ -128,89 +126,31 @@ pub fn partial_miller_loop<VKey: VerificationKey>(
     Ok(())
 }
 
-const ADDITION_ROUNDS: usize = 6;
-
 /// Formula for line function when working with homogeneous projective coordinates
-/// - CUs: [7247, 8442, 17450, 11901, 29344, 14668]
 fn addition_round(
     account: &mut ProofAccount,
     r: &mut G2HomProjective,
     q: &G2Affine,
-    round: usize,
 ) {
-    match round {
-        // - pushes: coeff1, lambda (Fq2)
-        0 => { // compute lambda and store as 1st coeff element (CUs: Max: 7247 Avg: 7183 Min: 7123)
-            let lambda = r.x - &(q.x * &r.z);
+    let lambda = r.x - &(q.x * &r.z);
+    let theta = r.y - &(q.y * &r.z);
+    let d = lambda.square();
+    let e = lambda * &d;
+    let g = r.x * &d;
+    let c = theta.square();
+    let f = r.z * &c;
+    let h = e + &f - &g.double();
 
-            // Push 1. coefficient and 1 placeholder
-            account.fq2.push(lambda);
+    r.x = lambda * &h;
+    r.y = theta * &(g - &h) - &(e * &r.y);
+    r.z *= &e;
 
-            // Push lambda
-            account.fq2.push(lambda);
-        },
+    let j = theta * &q.x - &(lambda * &q.y);
 
-        // - pops: lambda
-        // - pushes: coeff2, lambda, theta (Fq2)
-        1 => { // compute theta and store as 2nd coeff element (CUs: Max: 8442 Avg: 8293 Min: 7647)
-            let theta = r.y - &(q.y * &r.z);
-            let lambda = account.fq2.pop();
-
-            account.fq2.push(-theta);
-            account.fq2.push(lambda);
-            account.fq2.push(theta);
-        },
-
-        // - pushes: e, g (Fq2)
-        2 => { // e, g (CUs: Max: 17450 Avg: 17374 Min: 17310)
-            let lambda = account.fq2.peek(1);
-
-            let d = lambda.square();
-            let e = lambda * &d;
-            let g = r.x * &d;
-
-            account.fq2.push(e);
-            account.fq2.push(g);
-        },
-
-        // - pushes: h (Fq2)
-        3 => { // c, h (CUs: Max: 11901 Avg: 11787 Min: 11693)
-            let g = account.fq2.peek(0);
-            let e = account.fq2.peek(1);
-            let theta = account.fq2.peek(2);
-
-            let c = theta.square();
-            let f = r.z * &c;
-            let h = e + &f - &g.double();
-
-            account.fq2.push(h);
-        },
-
-        // - pops: h, g, e
-        4 => { // Assign to r (CUs: Max: 29344 Avg: 26047 Min: 25775)
-            let h = account.fq2.pop();
-            let g = account.fq2.pop();
-            let e = account.fq2.pop();
-            let theta = account.fq2.peek(0);
-            let lambda = account.fq2.peek(1);
-
-            r.x = lambda * &h;
-            r.y = theta * &(g - &h) - &(e * &r.y);
-            r.z *= &e;
-        },
-
-        // - pops: theta, lambda
-        // - pushes: coeff3
-        5 => { // compute the last coeff element (CUs: Max: 14668 Avg: 13325 Min: 13140)
-            let theta = account.fq2.pop();
-            let lambda = account.fq2.pop();
-
-            let j = theta * &q.x - &(lambda * &q.y);
-
-            account.fq2.push(j);
-        },
-        _ => {}
-    }
+    // Push coefficients
+    account.fq2.push(lambda);
+    account.fq2.push(-theta);
+    account.fq2.push(j);
 }
 
 /// https://docs.rs/ark-bn254/0.3.0/src/ark_bn254/curves/g2.rs.html#19
@@ -220,103 +160,41 @@ const COEFF_B: Fq2 = field_new!(Fq2,
     field_new!(Fq, "266929791119991161246907387137283842545076965332900288569378510910307636690"),
 );
 
-const DOUBLING_ROUNDS: usize = 7;
-
 /// Formula for line function when working with homogeneous projective coordinates
-/// - CUs: [11502, 6020, 10393, 11970, 11906, 10372, 5889]
+/// 68000
 fn doubling_round(
     account: &mut ProofAccount,
     r: &mut G2HomProjective,
-    round: usize,
 ) {
-    match round {
-        // - pushes: coeff1, coeff2, coeff3, e, c
-        0 => { // c, e (CUs: Max: 11502 Avg: 11382 Min: 11268)
-            let c = r.z.square();
-            let e = COEFF_B * &(c.double() + &c);
+    let c = r.z.square();
+    let e = COEFF_B * &(c.double() + &c);
 
-            // Push coeff placeholders
-            account.fq2.push_empty();
-            account.fq2.push_empty();
-            account.fq2.push_empty();
+    let f = e.double() + &e;
+    let b = r.y.square();
+    let i = e - &b;
+    
+    let mut a = r.x * &r.y;
+    a.mul_assign_by_fp(&TWO_INV);
 
-            account.fq2.push(e);
-            account.fq2.push(c);
-        },
+    let mut j = r.x.square();
+    j = j.double() + &j;
+    r.x = a * &(b - &f);
 
-        // - pushes: b, f
-        1 => { // b, f, d set 3. coeff element (CUs: Max: 6020 Avg: 5928 Min: 5846)
-            let e = account.fq2.peek(1);
+    let h = (r.y + &r.z).square() - &(b + &c);
+    r.z = b * &h;
 
-            let f = e.double() + &e;
-            let b = r.y.square();
-            let i = e - &b;
-            
-            // Set the 3. coeff
-            account.fq2.replace(2, i);
+    let mut g = b + &f;
+    g.mul_assign_by_fp(&TWO_INV);
+    g = g.square();
 
-            account.fq2.push(b);
-            account.fq2.push(f);
-        },
+    let e_square = e.square();
 
-        // - pushes: a (Fq2)
-        2 => {  // a (CUs: Max: 10393 Avg: 10320 Min: 10254)
-            let mut a = r.x * &r.y;
-            a.mul_assign_by_fp(&TWO_INV);
+    r.y = g - &(e_square.double() + &e_square);
 
-            account.fq2.push(a);
-        },
-
-        // - pops: a
-        3 => {  // set 2. coeff element & set r.x (CUs: Max: 11970 Avg: 11860 Min: 11737)
-            let a = account.fq2.pop();
-            let f = account.fq2.peek(0);
-            let b = account.fq2.peek(1);
-
-            let mut j = r.x.square();
-            j = j.double() + &j;
-            r.x = a * &(b - &f);
-
-            // Set the 2. coeff
-            account.fq2.replace(5, j);
-        },
-
-        4 => {  // set 1. coeff element & assign r.z (CUs: Max: 11906 Avg: 11785 Min: 11665)
-            let b = account.fq2.peek(1);
-            let c = account.fq2.peek(2);
-
-            let h = (r.y + &r.z).square() - &(b + &c);
-            r.z = b * &h;
-
-            // Set the 1. coeff
-            account.fq2.replace(6, -h);
-        },
-
-        // - pops: f, b
-        // - pushes: g
-        5 => {  // (CUs: Max: 10372 Avg: 9445 Min: 8814)
-            let f = account.fq2.pop();
-            let b = account.fq2.pop();
-
-            let mut g = b + &f;
-            g.mul_assign_by_fp(&TWO_INV);
-            g = g.square();
-
-            account.fq2.push(g);
-        },
-
-        // - pops: g, c, e
-        6 => {  // set r.y (CUs: Max: 5889 Avg: 5373 Min: 5004)
-            let g = account.fq2.pop();
-            account.fq2.pop_empty();
-            let e = account.fq2.pop();
-
-            let e_square = e.square();
-
-            r.y = g - &(e_square.double() + &e_square);
-        },
-        _ => {}
-    }
+    // Push coefficients
+    account.fq2.push(-h);
+    account.fq2.push(j);
+    account.fq2.push(i);
 }
 
 const ELL_ROUNDS: usize = 6;
@@ -429,8 +307,8 @@ mod tests {
     use ark_ec::PairingEngine;
     use core::ops::Neg;
     use super::super::{ partial_prepare_inputs };
-    use super::super::super::fields::scalar::*;
-    use super::super::super::fields::utils::*;
+    use crate::fields::scalar::*;
+    use crate::fields::utils::*;
 
     type VKey = crate::proof::vkey::SendVerificationKey;
 
@@ -446,14 +324,7 @@ mod tests {
         doubling_step_original(&mut r2, &TWO_INV);
 
         // Computation
-        for round in 0..ADDITION_ROUNDS {
-            addition_round(
-                &mut account,
-                &mut r1,
-                &b,
-                round,
-            );
-        }
+        addition_round(&mut account, &mut r1, &b);
         let c3 = account.fq2.pop();
         let c2 = account.fq2.pop();
         let c1 = account.fq2.pop();
@@ -479,13 +350,7 @@ mod tests {
         let mut r2 = G2HomProjective { x: b.x, y: b.y, z: Fq2::one() };
 
         // Computation
-        for round in 0..DOUBLING_ROUNDS {
-            doubling_round(
-                &mut account,
-                &mut r1,
-                round,
-            );
-        }
+        doubling_round(&mut account, &mut r1);
         let c3 = account.fq2.pop();
         let c2 = account.fq2.pop();
         let c1 = account.fq2.pop();

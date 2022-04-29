@@ -1,4 +1,4 @@
-pub use elusiv_account::*;
+pub use elusiv_macros::*;
 
 /// Guard statement
 /// - if the assertion evaluates to false, the error is raised

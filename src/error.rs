@@ -22,23 +22,24 @@ pub enum ElusivError {
     NoRoomForNullifier, // 10
     InvalidNullifierAccount,
     NullifierAccountDoesNotExist,
+    NullifierAccountDuplicate,
 
     // Commitment
     CommitmentAlreadyExists,
-    NoRoomForCommitment,
-    CommitmentComputationIsNotYetFinished,  // 15
+    NoRoomForCommitment, // 15
+    CommitmentComputationIsNotYetFinished,
     CommitmentComputationIsAlreadyFinished,
     HashingIsAlreadyComplete,
     DidNotFinishHashing,
 
     // Proof
-    InvalidProof,
-    InvalidPublicInputs,    // 20
+    InvalidProof, // 20
+    InvalidPublicInputs,
     InvalidVerificationKey,
     CouldNotParseProof,
     CouldNotProcessProof,
-    ProofAccountCannotBeReset,
-    ProofComputationIsAlreadyFinished,  // 25
+    ProofAccountCannotBeReset, // 25
+    ProofComputationIsAlreadyFinished,
     ProofComputationIsNotYetFinished,
 
     // Queue

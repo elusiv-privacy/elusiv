@@ -1,6 +1,6 @@
 use ark_bn254::{ Fq2, Fq12, G1Affine, G2Affine, G1Projective };
 use crate::proof::{
-    PREPARE_INPUTS_BASE_ITERATIONS,
+    prepare_inputs_tx_count,
     MILLER_LOOP_ITERATIONS,
     FINAL_EXPONENTIATION_ITERATIONS,
 };
@@ -8,7 +8,7 @@ use crate::proof::{
 pub trait VerificationKey {
     const PUBLIC_INPUTS_COUNT: usize;
 
-    const PREPARE_INPUTS_ITERATIONS: usize = Self::PUBLIC_INPUTS_COUNT * PREPARE_INPUTS_BASE_ITERATIONS;
+    const PREPARE_INPUTS_ITERATIONS: usize = prepare_inputs_tx_count(Self::PUBLIC_INPUTS_COUNT);
     const FULL_ITERATIONS: usize = Self::PREPARE_INPUTS_ITERATIONS + MILLER_LOOP_ITERATIONS + FINAL_EXPONENTIATION_ITERATIONS;
 
     // Ranges
@@ -34,13 +34,4 @@ pub trait VerificationKey {
     fn beta_g2() -> G2Affine;
     fn gamma_g2() -> G2Affine;
     fn delta_g2() -> G2Affine;
-
-    fn prepapre_inputs_rounds() -> Vec<usize> {
-        let mut rounds = vec![3];
-        for _ in 0..Self::PREPARE_INPUTS_ITERATIONS {
-            rounds.push(5);
-        }
-        rounds.push(1);
-        rounds
-    }
 }
