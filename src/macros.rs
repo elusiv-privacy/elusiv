@@ -57,6 +57,11 @@ macro_rules! two_pow {
     };
 }
 
+macro_rules! max {
+    ($x: expr) => ($x);
+    ($x: expr, $($z: expr),+) => (::std::cmp::max($x, max!($($z),*)));
+}
+
 pub(crate) use guard;
 pub(crate) use pda;
 pub(crate) use guard_pda_account;
@@ -64,3 +69,4 @@ pub(crate) use account_data_mut;
 pub(crate) use account_data;
 pub(crate) use write_into;
 pub(crate) use two_pow;
+pub(crate) use max;

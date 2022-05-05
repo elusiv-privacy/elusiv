@@ -1,8 +1,6 @@
 use super::types::*;
 use super::processor::*;
-use crate::macros::{ guard, guard_pda_account };
 
-#[derive(borsh::BorshDeserialize)]
 #[derive(crate::macros::ElusivInstruction)]
 pub enum ElusivInstruction {
     // Client sends base commitment and amount to be stored in the Elusiv program
@@ -20,15 +18,14 @@ pub enum ElusivInstruction {
 
     // Binary merge proof
     Merge {
-        tree_indices: [u64; 2],
         proof_data: JoinSplitProofData<2>,
     },
     
     // Unary migrate proof
     Migrate {
         proof_data: JoinSplitProofData<1>,
-        currentNSMTRoot: U256,
-        nextNSMTRoot: U256,
+        current_nsmt_root: U256,
+        next_nsmt_root: U256,
     },
 
     // Binary send proof

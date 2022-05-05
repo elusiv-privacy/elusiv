@@ -1,10 +1,7 @@
-use crate::types::RawProof;
-use crate::macros::write_into;
+use crate::macros::{ write_into };
 use super::fields::scalar::*;
-use super::proof::PROOF_BYTES_SIZE;
 use super::fields::utils::*;
 use super::types::U256;
-//use borsh::{ BorshSerialize, BorshDeserialize };
 use solana_program::program_error::{ ProgramError, ProgramError::InvalidArgument };
 
 /// Serialization and Deserialization trait used for account fields
@@ -18,7 +15,32 @@ pub trait SerDe {
     fn write(value: Self::T, writer: &[u8]) {
         write_into!(writer, Self::serialize(value));
     }
+
+    /// Deserializes the value using the first SIZE bytes and returns the value and remaining bytes
+    fn split_at_front(data: &[u8]) -> Result<(Self::T, &[u8]), ProgramError> {
+        let value = data.get(..Self::SIZE)
+            .map(|s| Self::deserialize(s))
+            .ok_or(InvalidArgument)?;
+        Ok((value, &data[Self::SIZE..]))
+    }
 }
+
+pub trait Zero {
+    type T;
+    const ZERO: Self::T;
+}
+
+macro_rules! impl_zero {
+    ($ty: ident, $zero: expr) => {
+        impl Zero for $ty {
+            type T = Self;
+            const ZERO: Self::T = $zero;
+        }
+    };
+}
+
+impl_zero!(u8, 0);
+impl_zero!(u64, 0);
 
 /// This trait generates the backing store object for account fields
 /// - why is this needed? Since not all top-level objects are SerDe objects (e.g. LazyStacks)
@@ -39,46 +61,87 @@ impl<T: SerDe> SerDeManager<&mut[u8]> for T {
     }
 }
 
-impl SerDe for u32 {
-    type T = Self;
-    const SIZE: usize = 4;
+macro_rules! impl_for_uint {
+    ($ty: ident, $size: expr) => {
+        impl SerDe for $ty {
+            type T = Self;
+            const SIZE: usize = $size;
+        
+            #[inline]
+            fn deserialize(data: &[u8]) -> Self::T {
+                let mut arr = [0; Self::SIZE];
+                for i in 0..Self::SIZE { arr[i] = data[i]; }
+                $ty::from_le_bytes(arr)
+            }
+        
+            #[inline]
+            fn serialize(value: Self::T) -> Vec<u8> {
+                $ty::to_le_bytes(value).to_vec()
+            }
+        }
+    };
+}
 
-    fn deserialize(data: &[u8]) -> u32 {
-        u32::from_le_bytes([data[0], data[1], data[2], data[3]])
+impl_for_uint!(u32, 4);
+impl_for_uint!(u64, 8);
+
+impl SerDe for u8 {
+    type T = Self;
+    const SIZE: usize = 1;
+
+    #[inline] fn deserialize(data: &[u8]) -> Self::T { data[0] }
+    #[inline] fn serialize(value: Self::T) -> Vec<u8> { vec![value] }
+}
+
+impl SerDe for bool {
+    type T = Self;
+    const SIZE: usize = 1;
+
+    #[inline] fn deserialize(data: &[u8]) -> Self::T { data[0] == 1 }
+    #[inline] fn serialize(value: Self::T) -> Vec<u8> { vec![if value { 1 } else { 0 }] }
+}
+
+impl<const N: usize, E: SerDe<T=E> + Zero<T=E>> SerDe for [E; N] {
+    type T = Self;
+    const SIZE: usize = N * E::SIZE;
+
+    fn deserialize<'a>(data: &'a mut [u8]) -> Result<Self::T, ProgramError> {
+        let mut v = [E::ZERO; N];
+        for i in 0..N {
+            v[i] = E::deserialize(&data[i * E::SIZE..(i + 1) * E::SIZE]);
+        }
+        Ok(v)
     }
 
-    fn serialize(value: u32) -> Vec<u8> {
-        u32::to_le_bytes(value).to_vec()
+    fn serialize(value: Self::T) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        for i in 0..N {
+            buffer.extend(&E::serialize(value[i]));
+        }
+        buffer
     }
 }
 
-impl SerDe for u64 {
+impl<const X: usize, const Y: usize> SerDe for [[u8; X]; Y] {
     type T = Self;
-    const SIZE: usize = 8;
+    const SIZE: usize = X * Y;
 
-    fn deserialize<'a>(data: &'a mut [u8]) -> Result<u64, ProgramError> {
-        Ok(u64::from_le_bytes([
-            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]
-        ]))
+    fn deserialize<'a>(data: &'a mut [u8]) -> Result<Self::T, ProgramError> {
+        let mut v = [[0; X]; Y];
+        for y in 0..Y {
+            write_into!(v[y], &data[y * X..(y + 1) * X]);
+        }
+        Ok(v)
     }
 
-    fn serialize(value: u64) -> Vec<u8> {
-        u64::to_le_bytes(value).to_vec()
-    }
-}
-
-impl SerDe for U256 {
-    type T = Self;
-    const SIZE: usize = 32;
-
-    fn deserialize<'a>(data: &'a mut [u8]) -> Result<U256, ProgramError> {
-        let mut u256 = [0; 32];
-        write_into!(u256, data);
-        Ok(u256)
-    }
-
-    fn serialize(value: U256) -> Vec<u8> {
-        value.to_vec()
+    fn serialize(value: Self::T) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        for y in 0..Y {
+            for x in 0..X {
+                buffer.push(value[y][x]);
+            }
+        }
+        buffer
     }
 }
 
@@ -107,54 +170,6 @@ pub fn find(bytes: U256, buffer: &[u8]) -> Option<usize> {
     None
 }
 
-pub fn bytes_to_u64(bytes: &[u8]) -> u64 {
-    let a: [u8; 8] = [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
-    u64::from_le_bytes(a)
-}
-
-pub fn bytes_to_u32(bytes: &[u8]) -> u32 {
-    let a: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
-    u32::from_le_bytes(a)
-}
-
-pub fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
-    let value = data
-        .get(..8)
-        .and_then(|slice| slice.try_into().ok())
-        .map(u64::from_le_bytes)
-        .ok_or(InvalidArgument)?;
-
-    Ok((value, &data[8..]))
-}
-
-pub fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
-    let bytes = data.get(..32)
-        .ok_or(ProgramError::InvalidInstructionData)?;
-
-    Ok((bytes, &data[32..]))
-}
-
-pub fn unpack_u256(data: &[u8]) -> Result<(U256, &[u8]), ProgramError> {
-    let (bytes, data) = unpack_32_bytes(&data)?;
-    let word = vec_to_array_32(bytes.to_vec());
-
-    Ok((word, &data))
-}
-
-
-pub fn unpack_bool(data: &[u8]) -> Result<(bool, &[u8]), ProgramError> {
-    let (&byte, rest) = data.split_first().ok_or(ProgramError::InvalidInstructionData)?;
-
-    Ok((byte == 1, rest))
-}
-
-pub fn unpack_raw_proof(data: &[u8]) -> Result<(RawProof, &[u8]), ProgramError> {
-    let bytes = data.get(..PROOF_BYTES_SIZE).ok_or(ProgramError::InvalidInstructionData)?;
-    let proof: [u8; PROOF_BYTES_SIZE] = bytes.try_into().unwrap();
-
-    Ok((proof, &data[PROOF_BYTES_SIZE..]))
-}
-
 pub fn u64_to_u256(value: u64) -> U256 {
     let mut buffer = vec![0; 32];
     let bytes = value.to_le_bytes();
@@ -164,24 +179,9 @@ pub fn u64_to_u256(value: u64) -> U256 {
     vec_to_array_32(buffer)
 }
 
-pub fn unpack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
-    let (bytes, data) = unpack_32_bytes(data)?;
-
-    Ok((bytes_to_limbs(bytes), data))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_unpack_u64() {
-        let d: [u8; 8] = [0b00000001, 0, 0, 0, 0, 0, 0, 0b00000000];
-
-        let (v, data) = unpack_u64(&d).unwrap();
-        assert_eq!(v, 1);
-        assert_eq!(data.len(), 0);
-    }
 
     const SIZE: usize = 256;    // Max using 256 here because of u8 then there are duplicates
 
