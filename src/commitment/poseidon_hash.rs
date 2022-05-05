@@ -2,7 +2,7 @@ use ark_ff::*;
 use super::poseidon_constants::*;
 use super::super::fields::scalar::Scalar;
 
-/// Two input Poseidon hasher
+/// Binary Poseidon hasher
 pub struct Poseidon2 {
     matrices: [Scalar; 9]
 }
@@ -19,9 +19,8 @@ impl Poseidon2 {
     }
 
     /// Hash of a single iteration
-    /// 
-    /// Iterations group multiple rounds together
-    /// The Poseidon2 consists of 65 rounds
+    /// - iterations group multiple rounds together
+    /// - our binary Poseidon consists of 65 rounds
     pub fn partial_hash(&self, iteration: usize, a: Scalar, b: Scalar, c: Scalar) -> [Scalar; 3] {
         let mut state = [a, b, c];
         let c = generate_constants(iteration);

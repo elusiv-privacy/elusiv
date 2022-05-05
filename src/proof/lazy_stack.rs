@@ -1,6 +1,8 @@
 use super::super::error::ElusivError;
 use super::super::bytes::bytes_to_u32;
 use solana_program::program_error::ProgramError;
+use crate::bytes::{ SerDe, SerDeManager };
+use crate::macros::guard;
 
 #[derive(Copy, Clone)]
 enum ValueState {
@@ -14,46 +16,39 @@ enum ValueState {
 /// - storage layout: (use `stack_size` to compute the size)
 ///     - 4 bytes stack pointer
 ///     - stack values
-pub struct LazyHeapStack<'a, F: Copy> {
-    data: &'a mut [u8],
-    bytecount: usize,
+pub struct LazyHeapStack<'a, F: Copy + SerDe<F>, const SIZE: usize> {
+    pub stack_pointer: usize,
     stack: Vec<Option<F>>,
     state: Vec<ValueState>,
-    pub stack_pointer: usize,
-    serialize: Box<dyn Fn(F, &mut [u8]) + 'a>,
-    deserialize: Box<dyn Fn(&[u8]) -> F + 'a>,
+    data: &'a mut [u8], // explicit mut backing store
 }
 
 pub const fn stack_size(size: usize, bytecount: usize) -> usize {
     size * bytecount + 4
 }
 
-impl<'a, F: Copy> LazyHeapStack<'a, F> {
-    pub fn new<S, D>(
-        data: &'a mut [u8],
-        size: usize,
-        bytecount: usize,
-        serialize: S,
-        deserialize: D,
-    ) -> Result<LazyHeapStack<'a, F>, ProgramError>
-    where
-        S:  Fn(F, &mut [u8]) + 'a,
-        D:  Fn(&[u8]) -> F + 'a,
-    {
-        if stack_size(size, bytecount) != data.len() {
-            return Err(ElusivError::InvalidAccountSize.into());
-        }
+impl<'a, F: Copy + SerDe<F>, const SIZE: usize> SerDeManager<LazyHeapStack<'a, F, SIZE>> for LazyHeapStack<'a, F, SIZE> {
+    const SIZE_BYTES: usize = 4 + SIZE * F::SIZE;
+
+    fn mut_backing_store(data: &'a mut [u8]) -> Result<LazyHeapStack<'a, F, SIZE>, ProgramError> {
+        LazyHeapStack::<'a, F, SIZE>::new(data)
+    }
+}
+
+impl<'a, F: Copy + SerDe<F>, const SIZE: usize> LazyHeapStack<'a, F, SIZE> {
+    pub fn new(data: &'a mut [u8]) -> Result<LazyHeapStack<'a, F, SIZE>, ProgramError> {
+        guard!(
+            stack_size(SIZE, F::SIZE) == data.len(),
+            ElusivError::InvalidAccountSize
+        );
 
         let stack_pointer = bytes_to_u32(&data[..4]) as usize;
         Ok(
             LazyHeapStack {
                 data,
-                bytecount,
-                stack: vec![None; size],
-                state: vec![ValueState::None; size],
+                stack: vec![None; SIZE],
+                state: vec![ValueState::None; SIZE],
                 stack_pointer,
-                serialize: Box::new(serialize),
-                deserialize: Box::new(deserialize),
             }
         )
     }
@@ -103,8 +98,8 @@ impl<'a, F: Copy> LazyHeapStack<'a, F> {
         match self.stack[index] {
             Some(v) => v,
             None => {
-                let slice = &self.data[4 + index * self.bytecount..4 + (index + 1) * self.bytecount];
-                let v = (self.deserialize)(slice);
+                let slice = &self.data[4 + index * F::SIZE..4 + (index + 1) * F::SIZE];
+                let v = F::deserialize(slice);
                 self.stack[index] = Some(v);
                 self.state[index] = ValueState::Used;
                 v
@@ -130,8 +125,10 @@ impl<'a, F: Copy> LazyHeapStack<'a, F> {
         for i in 0..self.stack_pointer {
             if let ValueState::Modified = self.state[i] {
                 let slice = &mut self.data[4..];
-                let slice = &mut slice[i * self.bytecount..(i + 1) * self.bytecount]; 
-                (self.serialize)(self.stack[i].unwrap(), slice);
+                let slice = &mut slice[i * F::SIZE..(i + 1) * F::SIZE]; 
+                for (i, &byte) in F::serialize(self.stack[i].unwrap()).iter().enumerate() {
+                    slice[i] = byte;
+                }
             }
         }
     }
@@ -142,38 +139,14 @@ mod tests {
     use super::*;
 
     const SIZE: usize = 12;
-    const BYTES: usize = 4;
 
-    fn get_stack<'a>(data: &'a mut [u8]) -> LazyHeapStack<'a, u32> {
-        LazyHeapStack::new(
-            data,
-            SIZE,
-            BYTES,
-            |value: u32, buffer: &mut [u8]| {
-                let bytes = value.to_le_bytes().to_vec();
-                buffer[0] = bytes[0];
-                buffer[1] = bytes[1];
-                buffer[2] = bytes[2];
-                buffer[3] = bytes[3];
-            },
-            |bytes: &[u8]| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-        ).unwrap()
-    }
-
-    #[test]
-    fn test_invalid_size() {
-        let mut data = vec![0; SIZE * BYTES];
-        let stack = LazyHeapStack::new(&mut data, SIZE, BYTES,
-            |_v: u32, _b: &mut [u8]| { },
-            |bytes: &[u8]| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-        );
-
-        assert!(matches!(stack, Err(_)));
+    fn get_stack<'a>(data: &'a mut [u8]) -> LazyHeapStack<'a, u32, SIZE> {
+        LazyHeapStack::new(data).unwrap()
     }
 
     #[test]
     fn test_stack() {
-        let mut data = vec![0; stack_size(SIZE, BYTES)];
+        let mut data = vec![0; stack_size(SIZE, u32::SIZE)];
         let mut stack = get_stack(&mut data);
 
         // Test LIFO

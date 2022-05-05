@@ -6,7 +6,6 @@ pub mod instruction;
 pub mod queue;
 pub mod processor;
 pub mod state;
-pub mod entrypoint;
 pub mod fields;
 pub mod proof;
 pub mod commitment;

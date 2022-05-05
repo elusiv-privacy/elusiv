@@ -1,15 +1,8 @@
 use solana_program::program_error::ProgramError;
-use super::super::bytes::{
-    unpack_bool,
-    unpack_limbs,
-};
+use super::super::bytes::{ unpack_bool, unpack_limbs };
 use super::super::fields::base::{ write_g1_affine, write_g2_affine };
 use ark_ff::biginteger::BigInteger256;
-use ark_bn254::{
-    G1Affine, G2Affine,
-    Fq2,
-    Fq,
-};
+use ark_bn254::{ G1Affine, G2Affine, Fq2, Fq };
 
 pub const PROOF_BYTES_SIZE: usize = 259;
 
@@ -69,6 +62,12 @@ impl Proof {
         write_g2_affine(&mut bytes[65..194], self.b);
         write_g1_affine(&mut bytes[194..259], self.c);
         bytes
+    }
+
+    /// Returns the amount of tx required to finish a proof verification with the concrete public inputs
+    /// - since the caller does not always know all public inputs upfront, he has to fill all unknown numbers with `1` bits 
+    pub fn tx_per_public_inputs(public_inputs: &[u8]) -> u64 {
+        return 0;
     }
 }
 

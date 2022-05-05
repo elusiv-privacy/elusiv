@@ -2,6 +2,7 @@ use solana_program::program_error::ProgramError;
 use crate::bytes::*;
 use crate::proof::PROOF_BYTES_SIZE;
 use crate::types::{ RawProof, U256 };
+use borsh::{ BorshSerialize, BorshDeserialize };
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, PartialEq)]
 pub struct ProofRequest {

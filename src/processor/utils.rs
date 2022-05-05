@@ -6,7 +6,7 @@ use crate::state::{ TREE_SIZE, TREE_COMMITMENT_COUNT };
 use crate::types::{ ProofData };
 use crate::state::{ NullifierAccount, StorageAccount };
 
-pub fn compute_fee(tx_count: u64) -> u64 {
+pub fn tx_count_to_lamports(tx_count: u64) -> u64 {
     let fee_calculator = solana_program::fee_calculator::FeeCalculator::default();
     tx_count * fee_calculator.lamports_per_signature
 }

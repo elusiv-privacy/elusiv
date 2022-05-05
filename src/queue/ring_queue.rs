@@ -1,144 +1,66 @@
 use crate::error::ElusivError;
-use crate::bytes::bytes_to_u64;
-use std::cmp::PartialEq;
-use solana_program::program_error::ProgramError;
+use crate::error::ElusivError::{ QueueIsFull, QueueIsEmpty };
+use crate::macros::guard;
 
 /// Ring queue with `size - 1` elements that can be stored at a given time
 /// - serialization happens after each modification
-/// - storage layout: (use `queue_size` to compute the size)
-///     - 8 bytes head
-///     - 8 bytes tail
-///     - queue
-pub struct RingQueue<'a, N: Copy + PartialEq> {
-    size: usize,
-    bytes: usize,
-    data: &'a mut [u8],
-    serialize: Box<dyn Fn(N) -> Vec<u8> + 'a>,
-    deserialize: Box<dyn Fn(&[u8]) -> N + 'a>,
-}
+/// - `data`: [head: u64, tail: u64, queue elements]
+pub trait RingQueue<N: PartialEq> {
+    fn get_size(&self) -> u64;
 
-pub const fn queue_size(size: usize, bytecount: usize) -> usize {
-    size * bytecount + 2 * 16
-}
+    fn get_head(&self) -> u64;
+    fn set_head(&mut self, value: u64);
 
-impl<'a, N: Copy+ PartialEq> RingQueue<'a, N> {
-    pub fn new<S, D>(
-        data: &'a mut [u8],
-        size: usize,
-        bytes: usize,
-        serialize: S,
-        deserialize: D,
-    ) -> Result<RingQueue<'a, N>, ProgramError>
-    where
-        S: Fn(N) -> Vec<u8> + 'a,
-        D: Fn(&[u8]) -> N + 'a,
-    {
-        if queue_size(size, bytes) != data.len() {
-            return Err(ElusivError::InvalidAccountSize.into());
-        }
+    fn get_tail(&self) -> u64;
+    fn set_tail(&mut self, value: u64);
 
-        Ok(
-            RingQueue {
-                size,
-                bytes,
-                data,
-                serialize: Box::new(serialize),
-                deserialize: Box::new(deserialize),
-            }
-        )
-    }
+    fn get_data(&self, index: usize) -> N;
+    fn set_data(&mut self, index: usize, value: N);
 
-    /// Head points to the first element
-    fn get_head(&self) -> usize {
-        bytes_to_u64(&self.data[..8]) as usize
-    }
-
-    /// Tail points to the place where the next element is to be inserted
-    fn get_tail(&self) -> usize {
-        bytes_to_u64(&self.data[8..16]) as usize
-    }
-
-    fn set_head(&mut self, head: usize) {
-        let bytes = head.to_le_bytes();
-        for (i, &byte) in bytes.iter().enumerate() {
-            self.data[i] = byte;
-        }
-    }
-
-    fn set_tail(&mut self, tail: usize) {
-        let bytes = tail.to_le_bytes();
-        for (i, &byte) in bytes.iter().enumerate() {
-            self.data[i + 8] = byte;
-        }
-    }
-
-    pub fn enqueue(&mut self, value: N) -> Result<(), ElusivError> {
+    fn enqueue(&mut self, value: N) -> Result<(), ElusivError> {
         let head = self.get_head();
         let tail = self.get_tail();
 
-        let next_tail = (tail + 1) % self.size;
-        if next_tail == head {
-            return Err(ElusivError::QueueIsFull);
-        }
+        let next_tail = (tail + 1) % self.get_size();
+        guard!(next_tail != head, QueueIsFull);
 
-        self.set(tail, value);
+        self.set_data(tail as usize, value);
         self.set_tail(next_tail);
 
         Ok(())
     }
 
-    pub fn view_first(&self) -> Result<N, ElusivError> {
+    fn view_first(&self) -> Result<N, ElusivError> {
         let head = self.get_head();
         let tail = self.get_tail();
 
-        if head == tail {
-            return Err(ElusivError::QueueIsEmpty);
-        }
+        guard!(head != tail, QueueIsEmpty);
 
-        Ok(self.get(head))
+        Ok(self.get_data(head as usize))
     }
 
-    pub fn dequeue_first(&mut self) -> Result<N, ElusivError> {
+    fn dequeue_first(&mut self) -> Result<N, ElusivError> {
         let head = self.get_head();
         let tail = self.get_tail();
 
-        if head == tail {
-            return Err(ElusivError::QueueIsEmpty);
-        }
+        guard!(head != tail, QueueIsEmpty);
 
-        let value = self.get(head);
-        self.set_head((head + 1) % self.size);
+        let value = self.get_data(head as usize);
+        self.set_head((head + 1) % self.get_size());
 
         Ok(value)
     }
 
-    pub fn contains(&self, value: N) -> bool {
+    fn contains(&self, value: N) -> bool {
         let mut ptr = self.get_head();
         let tail = self.get_tail();
 
         while ptr != tail {
-            if self.get(ptr) == value {
-                return true;
-            }
-
-            ptr = (ptr + 1) % self.size;
+            if self.get_data(ptr as usize) == value { return true; }
+            ptr = (ptr + 1) % self.get_size();
         }
 
         false
-    }
-
-    fn get(&self, i: usize) -> N {
-        let offset = 16 + (i * self.bytes);
-        let bytes = &self.data[offset..offset + self.bytes];
-        (self.deserialize)(bytes)
-    }
-
-    fn set(&mut self, i: usize, value: N) {
-        let offset = 16 + (i * self.bytes);
-        let bytes = (self.serialize)(value);
-        for (i, &byte) in bytes.iter().enumerate() {
-            self.data[offset + i] = byte;
-        }
     }
 }
 
@@ -147,32 +69,30 @@ mod tests {
     use super::*;
 
     const SIZE: usize = 3;
-    const BYTES: usize = 4;
 
-    fn get_queue<'a>(data: &'a mut [u8]) -> RingQueue<'a, u32> {
-        RingQueue::new(data, SIZE, BYTES,
-            |value: u32| value.to_le_bytes().to_vec(),
-            |bytes: &[u8]| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-        ).unwrap()
+    struct TestQueue {
+        size: u64,
+        head: u64,
+        tail: u64,
+        data: [u32; SIZE],
     }
 
-    #[test]
-    fn test_wrong_size() {
-        let size = 3;
-        let bytes = 4;
-        let mut data = vec![0; size * bytes];
-        let queue = RingQueue::new( &mut data[..], size, bytes,
-            |value: u32| value.to_le_bytes().to_vec(),
-            |bytes: &[u8]| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-        );
+    impl RingQueue<u32> for TestQueue {
+        fn get_size(&self) -> u64 { self.size }
 
-        assert!(matches!(queue, Err(_)));
+        fn get_head(&self) -> u64 { self.head }
+        fn set_head(&mut self, value: u64) { self.head = value; }
+
+        fn get_tail(&self) -> u64 { self.tail }
+        fn set_tail(&mut self, value: u64) { self.tail = value; }
+
+        fn get_data(&self, index: usize) -> u32 { self.data[index] }
+        fn set_data(&mut self, index: usize, value: u32) { self.data[index] = value; }
     }
 
     #[test]
     fn test_queue() {
-        let mut data = vec![0; queue_size(SIZE, BYTES)];
-        let mut queue = get_queue(&mut data);
+        let mut queue = TestQueue { size: SIZE as u64, head: 0, tail: 0, data: [0; SIZE] };
 
         // Test that first element does not change (FIFO)
         for i in 1..SIZE {
