@@ -1,5 +1,4 @@
 use crate::macros::{ write_into };
-use super::fields::scalar::*;
 use super::fields::utils::*;
 use super::types::U256;
 use solana_program::program_error::{ ProgramError, ProgramError::InvalidArgument };

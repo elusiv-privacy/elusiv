@@ -27,6 +27,13 @@ macro_rules! guard_pda_account {
     };
 }
 
+macro_rules! pda_account_no_data {
+    ($name: ident, $seed: expr) => {
+        #[crate::macros::elusiv_account(pda_seed = $seed)] 
+        struct $name {}
+    };
+}
+
 /// Returns a mutable reference to an accounts data
 macro_rules! account_data_mut {
     ($account_info: expr) => {
@@ -65,6 +72,7 @@ macro_rules! max {
 pub(crate) use guard;
 pub(crate) use pda;
 pub(crate) use guard_pda_account;
+pub(crate) use pda_account_no_data;
 pub(crate) use account_data_mut;
 pub(crate) use account_data;
 pub(crate) use write_into;

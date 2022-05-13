@@ -1,3 +1,3 @@
-//! Currently the single pool used to store funds
+//! Currently the single SOL pool used to store funds
 
-crate::macros::pubkey!("CYFkyPAmHjayCwhRS6LpQjY2E7atNeLS3b8FE1HTYQY4");
+crate::macros::pda_account_no_data!(PoolAccount, b"sol_pool");

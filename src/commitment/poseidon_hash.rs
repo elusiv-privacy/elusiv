@@ -7,7 +7,16 @@ pub struct Poseidon2 {
     matrices: [Scalar; 9]
 }
 
-impl Poseidon2 {
+/// Poseidon
+pub trait PoseidonConstants {
+    const RF: usize;
+    const RP: usize;
+
+    fn c(round: usize) -> Scalar;
+    fn m() -> Vec<usize>;
+}
+
+impl BinaryPoseidon2 {
     pub fn new() -> Poseidon2 { Poseidon2 { matrices: generate_m() } }
 
     pub fn full_hash(&self, b: Scalar, c: Scalar) -> Scalar {

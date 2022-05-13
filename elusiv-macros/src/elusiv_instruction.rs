@@ -60,7 +60,9 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         },
                         v => {  // PDA based accounts
                             let ty = program_account_type(sub_attrs[1]);
-                            let pda_offset: TokenStream = named_sub_attribute("pda_offset", sub_attrs[2]).parse().unwrap();
+                            let pda_offset: TokenStream = if let Some(offset) = sub_attrs.get(2) {
+                                named_sub_attribute("pda_offset", offset).parse().unwrap()
+                            } else { quote!{} };
 
                             // PDA check
                             accounts.extend(quote!{
@@ -73,6 +75,8 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     accounts.extend(quote!{
                                         let mut #account = #ty::from_data(acc_data)?;
                                     });
+                                },
+                                "pdi" => {  // Single PDA AccountInfo (!)
                                 },
                                 "arr" => {  // Base account and n additional PDA array-accounts
                                     let ty = program_account_type(sub_attrs[1]);

@@ -28,7 +28,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             "pda_seed" => { // PDA based account
                 let seed: TokenStream = named_sub_attribute("pda_seed", attr).parse().unwrap();
                 impls.extend(quote! {
-                    impl<'a> PDAAccount for #name<'a> {
+                    impl<'a> crate::state::program_account::PDAAccount for #name<'a> {
                         const SEED: &'static [u8] = #seed;
                     }
                 });
@@ -41,7 +41,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 let size: TokenStream = big_array[1].parse().unwrap();
 
                 impls.extend(quote! {
-                    impl<'a> BigArrayAccount<'a> for #name<'a> {
+                    impl<'a> crate::state::program_account::BigArrayAccount<'a> for #name<'a> {
                         type T = #ty;
                         const SIZE: usize = #size;
 

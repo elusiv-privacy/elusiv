@@ -1,7 +1,6 @@
 #![allow(unused_imports)]
 
 use super::ring_queue::RingQueue;
-use crate::commitment::commitment::*;
 use crate::bytes::*;
 use crate::macros::*;
 use crate::types::{ U256, JoinSplitProofData };
@@ -28,6 +27,13 @@ queue_account!(BaseCommitmentQueueAccount, 1024, BaseCommitmentHashRequest);
 queue_account!(CommitmentQueueAccount, 1024, U256);
 queue_account!(ProofQueueAccount, 256, ProofRequest);
 queue_account!(SendQueueAccount, 256, SendFinalizationRequest);
+
+#[derive(SerDe)]
+pub struct BaseCommitmentHashRequest {
+    pub base_commitment: U256,
+    pub amount: u64,
+    pub commitment: U256,
+}
 
 #[derive(SerDe)]
 pub enum ProofRequest {

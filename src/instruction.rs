@@ -7,12 +7,13 @@ pub enum ElusivInstruction {
     #[sig(sender)]
     #[prg(storage_account, Storage)]
     #[prg(queue, BaseCommitmentQueue)]
-    #[prg(pool, Pool)]
+    #[pdi(pool, Pool)]
     #[arr(tree, ActiveTree, pda_offset = storage_account.get_active_tree())]
     #[sys(system_program, key = solana_program::system_program::id())]
     Store {
         base_commitment: U256,  // h(nullifier, timestamp)
         amount: u64,
+        timestamp: u64,
         commitment: U256,
     },
 

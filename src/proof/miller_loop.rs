@@ -475,10 +475,11 @@ mod tests {
         }
     }
 
+    // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
     fn ell_original(f: &mut Fq12, coeffs: (Fq2, Fq2, Fq2), p: &G1Affine) {
-        let mut c0 = coeffs.0;
-        let mut c1 = coeffs.1;
-        let c2 = coeffs.2;
+        let mut c0: Fq2 = coeffs.0;
+        let mut c1: Fq2 = coeffs.1;
+        let c2: Fq2 = coeffs.2;
     
         c0.mul_assign_by_fp(&p.y);
         c1.mul_assign_by_fp(&p.x);
