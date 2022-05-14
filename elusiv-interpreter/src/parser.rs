@@ -9,7 +9,7 @@ impl From<&[Group]> for Computation {
     }
 }
 
-fn split_at<'a>(splitter: Token, trees: Vec<Token>) -> Vec<Vec<Token>> {
+fn split_at(splitter: Token, trees: Vec<Token>) -> Vec<Vec<Token>> {
     let mut streams: Vec<Vec<Token>> = Vec::new();
     let mut stream = Vec::new();
 
@@ -22,10 +22,7 @@ fn split_at<'a>(splitter: Token, trees: Vec<Token>) -> Vec<Vec<Token>> {
         stream.push(t);
     }
 
-    if stream.len() > 0 {
-        streams.push(stream);
-    }
-
+    if stream.len() > 0 { streams.push(stream); }
     streams
 }
 
@@ -37,8 +34,7 @@ impl From<&Group> for ComputationScope {
 
         ComputationScope {
             stmt: (&tokens[..]).into(),
-            read: vec![],
-            write: vec![],
+            read: vec![], free: vec![], write: vec![],
         }
     }
 }
@@ -56,13 +52,12 @@ impl From<&[Token]> for Stmt {
             }
         }
 
-        // Non-terminal
         match tree {
             [ LET, Ident(id), COLON, Ident(ty), EQUALS, .. ] => {
-                Stmt::Let(SingleId(id.clone()), Type(ty.clone()), (&tree[5..]).into())
+                Stmt::Let(SingleId(id.clone()), false, Type(ty.clone()), (&tree[5..]).into())
             },
             [ LET, MUT, Ident(id), COLON, Ident(ty), EQUALS, .. ] => {
-                Stmt::LetMut(SingleId(id.clone()), Type(ty.clone()), (&tree[6..]).into())
+                Stmt::Let(SingleId(id.clone()), true, Type(ty.clone()), (&tree[6..]).into())
             },
             [ PARTIAL, Ident(id), EQUALS, Ident(fn_id), Group(args, Delimiter::Parenthesis), Group(g, Delimiter::Brace) ] => {
                 let args = vec![Ident(fn_id.clone()), Group(args.clone(), Delimiter::Parenthesis)];

@@ -1,6 +1,7 @@
 use std::string::ToString;
 use quote::quote;
 use proc_macro2::TokenStream;
+use super::storage::*;
 
 /// A computation consists of n scopes
 /// - a scope is a single part of the computation
@@ -15,8 +16,11 @@ pub struct Computation {
 #[derive(Debug, Clone)]
 pub struct ComputationScope {
     pub stmt: Stmt,
+
+    // Memory reading, freeing and writing happening in this scope
     pub read: Vec<MemoryRead>,
-    pub write: Vec<MemoryWrite>,
+    pub free: Vec<MemoryId>,
+    pub write: Vec<MemoryId>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,8 +32,7 @@ pub enum Stmt {
     Partial(SingleId, Expr, Box<Stmt>),
     
     // Terminal stmts
-    Let(SingleId, Type, Expr),
-    LetMut(SingleId, Type, Expr),
+    Let(SingleId, bool, Type, Expr),    // Let.1 is the mutability
     Assign(SingleId, Expr),
     Return(Expr),
 }
@@ -70,26 +73,6 @@ pub enum BinOp {
     Mul,
     Add,
     Sub,
-}
-
-#[derive(Debug, Clone)]
-pub struct MemoryRead {
-    pub id: String,
-    pub ty: String,
-    pub kind: MemoryReadKind,
-}
-
-#[derive(Debug, Clone)]
-pub enum MemoryReadKind {
-    Read,
-    ReadMut,
-    Free,
-}
-
-#[derive(Debug, Clone)]
-pub struct MemoryWrite {
-    pub id: String,
-    pub ty: String,
 }
 
 /// - `rounds` == None means that the Stmt uses the same round as the scope or other stmts surrounding it
@@ -228,8 +211,7 @@ impl Stmt {
                 StmtResult { stream: quote!{
                     let #iter_id = (round - #start_round) / (#child_rounds);
                     let round = (round - #start_round) % (#child_rounds);
-                    let v = vec!#arr;
-                    let #var_id = v[#iter_id];
+                    let #var_id = vec!#arr[#iter_id];
 
                     #child_body
                 }, rounds: Some(quote!{ (#iterations * (#child_rounds)) }) }
@@ -264,20 +246,16 @@ impl Stmt {
                 }, rounds: Some(quote!{ (#size + #child_rounds) }) }
             },
 
-            Stmt::Let(SingleId(id), Type(ty), expr) => {
+            Stmt::Let(SingleId(id), mutable, Type(ty), expr) => {
                 let ident: TokenStream = id.parse().unwrap();
                 let ty: TokenStream = ty.parse().unwrap();
                 let value: TokenStream = expr.into();
 
-                StmtResult { stream: quote!{ let #ident: #ty = #value; }, rounds: None }
-            },
-
-            Stmt::LetMut(SingleId(id), Type(ty), expr) => {
-                let ident: TokenStream = id.parse().unwrap();
-                let ty: TokenStream = ty.parse().unwrap();
-                let value: TokenStream = expr.into();
-
-                StmtResult { stream: quote!{ let mut #ident: #ty = #value; }, rounds: None }
+                if *mutable {
+                    StmtResult { stream: quote!{ let mut #ident: #ty = #value; }, rounds: None }
+                } else {
+                    StmtResult { stream: quote!{ let #ident: #ty = #value; }, rounds: None }
+                }
             },
 
             Stmt::Assign(SingleId(id), expr) => {
@@ -346,9 +324,9 @@ impl From<&Expr> for TokenStream {
 impl ToString for BinOp {
     fn to_string(&self) -> String {
         match self {
-            BinOp::Add => { String::from("+") },
-            BinOp::Sub => { String::from("-") },
-            BinOp::Mul => { String::from("*") },
+            BinOp::Add => String::from("+"),
+            BinOp::Sub => String::from("-"),
+            BinOp::Mul => String::from("*"),
         }
     }
 }
@@ -362,15 +340,57 @@ impl ToString for Id {
     }
 }
 
-macro_rules! assert_eq_stream {
-    ($a: expr, $b: expr) => {
-        assert_eq!($a.to_string(), $b.to_string())
-    };
+fn merge<N>(l: Vec<N>, r: Vec<N>) -> Vec<N> {
+    let mut v = l; v.extend(r); v
+}
+
+impl Stmt {
+    /// Returns all contained terminal stmts for non-terminal stmts
+    pub fn all_terminal_stmts(&self) -> Vec<Stmt> {
+        match self {
+            Stmt::Collection(s) => s.iter().map(|s| s.all_terminal_stmts()).fold(Vec::new(), merge),
+            Stmt::IfElse(_, t, f) => merge(t.all_terminal_stmts(), f.all_terminal_stmts()),
+            Stmt::For(_, _, _, s) => s.all_terminal_stmts(),
+            Stmt::Partial(_, _, s) =>  s.all_terminal_stmts(),
+            _ => { vec![self.clone()] }
+        }
+    }
+
+    /// Returns all expressions in a statement
+    pub fn all_exprs(&self) -> Vec<Expr> {
+        match self {
+            Stmt::Collection(s) => s.iter().map(|s| s.all_exprs()).fold(Vec::new(), merge),
+            Stmt::IfElse(e, t, f) => merge(vec![e.clone()], merge((*t).all_exprs(), (*f).all_exprs())),
+            Stmt::For(_, _, e, s) => merge(vec![e.clone()], (*s).all_exprs()),
+            Stmt::Partial(_, e, s) => merge(vec![e.clone()], (*s).all_exprs()),
+            Stmt::Let(_, _, _, e) => vec![e.clone()],
+            Stmt::Assign(_, e) => vec![e.clone()],
+            Stmt::Return(e) => vec![e.clone()],
+        }
+    }
+}
+
+impl Expr {
+    /// Returns all variable names used in an expression
+    pub fn all_vars(&self) -> Vec<String> {
+        match self {
+            Expr::BinOp(l, _, r) => merge((*l).all_vars(), (*r).all_vars()),
+            Expr::Literal(_) => vec![],
+            Expr::Id(id) => vec![id.to_string()],
+            Expr::Fn(_, e) => Expr::Array(e.clone()).all_vars(),
+            Expr::Array(e) => e.iter().map(|e| e.all_vars()).fold(Vec::new(), merge),
+            Expr::Unwrap(e) => (*e).all_vars(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    macro_rules! assert_eq_stream {
+        ($a: expr, $b: expr) => { assert_eq!($a.to_string(), $b.to_string()) };
+    }
 
     #[test]
     fn test_parse_id() {
@@ -400,74 +420,9 @@ mod tests {
             quote!{ match fn_name() { Some(v) => v, None => return Err("Unwrap error") } }
         );
     }
-}
 
-/*impl Stmt {
-    pub fn get_all_exprs(&self) -> Vec<Expr> {
-        match self {
-            Stmt::NonTerminal(s) => {
-                match s {
-                    NonTerminalStmt::Collection(c) => {
-                        c.iter().fold(Vec::new(), |acc, x| { acc.clone().extend(x.get_all_exprs()); acc })
-                    },
-                }
-            },
-            Stmt::Terminal(s) => {
+    #[test]
+    fn test_all_vars() {
 
-            }
-        }
-        match self {
-            Stmt::Let(_, _, _, e) => vec![e.clone()],
-            Stmt::Assign(_, e) => vec![e.clone()],
-            Stmt::Return(e) => vec![e.clone()],
-            Stmt::IfElse(c, t, f) => {
-                let mut v = vec![c.clone()];
-                v.extend((*t).get_all_exprs());
-                v.extend((*f).get_all_exprs());
-                v
-            },
-            Stmt::For(_, e, s) => {
-                let mut v = vec![e.clone()];
-                v.extend((*s).get_all_exprs());
-                v
-            },
-            Stmt::Collection(c) => {
-                let mut v = vec![];
-                for s in c {
-                    v.extend(s.get_all_exprs());
-                }
-                v
-            },
-            Stmt::NOP => vec![],
-        }
     }
 }
-
-impl Expr {
-    pub fn get_used_vars(&self) -> Vec<String> {
-        match self {
-            Expr::BinOp(l, _, r) => {
-                let mut l = l.get_used_vars();
-                l.extend(r.get_used_vars());
-                l
-            },
-            Expr::Literal(_) => { vec![] },
-            Expr::Id(id) => { vec![id.clone().get_main_var()] },
-            Expr::Fn(_, e) => {
-                e.iter()
-                    .map(|e| e.get_used_vars())
-                    .fold(Vec::new(), |acc, x| {
-                        acc.iter().cloned().chain(x.iter().cloned()).collect()
-                    })
-            },
-            Expr::Array(e) => {
-                e.iter()
-                    .map(|e| e.get_used_vars())
-                    .fold(Vec::new(), |acc, x| {
-                        acc.iter().cloned().chain(x.iter().cloned()).collect()
-                    })
-            }
-        }
-    }
-}
-}*/

@@ -1,6 +1,7 @@
 mod interpreter;
 mod grammar;
 mod parser;
+mod storage;
 
 use proc_macro::TokenStream;
 use proc_macro2::{ TokenTree, Delimiter };
@@ -8,12 +9,17 @@ use proc_macro2::{ TokenTree, Delimiter };
 /// For computations that are so costly, that they cannot be performed in a single step
 /// - this macro splits the computation you describe into `n` separate steps
 /// - after `n` program calls the computation is finished and the result returned
+/// - the interpreter takes care of storage management
+/// - for each type that needs to be used in multiple steps, a object `ram_type: RAM<Type>` is required with the following interface:
+///     - `write(value: Type, index: usize)`
+///     - `read(index: usize) -> Type`
+///     - `free(index: usize)`
 /// 
 /// # Macro output
 /// - a function `name_partial(round: usize, param_0, .., param_k) -> Result<Option<ReturnType>, &'static str>`
 /// - the count of rounds `NAME_ROUNDS_COUNT: usize` (function calls) required to complete the computation 
 /// - this means after `NAME_ROUNDS_COUNT` calls of `name_partial` it will return `Ok(Some(v))` if all went well
-/// - IMPORTANT: it's the callers responsibility to make sure that if a single step of the computation return `Err(_)` no further computations are performed, otherwise undefinied behaviour would result
+/// - **IMPORTANT**: it's the callers responsibility to make sure that if a single step of the computation return `Err(_)` no further computations are performed, otherwise undefinied behaviour would result
 /// 
 /// # Syntax
 /// - A `Computation` consists of multiple `ComputationScope`s
@@ -21,15 +27,18 @@ use proc_macro2::{ TokenTree, Delimiter };
 ///     - contains a `Stmt` and manages reading/writing to the RAM
 ///     - `{ <<Stmt>> }`
 /// - `Stmt`:
-///     - variable declaration: `let mut <<Id>>: <<Type>> = <<Expr>>;` with `Type` being String idents
-///     - assignment and returning: `<<Id>> = <<Expr>>;`, `return <<Expr>>;`
+///     - variable declaration:
+///         - `let mut <<Id>>: <<Type>> = <<Expr>>;` with `Type` being String idents
+///         - **IMPORTANT**: no shadowing is allowed
+///     - assignment and returning: `<<Id>> = <<Expr>>;`, `return <<Expr>>;` (no field accesses allowed for assignments)
 ///     - collections: multiple statements
 ///     - for-loops:
 ///         - `for <<Id>>, <<Id>> in [e0, .., en] { <<Stmt>> }`
 ///         - with an iterator and value ident
+///         - **IMPORTANT**: declarations that require writing are not allowed in for-loops (only local vars or assignments)
 ///     - conditionals:
 ///         - `if (<<Expr>>) { <<Stmt>> }` or `if (<<Expr>>) { <<Stmt>> } else { <<Stmt>> }`
-///         - IMPORTANT: the conditional expression is not allowed to be changed in any branch stmt, otherwise this leads to undefined behaviour
+///         - **IMPORTANT**: the conditional expression is not allowed to be changed in any branch stmt (or have side effects), otherwise this leads to undefined behaviour
 ///     - partial computations:
 ///         - for more powerful computations it's possible to call other elusiv_computations with `partial <<Id>> = <<Expr::Fn>>(..) { <<Stmt>> }`
 ///         - this results in `k - 1` rounds doing the computation and in the last round `k` the stmt is performed with the specified var
@@ -86,7 +95,7 @@ mod tests {
     fn test_complex_computation() {
         // This is the macro input
         let input = quote!{
-            fn_name () -> isize,
+            fn_name (ram_isize: &mut RAM<isize>) -> isize,
             {
                 {
                     let a: isize = 8;
@@ -111,24 +120,29 @@ mod tests {
                     }
                 }
                 {
-                    return a;
+                    return b;
                 }
             }
         };
 
         // And it should "compile" to this code:
         let expected = quote!{
-            pub fn fn_name_partial(round: usize,) -> Result<Option<isize>, &'static str> {
+            pub fn fn_name_partial(round: usize, ram_isize: &mut RAM<isize>) -> Result<Option<isize>, &'static str> {
                 match round {
                     round if round >= 0usize && round < 1usize => {
                         let a: isize = 8;
                         let b: isize = 10;
+
+                        ram_isize.write(a, 0usize);
+                        ram_isize.write(b, 1usize);
                     },
                     round if round >= 1usize && round < 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) => {
+                        let mut a = ram_isize.read(0usize);
+                        let mut b = ram_isize.read(1usize);
+
                         let i = (round - 1usize) / (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1);
                         let round = (round - 1usize) % (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1);
-                        let v = vec![1,2,3,];
-                        let value = v[i];
+                        let value = vec![1,2,3,][i];
 
                         match round {
                             round if round >= 0 && round < 0 + 1 => {
@@ -160,11 +174,22 @@ mod tests {
                             },
                             _ => {}
                         }
+
+                        ram_isize.write(a, 0usize);
+                        ram_isize.write(b, 1usize);
                     },
                     round if round >= 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) &&
                         round < 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) + (COMPUTE_ROUNDS_COUNT + 0) =>
                     {
+                        let a = ram_isize.read(0usize);
+                        let mut b = ram_isize.read(1usize);
+
+                        if round == (COMPUTE_ROUNDS_COUNT + 0) - 1 {
+                            ram_isize.free(0usize);
+                        }
+
                         let round = round - (1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)));
+
                         if (condition) {
                             if round < (COMPUTE_ROUNDS_COUNT + 0) {
                                 if round < COMPUTE_ROUNDS_COUNT - 1 {
@@ -186,11 +211,21 @@ mod tests {
                                 b = (b + a);
                             }
                         }
+
+                        if round < (COMPUTE_ROUNDS_COUNT + 0) - 1 {
+                            ram_isize.write(b, 1usize);
+                        } else {
+                            ram_isize.free(1usize);
+                            ram_isize.write(b, 0usize);
+                        }
                     },
                     round if round >= 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) + (COMPUTE_ROUNDS_COUNT + 0) &&
                     round < 2usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) + (COMPUTE_ROUNDS_COUNT + 0) =>
                     {
-                        return Some(a);
+                        let b = ram_isize.read(0usize);
+                        ram_isize.free(0usize);
+
+                        return Some(b);
                     },
                     _ => {}
                 }
