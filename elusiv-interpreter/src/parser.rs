@@ -49,7 +49,11 @@ impl From<&[Token]> for Stmt {
         if matches!(tree.iter().find(|t| matches!(t, Token::Punct(Punct::Semicolon))), Some(_)) {
             let trees = split_at(SEMICOLON, tree.to_vec());
             let stmts: Vec<Stmt> = trees.iter().map(|t| t.into()).collect();
-            return Stmt::Collection(stmts)
+            if stmts.len() > 1 {
+                return Stmt::Collection(stmts)
+            } else {
+                return stmts.first().unwrap().clone()
+            }
         }
 
         // Non-terminal
@@ -65,7 +69,7 @@ impl From<&[Token]> for Stmt {
                 Stmt::Partial(SingleId(id.clone()), args.into(), Box::new(g.into()))
             },
             [ RETURN, .. ] => {
-                Stmt::Return((&tree[3..]).into())
+                Stmt::Return((&tree[1..]).into())
             },
             [ Ident(id), EQUALS, .. ] => {
                 Stmt::Assign(SingleId(id.clone()), (&tree[2..]).into())
@@ -159,6 +163,9 @@ impl From<&[Token]> for Expr {
 
             // Parenthesized group
             [ Group(group, Delimiter::Parenthesis) ] => group.into(),
+
+            // Unwrap
+            [ UNWRAP, .. ] => Expr::Unwrap(Box::new((&tree[1..]).into())),
             _ => { panic!("Invalid expression stream {:#?}", tree) }
         }
     }

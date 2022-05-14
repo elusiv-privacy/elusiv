@@ -5,51 +5,39 @@ mod parser;
 use proc_macro::TokenStream;
 use proc_macro2::{ TokenTree, Delimiter };
 
-/// # Arguments
+/// For computations that are so costly, that they cannot be performed in a single step
+/// - this macro splits the computation you describe into `n` separate steps
+/// - after `n` program calls the computation is finished and the result returned
 /// 
 /// # Macro output
-/// - a function `name_partial(round: usize, ram_ty_0: RAM<Ty0>, .., ram_ty_n: Ram<Tyn>, param_0, .., param_k)`
+/// - a function `name_partial(round: usize, param_0, .., param_k) -> Result<Option<ReturnType>, &'static str>`
 /// - the count of rounds `NAME_ROUNDS_COUNT: usize` (function calls) required to complete the computation 
-/// - the max compute units used per round `NAME_ROUND: [usize; NAME_ROUNDS_COUNT]`
+/// - this means after `NAME_ROUNDS_COUNT` calls of `name_partial` it will return `Ok(Some(v))` if all went well
+/// - IMPORTANT: it's the callers responsibility to make sure that if a single step of the computation return `Err(_)` no further computations are performed, otherwise undefinied behaviour would result
 /// 
-/// # Examples
-/// 
-/// ```
-/// elusiv_computation!(
-///     fn_name (param0: ty0, param1: ty1, param2: ty2),
-///     {
-///         { // COMPUTE_UNITS_0
-///             ..
-///         }
-///         { // COMPUTE_UNITS_1
-///             ..
-///         }
-///         { // [PARTIAL_CUS0, PARTIAL_CUS1, ..]
-///             .. 
-///         }
-///     }
-/// )
-/// ```
 /// # Syntax
-/// - Unary operators:
-///     - There are currently no unary operators
-///     - So no referencing or dereferencing
-/// - Conditional statements:
-///     - If and If/else statement (important, different to Rust these are not expressions)
-///     - they also require parenthesis around the conditional expression
-///     - `if (<<Expr>>) { <<Stmt>> } else { <<Stmt>> }`
-/// - Loops:
-///     - There are currently no loops inside of partial computations allowed
-///     - Of course you can use loops in functions called by a partial computation
-///     - But for creating multiple scopes with an iterator variable you can use the following syntax:
-///     - ` for <<Id>> in <<Array>>:`
-/// - If/else are statements and not expressions (other than in Rust)
-/// - scopes (aka partial computations)
-/// - variable definitions
-/// - binary operators: +, *, - can be used, if the var type implements the op-traits
-/// - no unary operators, use function calls instead
-/// - variables that are used in a later scope again, need to have an explicit type annotation
-/// - return: `return: <<Type>> <<Expr>>;`
+/// - A `Computation` consists of multiple `ComputationScope`s
+/// - `ComputationScope`:
+///     - contains a `Stmt` and manages reading/writing to the RAM
+///     - `{ <<Stmt>> }`
+/// - `Stmt`:
+///     - variable declaration: `let mut <<Id>>: <<Type>> = <<Expr>>;` with `Type` being String idents
+///     - assignment and returning: `<<Id>> = <<Expr>>;`, `return <<Expr>>;`
+///     - collections: multiple statements
+///     - for-loops:
+///         - `for <<Id>>, <<Id>> in [e0, .., en] { <<Stmt>> }`
+///         - with an iterator and value ident
+///     - conditionals:
+///         - `if (<<Expr>>) { <<Stmt>> }` or `if (<<Expr>>) { <<Stmt>> } else { <<Stmt>> }`
+///         - IMPORTANT: the conditional expression is not allowed to be changed in any branch stmt, otherwise this leads to undefined behaviour
+///     - partial computations:
+///         - for more powerful computations it's possible to call other elusiv_computations with `partial <<Id>> = <<Expr::Fn>>(..) { <<Stmt>> }`
+///         - this results in `k - 1` rounds doing the computation and in the last round `k` the stmt is performed with the specified var
+/// - `Expr`:
+///     - ids, literals, binary-operators, function calls, arrays, 
+///     - a safe unwrap expr: `unwrap <<Expr>>` will cause the function to return `Err(_)` if the expr matches `None`
+/// - `Id`s can either be single idents or idents intersected by dots
+/// - at the moment no unary operators, so use function calls instead
 #[proc_macro]
 pub fn elusiv_computation(attrs: TokenStream) -> TokenStream {
     impl_multi_step_computation(attrs.into()).into()
@@ -91,9 +79,7 @@ mod tests {
     use quote::quote;
 
     macro_rules! assert_eq_stream {
-        ($a: expr, $b: expr) => {
-            assert_eq!($a.to_string(), $b.to_string())
-        };
+        ($a: expr, $b: expr) => { assert_eq!($a.to_string(), $b.to_string()) };
     }
 
     #[test]
@@ -104,6 +90,7 @@ mod tests {
             {
                 {
                     let a: isize = 8;
+                    let b: isize = 10;
                 }
                 {
                     for i, value in [1,2,3] {
@@ -111,7 +98,16 @@ mod tests {
                         partial r = compute() {
                             b = a * r;
                         };
-                        //a = a * 2;
+                        a = a * 2;
+                    }
+                }
+                {
+                    if (condition) {
+                        partial r = compute() {
+                            b = a * r;
+                        };
+                    } else {
+                        b = b + a;
                     }
                 }
                 {
@@ -122,23 +118,27 @@ mod tests {
 
         // And it should "compile" to this code:
         let expected = quote!{
-            pub fn fn_name_partial(round: usize) -> Result<Option<()>, &'static str> {
+            pub fn fn_name_partial(round: usize,) -> Result<Option<isize>, &'static str> {
                 match round {
                     round if round >= 0usize && round < 1usize => {
                         let a: isize = 8;
+                        let b: isize = 10;
                     },
-                    round if round >= 1usize && round < 1usize + (3usize * (1 + COMPUTE_ROUNDS_COUNT + 1)) => {
-                        let i = (round - 1usize) / (1 + COMPUTE_ROUNDS_COUNT + 1);
-                        let round = (round - 1usize) % (1 + COMPUTE_ROUNDS_COUNT + 1);
+                    round if round >= 1usize && round < 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) => {
+                        let i = (round - 1usize) / (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1);
+                        let round = (round - 1usize) % (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1);
                         let v = vec![1,2,3,];
                         let value = v[i];
 
                         match round {
-                            round if round >= 0 && round < 1 {
+                            round if round >= 0 && round < 0 + 1 => {
+                                let round = round - (0);
+
                                 a = ((a + b) * value);
                             },
-                            round if round >= 1 && round < 1 + COMPUTE_ROUNDS_COUNT {
-                                let round = round - 1;
+                            round if round >= 0 + 1 && round < 0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) => {
+                                let round = round - (0 + 1);
+
                                 if round < COMPUTE_ROUNDS_COUNT - 1 {
                                     match compute_partial(round,) {
                                         Ok(_) => {},
@@ -150,16 +150,46 @@ mod tests {
                                         Err(_) => { return Err("Partial computation error") }
                                     };
 
-                                    b = a * r;
+                                    b = (a * r);
                                 }
                             },
-                            /*round if round >= 1 + COMPUTE_ROUNDS_COUNT && round < 1 + COMPUTE_ROUNDS_COUNT + 1 {
-                                a = a * 2;
-                            },*/
+                            round if round >= 0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) && round < 0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1 => {
+                                let round = round - (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0));
+
+                                a = (a * 2);
+                            },
                             _ => {}
                         }
                     },
-                    round if round >= 1usize + (3usize * (1)) && round < 2usize + (3usize * (1)) => {
+                    round if round >= 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) &&
+                        round < 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) + (COMPUTE_ROUNDS_COUNT + 0) =>
+                    {
+                        let round = round - (1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)));
+                        if (condition) {
+                            if round < (COMPUTE_ROUNDS_COUNT + 0) {
+                                if round < COMPUTE_ROUNDS_COUNT - 1 {
+                                    match compute_partial(round,) {
+                                        Ok(_) => {},
+                                        Err(_) => { return Err("Partial computation error") }
+                                    }
+                                } else if round == COMPUTE_ROUNDS_COUNT - 1 {
+                                    let r = match compute_partial(round,) {
+                                        Ok(v) => v,
+                                        Err(_) => { return Err("Partial computation error") }
+                                    };
+
+                                    b = (a * r);
+                                }
+                            }
+                        } else {
+                            if round < 1 {
+                                b = (b + a);
+                            }
+                        }
+                    },
+                    round if round >= 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) + (COMPUTE_ROUNDS_COUNT + 0) &&
+                    round < 2usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) + (COMPUTE_ROUNDS_COUNT + 0) =>
+                    {
                         return Some(a);
                     },
                     _ => {}
@@ -169,50 +199,6 @@ mod tests {
         };
 
         let res = impl_multi_step_computation(input);
-
-        /*let file: syn::File = syn::parse2(res.clone()).unwrap();
-        let pretty = prettyplease::unparse(&file);
-        println!("{}", pretty);*/
-
         assert_eq_stream!(res, expected);
     }
 }
-
-/*pub fn fn_name_partial (round : usize) -> Result < Option < () > , & 'static str > {
-    match round {
-        round if round >= 0usize && round < 1usize => {
-            let a : isize = 8 ;
-        } ,
-        round if round >= 1usize && round < 1usize + (3usize * (COMPUTE_ROUNDS_COUNT + 1)) => {
-            let i = (round - 1usize) / COMPUTE_ROUNDS_COUNT + 1 ;
-            let v = vec ! [1 , 2 , 3 ,] ;
-            let value = v [i] ;
-            match round {
-                round if round >= 0 && round < 0 + 1 => {
-                    let round = round - 0;
-                    a = ((a + b) * value) ;
-                } ,
-                round if round >= 0 + 1 && round < 0 + 1 + COMPUTE_ROUNDS_COUNT + 1 => {
-                    let round = round - (0 + 1);
-                    if round < COMPUTE_ROUNDS_COUNT - 1 {
-                        match compute_partial (round ,) {
-                            Ok (_) => { } , Err (_) => { return Err ("Partial computation error") }
-                        }
-                    } else if round == COMPUTE_ROUNDS_COUNT - 1 {
-                        let r = match compute_partial (round ,) {
-                            Ok (v) => v ,
-                            Err (_) => { return Err ("Partial computation error") }
-                        } ;
-                        b = (a * r) ;
-                    }
-                },
-                _ => { }
-            }
-        } ,
-        round if round >= 1usize + (3usize * (COMPUTE_ROUNDS_COUNT + 1)) && round < 2usize + (3usize * (COMPUTE_ROUNDS_COUNT + 1)) => {
-            return Some (a) ;
-        },
-        _ => { }
-    }
-    Ok (None)
-}*/

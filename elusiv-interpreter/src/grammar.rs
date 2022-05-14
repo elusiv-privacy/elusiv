@@ -104,33 +104,31 @@ impl Stmt {
         match self {
             Stmt::Collection(stmts) => {
                 let mut start_round = start_round;
-                let mut rounds: Option<TokenStream> = None;
 
                 // We check all stmts and group them in "sub-scopes"
                 // - this means we group stmts that should to be computed in the same round
                 // - e.g.: two adjacent stmts are computed in the same round but a partial stmt requires multiple rounds and is not grouped together with those two assignments
-                let mut sub_scopes: Vec<StmtResult> = vec![ StmtResult{ stream: quote!{}, rounds: None } ];
+                let mut sub_scopes: Vec<StmtResult> = vec![];
                 for stmt in stmts {
                     let result = stmt.to_stream(start_round.clone());
 
                     match result.rounds.clone() {
-                        // If a child has None rounds, we can compute this stmt with adjacent None stmts
+                        // If a child has `None` rounds, we can compute this stmt with adjacent `None` rounds stmts
                         None => {
-                            let last = sub_scopes.last_mut().unwrap();
-                            match last.rounds {
-                                None => last.stream.extend(result.stream),
-                                Some(_) => sub_scopes.push(result),
-                            };
+                            match sub_scopes.last_mut() {
+                                Some(last) => {
+                                    match last.rounds {
+                                        None => last.stream.extend(result.stream),
+                                        Some(_) => sub_scopes.push(result),
+                                    };
+                                },
+                                None => { sub_scopes.push(result) },
+                            }
                         },
 
                         // If a child consumes multiple rounds on it's own, we need a new sub-scope
                         Some(r) => {
                             sub_scopes.push(result);
-
-                            match &mut rounds {
-                                Some(r) => r.extend(quote!{ + #r }),
-                                None => rounds = Some(r.clone()),
-                            }
                             start_round.extend(quote!{ + #r });
                         }
                     }
@@ -138,12 +136,14 @@ impl Stmt {
 
                 // If there are multiple scopes, we match each scope to the rounds
                 let stream;
-                if sub_scopes.len() == 1 {
+                let mut rounds: Option<TokenStream> = None;
+                if sub_scopes.len() == 1 && matches!(sub_scopes.first().unwrap().rounds, None) {
                     stream = sub_scopes.first().unwrap().stream.clone();
                 } else {
                     let mut m = quote!{};
                     let mut lower = quote!{ 0 };
                     let mut upper = quote!{ 0 };
+
                     for scope in sub_scopes {
                         match scope.rounds {
                             None => upper.extend(quote!{ + 1 }),
@@ -182,36 +182,28 @@ impl Stmt {
                 let result_true = t.to_stream(start_round.clone());
                 let mut body_true = result_true.stream;
 
-                let result_false = f.to_stream(start_round);
+                let result_false = f.to_stream(start_round.clone());
                 let mut body_false = result_false.stream;
 
-                // We change the bodies so that having too many rounds supplied to a branch, will not affect any computation
-                let rounds = match result_true.rounds {
+                let rounds = match result_true.rounds.clone() {
                     Some(t) => {
-                        body_true = quote!{
-                            if round < #t { #body_true }
-                        };
-
-                        match result_false.rounds {
+                        match result_false.rounds.clone() {
                             Some(f) => Some(quote!{ max(#t + #f) }),
                             None => Some(t)
                         }
                     },
-                    None => {
-                        match result_false.rounds {
-                            Some(f) => {
-                                body_false = quote!{
-                                    if round < #f { #body_false }
-                                };
-
-                                Some(f)
-                            },
-                            None => None
-                        }
-                    }
+                    None => result_false.rounds.clone()
                 };
 
+                // We adapt the bodies so that having too many rounds supplied to a branch, will not affect any computation
+                let true_rounds = result_true.rounds.unwrap_or(quote!{ 1 });
+                body_true = quote!{ if round < #true_rounds { #body_true } };
+
+                let false_rounds = result_false.rounds.unwrap_or(quote!{ 1 });
+                body_false = quote!{ if round < #false_rounds { #body_false } };
+
                 StmtResult { stream: quote!{
+                    let round = round - (#start_round);
                     if (#cond) {
                         #body_true
                     } else {
@@ -254,7 +246,7 @@ impl Stmt {
 
                 let child_result = child.to_stream(start_round);
                 let child_body = child_result.stream;
-                let child_rounds = child_result.rounds.unwrap_or(quote!{ 1 });                
+                let child_rounds = child_result.rounds.unwrap_or(quote!{ 0 });                
 
                 StmtResult { stream: quote!{
                     if round < #size - 1 {
@@ -269,7 +261,7 @@ impl Stmt {
                         };
                         #child_body
                     }
-                }, rounds: Some(quote!{ #size + #child_rounds }) }
+                }, rounds: Some(quote!{ (#size + #child_rounds) }) }
             },
 
             Stmt::Let(SingleId(id), Type(ty), expr) => {
@@ -336,10 +328,12 @@ impl From<Expr> for TokenStream {
             },
             Expr::Unwrap(expr) => {
                 let expr: TokenStream = (*expr).into();
-                quote!{ match expr {
-                    Some(v) => v
-                    None => return Err("Unwrap error"),
-                } }
+                quote!{
+                    match #expr {
+                        Some(v) => v,
+                        None => return Err("Unwrap error")
+                    }
+                }
             }
         }
     }
@@ -381,7 +375,9 @@ mod tests {
     #[test]
     fn test_parse_id() {
         assert_eq_stream!(
-            TokenStream::from(Expr::Id(Id::Single(SingleId(String::from("var_name"))))),
+            TokenStream::from(
+                Expr::Id(Id::Single(SingleId(String::from("var_name"))))
+            ),
             quote!{ var_name }
         );
 
@@ -390,6 +386,18 @@ mod tests {
                 String::from("ab_cd"), String::from("efg"), String::from("CONST_NAME")
             ])))),
             quote!{ ab_cd.efg.CONST_NAME }
+        );
+    }
+
+    #[test]
+    fn test_parse_expr() {
+        assert_eq_stream!(
+            TokenStream::from(
+                Expr::Unwrap(
+                    Box::new(Expr::Fn(Id::Single(SingleId(String::from("fn_name"))), vec![]))
+                )
+            ),
+            quote!{ match fn_name() { Some(v) => v, None => return Err("Unwrap error") } }
         );
     }
 }

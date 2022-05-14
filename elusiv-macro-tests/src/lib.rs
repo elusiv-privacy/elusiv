@@ -17,6 +17,137 @@ const ATE_LOOP_COUNT: [i8; 65] = [0,0,0,1,0,1,0,-1,0,0,1,-1,0,0,1,0,0,1,1,0,-1,0
 // - for B we need to generate the coeffs (all other coeffs already are generated befor compilation)
 // - so we have a var r = (x: rbx, y: rby, z: rbz)
 
+// [(proof.a.into(), proof.b.into()),
+// (prepared_inputs.into_affine().into(), pvk.gamma_g2_neg_pc.clone()),
+// (proof.c.into(), pvk.delta_g2_neg_pc.clone())]
+// - every pair iteration in the ref implementation runs over thr
+// - for i in 64..=1:
+/*elusiv_computation!(
+    combined_miller_loop (
+        proof_a: G1Affine,
+        proof_b: G2Affine,
+        proof_c: G1Affine,
+    ),
+    {
+        {
+            let f: Fq12 = one();
+
+            // values for B coeffs generation (https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L79)
+            let rx: Fq2 = proof_b.1.x;
+            let ry: Fq2 = proof_b.1.y;
+            let rz: Fq2 = FQ2_ONE;
+            let negb = neg(proof_b);
+        }
+
+        // reversed ATE_LOOP_COUNT
+        { for i, ate_loop_count in [1,1,0,1,0,0,-1,0,1,1,0,0,0,-1,0,0,1,1,0,0,-1,0,0,0,0,0,1,0,0,-1,0,0,1,1,1,0,0,0,0,-1,0,1,0,0,-1,0,1,1,0,0,1,0,0,-1,1,0,0,-1,0,1,0,1,0,0,0]
+            {
+                if (larger_than_zero(i)) {
+                    f = square(f);
+                };
+
+                // ell
+
+                if (not_zero(ate_loop_count)) {
+                    if (is_one(ate_loop_count)) {
+                        // ell
+                    } else {
+                        // ell
+                    };
+                };
+            }
+        }
+
+        /*{
+            // ell
+            // ell
+        }
+            /*let mut pairs = vec![];
+            for (p, q) in i {
+                if !p.is_zero() && !q.is_zero() {
+                    pairs.push((p, q.ell_coeffs.iter()));
+                }
+            }*/
+
+            for i in (1..ATE_LOOP_COUNT_LEN).rev() {
+                if i < ATE_LOOP_COUNT - 1 {
+                    f.square_in_place();
+                }
+
+                for (p, ref mut coeffs) in &mut pairs {
+                    Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
+                }
+
+                let bit = ATE_LOOP_COUNT[i - 1];
+                if bit == 1 {
+                    for &mut (p, ref mut coeffs) in &mut pairs {
+                        Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
+                    }
+                } else if bit == -1 {
+                    for &mut (p, ref mut coeffs) in &mut pairs {
+                        Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
+                    }
+                }
+            }
+
+            for &mut (p, ref mut coeffs) in &mut pairs {
+                Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
+            }
+
+            for &mut (p, ref mut coeffs) in &mut pairs {
+                Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        {
+            let two_inv = P::Fp::one().double().inverse().unwrap();
+            if q.is_zero() {
+                return Self { ell_coeffs: vec![], infinity: true };
+            }
+
+            let mut ell_coeffs = vec![];
+            let mut r = G2HomProjective { x: q.x, y: q.y, z: Fp2::one() };
+
+            let negq = -q;
+
+            for i in (1..ATE_LOOP_COUNT_LEN).rev() {
+                ell_coeffs.push(doubling_step::<P>(&mut r, &two_inv));
+
+                let bit = ATE_LOOP_COUNT[i - 1];
+                if bit == 1 {
+                    ell_coeffs.push(addition_step::<P>(&mut r, &q));
+                } else if bit == -1 {
+                    ell_coeffs.push(addition_step::<P>(&mut r, &negq));
+                }
+            }
+
+            let q1 = mul_by_char::<P>(q);
+            let mut q2 = mul_by_char::<P>(q1);
+
+            q2.y = -q2.y;
+
+            ell_coeffs.push(addition_step(&mut r, &q1));
+            ell_coeffs.push(addition_step(&mut r, &q2));
+
+            Self { ell_coeffs, infinity: false }
+        }*/
+    }
+);*/
+
 pub fn new_g2_hom_projective(x: Fq2, y: Fq2, z: Fq2) -> G2HomProjective {
     G2HomProjective { x, y, z }
 }

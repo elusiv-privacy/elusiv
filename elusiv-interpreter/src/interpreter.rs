@@ -1,25 +1,6 @@
-use std::ops::RangeBounds;
-
 use super::grammar::*;
 use proc_macro2::{ TokenStream, Group, TokenTree };
 use quote::quote;
-
-/*
-- nested partial computations
-
-- compute units
-- compute units sub-calls
-
-- interpreter documentation and comments
-
-- instructions and accounts
-- pda renting system
-- add doc/comments to other macros
-
-- poseidon constants generator
-
-- unary operators
-*/
 
 pub fn interpret(computation: Vec<TokenTree>, name: &str, parameters: TokenStream, ty: TokenStream) -> TokenStream {
     let groups: Vec<Group> = computation.iter().map(|t| {
@@ -298,7 +279,7 @@ pub fn interpret(computation: Vec<TokenTree>, name: &str, parameters: TokenStrea
         }
     }*/
     quote!{
-        pub fn #fn_name(round: usize) -> Result<Option<()>, &'static str> {
+        pub fn #fn_name(round: usize, #parameters) -> Result<Option<#ty>, &'static str> {
             match round {
                 #m
                 _ => { }
