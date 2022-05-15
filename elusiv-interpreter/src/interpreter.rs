@@ -88,6 +88,18 @@ pub fn interpret(computation: Vec<TokenTree>, name: &str, parameters: TokenStrea
         for r in scope.read { read.extend(storage.read(r)); }
         for w in scope.write.clone() { write.extend(storage.write(w)); }
 
+        let mut ram_in = quote!{};
+        let mut ram_out = quote!{};
+        // Partial computations require a RAM offset
+        if body.to_string().contains("partial") {
+            for m in &storage.store {
+                let height = m.height();
+                let name = ram_name(&m.ty);
+                ram_in.extend(quote!{ #name.inc_frame(#height); });
+                ram_out.extend(quote!{ #name.dec_frame(#height); });
+            }
+        }
+
         // If we free memory and write, we only free in the last iteration and write to different locations
         if !scope.free.is_empty() {
             let mut write_after_free = quote!{};
@@ -113,18 +125,25 @@ pub fn interpret(computation: Vec<TokenTree>, name: &str, parameters: TokenStrea
             None => single_rounds += 1,
         }
 
+        let round = if body.to_string().contains("round") {
+            quote!{ let round = round - (#start_rounds); }
+        } else { quote!{} };
+
         m.extend(quote!{
             round if round >= #start_rounds && round < #single_rounds #multi_rounds => {
+                #round
                 #read
                 #free
-                #body
+
+                #ram_in #body #ram_out
+
                 #write
             },
         });
     }
 
     let fn_name: TokenStream = format!("{}_partial", name).parse().unwrap();
-    //let rounds_count_name: TokenStream = format!("{}_ROUNDS_COUNT", name.to_uppercase()).parse().unwrap();
+    let rounds_count_name: TokenStream = format!("{}_ROUNDS_COUNT", name.to_uppercase()).parse().unwrap();
 
     // Check that all storage objects have been cleared (required to be able to move back to calling computation)
     for m in storage.store {
@@ -132,6 +151,7 @@ pub fn interpret(computation: Vec<TokenTree>, name: &str, parameters: TokenStrea
     }
 
     quote!{
+        const #rounds_count_name: usize = #single_rounds #multi_rounds;
         pub fn #fn_name(round: usize, #parameters) -> Result<Option<#ty>, &'static str> {
             match round {
                 #m

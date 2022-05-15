@@ -29,11 +29,11 @@ pub enum Stmt {
     Collection(Vec<Stmt>),
     IfElse(Expr, Box<Stmt>, Box<Stmt>),
     For(SingleId, SingleId, Expr, Box<Stmt>),
-    Partial(SingleId, Expr, Box<Stmt>),
     
     // Terminal stmts
     Let(SingleId, bool, Type, Expr),    // Let.1 is the mutability
     Assign(SingleId, Expr),
+    Partial(SingleId, Expr, Box<Stmt>),
     Return(Expr),
 }
 
@@ -117,26 +117,27 @@ impl Stmt {
                     }
                 }
 
-                // If there are multiple scopes, we match each scope to the rounds
+                // If there are multiple groups, we match each scope to the rounds
                 let stream;
                 let mut rounds: Option<TokenStream> = None;
                 if sub_scopes.len() == 1 && matches!(sub_scopes.first().unwrap().rounds, None) {
                     stream = sub_scopes.first().unwrap().stream.clone();
                 } else {
                     let mut m = quote!{};
-                    let mut lower = quote!{ 0 };
-                    let mut upper = quote!{ 0 };
+                    let mut lower = quote!{};
+                    let mut upper = quote!{};
 
                     for scope in sub_scopes {
                         match scope.rounds {
-                            None => upper.extend(quote!{ + 1 }),
-                            Some(r) => upper.extend(quote!{ + #r }),
+                            None => upper.extend(if upper.is_empty() { quote!{ 1 } } else { quote!{ + 1 } }),
+                            Some(r) => upper.extend(if upper.is_empty() { quote!{ #r } } else { quote!{ + #r } }),
                         }
 
                         let s = scope.stream;
+                        let l = if lower.is_empty() { quote!{ 0 } } else { lower.clone() };
                         m.extend(quote!{
-                            round if round >= #lower && round < #upper => {
-                                let round = round - (#lower);
+                            round if round >= #l && round < #upper => {
+                                let round = round - (#l);
                                 #s
                             },
                         });
@@ -150,7 +151,7 @@ impl Stmt {
                             _ => {}
                         }
                     };
-                    rounds = Some(upper.clone());
+                    rounds = if upper.is_empty() { None } else { Some(upper) };
                 }
 
                 StmtResult { stream, rounds }
@@ -186,7 +187,6 @@ impl Stmt {
                 body_false = quote!{ if round < #false_rounds { #body_false } };
 
                 StmtResult { stream: quote!{
-                    let round = round - (#start_round);
                     if (#cond) {
                         #body_true
                     } else {
@@ -209,11 +209,13 @@ impl Stmt {
                 let child_rounds = child_result.rounds.unwrap_or(quote!{ 1 });
 
                 StmtResult { stream: quote!{
-                    let #iter_id = (round - #start_round) / (#child_rounds);
-                    let round = (round - #start_round) % (#child_rounds);
-                    let #var_id = vec!#arr[#iter_id];
+                    {
+                        let #iter_id = round / (#child_rounds);
+                        let #var_id = vec!#arr[#iter_id];
+                        let round = round % (#child_rounds);
 
-                    #child_body
+                        #child_body
+                    }
                 }, rounds: Some(quote!{ (#iterations * (#child_rounds)) }) }
             },
 
@@ -228,7 +230,7 @@ impl Stmt {
 
                 let child_result = child.to_stream(start_round);
                 let child_body = child_result.stream;
-                let child_rounds = child_result.rounds.unwrap_or(quote!{ 0 });                
+                let child_rounds = child_result.rounds.unwrap_or(quote!{ });                
 
                 StmtResult { stream: quote!{
                     if round < #size - 1 {
@@ -238,12 +240,12 @@ impl Stmt {
                         }
                     } else if round == #size - 1 {
                         let #ident = match #fn_call {
-                            Ok(v) => v,
-                            Err(_) => { return Err("Partial computation error") }
+                            Ok(Some(v)) => v,
+                            _ => { return Err("Partial computation error") }
                         };
                         #child_body
                     }
-                }, rounds: Some(quote!{ (#size + #child_rounds) }) }
+                }, rounds: Some(quote!{ (#size #child_rounds) }) }
             },
 
             Stmt::Let(SingleId(id), mutable, Type(ty), expr) => {
@@ -268,7 +270,7 @@ impl Stmt {
             Stmt::Return(expr) => {
                 let value: TokenStream = expr.into();
 
-                StmtResult { stream: quote!{ return Some(#value); }, rounds: None }
+                StmtResult { stream: quote!{ return Ok(Some(#value)); }, rounds: None }
             },
 
             _ => { panic!("Invalid stmt: {:?}", self) }

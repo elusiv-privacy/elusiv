@@ -14,6 +14,7 @@ use proc_macro2::{ TokenTree, Delimiter };
 ///     - `write(value: Type, index: usize)`
 ///     - `read(index: usize) -> Type`
 ///     - `free(index: usize)`
+///     - `inc_frame(offset: usize)` and `inc_frame(offset: usize)` (required for function calls)
 /// 
 /// # Macro output
 /// - a function `name_partial(round: usize, param_0, .., param_k) -> Result<Option<ReturnType>, &'static str>`
@@ -29,7 +30,7 @@ use proc_macro2::{ TokenTree, Delimiter };
 /// - `Stmt`:
 ///     - variable declaration:
 ///         - `let mut <<Id>>: <<Type>> = <<Expr>>;` with `Type` being String idents
-///         - **IMPORTANT**: no shadowing is allowed
+///         - no shadowing is allowed
 ///     - assignment and returning: `<<Id>> = <<Expr>>;`, `return <<Expr>>;` (no field accesses allowed for assignments)
 ///     - collections: multiple statements
 ///     - for-loops:
@@ -127,6 +128,8 @@ mod tests {
 
         // And it should "compile" to this code:
         let expected = quote!{
+            const FN_NAME_ROUNDS_COUNT: usize = 2usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT); 
+
             pub fn fn_name_partial(round: usize, ram_isize: &mut RAM<isize>) -> Result<Option<isize>, &'static str> {
                 match round {
                     round if round >= 0usize && round < 1usize => {
@@ -136,62 +139,72 @@ mod tests {
                         ram_isize.write(a, 0usize);
                         ram_isize.write(b, 1usize);
                     },
-                    round if round >= 1usize && round < 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) => {
+                    round if round >= 1usize && round < 1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) => {
+                        let round = round - (1usize);
+
                         let mut a = ram_isize.read(0usize);
                         let mut b = ram_isize.read(1usize);
 
-                        let i = (round - 1usize) / (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1);
-                        let round = (round - 1usize) % (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1);
-                        let value = vec![1,2,3,][i];
+                        ram_isize.inc_frame(2usize);
 
-                        match round {
-                            round if round >= 0 && round < 0 + 1 => {
-                                let round = round - (0);
+                        {
+                            let i = round / (1 + (COMPUTE_ROUNDS_COUNT) + 1);
+                            let value = vec![1,2,3,][i];
+                            let round = round % (1 + (COMPUTE_ROUNDS_COUNT) + 1);
 
-                                a = ((a + b) * value);
-                            },
-                            round if round >= 0 + 1 && round < 0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) => {
-                                let round = round - (0 + 1);
+                            match round {
+                                round if round >= 0 && round < 1 => {
+                                    let round = round - (0);
 
-                                if round < COMPUTE_ROUNDS_COUNT - 1 {
-                                    match compute_partial(round,) {
-                                        Ok(_) => {},
-                                        Err(_) => { return Err("Partial computation error") }
+                                    a = ((a + b) * value);
+                                },
+                                round if round >= 1 && round < 1 + (COMPUTE_ROUNDS_COUNT) => {
+                                    let round = round - (1);
+
+                                    if round < COMPUTE_ROUNDS_COUNT - 1 {
+                                        match compute_partial(round,) {
+                                            Ok(_) => {},
+                                            Err(_) => { return Err("Partial computation error") }
+                                        }
+                                    } else if round == COMPUTE_ROUNDS_COUNT - 1 {
+                                        let r = match compute_partial(round,) {
+                                            Ok(Some(v)) => v,
+                                            _ => { return Err("Partial computation error") }
+                                        };
+
+                                        b = (a * r);
                                     }
-                                } else if round == COMPUTE_ROUNDS_COUNT - 1 {
-                                    let r = match compute_partial(round,) {
-                                        Ok(v) => v,
-                                        Err(_) => { return Err("Partial computation error") }
-                                    };
+                                },
+                                round if round >= 1 + (COMPUTE_ROUNDS_COUNT) && round < 1 + (COMPUTE_ROUNDS_COUNT) + 1 => {
+                                    let round = round - (1 + (COMPUTE_ROUNDS_COUNT));
 
-                                    b = (a * r);
-                                }
-                            },
-                            round if round >= 0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) && round < 0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1 => {
-                                let round = round - (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0));
-
-                                a = (a * 2);
-                            },
-                            _ => {}
+                                    a = (a * 2);
+                                },
+                                _ => {}
+                            }
                         }
+
+                        ram_isize.dec_frame(2usize);
 
                         ram_isize.write(a, 0usize);
                         ram_isize.write(b, 1usize);
                     },
-                    round if round >= 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) &&
-                        round < 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) + (COMPUTE_ROUNDS_COUNT + 0) =>
+                    round if round >= 1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) &&
+                        round < 1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) =>
                     {
+                        let round = round - (1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)));
+
                         let a = ram_isize.read(0usize);
                         let mut b = ram_isize.read(1usize);
 
-                        if round == (COMPUTE_ROUNDS_COUNT + 0) - 1 {
+                        if round == (COMPUTE_ROUNDS_COUNT) - 1 {
                             ram_isize.free(0usize);
                         }
 
-                        let round = round - (1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)));
+                        ram_isize.inc_frame(2usize);
 
                         if (condition) {
-                            if round < (COMPUTE_ROUNDS_COUNT + 0) {
+                            if round < (COMPUTE_ROUNDS_COUNT) {
                                 if round < COMPUTE_ROUNDS_COUNT - 1 {
                                     match compute_partial(round,) {
                                         Ok(_) => {},
@@ -199,8 +212,8 @@ mod tests {
                                     }
                                 } else if round == COMPUTE_ROUNDS_COUNT - 1 {
                                     let r = match compute_partial(round,) {
-                                        Ok(v) => v,
-                                        Err(_) => { return Err("Partial computation error") }
+                                        Ok(Some(v)) => v,
+                                        _ => { return Err("Partial computation error") }
                                     };
 
                                     b = (a * r);
@@ -212,20 +225,22 @@ mod tests {
                             }
                         }
 
-                        if round < (COMPUTE_ROUNDS_COUNT + 0) - 1 {
+                        ram_isize.dec_frame(2usize);
+
+                        if round < (COMPUTE_ROUNDS_COUNT) - 1 {
                             ram_isize.write(b, 1usize);
                         } else {
                             ram_isize.free(1usize);
                             ram_isize.write(b, 0usize);
                         }
                     },
-                    round if round >= 1usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) + (COMPUTE_ROUNDS_COUNT + 0) &&
-                    round < 2usize + (3usize * (0 + 1 + (COMPUTE_ROUNDS_COUNT + 0) + 1)) + (COMPUTE_ROUNDS_COUNT + 0) =>
+                    round if round >= 1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) &&
+                    round < 2usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) =>
                     {
                         let b = ram_isize.read(0usize);
                         ram_isize.free(0usize);
 
-                        return Some(b);
+                        return Ok(Some(b));
                     },
                     _ => {}
                 }

@@ -184,7 +184,7 @@ pub struct CoefficientsResult {
 
 // Doubling step
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L139
-elusiv_computation!(
+/*elusiv_computation!(
     doubling_step (r: G2HomProjective) -> Fq12,
     {
         {
@@ -297,7 +297,7 @@ elusiv_computation!(
 // f.mul_by_034(c0, c1, coeffs.2); (with: self -> f; c0 -> c0; d0 -> c1; d1 -> coeffs.2)
 // https://github.com/arkworks-rs/r1cs-std/blob/b7874406ec614748608b1739b1578092a8c97fb8/src/fields/fp12.rs#L43
 elusiv_computation!(
-    mul_by_034 (c0: Fq2, d0: Fq2, d1: Fq2, f: Fq12),
+    mul_by_034 (c0: Fq2, d0: Fq2, d1: Fq2, f: Fq12) -> Fq12,
     {
         { let a: Fq6 = new_fq6(f.c0.c0 * c0, f.c0.c1 * c0, f.c0.c2 * c0); }
         { let b: Fq6 = mul_fq6_by_c0_c1_0(f.c1, d0, d1); }
@@ -308,7 +308,7 @@ elusiv_computation!(
         }
     }
 );
-
+*/
 // https://github.com/arkworks-rs/algebra/blob/4dd6c3446e8ab22a2ba13505a645ea7b3a69f493/ff/src/fields/models/quadratic_extension.rs#L87
 // https://github.com/arkworks-rs/algebra/blob/4dd6c3446e8ab22a2ba13505a645ea7b3a69f493/ff/src/fields/models/quadratic_extension.rs#L56
 fn sub_and_mul_base_field_by_nonresidue(x: Fq6, y: Fq6) -> Fq6 {
@@ -351,27 +351,36 @@ pub fn mul_by_fp(v: Fq2, fp: Fq) -> Fq2 {
 // Final exponentiation
 // - reference implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L153
 elusiv_computation!(
-    final_exponentiation (ram_fq6: &mut RAM<Fq6>, f: Fq12),
+    final_exponentiation (ram_fq12: &mut RAM<Fq12>, ram_fq6: &mut RAM<Fq6>, f: Fq12) -> Fq12,
     {
-        { let f1: Fq12 = conjugate(f); }
-        { partial let f2: Fq12 = inverse_fq12(ram_fq6, f); }
         {
-            let r: Fq12 = f1 * f2;
-            f2 = r;
+            let r: Fq12 = conjugate(f);
+            let f2: Fq12 = f;
+        }
+        { partial v = inverse_fq12(ram_fq6, f2)
+            {
+                r = r * v;
+                f2 = r;
+            }
         }
         {
             r = frobenius_map(r, 2);
             r = r * f2;
+            let y0: Fq12 = r;
         }
-        { partial let y0: Fq12 = exp_by_neg_x(ram_fq12, r); }
+        { partial v = exp_by_neg_x(ram_fq12, y0) { y0 = v; } }
         {
             let y1: Fq12 = cyclotomic_square(y0);
             let y2: Fq12 = cyclotomic_square(y1);
             let y3: Fq12 = y2 * y1;
+            let y4: Fq12 = y3;
         }
-        { partial let y4: Fq12 = exp_by_neg_x(ram_fq12, y3); }
-        { let y5: Fq12 = cyclotomic_square(y4); }
-        { partial let y6: Fq12 = exp_by_neg_x(ram_fq12, y5); }
+        { partial v = exp_by_neg_x(ram_fq12, y4) { y4 = v; } }
+        {
+            let y5: Fq12 = cyclotomic_square(y4);
+            let y6: Fq12 = y5;
+        }
+        { partial v = exp_by_neg_x(ram_fq12, y6) { y6 = v; } }
         {
             y3 = conjugate(y3);
             y6 = conjugate(y6);
@@ -398,9 +407,7 @@ elusiv_computation!(
         {
             let mut y15: Fq12 = r * y9;
             y15 = frobenius_map(y15, 3);
-            let y16: Fq12 = y15 * y14;
-
-            return y16;
+            return y15 * y14;
         }
     }
 );
@@ -408,16 +415,13 @@ elusiv_computation!(
 // https://github.com/arkworks-rs/algebra/blob/4dd6c3446e8ab22a2ba13505a645ea7b3a69f493/ff/src/fields/models/quadratic_extension.rs#L366
 // Guide to Pairing-based Cryptography, Algorithm 5.19.
 elusiv_computation!(
-    inverse_fq12 (f: Fq12),
+    inverse_fq12 (ram_fq6: &mut RAM<Fq6>, f: Fq12) -> Fq12,
     {
         { let v1: Fq6 = square_fq6(f.c1); }
         { let v2: Fq6 = square_fq6(f.c0); }
         { let mut v0: Fq6 = sub_and_mul_base_field_by_nonresidue(v2, v1); }
-        { unwrap let v3: Fq6 = inverse_fq6(v0); }
-        {
-            let res: Fq12 = new_fq12(f.c0 * v3, neg_fq6(f.c1 * v3));
-            return res;
-        }
+        { let v3: Fq6 = unwrap inverse_fq6(v0); }
+        { return new_fq12(f.c0 * v3, neg_fq6(f.c1 * v3)); }
     }
 );
 
@@ -425,7 +429,7 @@ elusiv_computation!(
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L78
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ff/src/fields/models/fp12_2over3over2.rs#L56
 elusiv_computation!(
-    exp_by_neg_x (fe: Fq12),
+    exp_by_neg_x (ram_fq12: &mut RAM<Fq12>, fe: Fq12) -> Fq12,
     {
         {
             let fe_inverse: Fq12 = conjugate(fe);
@@ -436,9 +440,9 @@ elusiv_computation!(
         // NAF computed using: https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.394.3037&rep=rep1&type=pdf Page 98
         // - but removed the last zero value, since it has no effect
         // - and then inverted the array
-        { for value in [1,0,0,0,1,0,1,0,0,2,0,1,0,1,0,2,0,0,1,0,1,0,2,0,2,0,2,0,1,0,0,0,1,0,0,1,0,1,0,1,0,2,0,1,0,0,1,0,0,0,0,1,0,1,0,0,0,0,2,0,0,0,1]
+        { for i, value in [1,0,0,0,1,0,1,0,0,2,0,1,0,1,0,2,0,0,1,0,1,0,2,0,2,0,2,0,1,0,0,0,1,0,0,1,0,1,0,1,0,2,0,1,0,0,1,0,0,0,0,1,0,1,0,0,0,0,2,0,0,0,1]
             {
-                if (larger_than_zero(round)) {
+                if (larger_than_zero(i)) {
                     res = cyclotomic_square(res);
                 };
 
@@ -447,14 +451,11 @@ elusiv_computation!(
                         res = res * fe;
                     } else { // value == 2
                         res = res * fe_inverse;
-                    };
+                    }
                 };
             }
         }
-        {
-            let a: Fq12 = conjugate(res);
-            return a;
-        }
+        { return conjugate(res); }
     }
 );
 pub fn is_non_zero(v: u8) -> bool { v != 0 }
@@ -543,7 +544,7 @@ mod tests {
     fn coeffs() -> (Fq2, Fq2, Fq2) { (f().c0.c0, f().c1.c0, f().c0.c2) }
     fn g1_affine() -> G1Affine { G1Affine::new(f().c0.c0.c0, f().c0.c0.c1, false) }
 
-    #[test]
+    /*#[test]
     fn test_ell() {
         let mut ram_fq12: RAM<Fq12> = RAM::new(20);
         let mut ram_fq6: RAM<Fq6> = RAM::new(20);
@@ -555,6 +556,7 @@ mod tests {
         assert_eq!(value.unwrap(), original_ell(f(), coeffs(), g1_affine()));
     }
 
+*/
     #[test]
     fn test_inverse_fq12() {
         let mut ram_fq6: RAM<Fq6> = RAM::new(20);
