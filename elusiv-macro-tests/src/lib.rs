@@ -278,18 +278,22 @@ pub fn frobenius_map_fq2(f: Fq2, u: usize) -> Fq2 {
 }
 
 // Coefficients ell
-
+*/
 // Line function evaluation at point p
 // - since miller loop calls ell_round on 1. A, a prepared input, C we combine all three 
 // - reference implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
 elusiv_computation!(
-    ell (ram_fq6: &mut RAM<Fq6>, coeffs: (Fq2, Fq2, Fq2), p: G1Affine, f: Fq12),
+    ell (
+        ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
+        coeffs: (Fq2, Fq2, Fq2), p: G1Affine, f: Fq12
+    ) -> Fq12,
     {
         {
             let c0: Fq2 = mul_by_fp(coeffs.0, p.y);
             let c1: Fq2 = mul_by_fp(coeffs.1, p.x);
+            let res: Fq12 = f;
         }
-        { partial let res: Fq12 = mul_by_034(ram_fq6, c0, c1, coeffs.2, f); }
+        { partial v = mul_by_034(ram_fq6, c0, c1, coeffs.2, res) { res = v } }
         { return res; }
     }
 );
@@ -297,18 +301,18 @@ elusiv_computation!(
 // f.mul_by_034(c0, c1, coeffs.2); (with: self -> f; c0 -> c0; d0 -> c1; d1 -> coeffs.2)
 // https://github.com/arkworks-rs/r1cs-std/blob/b7874406ec614748608b1739b1578092a8c97fb8/src/fields/fp12.rs#L43
 elusiv_computation!(
-    mul_by_034 (c0: Fq2, d0: Fq2, d1: Fq2, f: Fq12) -> Fq12,
+    mul_by_034 (
+        ram_fq6: &mut RAM<Fq6>,
+        c0: Fq2, d0: Fq2, d1: Fq2, f: Fq12
+    ) -> Fq12,
     {
         { let a: Fq6 = new_fq6(f.c0.c0 * c0, f.c0.c1 * c0, f.c0.c2 * c0); }
         { let b: Fq6 = mul_fq6_by_c0_c1_0(f.c1, d0, d1); }
         { let e: Fq6 = mul_fq6_by_c0_c1_0(f.c0 + f.c1, c0 + d0, d1); }
-        {
-            let res: Fq12 = new_fq12(mul_base_field_by_nonresidue(b) + a, e - (a + b));
-            return res;
-        }
+        { return new_fq12(mul_base_field_by_nonresidue(b) + a, e - (a + b)); }
     }
 );
-*/
+
 // https://github.com/arkworks-rs/algebra/blob/4dd6c3446e8ab22a2ba13505a645ea7b3a69f493/ff/src/fields/models/quadratic_extension.rs#L87
 // https://github.com/arkworks-rs/algebra/blob/4dd6c3446e8ab22a2ba13505a645ea7b3a69f493/ff/src/fields/models/quadratic_extension.rs#L56
 fn sub_and_mul_base_field_by_nonresidue(x: Fq6, y: Fq6) -> Fq6 {
@@ -343,7 +347,7 @@ pub fn new_fq12(c0: Fq6, c1: Fq6) -> Fq12 { Fq12::new(c0, c1) }
 pub fn new_fq6(c0: Fq2, c1: Fq2, c2: Fq2) -> Fq6 { Fq6::new(c0, c1, c2) }
 
 pub fn mul_by_fp(v: Fq2, fp: Fq) -> Fq2 {
-    let mut v = v;
+    let mut v: Fq2 = v;
     v.mul_assign_by_fp(&fp);
     v
 }
@@ -544,7 +548,7 @@ mod tests {
     fn coeffs() -> (Fq2, Fq2, Fq2) { (f().c0.c0, f().c1.c0, f().c0.c2) }
     fn g1_affine() -> G1Affine { G1Affine::new(f().c0.c0.c0, f().c0.c0.c1, false) }
 
-    /*#[test]
+    #[test]
     fn test_ell() {
         let mut ram_fq12: RAM<Fq12> = RAM::new(20);
         let mut ram_fq6: RAM<Fq6> = RAM::new(20);
@@ -556,7 +560,6 @@ mod tests {
         assert_eq!(value.unwrap(), original_ell(f(), coeffs(), g1_affine()));
     }
 
-*/
     #[test]
     fn test_inverse_fq12() {
         let mut ram_fq6: RAM<Fq6> = RAM::new(20);
