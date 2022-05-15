@@ -5,12 +5,9 @@ use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWra
 use ark_ff::{ One, biginteger::BigInteger256, field_new };
 use ark_ec::models::bn::BnParameters;
 
-// https://github.com/arkworks-rs/curves/blob/1551d6d76ce5abf6e7925e53b0ea1af7dbc421c3/bn254/src/curves/mod.rs#L21
-const ATE_LOOP_COUNT: [i8; 65] = [0,0,0,1,0,1,0,-1,0,0,1,-1,0,0,1,0,0,1,1,0,-1,0,0,1,0,-1,0,0,0,0,1,1,1,0,0,-1,0,0,1,0,0,0,0,0,-1,0,0,1,1,0,0,-1,0,0,0,1,1,0,-1,0,0,1,0,1,1];
-
-// We combine the miller loop and the coefficient generation (conversion for B from G2Affine to G2Prepared)
+// We combine the miller loop and the coefficient generation for B
 // - miller loop ref: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L99
-// - generation ref: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L68
+// - coefficient generation ref: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L68
 // - implementation:
 // - the miller loop receives an iterator over 3 elements (https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L41)
 
@@ -36,10 +33,12 @@ const ATE_LOOP_COUNT: [i8; 65] = [0,0,0,1,0,1,0,-1,0,0,1,-1,0,0,1,0,0,1,1,0,-1,0
             let rx: Fq2 = proof_b.1.x;
             let ry: Fq2 = proof_b.1.y;
             let rz: Fq2 = FQ2_ONE;
-            let negb = neg(proof_b);
+            let negb: G2Affine = neg(proof_b);
         }
 
-        // reversed ATE_LOOP_COUNT
+        // Reversed ATE_LOOP_COUNT
+        // https://github.com/arkworks-rs/curves/blob/1551d6d76ce5abf6e7925e53b0ea1af7dbc421c3/bn254/src/curves/mod.rs#L21
+        // const ATE_LOOP_COUNT: [i8; 65] = [0,0,0,1,0,1,0,-1,0,0,1,-1,0,0,1,0,0,1,1,0,-1,0,0,1,0,-1,0,0,0,0,1,1,1,0,0,-1,0,0,1,0,0,0,0,0,-1,0,0,1,1,0,0,-1,0,0,0,1,1,0,-1,0,0,1,0,1,1];
         { for i, ate_loop_count in [1,1,0,1,0,0,-1,0,1,1,0,0,0,-1,0,0,1,1,0,0,-1,0,0,0,0,0,1,0,0,-1,0,0,1,1,1,0,0,0,0,-1,0,1,0,0,-1,0,1,1,0,0,1,0,0,-1,1,0,0,-1,0,1,0,1,0,0,0]
             {
                 if (larger_than_zero(i)) {
@@ -153,9 +152,7 @@ pub fn new_g2_hom_projective(x: Fq2, y: Fq2, z: Fq2) -> G2HomProjective {
 }
 
 /*
-mul_by_034(f, ( mul_by_fp(c0, a.y), mul_by_fp(c1, a.x), c2));
-mul_by_034(f, ( mul_by_fp(VKey::gamma_g2_neg_pc(coeff_ic).0, p_inputs.y), mul_by_fp(VKey::gamma_g2_neg_pc(coeff_ic).1, p_inputs.x), VKey::gamma_g2_neg_pc(coeff_ic).2,));
-mul_by_034(f, ( mul_by_fp(VKey::delta_g2_neg_pc(coeff_ic).0, c.y), mul_by_fp(VKey::delta_g2_neg_pc(coeff_ic).1, c.x), VKey::delta_g2_neg_pc(coeff_ic).2,));
+
 */
 
 #[derive(Debug)]
@@ -277,13 +274,21 @@ pub fn frobenius_map_fq2(f: Fq2, u: usize) -> Fq2 {
     k
 }
 
-// Coefficients ell
 */
-// Line function evaluation at point p
-// - since miller loop calls ell_round on 1. A, a prepared input, C we combine all three 
-// - reference implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
+/// A prepared G1Affine consists of 65 coefficient triples
+/// - the `PreparedG1AffineSlice` just references one triple and the original affine
+struct PreparedG1AffineSlice<'a> {
+    coeffs: (&'a Fq2, &'a Fq2, &'a Fq2),
+    p: &'a G1Affine
+}
+/*
+
+
+// Multi ell
+// - inside the miller loop we do evaluations on three elements
+// - multi_ell combines those three calls in one function
 elusiv_computation!(
-    ell (
+    multi_ell (
         ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
         coeffs: (Fq2, Fq2, Fq2), p: G1Affine, f: Fq12
     ) -> Fq12,
@@ -298,12 +303,36 @@ elusiv_computation!(
     }
 );
 
+mul_by_034(f, ( mul_by_fp(c0, a.y), mul_by_fp(c1, a.x), c2));
+mul_by_034(f, ( mul_by_fp(VKey::gamma_g2_neg_pc(coeff_ic).0, p_inputs.y), mul_by_fp(VKey::gamma_g2_neg_pc(coeff_ic).1, p_inputs.x), VKey::gamma_g2_neg_pc(coeff_ic).2,));
+mul_by_034(f, ( mul_by_fp(VKey::delta_g2_neg_pc(coeff_ic).0, c.y), mul_by_fp(VKey::delta_g2_neg_pc(coeff_ic).1, c.x), VKey::delta_g2_neg_pc(coeff_ic).2,));
+
+*/
+// Line function evaluation at point p
+// - since miller loop calls ell_round on 1. A, a prepared input, C we combine all three 
+// - reference implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
+elusiv_computation!(
+    ell (
+        ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
+        p: PreparedG1AffineSlice, f: Fq12,
+    ) -> Fq12,
+    {
+        {
+            let c0: Fq2 = mul_by_fp(p.coeffs.0, p.p.y);
+            let c1: Fq2 = mul_by_fp(p.coeffs.1, p.p.x);
+            let res: Fq12 = f;
+        }
+        { partial v = mul_by_034(ram_fq6, c0, c1, p.coeffs.2, res) { res = v } }
+        { return res; }
+    }
+);
+
 // f.mul_by_034(c0, c1, coeffs.2); (with: self -> f; c0 -> c0; d0 -> c1; d1 -> coeffs.2)
 // https://github.com/arkworks-rs/r1cs-std/blob/b7874406ec614748608b1739b1578092a8c97fb8/src/fields/fp12.rs#L43
 elusiv_computation!(
     mul_by_034 (
         ram_fq6: &mut RAM<Fq6>,
-        c0: Fq2, d0: Fq2, d1: Fq2, f: Fq12
+        c0: &Fq2, d0: &Fq2, d1: &Fq2, f: Fq12
     ) -> Fq12,
     {
         { let a: Fq6 = new_fq6(f.c0.c0 * c0, f.c0.c1 * c0, f.c0.c2 * c0); }
@@ -324,7 +353,7 @@ pub fn mul_base_field_by_nonresidue(v: Fq6) -> Fq6 {
 }
 
 // https://github.com/arkworks-rs/r1cs-std/blob/b7874406ec614748608b1739b1578092a8c97fb8/src/fields/fp6_3over2.rs#L53
-pub fn mul_fq6_by_c0_c1_0(f: Fq6, c0: Fq2, c1: Fq2) -> Fq6 {
+pub fn mul_fq6_by_c0_c1_0(f: Fq6, c0: &Fq2, c1: &Fq2) -> Fq6 {
     let v0: Fq2 = f.c0 * c0;
     let v1: Fq2 = f.c1 * c1;
 
@@ -333,7 +362,7 @@ pub fn mul_fq6_by_c0_c1_0(f: Fq6, c0: Fq2, c1: Fq2) -> Fq6 {
     let a0_plus_a2: Fq2 = f.c0 + f.c2;
 
     let b1_plus_b2: Fq2 = c1.clone();
-    let b0_plus_b1: Fq2 = c0 + c1;
+    let b0_plus_b1: Fq2 = *c0 + c1;
     let b0_plus_b2: Fq2 = c0.clone();
 
     Fq6::new(

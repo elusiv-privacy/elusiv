@@ -60,12 +60,14 @@ pub struct Type(pub String);
 
 #[derive(Debug, Clone)]
 pub enum Expr {
+    UnOp(UnOp, Box<Expr>),
     BinOp(Box<Expr>, BinOp, Box<Expr>),
     Literal(String),
     Id(Id),
     Fn(Id, Vec<Expr>),
     Array(Vec<Expr>),
     Unwrap(Box<Expr>),
+    Invalid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +75,15 @@ pub enum BinOp {
     Mul,
     Add,
     Sub,
+    LessThan,
+    LargerThan,
+    Equals,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnOp {
+    Ref,
+    Deref,
 }
 
 /// - `rounds` == None means that the Stmt uses the same round as the scope or other stmts surrounding it
@@ -288,6 +299,11 @@ impl From<Expr> for TokenStream {
                 let r: TokenStream = (*r).into();
                 quote!{ (#l #op #r) }
             },
+            Expr::UnOp(op, e) => {
+                let op: TokenStream = op.to_string().parse().unwrap();
+                let e: TokenStream = (*e).into();
+                quote!{ (#op #e) }
+            },
             Expr::Id(id) => id.to_string().parse().unwrap(),
             Expr::Fn(id, exprs) => {
                 let id: TokenStream = id.to_string().parse().unwrap();
@@ -314,7 +330,8 @@ impl From<Expr> for TokenStream {
                         None => return Err("Unwrap error")
                     }
                 }
-            }
+            },
+            Expr::Invalid => panic!("Invalid expression")
         }
     }
 }
@@ -325,11 +342,25 @@ impl From<&Expr> for TokenStream {
 
 impl ToString for BinOp {
     fn to_string(&self) -> String {
-        match self {
-            BinOp::Add => String::from("+"),
-            BinOp::Sub => String::from("-"),
-            BinOp::Mul => String::from("*"),
-        }
+        let c = match self {
+            BinOp::Add => "+",
+            BinOp::Sub => "-",
+            BinOp::Mul => "*",
+            BinOp::LargerThan => ">",
+            BinOp::LessThan => "<",
+            BinOp::Equals => "=="
+        };
+        String::from(c)
+    }
+}
+
+impl ToString for UnOp {
+    fn to_string(&self) -> String {
+        let c = match self {
+            UnOp::Ref => "&",
+            UnOp::Deref => "*",
+        };
+        String::from(c)
     }
 }
 
@@ -377,11 +408,13 @@ impl Expr {
     pub fn all_vars(&self) -> Vec<String> {
         match self {
             Expr::BinOp(l, _, r) => merge((*l).all_vars(), (*r).all_vars()),
+            Expr::UnOp(_, e) => (*e).all_vars(),
             Expr::Literal(_) => vec![],
             Expr::Id(id) => vec![id.to_string()],
             Expr::Fn(_, e) => Expr::Array(e.clone()).all_vars(),
             Expr::Array(e) => e.iter().map(|e| e.all_vars()).fold(Vec::new(), merge),
             Expr::Unwrap(e) => (*e).all_vars(),
+            Expr::Invalid => panic!("Invalid expression")
         }
     }
 }

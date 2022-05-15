@@ -94,24 +94,47 @@ impl From<&Vec<Token>> for Stmt {
     fn from(tree: &Vec<Token>) -> Self { (&tree[..]).into() }
 }
 
-macro_rules! cast_enum {
-    ($v: expr, $ty: ident) => {
-        if let $ty(v) = $v { v } else { panic!("Invalid enum cast") }
-    };
-}
-
-const BIN_OP_BINDING: [BinOp; 3] = [BinOp::Add, BinOp::Sub, BinOp::Mul];
+const UN_OP_BINDING: [UnOp; 2] = [
+    UnOp::Ref, UnOp::Deref,
+];
+const BIN_OP_BINDING: [BinOp; 6] = [
+    BinOp::Add, BinOp::Sub, BinOp::Mul, BinOp::LargerThan, BinOp::LessThan, BinOp::Equals,
+];
 
 impl From<&[Token]> for Expr {
     fn from(tree: &[Token]) -> Self {
+        // Unops
+        if let Some(Punct(first)) = tree.first() {
+            for op in &UN_OP_BINDING {
+                let op = Some(op.clone());
+                if first.as_unop() == op {
+                    for i in 2..=tree.len() {
+                        let expr: Expr = (&tree[1..i]).into();
+                        if !matches!(expr, Expr::Invalid) {
+                            let un_expr = Expr::UnOp(op.clone().unwrap(), Box::new(expr));
+                            if i == tree.len() { // full expr is just an unop expr
+                                return un_expr;
+                            } else { // if tokens remain on the right, we know that we have to be part of a binop expr
+                                if let Punct(p) = &tree[i] {
+                                    let bop = p.as_binop().unwrap();
+                                    return Expr::BinOp(Box::new(un_expr), bop, Box::new((&tree[i + 1..]).into()))
+                                }
+                            }
+                            panic!("Invalid unary operation");
+                        }
+                    }
+                    panic!("Invalid unary operation");
+                }
+            }
+        }
+
         // Binops
-        for op in BIN_OP_BINDING {
-            if let Some(bop_pos) = tree.iter().position(|t| *t == BOp(op.clone()) ) {
-                let bop = cast_enum!(tree[bop_pos].clone(), BOp);
+        for op in &BIN_OP_BINDING {
+            let op = Some(op.clone());
+            if let Some(bop_pos) = tree.iter().position(|t| if let Punct(p) = t { p.as_binop() == op } else { false }) {
                 let l: Expr = (&tree[..bop_pos]).into();
                 let r: Expr = (&tree[bop_pos + 1..]).into();
-
-                return Expr::BinOp(Box::new(l), bop, Box::new(r))
+                return Expr::BinOp(Box::new(l), op.unwrap(), Box::new(r))
             }
         }
 
@@ -161,7 +184,7 @@ impl From<&[Token]> for Expr {
 
             // Unwrap
             [ UNWRAP, .. ] => Expr::Unwrap(Box::new((&tree[1..]).into())),
-            _ => { panic!("Invalid expression stream {:#?}", tree) }
+            _ => { Expr::Invalid }
         }
     }
 }
@@ -197,7 +220,6 @@ enum Token {
 
     Keyword(Keyword),
     Punct(Punct),
-    BOp(BinOp),
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -221,6 +243,34 @@ enum Punct {
     Colon,
     Hash,
     Dot,
+    Plus,
+    Minus,
+    Asterisk,
+    And,
+    LessThan,
+    LargerThan,
+}
+
+impl Punct {
+    fn as_binop(&self) -> Option<BinOp> {
+        match self {
+            Punct::Plus => Some(BinOp::Add),
+            Punct::Minus => Some(BinOp::Sub),
+            Punct::Asterisk => Some(BinOp::Mul),
+            Punct::LargerThan => Some(BinOp::LargerThan),
+            Punct::LessThan => Some(BinOp::LessThan),
+            Punct::Equals => Some(BinOp::Equals),
+            _ => { None }
+        }
+    }
+
+    fn as_unop(&self) -> Option<UnOp> {
+        match self {
+            Punct::Asterisk => Some(UnOp::Deref),
+            Punct::And => Some(UnOp::Ref),
+            _ => { None }
+        }
+    }
 }
 
 impl From<&TokenTree> for Token {
@@ -254,9 +304,13 @@ impl From<&TokenTree> for Token {
                     "." => { Token::Punct(Punct::Dot) },
                     "#" => { HASH },
 
-                    "+" => { BOp(BinOp::Add) },
-                    "-" => { BOp(BinOp::Sub) },
-                    "*" => { BOp(BinOp::Mul) },
+                    "+" => { Token::Punct(Punct::Plus) },
+                    "-" => { Token::Punct(Punct::Minus) },
+                    "*" => { Token::Punct(Punct::Asterisk) },
+                    "<" => { Token::Punct(Punct::LessThan) },
+                    ">" => { Token::Punct(Punct::LargerThan) },
+                    "&" => { Token::Punct(Punct::And) },
+
                     _ => { panic!("Unknown punctation: {}", s) }
                 }
             },

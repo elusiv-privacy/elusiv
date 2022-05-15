@@ -44,10 +44,11 @@ use proc_macro2::{ TokenTree, Delimiter };
 ///         - for more powerful computations it's possible to call other elusiv_computations with `partial <<Id>> = <<Expr::Fn>>(..) { <<Stmt>> }`
 ///         - this results in `k - 1` rounds doing the computation and in the last round `k` the stmt is performed with the specified var
 /// - `Expr`:
-///     - ids, literals, binary-operators, function calls, arrays, 
+///     - unary-operators: deref and ref
+///     - binary-operators: add, mul, sub, less, larger, equals (single Equal sign for both assignment and comparison)
+///     - ids, literals, function calls, arrays, 
 ///     - a safe unwrap expr: `unwrap <<Expr>>` will cause the function to return `Err(_)` if the expr matches `None`
 /// - `Id`s can either be single idents or idents intersected by dots
-/// - at the moment no unary operators, so use function calls instead
 #[proc_macro]
 pub fn elusiv_computation(attrs: TokenStream) -> TokenStream {
     impl_multi_step_computation(attrs.into()).into()
@@ -108,16 +109,16 @@ mod tests {
                         partial r = compute() {
                             b = a * r;
                         };
-                        a = a * 2;
+                        a = &a * 2;
                     }
                 }
                 {
-                    if (condition) {
+                    if (a = b) {
                         partial r = compute() {
-                            b = a * r;
+                            b = *a * *r;
                         };
                     } else {
-                        b = b + a;
+                        b = b + &a;
                     }
                 }
                 {
@@ -178,7 +179,7 @@ mod tests {
                                 round if round >= 1 + (COMPUTE_ROUNDS_COUNT) && round < 1 + (COMPUTE_ROUNDS_COUNT) + 1 => {
                                     let round = round - (1 + (COMPUTE_ROUNDS_COUNT));
 
-                                    a = (a * 2);
+                                    a = ((&a) * 2);
                                 },
                                 _ => {}
                             }
@@ -203,7 +204,7 @@ mod tests {
 
                         ram_isize.inc_frame(2usize);
 
-                        if (condition) {
+                        if ((a = b)) {
                             if round < (COMPUTE_ROUNDS_COUNT) {
                                 if round < COMPUTE_ROUNDS_COUNT - 1 {
                                     match compute_partial(round,) {
@@ -216,12 +217,12 @@ mod tests {
                                         _ => { return Err("Partial computation error") }
                                     };
 
-                                    b = (a * r);
+                                    b = ((*a) * (*r));
                                 }
                             }
                         } else {
                             if round < 1 {
-                                b = (b + a);
+                                b = (b + (&a));
                             }
                         }
 
