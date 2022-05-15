@@ -373,6 +373,15 @@ impl ToString for Id {
     }
 }
 
+impl Id {
+    pub fn get_var(&self) -> &String {
+        match self {
+            Id::Single(SingleId(id)) => id,
+            Id::Path(PathId(path)) => path.first().unwrap(),
+        }
+    }
+}
+
 fn merge<N>(l: Vec<N>, r: Vec<N>) -> Vec<N> {
     let mut v = l; v.extend(r); v
 }
@@ -411,10 +420,10 @@ impl Expr {
             Expr::UnOp(_, e) => (*e).all_vars(),
             Expr::Literal(_) => vec![],
             Expr::Id(id) => vec![id.to_string()],
-            Expr::Fn(_, e) => Expr::Array(e.clone()).all_vars(),
+            Expr::Fn(id, e) => merge(vec![id.get_var().clone()], Expr::Array(e.clone()).all_vars()),
             Expr::Array(e) => e.iter().map(|e| e.all_vars()).fold(Vec::new(), merge),
             Expr::Unwrap(e) => (*e).all_vars(),
-            Expr::Invalid => panic!("Invalid expression")
+            Expr::Invalid => panic!("Invalid expression"),
         }
     }
 }

@@ -48,7 +48,7 @@ use proc_macro2::{ TokenTree, Delimiter };
 ///     - binary-operators: add, mul, sub, less, larger, equals (single Equal sign for both assignment and comparison)
 ///     - ids, literals, function calls, arrays, 
 ///     - a safe unwrap expr: `unwrap <<Expr>>` will cause the function to return `Err(_)` if the expr matches `None`
-/// - `Id`s can either be single idents or idents intersected by dots
+/// - `Id`s can either be single idents or idents intersected by dots (:: accessors not allowed atm)
 #[proc_macro]
 pub fn elusiv_computation(attrs: TokenStream) -> TokenStream {
     impl_multi_step_computation(attrs.into()).into()
@@ -118,11 +118,11 @@ mod tests {
                             b = *a * *r;
                         };
                     } else {
-                        b = b + &a;
+                        b = b.field.0.tuple_field + &(a.fun());
                     }
                 }
                 {
-                    return b;
+                    return alpha_beta.child.call(b);
                 }
             }
         };
@@ -222,7 +222,7 @@ mod tests {
                             }
                         } else {
                             if round < 1 {
-                                b = (b + (&a));
+                                b = (b.field.0.tuple_field + (&a.fun()));
                             }
                         }
 
@@ -241,7 +241,7 @@ mod tests {
                         let b = ram_isize.read(0usize);
                         ram_isize.free(0usize);
 
-                        return Ok(Some(b));
+                        return Ok(Some(alpha_beta.child.call(b,)));
                     },
                     _ => {}
                 }

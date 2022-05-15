@@ -403,14 +403,14 @@ elusiv_computation!(
         }
         { partial v = exp_by_neg_x(ram_fq12, y0) { y0 = v; } }
         {
-            let y1: Fq12 = cyclotomic_square(y0);
-            let y2: Fq12 = cyclotomic_square(y1);
+            let y1: Fq12 = y0.cyclotomic_square();
+            let y2: Fq12 = y1.cyclotomic_square();
             let y3: Fq12 = y2 * y1;
             let y4: Fq12 = y3;
         }
         { partial v = exp_by_neg_x(ram_fq12, y4) { y4 = v; } }
         {
-            let y5: Fq12 = cyclotomic_square(y4);
+            let y5: Fq12 = y4.cyclotomic_square();
             let y6: Fq12 = y5;
         }
         { partial v = exp_by_neg_x(ram_fq12, y6) { y6 = v; } }
@@ -475,12 +475,12 @@ elusiv_computation!(
         // - and then inverted the array
         { for i, value in [1,0,0,0,1,0,1,0,0,2,0,1,0,1,0,2,0,0,1,0,1,0,2,0,2,0,2,0,1,0,0,0,1,0,0,1,0,1,0,1,0,2,0,1,0,0,1,0,0,0,0,1,0,1,0,0,0,0,2,0,0,0,1]
             {
-                if (larger_than_zero(i)) {
-                    res = cyclotomic_square(res);
+                if (i > 0) {
+                    res = res.cyclotomic_square();
                 };
 
-                if (is_non_zero(value)) {
-                    if (is_one(value)) {
+                if (value > 0) {
+                    if (value = 1) {
                         res = res * fe;
                     } else { // value == 2
                         res = res * fe_inverse;
@@ -491,11 +491,8 @@ elusiv_computation!(
         { return conjugate(res); }
     }
 );
-pub fn is_non_zero(v: u8) -> bool { v != 0 }
-pub fn larger_than_zero(v: usize) -> bool { v > 0 }
-pub fn is_one(v: u8) -> bool { v == 1 }
-pub fn one() -> Fq12 { Fq12::one() }
 
+pub fn one() -> Fq12 { Fq12::one() }
 pub fn neg_fq6(v: Fq6) -> Fq6 { -v }
 pub fn square_fq6(c: Fq6) -> Fq6 { c.square() }
 pub fn square_fq2(c: Fq2) -> Fq2 { c.square() }
@@ -510,9 +507,6 @@ pub fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
     let mut k = f.clone();
     k.frobenius_map(u);
     k
-}
-pub fn cyclotomic_square(f: Fq12) -> Fq12 {
-    f.cyclotomic_square()
 }
 
 pub struct RAM<N: Clone> {

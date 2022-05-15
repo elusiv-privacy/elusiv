@@ -161,7 +161,7 @@ impl From<&[Token]> for Expr {
                 let tail = &tree[2..];
                 let mut path = vec![id.clone()];
                 let mut accessed = true;
-                for token in tail {
+                for (i, token) in tail.iter().enumerate() {
                     if accessed {
                         match token {
                             Ident(id) => path.push(id.clone()),
@@ -172,7 +172,11 @@ impl From<&[Token]> for Expr {
                     } else {
                         match token {
                             Token::Punct(Punct::Dot) => accessed = true,
-                            _ => panic!("Invalid punct in ident")
+                            _ => { // Function calls with a path ident
+                                let mut v = vec![Ident(path.join("."))];
+                                v.extend((&tail[i..]).to_vec());
+                                return (&v[..]).into();
+                            }
                         }
                     }
                 }
