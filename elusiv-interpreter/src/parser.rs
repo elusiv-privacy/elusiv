@@ -175,7 +175,12 @@ impl From<&[Token]> for Expr {
                             _ => { // Function calls with a path ident
                                 let mut v = vec![Ident(path.join("."))];
                                 v.extend((&tail[i..]).to_vec());
-                                return (&v[..]).into();
+                                let fn_expr: Expr = (&v[..]).into();
+                                match fn_expr {
+                                    Expr::Fn(_, params) => return Expr::Fn(Id::Path(PathId(path)), params),
+                                    _ => {}
+                                }
+                                panic!("Invalid punct in ident")
                             }
                         }
                     }

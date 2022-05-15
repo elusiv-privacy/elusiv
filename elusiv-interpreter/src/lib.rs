@@ -64,14 +64,12 @@ fn impl_multi_step_computation(input: proc_macro2::TokenStream) -> proc_macro2::
             TokenTree::Punct(arrow0),
             TokenTree::Punct(arrow1),
             TokenTree::Ident(ty),
-            TokenTree::Punct(comma),
             TokenTree::Group(c)
         ] => {
             assert_eq!(p.delimiter(), Delimiter::Parenthesis);
             assert_eq!(c.delimiter(), Delimiter::Brace);
             assert_eq!(arrow0.to_string(), "-");
             assert_eq!(arrow1.to_string(), ">");
-            assert_eq!(comma.to_string(), ",");
 
             let computation = c.stream().into_iter().collect();
             let name = &name.to_string();
@@ -97,8 +95,7 @@ mod tests {
     fn test_complex_computation() {
         // This is the macro input
         let input = quote!{
-            fn_name (ram_isize: &mut RAM<isize>) -> isize,
-            {
+            fn_name (ram_isize: &mut RAM<isize>) -> isize {
                 {
                     let a: isize = 8;
                     let b: isize = 10;

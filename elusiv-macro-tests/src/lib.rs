@@ -315,8 +315,7 @@ elusiv_computation!(
     ell (
         ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
         p: &PreparedG1AffineSlice, f: Fq12,
-    ) -> Fq12,
-    {
+    ) -> Fq12 {
         {
             let c0: Fq2 = mul_by_fp(p.coeffs.0, p.p.y);
             let c1: Fq2 = mul_by_fp(p.coeffs.1, p.p.x);
@@ -333,8 +332,7 @@ elusiv_computation!(
     mul_by_034 (
         ram_fq6: &mut RAM<Fq6>,
         c0: &Fq2, d0: &Fq2, d1: &Fq2, f: Fq12
-    ) -> Fq12,
-    {
+    ) -> Fq12 {
         { let a: Fq6 = new_fq6(f.c0.c0 * c0, f.c0.c1 * c0, f.c0.c2 * c0); }
         { let b: Fq6 = mul_fq6_by_c0_c1_0(f.c1, d0, d1); }
         { let e: Fq6 = mul_fq6_by_c0_c1_0(f.c0 + f.c1, &(*c0 + d0), d1); }
@@ -384,8 +382,7 @@ pub fn mul_by_fp(v: &Fq2, fp: Fq) -> Fq2 {
 // Final exponentiation
 // - reference implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L153
 elusiv_computation!(
-    final_exponentiation (ram_fq12: &mut RAM<Fq12>, ram_fq6: &mut RAM<Fq6>, f: Fq12) -> Fq12,
-    {
+    final_exponentiation (ram_fq12: &mut RAM<Fq12>, ram_fq6: &mut RAM<Fq6>, f: Fq12) -> Fq12 {
         {
             let r: Fq12 = conjugate(f);
             let f2: Fq12 = f;
@@ -448,8 +445,7 @@ elusiv_computation!(
 // https://github.com/arkworks-rs/algebra/blob/4dd6c3446e8ab22a2ba13505a645ea7b3a69f493/ff/src/fields/models/quadratic_extension.rs#L366
 // Guide to Pairing-based Cryptography, Algorithm 5.19.
 elusiv_computation!(
-    inverse_fq12 (ram_fq6: &mut RAM<Fq6>, f: Fq12) -> Fq12,
-    {
+    inverse_fq12 (ram_fq6: &mut RAM<Fq6>, f: Fq12) -> Fq12 {
         { let v1: Fq6 = square_fq6(f.c1); }
         { let v2: Fq6 = square_fq6(f.c0); }
         { let mut v0: Fq6 = sub_and_mul_base_field_by_nonresidue(v2, v1); }
@@ -462,8 +458,7 @@ elusiv_computation!(
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L78
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ff/src/fields/models/fp12_2over3over2.rs#L56
 elusiv_computation!(
-    exp_by_neg_x (ram_fq12: &mut RAM<Fq12>, fe: Fq12) -> Fq12,
-    {
+    exp_by_neg_x (ram_fq12: &mut RAM<Fq12>, fe: Fq12) -> Fq12 {
         {
             let fe_inverse: Fq12 = conjugate(fe);
             let res: Fq12 = one();
