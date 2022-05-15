@@ -204,7 +204,7 @@ mod tests {
 
                         ram_isize.inc_frame(2usize);
 
-                        if ((a = b)) {
+                        if ((a == b)) {
                             if round < (COMPUTE_ROUNDS_COUNT) {
                                 if round < COMPUTE_ROUNDS_COUNT - 1 {
                                     match compute_partial(round,) {

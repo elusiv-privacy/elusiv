@@ -277,7 +277,7 @@ pub fn frobenius_map_fq2(f: Fq2, u: usize) -> Fq2 {
 */
 /// A prepared G1Affine consists of 65 coefficient triples
 /// - the `PreparedG1AffineSlice` just references one triple and the original affine
-struct PreparedG1AffineSlice<'a> {
+pub struct PreparedG1AffineSlice<'a> {
     coeffs: (&'a Fq2, &'a Fq2, &'a Fq2),
     p: &'a G1Affine
 }
@@ -314,7 +314,7 @@ mul_by_034(f, ( mul_by_fp(VKey::delta_g2_neg_pc(coeff_ic).0, c.y), mul_by_fp(VKe
 elusiv_computation!(
     ell (
         ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
-        p: PreparedG1AffineSlice, f: Fq12,
+        p: &PreparedG1AffineSlice, f: Fq12,
     ) -> Fq12,
     {
         {
@@ -322,7 +322,7 @@ elusiv_computation!(
             let c1: Fq2 = mul_by_fp(p.coeffs.1, p.p.x);
             let res: Fq12 = f;
         }
-        { partial v = mul_by_034(ram_fq6, c0, c1, p.coeffs.2, res) { res = v } }
+        { partial v = mul_by_034(ram_fq6, &c0, &c1, p.coeffs.2, res) { res = v } }
         { return res; }
     }
 );
@@ -337,7 +337,7 @@ elusiv_computation!(
     {
         { let a: Fq6 = new_fq6(f.c0.c0 * c0, f.c0.c1 * c0, f.c0.c2 * c0); }
         { let b: Fq6 = mul_fq6_by_c0_c1_0(f.c1, d0, d1); }
-        { let e: Fq6 = mul_fq6_by_c0_c1_0(f.c0 + f.c1, c0 + d0, d1); }
+        { let e: Fq6 = mul_fq6_by_c0_c1_0(f.c0 + f.c1, &(*c0 + d0), d1); }
         { return new_fq12(mul_base_field_by_nonresidue(b) + a, e - (a + b)); }
     }
 );
@@ -375,8 +375,8 @@ pub fn mul_fq6_by_c0_c1_0(f: Fq6, c0: &Fq2, c1: &Fq2) -> Fq6 {
 pub fn new_fq12(c0: Fq6, c1: Fq6) -> Fq12 { Fq12::new(c0, c1) }
 pub fn new_fq6(c0: Fq2, c1: Fq2, c2: Fq2) -> Fq6 { Fq6::new(c0, c1, c2) }
 
-pub fn mul_by_fp(v: Fq2, fp: Fq) -> Fq2 {
-    let mut v: Fq2 = v;
+pub fn mul_by_fp(v: &Fq2, fp: Fq) -> Fq2 {
+    let mut v: Fq2 = *v;
     v.mul_assign_by_fp(&fp);
     v
 }
@@ -576,6 +576,9 @@ mod tests {
 
     fn coeffs() -> (Fq2, Fq2, Fq2) { (f().c0.c0, f().c1.c0, f().c0.c2) }
     fn g1_affine() -> G1Affine { G1Affine::new(f().c0.c0.c0, f().c0.c0.c1, false) }
+    fn prep_a<'a>(coeffs: (&'a Fq2, &'a Fq2, &'a Fq2), p: &'a G1Affine) -> PreparedG1AffineSlice<'a> {
+        PreparedG1AffineSlice { coeffs, p }
+    }
 
     #[test]
     fn test_ell() {
@@ -583,8 +586,11 @@ mod tests {
         let mut ram_fq6: RAM<Fq6> = RAM::new(20);
         let mut ram_fq2: RAM<Fq2> = RAM::new(20);
         let mut value: Option<Fq12> = None;
+        let c = coeffs();
+        let p = g1_affine();
+        let prep = prep_a((&c.0, &c.1, &c.2), &p);
         for round in 0..ELL_ROUNDS_COUNT {
-            value = ell_partial(round, &mut ram_fq12, &mut ram_fq2, &mut ram_fq6, coeffs(), g1_affine(), f()).unwrap();
+            value = ell_partial(round, &mut ram_fq12, &mut ram_fq2, &mut ram_fq6, &prep, f()).unwrap();
         }
         assert_eq!(value.unwrap(), original_ell(f(), coeffs(), g1_affine()));
     }
