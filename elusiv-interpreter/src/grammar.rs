@@ -368,7 +368,7 @@ impl ToString for Id {
     fn to_string(&self) -> String {
         match self {
             Id::Single(SingleId(id)) => id.clone(),
-            Id::Path(PathId(path)) => path.clone().join("."),
+            Id::Path(PathId(path)) => path.clone().join(""),
         }
     }
 }
@@ -382,7 +382,7 @@ impl Id {
     }
 }
 
-fn merge<N>(l: Vec<N>, r: Vec<N>) -> Vec<N> {
+pub fn merge<N>(l: Vec<N>, r: Vec<N>) -> Vec<N> {
     let mut v = l; v.extend(r); v
 }
 
@@ -447,7 +447,7 @@ mod tests {
 
         assert_eq_stream!(
             TokenStream::from(Expr::Id(Id::Path(PathId(vec![
-                String::from("ab_cd"), String::from("efg"), String::from("CONST_NAME")
+                String::from("ab_cd."), String::from("efg."), String::from("CONST_NAME")
             ])))),
             quote!{ ab_cd.efg.CONST_NAME }
         );
@@ -463,10 +463,5 @@ mod tests {
             ),
             quote!{ match fn_name() { Some(v) => v, None => return Err("Unwrap error") } }
         );
-    }
-
-    #[test]
-    fn test_all_vars() {
-
     }
 }

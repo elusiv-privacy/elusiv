@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 elusiv-interpreter = { path = "../elusiv-interpreter" }
+elusiv = { path = "../" }
 ark-bn254 = "0.3.0"
 ark-ff = "0.3.0"
 ark-ec = "0.3.0"

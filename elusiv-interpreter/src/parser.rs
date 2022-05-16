@@ -157,35 +157,53 @@ impl From<&[Token]> for Expr {
             [ Ident(id) ] => { Expr::Id(Id::Single(SingleId(id.clone()))) },
 
             // Dot separated idents
-            [ Ident(id), Token::Punct(Punct::Dot), .. ] => {
-                let tail = &tree[2..];
-                let mut path = vec![id.clone()];
-                let mut accessed = true;
-                for (i, token) in tail.iter().enumerate() {
-                    if accessed {
-                        match token {
-                            Ident(id) => path.push(id.clone()),
-                            Literal(lit) => path.push(lit.clone()), // Literal accessors are used for tuples
-                            _ => panic!("Invalid var accessor in ident")
-                        }
-                        accessed = false;
-                    } else {
-                        match token {
-                            Token::Punct(Punct::Dot) => accessed = true,
-                            _ => { // Function calls with a path ident
-                                let mut v = vec![Ident(path.join("."))];
-                                v.extend((&tail[i..]).to_vec());
-                                let fn_expr: Expr = (&v[..]).into();
-                                match fn_expr {
-                                    Expr::Fn(_, params) => return Expr::Fn(Id::Path(PathId(path)), params),
-                                    _ => {}
-                                }
-                                panic!("Invalid punct in ident")
-                            }
-                        }
+            // - we recursively match the tail and merge with the tail in order to construct all valid exprs
+            [ Ident(a), DOT, .. ] | [ Literal(a), DOT, .. ] => {
+                let tail: Expr = (&tree[2..]).into();
+                let a = a.clone() + ".";
+
+                match tail {
+                    Expr::Fn(Id::Single(SingleId(id)), p) => {
+                        Expr::Fn(Id::Path(PathId(vec![a.clone(), id.clone()])), p)
+                    },
+                    Expr::Fn(Id::Path(PathId(path)), p) => {
+                        Expr::Fn(Id::Path(PathId(merge(vec![a.clone()], path))), p)
+                    },
+                    Expr::Id(Id::Single(SingleId(id))) => {
+                        Expr::Id(Id::Path(PathId(vec![a.clone(), id.clone()])))
+                    },
+                    Expr::Id(Id::Path(PathId(path))) => {
+                        Expr::Id(Id::Path(PathId(merge(vec![a.clone()], path))))
+                    },
+                    Expr::Literal(lit) => {
+                        Expr::Id(Id::Path(PathId(vec![a.clone(), lit.clone()])))
                     }
+                    _ => { panic!("Invalid var accessors with tail: {:?}", tail) }
                 }
-                Expr::Id(Id::Path(PathId(path)))
+            },
+            // Double colon separated idents
+            [ Ident(a), COLON, COLON, .. ] => {
+                let tail: Expr = (&tree[3..]).into();
+                let a = a.clone() + "::";
+
+                match tail {
+                    Expr::Fn(Id::Single(SingleId(id)), p) => {
+                        Expr::Fn(Id::Path(PathId(vec![a.clone(), id.clone()])), p)
+                    },
+                    Expr::Fn(Id::Path(PathId(path)), p) => {
+                        Expr::Fn(Id::Path(PathId(merge(vec![a.clone()], path))), p)
+                    },
+                    Expr::Id(Id::Single(SingleId(id))) => {
+                        Expr::Id(Id::Path(PathId(vec![a.clone(), id.clone()])))
+                    },
+                    Expr::Id(Id::Path(PathId(path))) => {
+                        Expr::Id(Id::Path(PathId(merge(vec![a.clone()], path))))
+                    },
+                    Expr::Literal(lit) => {
+                        Expr::Id(Id::Path(PathId(vec![a.clone(), lit.clone()])))
+                    }
+                    _ => { panic!("Invalid var accessors with tail: {:?}", tail) }
+                }
             },
 
             // Parenthesized group
@@ -220,6 +238,7 @@ const SEMICOLON: Token = Token::Punct(Punct::Semicolon);
 const COLON: Token = Token::Punct(Punct::Colon);
 const COMMA: Token = Token::Punct(Punct::Comma);
 const HASH: Token = Token::Punct(Punct::Hash);
+const DOT: Token = Token::Punct(Punct::Dot);
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 enum Token {

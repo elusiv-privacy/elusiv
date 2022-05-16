@@ -3,7 +3,13 @@ use super::storage::*;
 use proc_macro2::{ TokenStream, Group, TokenTree };
 use quote::quote;
 
-pub fn interpret(computation: Vec<TokenTree>, name: &str, parameters: TokenStream, ty: TokenStream) -> TokenStream {
+pub fn interpret(
+    computation: Vec<TokenTree>,
+    name: &str,
+    generics: TokenStream,
+    parameters: TokenStream,
+    ty: TokenStream
+) -> TokenStream {
     let groups: Vec<Group> = computation.iter().map(|t| {
         if let TokenTree::Group(g) = t.clone() { g } else { panic!("Only scopes allowed at top level") }
     }).collect();
@@ -152,7 +158,7 @@ pub fn interpret(computation: Vec<TokenTree>, name: &str, parameters: TokenStrea
 
     quote!{
         const #rounds_count_name: usize = #single_rounds #multi_rounds;
-        pub fn #fn_name(round: usize, #parameters) -> Result<Option<#ty>, &'static str> {
+        pub fn #fn_name #generics (round: usize, #parameters) -> Result<Option<#ty>, &'static str> {
             match round {
                 #m
                 _ => { }
@@ -161,4 +167,3 @@ pub fn interpret(computation: Vec<TokenTree>, name: &str, parameters: TokenStrea
         }
     }
 }
-

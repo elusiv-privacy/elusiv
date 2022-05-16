@@ -5,6 +5,7 @@ mod storage;
 
 use proc_macro::TokenStream;
 use proc_macro2::{ TokenTree, Delimiter };
+use std::iter::IntoIterator;
 
 /// For computations that are so costly, that they cannot be performed in a single step
 /// - this macro splits the computation you describe into `n` separate steps
@@ -57,9 +58,10 @@ pub fn elusiv_computation(attrs: TokenStream) -> TokenStream {
 fn impl_multi_step_computation(input: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
     let tree: Vec<TokenTree> = input.into_iter().collect();
     match &tree[..] {
-        // matches: `ident (params) -> ty, {computation}`
+        // matches: `name<generics>(params) -> ty, {computation}` (generics are optional)
         [
             TokenTree::Ident(name),
+            generics @ ..,
             TokenTree::Group(p),
             TokenTree::Punct(arrow0),
             TokenTree::Punct(arrow1),
@@ -76,7 +78,20 @@ fn impl_multi_step_computation(input: proc_macro2::TokenStream) -> proc_macro2::
             let params = p.stream();
             let ty = (&ty.to_string()).parse().unwrap();
 
-            interpreter::interpret(computation, name, params, ty).into()
+            // Optional generics
+            let generics: proc_macro2::TokenStream = match generics {
+                gen @ [ TokenTree::Punct(open), .., TokenTree::Punct(close) ] => {
+                    assert_eq!(open.to_string(), "<");
+                    assert_eq!(close.to_string(), ">");
+
+                    let mut g = quote::quote!{};
+                    for t in gen { g.extend(proc_macro2::TokenStream::from(t.clone())); }
+                    g
+                },
+                _ => quote::quote!{}
+            };
+
+            interpreter::interpret(computation, name, generics, params, ty).into()
         },
         tree => panic!("Invalid macro input {:?}", tree) 
     }
@@ -95,7 +110,7 @@ mod tests {
     fn test_complex_computation() {
         // This is the macro input
         let input = quote!{
-            fn_name (ram_isize: &mut RAM<isize>) -> isize {
+            fn_name <GENERIC: Ty<N>, N: Copy> (ram_isize: &mut RAM<isize>) -> isize {
                 {
                     let a: isize = 8;
                     let b: isize = 10;
@@ -115,7 +130,7 @@ mod tests {
                             b = *a * *r;
                         };
                     } else {
-                        b = b.field.0.tuple_field + &(a.fun());
+                        b = CONST::field.0.tuple_field + &(a.fun());
                     }
                 }
                 {
@@ -128,7 +143,7 @@ mod tests {
         let expected = quote!{
             const FN_NAME_ROUNDS_COUNT: usize = 2usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT); 
 
-            pub fn fn_name_partial(round: usize, ram_isize: &mut RAM<isize>) -> Result<Option<isize>, &'static str> {
+            pub fn fn_name_partial<GENERIC: Ty<N>, N: Copy>(round: usize, ram_isize: &mut RAM<isize>) -> Result<Option<isize>, &'static str> {
                 match round {
                     round if round >= 0usize && round < 1usize => {
                         let a: isize = 8;
@@ -219,7 +234,7 @@ mod tests {
                             }
                         } else {
                             if round < 1 {
-                                b = (b.field.0.tuple_field + (&a.fun()));
+                                b = (CONST::field.0.tuple_field + (&a.fun()));
                             }
                         }
 
@@ -233,7 +248,7 @@ mod tests {
                         }
                     },
                     round if round >= 1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) &&
-                    round < 2usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) =>
+                        round < 2usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) =>
                     {
                         let b = ram_isize.read(0usize);
                         ram_isize.free(0usize);

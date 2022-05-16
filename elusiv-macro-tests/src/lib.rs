@@ -4,6 +4,7 @@ use ark_bn254::{ Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Para
 use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper };
 use ark_ff::{ One, biginteger::BigInteger256, field_new };
 use ark_ec::models::bn::BnParameters;
+use elusiv::proof::VerificationKey;
 
 // We combine the miller loop and the coefficient generation for B
 // - miller loop ref: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L99
@@ -291,8 +292,7 @@ elusiv_computation!(
     multi_ell (
         ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
         coeffs: (Fq2, Fq2, Fq2), p: G1Affine, f: Fq12
-    ) -> Fq12,
-    {
+    ) -> Fq12 {
         {
             let c0: Fq2 = mul_by_fp(coeffs.0, p.y);
             let c1: Fq2 = mul_by_fp(coeffs.1, p.x);
@@ -312,7 +312,7 @@ mul_by_034(f, ( mul_by_fp(VKey::delta_g2_neg_pc(coeff_ic).0, c.y), mul_by_fp(VKe
 // - since miller loop calls ell_round on 1. A, a prepared input, C we combine all three 
 // - reference implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
 elusiv_computation!(
-    ell (
+    ell<VKey::VerificationKey>(
         ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
         p: &PreparedG1AffineSlice, f: Fq12,
     ) -> Fq12 {
