@@ -1,10 +1,10 @@
 use ark_ff::{Field, CubicExtParameters};
 use elusiv_interpreter::elusiv_computation;
-use ark_bn254::{ Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Parameters, Parameters };
+use ark_bn254::{ Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Parameters, Parameters, G1Projective };
 use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper };
 use ark_ff::{ One, biginteger::BigInteger256, field_new };
 use ark_ec::models::bn::BnParameters;
-use elusiv::proof::VerificationKey;
+use std::ops::Neg;
 
 // We combine the miller loop and the coefficient generation for B
 // - miller loop ref: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L99
@@ -106,13 +106,6 @@ use elusiv::proof::VerificationKey;
 
 
 
-
-
-
-
-
-
-
         {
             let two_inv = P::Fp::one().double().inverse().unwrap();
             if q.is_zero() {
@@ -152,12 +145,8 @@ pub fn new_g2_hom_projective(x: Fq2, y: Fq2, z: Fq2) -> G2HomProjective {
     G2HomProjective { x, y, z }
 }
 
-/*
-
-*/
-
-#[derive(Debug)]
 // Homogenous projective coordinates form
+#[derive(Debug)]
 pub struct G2HomProjective {
     pub x: Fq2,
     pub y: Fq2,
@@ -182,37 +171,34 @@ pub struct CoefficientsResult {
 
 // Doubling step
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L139
-/*elusiv_computation!(
-    doubling_step (r: G2HomProjective) -> Fq12,
-    {
+elusiv_computation!(
+    doubling_step (ram_fq2: &mut RAM<Fq2>, r: G2HomProjective) -> CoefficientsResult {
         {
             let mut a: Fq2 = r.x * r.y;
-            a = mul_by_fp(a, TWO_INV);
-            let b: Fq2 = square_fq2(r.y);
-            let c: Fq2 = square_fq2(r.z);
-            let e: Fq2 = COEFF_B * (double(c) + c);
-            let f: Fq2 = double(e) + e;
+            a = mul_by_fp(&a, TWO_INV);
+            let b: Fq2 = r.y.square();
+            let c: Fq2 = r.z.square();
+            let e: Fq2 = COEFF_B * (c.double() + c);
+            let f: Fq2 = e.double() + e;
             let mut g: Fq2 = b + f;
-            g = mul_by_fp(g, TWO_INV);
-            let h: Fq2 = square_fq2(r.y + r.z) - (b + c);
-            let e_square: Fq2 = square_fq2(e);
+            g = mul_by_fp(&g, TWO_INV);
+            let h0: Fq2 = r.y + r.z;
+            let h: Fq2 = h0.square() - (b + c);
+            let e_square: Fq2 = e.square();
         }
         {
             let rx: Fq2 = a * (b - f);
-            let ry: Fq2 = square_fq2(g) - (double(e_square) + e_square);
+            let ry: Fq2 = g.square() - (e_square.double() + e_square);
             let rz: Fq2 = b * h;
         }
         {
             let i: Fq2 = e - b;
-            let j: Fq2 = square_fq2(r.x);
-            let res: CoefficientsResult = new_coeff_result(rx, ry, rz, neg_fq2(h), double(j) + j, i);
-            return res;
+            let j: Fq2 = r.x.square();
+            return new_coeff_result(rx, ry, rz, h.neg(), j.double() + j, i);
         }
     }
 );
 
-pub fn neg_fq2(v: Fq2) -> Fq2 { -v }
-pub fn double(v: Fq2) -> Fq2 { v.double() }
 pub fn new_coeff_result(x: Fq2, y: Fq2, z: Fq2, c0: Fq2, c1: Fq2, c2: Fq2) -> CoefficientsResult {
     CoefficientsResult {
         new_r: G2HomProjective { x, y, z },
@@ -223,24 +209,22 @@ pub fn new_coeff_result(x: Fq2, y: Fq2, z: Fq2, c0: Fq2, c1: Fq2, c2: Fq2) -> Co
 // Addition step
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L168
 elusiv_computation!(
-    addition_step (r: G2HomProjective, q: G2Affine),
-    {
+    addition_step (r: G2HomProjective, q: G2Affine) -> CoefficientsResult {
         {
             let theta: Fq2 = r.y - (q.y * r.z);
             let lambda: Fq2 = r.x - (q.x * r.z);
-            let c: Fq2 = square_fq2(theta);
-            let d: Fq2 = square_fq2(lambda);
+            let c: Fq2 = theta.square();
+            let d: Fq2 = lambda.square();
             let e: Fq2 = lambda * d;
             let f: Fq2 = r.z * c;
             let g: Fq2 = r.x * d;
-            let h: Fq2 = e + f - double(g);
+            let h: Fq2 = e + f - g.double();
             let rx: Fq2 = lambda * h;
             let ry: Fq2 = theta * (g - h) - (e * r.y);
             let rz: Fq2 = r.z * e;
             let j: Fq2 = theta * q.x - (lambda * q.y);
 
-            let res: CoefficientsResult = new_coeff_result(rx, ry, rz, lambda, neg_fq2(theta), j);
-            return res;
+            return new_coeff_result(rx, ry, rz, lambda, theta.neg(), j);
         }
     }
 );
@@ -251,78 +235,56 @@ const TWIST_MUL_BY_Q_Y: Fq2 = Parameters::TWIST_MUL_BY_Q_Y;
 // Mul by characteristics
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L127
 elusiv_computation!(
-    mul_by_characteristics (r: G2Affine),
-    {
+    mul_by_characteristics (ram_fq2: &mut RAM<Fq2>, r: &G2Affine) -> G2Affine {
         {
-            let mut x: Fq2 = frobenius_map_fq2(r.x, 1);
+            let mut x: Fq2 = frobenius_map_fq2_one(r.x);
             x = x * TWIST_MUL_BY_Q_X;
         }
         {
-            let mut y: Fq2 = frobenius_map_fq2(r.y, 1);
+            let mut y: Fq2 = frobenius_map_fq2_one(r.y);
             y = y * TWIST_MUL_BY_Q_Y;
-            let res: G2Affine = new_g2affine(x, y, r.infinity);
+            return G2Affine::new(x, y, r.infinity);
         }
     }
 );
 
-pub fn new_g2affine(x: Fq2, y: Fq2, infinity: bool) -> G2Affine {
-    G2Affine::new(x, y, infinity)
-}
-
-pub fn frobenius_map_fq2(f: Fq2, u: usize) -> Fq2 {
+pub fn frobenius_map_fq2_one(f: Fq2) -> Fq2 {
     let mut k = f.clone();
-    k.frobenius_map(u);
+    k.frobenius_map(1);
     k
 }
 
-*/
-/// A prepared G1Affine consists of 65 coefficient triples
-/// - the `PreparedG1AffineSlice` just references one triple and the original affine
-pub struct PreparedG1AffineSlice<'a> {
-    coeffs: (&'a Fq2, &'a Fq2, &'a Fq2),
-    p: &'a G1Affine
-}
-/*
-
-
-// Multi ell
+// We evaluate the line function for A, the prepared inputs and C
 // - inside the miller loop we do evaluations on three elements
 // - multi_ell combines those three calls in one function
+// - normal ell implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
+// - (also in this file's test mod there is an elusiv_computation!-implementation for the single ell to compare)
 elusiv_computation!(
-    multi_ell (
+    combined_ell<VKey: VerificationKey>(
         ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
-        coeffs: (Fq2, Fq2, Fq2), p: G1Affine, f: Fq12
+        a: &G1Affine, prepared_inputs: &G1Affine, c: &G1Affine, coeffs: (&Fq2, &Fq2, &Fq2), coeff_index: usize, f: Fq12,
     ) -> Fq12 {
         {
-            let c0: Fq2 = mul_by_fp(coeffs.0, p.y);
-            let c1: Fq2 = mul_by_fp(coeffs.1, p.x);
-            let res: Fq12 = f;
+            let r: Fq12 = f;
+
+            let a0: Fq2 = mul_by_fp(coeffs.0, a.y);
+            let a1: Fq2 = mul_by_fp(coeffs.1, a.x);
         }
-        { partial v = mul_by_034(ram_fq6, c0, c1, coeffs.2, res) { res = v } }
-        { return res; }
-    }
-);
+        { partial v = mul_by_034(ram_fq6, &a0, &a1, coeffs.2, r) { r = v } }
 
-mul_by_034(f, ( mul_by_fp(c0, a.y), mul_by_fp(c1, a.x), c2));
-mul_by_034(f, ( mul_by_fp(VKey::gamma_g2_neg_pc(coeff_ic).0, p_inputs.y), mul_by_fp(VKey::gamma_g2_neg_pc(coeff_ic).1, p_inputs.x), VKey::gamma_g2_neg_pc(coeff_ic).2,));
-mul_by_034(f, ( mul_by_fp(VKey::delta_g2_neg_pc(coeff_ic).0, c.y), mul_by_fp(VKey::delta_g2_neg_pc(coeff_ic).1, c.x), VKey::delta_g2_neg_pc(coeff_ic).2,));
-
-*/
-// Line function evaluation at point p
-// - since miller loop calls ell_round on 1. A, a prepared input, C we combine all three 
-// - reference implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
-elusiv_computation!(
-    ell<VKey::VerificationKey>(
-        ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
-        p: &PreparedG1AffineSlice, f: Fq12,
-    ) -> Fq12 {
         {
-            let c0: Fq2 = mul_by_fp(p.coeffs.0, p.p.y);
-            let c1: Fq2 = mul_by_fp(p.coeffs.1, p.p.x);
-            let res: Fq12 = f;
+            let b0: Fq2 = mul_by_fp(VKey::gamma_g2_neg_pc(coeff_index, 0), prepared_inputs.y);
+            let b1: Fq2 = mul_by_fp(VKey::gamma_g2_neg_pc(coeff_index, 1), prepared_inputs.x);
         }
-        { partial v = mul_by_034(ram_fq6, &c0, &c1, p.coeffs.2, res) { res = v } }
-        { return res; }
+        { partial v = mul_by_034(ram_fq6, &b0, &b1, VKey::gamma_g2_neg_pc(coeff_index, 2), r) { r = v } }
+
+        {
+            let c0: Fq2 = mul_by_fp(VKey::delta_g2_neg_pc(coeff_index, 0), c.y);
+            let c1: Fq2 = mul_by_fp(VKey::delta_g2_neg_pc(coeff_index, 1), c.x);
+        }
+        { partial v = mul_by_034(ram_fq6, &c0, &c1, VKey::delta_g2_neg_pc(coeff_index, 2), r) { r = v } }
+
+        { return r; }
     }
 );
 
@@ -333,10 +295,10 @@ elusiv_computation!(
         ram_fq6: &mut RAM<Fq6>,
         c0: &Fq2, d0: &Fq2, d1: &Fq2, f: Fq12
     ) -> Fq12 {
-        { let a: Fq6 = new_fq6(f.c0.c0 * c0, f.c0.c1 * c0, f.c0.c2 * c0); }
+        { let a: Fq6 = Fq6::new(f.c0.c0 * c0, f.c0.c1 * c0, f.c0.c2 * c0); }
         { let b: Fq6 = mul_fq6_by_c0_c1_0(f.c1, d0, d1); }
         { let e: Fq6 = mul_fq6_by_c0_c1_0(f.c0 + f.c1, &(*c0 + d0), d1); }
-        { return new_fq12(mul_base_field_by_nonresidue(b) + a, e - (a + b)); }
+        { return Fq12::new(mul_base_field_by_nonresidue(b) + a, e - (a + b)); }
     }
 );
 
@@ -369,9 +331,6 @@ pub fn mul_fq6_by_c0_c1_0(f: Fq6, c0: &Fq2, c1: &Fq2) -> Fq6 {
         a0_plus_a2 * &b0_plus_b2 - &v0 + &v1,
     )
 }
-
-pub fn new_fq12(c0: Fq6, c1: Fq6) -> Fq12 { Fq12::new(c0, c1) }
-pub fn new_fq6(c0: Fq2, c1: Fq2, c2: Fq2) -> Fq6 { Fq6::new(c0, c1, c2) }
 
 pub fn mul_by_fp(v: &Fq2, fp: Fq) -> Fq2 {
     let mut v: Fq2 = *v;
@@ -446,11 +405,14 @@ elusiv_computation!(
 // Guide to Pairing-based Cryptography, Algorithm 5.19.
 elusiv_computation!(
     inverse_fq12 (ram_fq6: &mut RAM<Fq6>, f: Fq12) -> Fq12 {
-        { let v1: Fq6 = square_fq6(f.c1); }
-        { let v2: Fq6 = square_fq6(f.c0); }
+        { let v1: Fq6 = f.c1.square(); }
+        { let v2: Fq6 = f.c0.square(); }
         { let mut v0: Fq6 = sub_and_mul_base_field_by_nonresidue(v2, v1); }
-        { let v3: Fq6 = unwrap inverse_fq6(v0); }
-        { return new_fq12(f.c0 * v3, neg_fq6(f.c1 * v3)); }
+        { let v3: Fq6 = unwrap v0.inverse(); }
+        {
+            let v: Fq6 = f.c1 * v3;
+            return Fq12::new(f.c0 * v3, v.neg());
+        }
     }
 );
 
@@ -461,7 +423,7 @@ elusiv_computation!(
     exp_by_neg_x (ram_fq12: &mut RAM<Fq12>, fe: Fq12) -> Fq12 {
         {
             let fe_inverse: Fq12 = conjugate(fe);
-            let res: Fq12 = one();
+            let res: Fq12 = Fq12::one();
         }
 
         // Non-adjacent window form of exponent Parameters::X (u64: 4965661367192848881)
@@ -486,12 +448,6 @@ elusiv_computation!(
         { return conjugate(res); }
     }
 );
-
-pub fn one() -> Fq12 { Fq12::one() }
-pub fn neg_fq6(v: Fq6) -> Fq6 { -v }
-pub fn square_fq6(c: Fq6) -> Fq6 { c.square() }
-pub fn square_fq2(c: Fq2) -> Fq2 { c.square() }
-pub fn inverse_fq6(v: Fq6) -> Option<Fq6> { v.inverse() }
 
 pub fn conjugate(f: Fq12) -> Fq12 {
     let mut k = f.clone();
@@ -537,6 +493,20 @@ impl<N: Clone> RAM<N> {
     }
 }
 
+pub trait VerificationKey {
+    const PUBLIC_INPUTS_COUNT: usize;
+
+    fn gamma_abc_g1_0() -> G1Projective;
+    fn gamma_abc_g1() -> Vec<G1Affine>;
+    fn alpha_g1_beta_g2() -> Fq12;
+    fn gamma_g2_neg_pc(coeff_index: usize, i: usize) -> &'static Fq2;
+    fn delta_g2_neg_pc(coeff_index: usize, i: usize) -> &'static Fq2;
+    fn alpha_g1() -> G1Affine;
+    fn beta_g2() -> G2Affine;
+    fn gamma_g2() -> G2Affine;
+    fn delta_g2() -> G2Affine;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,8 +535,16 @@ mod tests {
 
     fn coeffs() -> (Fq2, Fq2, Fq2) { (f().c0.c0, f().c1.c0, f().c0.c2) }
     fn g1_affine() -> G1Affine { G1Affine::new(f().c0.c0.c0, f().c0.c0.c1, false) }
-    fn prep_a<'a>(coeffs: (&'a Fq2, &'a Fq2, &'a Fq2), p: &'a G1Affine) -> PreparedG1AffineSlice<'a> {
-        PreparedG1AffineSlice { coeffs, p }
+    fn g2_affine() -> G2Affine { G2Affine::new(f().c0.c0, f().c0.c1, false) }
+
+    #[test]
+    fn test_mul_by_characteristics() {
+        let mut ram_fq2: RAM<Fq2> = RAM::new(20);
+        let mut value: Option<G2Affine> = None;
+        for round in 0..MUL_BY_CHARACTERISTICS_ROUNDS_COUNT {
+            value = mul_by_characteristics_partial(round, &mut ram_fq2, &g2_affine()).unwrap();
+        }
+        assert_eq!(value.unwrap(), reference_mul_by_char(g2_affine()));
     }
 
     #[test]
@@ -577,11 +555,10 @@ mod tests {
         let mut value: Option<Fq12> = None;
         let c = coeffs();
         let p = g1_affine();
-        let prep = prep_a((&c.0, &c.1, &c.2), &p);
         for round in 0..ELL_ROUNDS_COUNT {
-            value = ell_partial(round, &mut ram_fq12, &mut ram_fq2, &mut ram_fq6, &prep, f()).unwrap();
+            value = ell_partial(round, &mut ram_fq12, &mut ram_fq2, &mut ram_fq6, (&c.0, &c.1, &c.2), &p, f()).unwrap();
         }
-        assert_eq!(value.unwrap(), original_ell(f(), coeffs(), g1_affine()));
+        assert_eq!(value.unwrap(), reference_ell(f(), coeffs(), g1_affine()));
     }
 
     #[test]
@@ -601,7 +578,7 @@ mod tests {
         for round in 0..EXP_BY_NEG_X_ROUNDS_COUNT {
             value = exp_by_neg_x_partial(round, &mut ram_fq12, f()).unwrap();
         }
-        assert_eq!(value.unwrap(), original_exp_by_neg_x(f()));
+        assert_eq!(value.unwrap(), reference_exp_by_neg_x(f()));
     }
 
     #[test]
@@ -614,9 +591,26 @@ mod tests {
         }
         assert_eq!(value.unwrap(), Bn254::final_exponentiation(&f()).unwrap());
     }
+    
+    // Line function evaluation at point p
+    // - reference implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
+    elusiv_computation!(
+        ell (
+            ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
+            coeffs: (&Fq2, &Fq2, &Fq2), p: &G1Affine, f: Fq12,
+        ) -> Fq12 {
+            {
+                let c0: Fq2 = mul_by_fp(coeffs.0, p.y);
+                let c1: Fq2 = mul_by_fp(coeffs.1, p.x);
+                let res: Fq12 = f;
+            }
+            { partial v = mul_by_034(ram_fq6, &c0, &c1, coeffs.2, res) { res = v } }
+            { return res; }
+        }
+    );
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
-    fn original_ell(f: Fq12, coeffs: (Fq2, Fq2, Fq2), p: G1Affine) -> Fq12 {
+    fn reference_ell(f: Fq12, coeffs: (Fq2, Fq2, Fq2), p: G1Affine) -> Fq12 {
         let mut c0: Fq2 = coeffs.0;
         let mut c1: Fq2 = coeffs.1;
         let c2: Fq2 = coeffs.2;
@@ -629,8 +623,18 @@ mod tests {
         f
     }
 
+    // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L127
+    fn reference_mul_by_char(r: G2Affine) -> G2Affine {
+        let mut s = r;
+        s.x.frobenius_map(1);
+        s.x *= TWIST_MUL_BY_Q_X;
+        s.y.frobenius_map(1);
+        s.y *= TWIST_MUL_BY_Q_Y;
+        s
+    }
+
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L78
-    fn original_exp_by_neg_x(f: Fq12) -> Fq12 {
+    fn reference_exp_by_neg_x(f: Fq12) -> Fq12 {
         let mut f = f.cyclotomic_exp(&Parameters::X);
         if !Parameters::X_IS_NEGATIVE { f.conjugate(); }
         f

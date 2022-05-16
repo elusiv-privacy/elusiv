@@ -53,21 +53,21 @@ impl From<&[Token]> for Stmt {
         }
 
         match tree {
-            [ LET, Ident(id), COLON, Ident(ty), EQUALS, .. ] => {
-                Stmt::Let(SingleId(id.clone()), false, Type(ty.clone()), (&tree[5..]).into())
+            [ LET, Ident(id), COLON, Ident(ty), EQUALS, tail @ .. ] => {
+                Stmt::Let(SingleId(id.clone()), false, Type(ty.clone()), tail.into())
             },
-            [ LET, MUT, Ident(id), COLON, Ident(ty), EQUALS, .. ] => {
-                Stmt::Let(SingleId(id.clone()), true, Type(ty.clone()), (&tree[6..]).into())
+            [ LET, MUT, Ident(id), COLON, Ident(ty), EQUALS, tail @ .. ] => {
+                Stmt::Let(SingleId(id.clone()), true, Type(ty.clone()), tail.into())
             },
             [ PARTIAL, Ident(id), EQUALS, Ident(fn_id), Group(args, Delimiter::Parenthesis), Group(g, Delimiter::Brace) ] => {
                 let args = vec![Ident(fn_id.clone()), Group(args.clone(), Delimiter::Parenthesis)];
                 Stmt::Partial(SingleId(id.clone()), args.into(), Box::new(g.into()))
             },
-            [ RETURN, .. ] => {
-                Stmt::Return((&tree[1..]).into())
+            [ RETURN, tail @ .. ] => {
+                Stmt::Return(tail.into())
             },
-            [ Ident(id), EQUALS, .. ] => {
-                Stmt::Assign(SingleId(id.clone()), (&tree[2..]).into())
+            [ Ident(id), EQUALS, tail @ .. ] => {
+                Stmt::Assign(SingleId(id.clone()), tail.into())
             },
 
             // For loop
@@ -158,8 +158,10 @@ impl From<&[Token]> for Expr {
 
             // Dot separated idents
             // - we recursively match the tail and merge with the tail in order to construct all valid exprs
-            [ Ident(a), DOT, .. ] | [ Literal(a), DOT, .. ] => {
-                let tail: Expr = (&tree[2..]).into();
+            // - IMPORTANT: this is an first implementation, it would be better to have a recursive access structur of ident, literals and functions
+            // - I will probably add this in the future, but there is not need for it at the moment
+            [ Ident(a), DOT, tail @ .. ] | [ Literal(a), DOT, tail @ .. ] => {
+                let tail: Expr = tail.into();
                 let a = a.clone() + ".";
 
                 match tail {
@@ -182,8 +184,8 @@ impl From<&[Token]> for Expr {
                 }
             },
             // Double colon separated idents
-            [ Ident(a), COLON, COLON, .. ] => {
-                let tail: Expr = (&tree[3..]).into();
+            [ Ident(a), COLON, COLON, tail @ .. ] => {
+                let tail: Expr = tail.into();
                 let a = a.clone() + "::";
 
                 match tail {
@@ -210,7 +212,7 @@ impl From<&[Token]> for Expr {
             [ Group(group, Delimiter::Parenthesis) ] => group.into(),
 
             // Unwrap
-            [ UNWRAP, .. ] => Expr::Unwrap(Box::new((&tree[1..]).into())),
+            [ UNWRAP, tail @ .. ] => Expr::Unwrap(Box::new(tail.into())),
             _ => { Expr::Invalid }
         }
     }

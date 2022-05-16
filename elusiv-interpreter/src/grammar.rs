@@ -374,10 +374,13 @@ impl ToString for Id {
 }
 
 impl Id {
-    pub fn get_var(&self) -> &String {
+    pub fn get_var(&self) -> String {
         match self {
-            Id::Single(SingleId(id)) => id,
-            Id::Path(PathId(path)) => path.first().unwrap(),
+            Id::Single(SingleId(id)) => id.clone(),
+
+            // Since we store each non-terminal path ident as `ident.` or `IDENT::`, we have to remove the last char
+            // - this of course does not work for constants like with `IDENT::` but that's not a problem since we only need `get_var` for local vars
+            Id::Path(PathId(path)) => { let mut v = path.first().unwrap().clone(); v.pop(); v },
         }
     }
 }
@@ -450,6 +453,11 @@ mod tests {
                 String::from("ab_cd."), String::from("efg."), String::from("CONST_NAME")
             ])))),
             quote!{ ab_cd.efg.CONST_NAME }
+        );
+
+        assert_eq!(
+            Id::Path(PathId(vec![String::from("alpha."), String::from("beta")])).get_var(),
+            "alpha"
         );
     }
 
