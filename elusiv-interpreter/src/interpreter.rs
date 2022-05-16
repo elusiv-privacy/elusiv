@@ -25,9 +25,9 @@ pub fn interpret(
                     assert!(!vars.contains_var(&id), "Var '{}' cannot be redeclared", &id);
                     vars.0.push(Var::new(id.clone(), Some(ty.clone()), Some(scope_index)));
                 },
-                Stmt::Assign(SingleId(id), _) => {
-                    match vars.get_var(&id) {
-                        None => panic!("Assigned to var '{}' before declaring it", id),
+                Stmt::Assign(id, _) => {
+                    match vars.get_var(&id.get_var()) {
+                        None => {},// we ignore unassigned vars, since they can be parameters (compiler will throw error in the worst case) panic!("Assigned to var '{}' before declaring it", id.to_string()),
                         Some(var) => Var::add(&mut var.assigns, scope_index)
                     }
                 },
@@ -109,8 +109,12 @@ pub fn interpret(
         // If we free memory and write, we only free in the last iteration and write to different locations
         if !scope.free.is_empty() {
             let mut write_after_free = quote!{};
-            for f in scope.free { free.extend(storage.free(f)); }
-            for w in scope.write { write_after_free.extend(storage.write(w)); }
+            for f in scope.free.clone() { free.extend(storage.free(f)); }
+            for w in scope.write {
+                // Reallocate vars that have not been freed
+                if let Some(_) = scope.free.iter().find(|x| x.id == w.id) { continue; }
+                write_after_free.extend(storage.write(w));
+            }
 
             if let Some(r) = result.rounds.clone() {
                 write = quote!{

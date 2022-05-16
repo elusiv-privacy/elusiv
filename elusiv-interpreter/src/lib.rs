@@ -130,12 +130,10 @@ mod tests {
                             b = *a * *r;
                         };
                     } else {
-                        b = CONST::field.0.tuple_field + &(a.fun());
+                        b.field = CONST::field.0.tuple_field + fun::<GENERIC>();
                     }
                 }
-                {
-                    return alpha_beta.child.call(b);
-                }
+                { return alpha_beta.child.call(b); }
             }
         };
 
@@ -234,7 +232,7 @@ mod tests {
                             }
                         } else {
                             if round < 1 {
-                                b = (CONST::field.0.tuple_field + (&a.fun()));
+                                b.field = (CONST::field.0.tuple_field + fun::<GENERIC>());
                             }
                         }
 

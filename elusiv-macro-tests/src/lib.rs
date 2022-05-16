@@ -2,7 +2,7 @@ use ark_ff::{Field, CubicExtParameters};
 use elusiv_interpreter::elusiv_computation;
 use ark_bn254::{ Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Parameters, Parameters, G1Projective };
 use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper };
-use ark_ff::{ One, biginteger::BigInteger256, field_new };
+use ark_ff::{ One, Zero, biginteger::BigInteger256, field_new };
 use ark_ec::models::bn::BnParameters;
 use std::ops::Neg;
 
@@ -11,139 +11,67 @@ use std::ops::Neg;
 // - coefficient generation ref: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L68
 // - implementation:
 // - the miller loop receives an iterator over 3 elements (https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L41)
-
 // - for B we need to generate the coeffs (all other coeffs already are generated befor compilation)
 // - so we have a var r = (x: rbx, y: rby, z: rbz)
-
-// [(proof.a.into(), proof.b.into()),
-// (prepared_inputs.into_affine().into(), pvk.gamma_g2_neg_pc.clone()),
-// (proof.c.into(), pvk.delta_g2_neg_pc.clone())]
-// - every pair iteration in the ref implementation runs over thr
-// - for i in 64..=1:
-/*elusiv_computation!(
-    combined_miller_loop (
-        proof_a: G1Affine,
-        proof_b: G2Affine,
-        proof_c: G1Affine,
-    ),
-    {
+elusiv_computation!(
+    combined_miller_loop<VKey: VerificationKey>(
+        ram_g2affine: &mut RAM<G2Affine>, ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
+        a: &G1Affine, b: &G2Affine, c: &G1Affine, prepared_inputs: &G1Affine, r: &mut G2HomProjective,
+    ) -> Fq12 {
         {
-            let f: Fq12 = one();
+            r.x = b.x;
+            r.x = b.y;
+            r.x = Fq2::one();
+
+            let f: Fq12 = Fq12::one();
 
             // values for B coeffs generation (https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L79)
-            let rx: Fq2 = proof_b.1.x;
-            let ry: Fq2 = proof_b.1.y;
-            let rz: Fq2 = FQ2_ONE;
-            let negb: G2Affine = neg(proof_b);
+            let alt_b: G2Affine = b.neg();
+            let c0: Fq2 = Fq2::zero();
+            let c1: Fq2 = Fq2::zero();
+            let c2: Fq2 = Fq2::zero();
         }
 
-        // Reversed ATE_LOOP_COUNT
+        // Reversed ATE_LOOP_COUNT with the the last element removed (so the first in the reversed order)
         // https://github.com/arkworks-rs/curves/blob/1551d6d76ce5abf6e7925e53b0ea1af7dbc421c3/bn254/src/curves/mod.rs#L21
-        // const ATE_LOOP_COUNT: [i8; 65] = [0,0,0,1,0,1,0,-1,0,0,1,-1,0,0,1,0,0,1,1,0,-1,0,0,1,0,-1,0,0,0,0,1,1,1,0,0,-1,0,0,1,0,0,0,0,0,-1,0,0,1,1,0,0,-1,0,0,0,1,1,0,-1,0,0,1,0,1,1];
-        { for i, ate_loop_count in [1,1,0,1,0,0,-1,0,1,1,0,0,0,-1,0,0,1,1,0,0,-1,0,0,0,0,0,1,0,0,-1,0,0,1,1,1,0,0,0,0,-1,0,1,0,0,-1,0,1,1,0,0,1,0,0,-1,1,0,0,-1,0,1,0,1,0,0,0]
+        { for i, ate_loop_count in [1,1,0,1,0,0,2,0,1,1,0,0,0,2,0,0,1,1,0,0,2,0,0,0,0,0,1,0,0,2,0,0,1,1,1,0,0,0,0,2,0,1,0,0,2,0,1,1,0,0,1,0,0,2,1,0,0,2,0,1,0,1,0,0,0]
             {
-                if (larger_than_zero(i)) {
-                    f = square(f);
+                if (i > 0) {
+                    f = f.square();
                 };
 
-                // ell
+                partial v = doubling_step(ram_fq2, r) { c0=v.0; c1=v.1; c2=v.2; };
+                partial v = combined_ell::<VKey>(ram_fq12, ram_fq2, ram_fq6, a, prepared_inputs, c, &c0, &c1, &c2, i, f) { f = v; };
 
-                if (not_zero(ate_loop_count)) {
-                    if (is_one(ate_loop_count)) {
-                        // ell
+                if (ate_loop_count > 0) {
+                    if (ate_loop_count = 1) {
+                        partial v = addition_step(r, b) { c0=v.0; c1=v.1; c2=v.2; };
                     } else {
-                        // ell
+                        partial v = addition_step(r, &alt_b) { c0=v.0; c1=v.1; c2=v.2; };
                     };
+
+                    partial v = combined_ell::<VKey>(ram_fq12, ram_fq2, ram_fq6, a, prepared_inputs, c, &c0, &c1, &c2, i, f) { f = v; };
                 };
             }
         }
 
-        /*{
-            // ell
-            // ell
-        }
-            /*let mut pairs = vec![];
-            for (p, q) in i {
-                if !p.is_zero() && !q.is_zero() {
-                    pairs.push((p, q.ell_coeffs.iter()));
-                }
-            }*/
-
-            for i in (1..ATE_LOOP_COUNT_LEN).rev() {
-                if i < ATE_LOOP_COUNT - 1 {
-                    f.square_in_place();
-                }
-
-                for (p, ref mut coeffs) in &mut pairs {
-                    Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
-                }
-
-                let bit = ATE_LOOP_COUNT[i - 1];
-                if bit == 1 {
-                    for &mut (p, ref mut coeffs) in &mut pairs {
-                        Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
-                    }
-                } else if bit == -1 {
-                    for &mut (p, ref mut coeffs) in &mut pairs {
-                        Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
-                    }
-                }
-            }
-
-            for &mut (p, ref mut coeffs) in &mut pairs {
-                Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
-            }
-
-            for &mut (p, ref mut coeffs) in &mut pairs {
-                Self::ell(&mut f, coeffs.next().unwrap(), &p.0);
-            }
-        }
-
-
-
-
-
-
-
-
+        // The final two coefficient triples
         {
-            let two_inv = P::Fp::one().double().inverse().unwrap();
-            if q.is_zero() {
-                return Self { ell_coeffs: vec![], infinity: true };
+            if (!(prepared_inputs.is_zero())) {
+                partial v = mul_by_characteristics(ram_fq2, b) { alt_b = v; };
+                partial v = addition_step(r, &alt_b) { c0=v.0; c1=v.1; c2=v.2; };
+                partial v = combined_ell::<VKey>(ram_fq12, ram_fq2, ram_fq6, a, prepared_inputs, c, &c0, &c1, &c2, 0, f) { f = v; };
+                partial v = mul_by_characteristics(ram_fq2, &alt_b) { alt_b = v; };
+                alt_b.y = alt_b.y.neg();
+                partial v = addition_step(r, &alt_b) { c0=v.0; c1=v.1; c2=v.2; };
+                partial v = combined_ell::<VKey>(ram_fq12, ram_fq2, ram_fq6, a, prepared_inputs, c, &c0, &c1, &c2, 0, f) { f = v; };
             }
-
-            let mut ell_coeffs = vec![];
-            let mut r = G2HomProjective { x: q.x, y: q.y, z: Fp2::one() };
-
-            let negq = -q;
-
-            for i in (1..ATE_LOOP_COUNT_LEN).rev() {
-                ell_coeffs.push(doubling_step::<P>(&mut r, &two_inv));
-
-                let bit = ATE_LOOP_COUNT[i - 1];
-                if bit == 1 {
-                    ell_coeffs.push(addition_step::<P>(&mut r, &q));
-                } else if bit == -1 {
-                    ell_coeffs.push(addition_step::<P>(&mut r, &negq));
-                }
-            }
-
-            let q1 = mul_by_char::<P>(q);
-            let mut q2 = mul_by_char::<P>(q1);
-
-            q2.y = -q2.y;
-
-            ell_coeffs.push(addition_step(&mut r, &q1));
-            ell_coeffs.push(addition_step(&mut r, &q2));
-
-            Self { ell_coeffs, infinity: false }
-        }*/
+        }
+        { return f; }
     }
-);*/
+);
 
-pub fn new_g2_hom_projective(x: Fq2, y: Fq2, z: Fq2) -> G2HomProjective {
-    G2HomProjective { x, y, z }
-}
+pub const fn max(a: usize, b: usize) -> usize { if a > b { a } else { b } }
 
 // Homogenous projective coordinates form
 #[derive(Debug)]
@@ -164,15 +92,12 @@ const COEFF_B: Fq2 = field_new!(Fq2,
     field_new!(Fq, "266929791119991161246907387137283842545076965332900288569378510910307636690"),
 );
 
-pub struct CoefficientsResult {
-    new_r: G2HomProjective,
-    coeffs: (Fq2, Fq2, Fq2),
-}
+pub type Coefficients = (Fq2, Fq2, Fq2);
 
 // Doubling step
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L139
 elusiv_computation!(
-    doubling_step (ram_fq2: &mut RAM<Fq2>, r: G2HomProjective) -> CoefficientsResult {
+    doubling_step (ram_fq2: &mut RAM<Fq2>, r: &mut G2HomProjective) -> Coefficients {
         {
             let mut a: Fq2 = r.x * r.y;
             a = mul_by_fp(&a, TWO_INV);
@@ -187,29 +112,24 @@ elusiv_computation!(
             let e_square: Fq2 = e.square();
         }
         {
-            let rx: Fq2 = a * (b - f);
-            let ry: Fq2 = g.square() - (e_square.double() + e_square);
-            let rz: Fq2 = b * h;
+            r.x = a * (b - f);
+            r.y = g.square() - (e_square.double() + e_square);
+            r.z = b * h;
         }
         {
             let i: Fq2 = e - b;
             let j: Fq2 = r.x.square();
-            return new_coeff_result(rx, ry, rz, h.neg(), j.double() + j, i);
+            return new_coeffs(h.neg(), j.double() + j, i);
         }
     }
 );
 
-pub fn new_coeff_result(x: Fq2, y: Fq2, z: Fq2, c0: Fq2, c1: Fq2, c2: Fq2) -> CoefficientsResult {
-    CoefficientsResult {
-        new_r: G2HomProjective { x, y, z },
-        coeffs: (c0, c1, c2),
-    }
-}
+pub fn new_coeffs(c0: Fq2, c1: Fq2, c2: Fq2) -> Coefficients { (c0, c1, c2) }
 
 // Addition step
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L168
 elusiv_computation!(
-    addition_step (r: G2HomProjective, q: G2Affine) -> CoefficientsResult {
+    addition_step (r: &mut G2HomProjective, q: &G2Affine) -> Coefficients {
         {
             let theta: Fq2 = r.y - (q.y * r.z);
             let lambda: Fq2 = r.x - (q.x * r.z);
@@ -224,7 +144,11 @@ elusiv_computation!(
             let rz: Fq2 = r.z * e;
             let j: Fq2 = theta * q.x - (lambda * q.y);
 
-            return new_coeff_result(rx, ry, rz, lambda, theta.neg(), j);
+            r.x = rx;
+            r.y = ry;
+            r.z = rz;
+
+            return new_coeffs(lambda, theta.neg(), j);
         }
     }
 );
@@ -262,27 +186,37 @@ pub fn frobenius_map_fq2_one(f: Fq2) -> Fq2 {
 elusiv_computation!(
     combined_ell<VKey: VerificationKey>(
         ram_fq12: &mut RAM<Fq12>, ram_fq2: &mut RAM<Fq2>, ram_fq6: &mut RAM<Fq6>,
-        a: &G1Affine, prepared_inputs: &G1Affine, c: &G1Affine, coeffs: (&Fq2, &Fq2, &Fq2), coeff_index: usize, f: Fq12,
+        a: &G1Affine, prepared_inputs: &G1Affine, c: &G1Affine, c0: &Fq2, c1: &Fq2, c2: &Fq2, coeff_index: usize, f: Fq12,
     ) -> Fq12 {
         {
             let r: Fq12 = f;
 
-            let a0: Fq2 = mul_by_fp(coeffs.0, a.y);
-            let a1: Fq2 = mul_by_fp(coeffs.1, a.x);
+            let a0: Fq2 = mul_by_fp(c0, a.y);
+            let a1: Fq2 = mul_by_fp(c1, a.x);
         }
-        { partial v = mul_by_034(ram_fq6, &a0, &a1, coeffs.2, r) { r = v } }
+        {
+            if (!(a.is_zero())) {
+                partial v = mul_by_034(ram_fq6, &a0, &a1, c2, r) { r = v }
+            }
+        }
 
         {
             let b0: Fq2 = mul_by_fp(VKey::gamma_g2_neg_pc(coeff_index, 0), prepared_inputs.y);
             let b1: Fq2 = mul_by_fp(VKey::gamma_g2_neg_pc(coeff_index, 1), prepared_inputs.x);
         }
-        { partial v = mul_by_034(ram_fq6, &b0, &b1, VKey::gamma_g2_neg_pc(coeff_index, 2), r) { r = v } }
-
         {
-            let c0: Fq2 = mul_by_fp(VKey::delta_g2_neg_pc(coeff_index, 0), c.y);
-            let c1: Fq2 = mul_by_fp(VKey::delta_g2_neg_pc(coeff_index, 1), c.x);
+            if (!(prepared_inputs.is_zero())) {
+                partial v = mul_by_034(ram_fq6, &b0, &b1, VKey::gamma_g2_neg_pc(coeff_index, 2), r) { r = v } }
+            }
+        {
+            let d0: Fq2 = mul_by_fp(VKey::delta_g2_neg_pc(coeff_index, 0), c.y);
+            let d1: Fq2 = mul_by_fp(VKey::delta_g2_neg_pc(coeff_index, 1), c.x);
         }
-        { partial v = mul_by_034(ram_fq6, &c0, &c1, VKey::delta_g2_neg_pc(coeff_index, 2), r) { r = v } }
+        {
+            if (!(c.is_zero())) {
+                partial v = mul_by_034(ram_fq6, &d0, &d1, VKey::delta_g2_neg_pc(coeff_index, 2), r) { r = v }
+            }
+        }
 
         { return r; }
     }

@@ -59,15 +59,20 @@ impl From<&[Token]> for Stmt {
             [ LET, MUT, Ident(id), COLON, Ident(ty), EQUALS, tail @ .. ] => {
                 Stmt::Let(SingleId(id.clone()), true, Type(ty.clone()), tail.into())
             },
-            [ PARTIAL, Ident(id), EQUALS, Ident(fn_id), Group(args, Delimiter::Parenthesis), Group(g, Delimiter::Brace) ] => {
-                let args = vec![Ident(fn_id.clone()), Group(args.clone(), Delimiter::Parenthesis)];
+            [ PARTIAL, Ident(id), EQUALS, Ident(fn_id), generics @ .., Group(args, Delimiter::Parenthesis), Group(g, Delimiter::Brace) ] => {
+                let args = merge(vec![Ident(fn_id.clone())], merge(generics.to_vec(), vec![Group(args.clone(), Delimiter::Parenthesis)]));
                 Stmt::Partial(SingleId(id.clone()), args.into(), Box::new(g.into()))
             },
             [ RETURN, tail @ .. ] => {
                 Stmt::Return(tail.into())
             },
+
+            // We just hard-code two cases for assignments for simplicitys-sake: one ident and one field
             [ Ident(id), EQUALS, tail @ .. ] => {
-                Stmt::Assign(SingleId(id.clone()), tail.into())
+                Stmt::Assign(Id::Single(SingleId(id.clone())), tail.into())
+            },
+            [ Ident(a), DOT, Ident(b), EQUALS, tail @ .. ] => {
+                Stmt::Assign(Id::Path(PathId(vec![a.clone() + ".", b.clone()])), tail.into())
             },
 
             // For loop
@@ -94,8 +99,8 @@ impl From<&Vec<Token>> for Stmt {
     fn from(tree: &Vec<Token>) -> Self { (&tree[..]).into() }
 }
 
-const UN_OP_BINDING: [UnOp; 2] = [
-    UnOp::Ref, UnOp::Deref,
+const UN_OP_BINDING: [UnOp; 3] = [
+    UnOp::Ref, UnOp::Deref, UnOp::Not
 ];
 const BIN_OP_BINDING: [BinOp; 6] = [
     BinOp::Add, BinOp::Sub, BinOp::Mul, BinOp::LargerThan, BinOp::LessThan, BinOp::Equals,
@@ -120,10 +125,12 @@ impl From<&[Token]> for Expr {
                                     return Expr::BinOp(Box::new(un_expr), bop, Box::new((&tree[i + 1..]).into()))
                                 }
                             }
-                            panic!("Invalid unary operation");
+                            println!("Invalid unary operation");
+                            return Expr::Invalid;
                         }
                     }
-                    panic!("Invalid unary operation");
+                    println!("Invalid unary operation");
+                    return Expr::Invalid;
                 }
             }
         }
@@ -134,16 +141,37 @@ impl From<&[Token]> for Expr {
             if let Some(bop_pos) = tree.iter().position(|t| if let Punct(p) = t { p.as_binop() == op } else { false }) {
                 let l: Expr = (&tree[..bop_pos]).into();
                 let r: Expr = (&tree[bop_pos + 1..]).into();
-                return Expr::BinOp(Box::new(l), op.unwrap(), Box::new(r))
+
+                if !matches!(l, Expr::Invalid) && !matches!(r, Expr::Invalid) {
+                    return Expr::BinOp(Box::new(l), op.unwrap(), Box::new(r))
+                }
             }
         }
 
         match tree {
-            // Function call
+            // Function call without generics
             [ Ident(id), Group(group, Delimiter::Parenthesis) ] => {
                 let trees = split_at(COMMA, group.clone());
                 let exprs: Vec<Expr> = trees.iter().map(|t| t.into()).collect();
-                Expr::Fn(Id::Single(SingleId(id.clone())), exprs)
+                Expr::Fn(Id::Single(SingleId(id.clone())), vec![], exprs)
+            },
+
+            // Generics Function call
+            [ Ident(id), COLON, COLON, LESS, generics @ .., LARGER, Group(group, Delimiter::Parenthesis) ] => {
+                fn m(s: &[Token]) -> Vec<Id> {
+                    match s {
+                        [ Ident(id), COMMA, tail @ .. ] => {
+                            merge(vec![Id::Single(SingleId(id.clone()))], m(tail))
+                        },
+                        [ Ident(id) ] => vec![Id::Single(SingleId(id.clone()))],
+                        [] => vec![],
+                        [ .. ] => panic!("Invalid generics in function call")
+                    }
+                }
+                let generics = m(generics);
+                let trees = split_at(COMMA, group.clone());
+                let exprs: Vec<Expr> = trees.iter().map(|t| t.into()).collect();
+                Expr::Fn(Id::Single(SingleId(id.clone())), generics, exprs)
             },
 
             // Array
@@ -160,16 +188,16 @@ impl From<&[Token]> for Expr {
             // - we recursively match the tail and merge with the tail in order to construct all valid exprs
             // - IMPORTANT: this is an first implementation, it would be better to have a recursive access structur of ident, literals and functions
             // - I will probably add this in the future, but there is not need for it at the moment
-            [ Ident(a), DOT, tail @ .. ] | [ Literal(a), DOT, tail @ .. ] => {
+            [ Ident(a) | Literal(a), DOT, tail @ .. ] => {
                 let tail: Expr = tail.into();
                 let a = a.clone() + ".";
 
                 match tail {
-                    Expr::Fn(Id::Single(SingleId(id)), p) => {
-                        Expr::Fn(Id::Path(PathId(vec![a.clone(), id.clone()])), p)
+                    Expr::Fn(Id::Single(SingleId(id)), g, p) => {
+                        Expr::Fn(Id::Path(PathId(vec![a.clone(), id.clone()])), g, p)
                     },
-                    Expr::Fn(Id::Path(PathId(path)), p) => {
-                        Expr::Fn(Id::Path(PathId(merge(vec![a.clone()], path))), p)
+                    Expr::Fn(Id::Path(PathId(path)), g, p) => {
+                        Expr::Fn(Id::Path(PathId(merge(vec![a.clone()], path))), g, p)
                     },
                     Expr::Id(Id::Single(SingleId(id))) => {
                         Expr::Id(Id::Path(PathId(vec![a.clone(), id.clone()])))
@@ -180,7 +208,10 @@ impl From<&[Token]> for Expr {
                     Expr::Literal(lit) => {
                         Expr::Id(Id::Path(PathId(vec![a.clone(), lit.clone()])))
                     }
-                    _ => { panic!("Invalid var accessors with tail: {:?}", tail) }
+                    _ => {
+                        println!("Invalid var accessors (.) with tail: {:?}", tail);
+                        Expr::Invalid
+                    }
                 }
             },
             // Double colon separated idents
@@ -189,11 +220,11 @@ impl From<&[Token]> for Expr {
                 let a = a.clone() + "::";
 
                 match tail {
-                    Expr::Fn(Id::Single(SingleId(id)), p) => {
-                        Expr::Fn(Id::Path(PathId(vec![a.clone(), id.clone()])), p)
+                    Expr::Fn(Id::Single(SingleId(id)), g, p) => {
+                        Expr::Fn(Id::Path(PathId(vec![a.clone(), id.clone()])), g, p)
                     },
-                    Expr::Fn(Id::Path(PathId(path)), p) => {
-                        Expr::Fn(Id::Path(PathId(merge(vec![a.clone()], path))), p)
+                    Expr::Fn(Id::Path(PathId(path)), g, p) => {
+                        Expr::Fn(Id::Path(PathId(merge(vec![a.clone()], path))), g, p)
                     },
                     Expr::Id(Id::Single(SingleId(id))) => {
                         Expr::Id(Id::Path(PathId(vec![a.clone(), id.clone()])))
@@ -204,7 +235,10 @@ impl From<&[Token]> for Expr {
                     Expr::Literal(lit) => {
                         Expr::Id(Id::Path(PathId(vec![a.clone(), lit.clone()])))
                     }
-                    _ => { panic!("Invalid var accessors with tail: {:?}", tail) }
+                    _ => {
+                        println!("Invalid var accessors (::) with tail: {:?}", tail);
+                        Expr::Invalid
+                    }
                 }
             },
 
@@ -241,6 +275,8 @@ const COLON: Token = Token::Punct(Punct::Colon);
 const COMMA: Token = Token::Punct(Punct::Comma);
 const HASH: Token = Token::Punct(Punct::Hash);
 const DOT: Token = Token::Punct(Punct::Dot);
+const LESS: Token = Token::Punct(Punct::LessThan);
+const LARGER: Token = Token::Punct(Punct::LargerThan);
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 enum Token {
@@ -279,6 +315,7 @@ enum Punct {
     And,
     LessThan,
     LargerThan,
+    ExclamationMark,
 }
 
 impl Punct {
@@ -298,6 +335,7 @@ impl Punct {
         match self {
             Punct::Asterisk => Some(UnOp::Deref),
             Punct::And => Some(UnOp::Ref),
+            Punct::ExclamationMark => Some(UnOp::Not),
             _ => { None }
         }
     }
@@ -340,6 +378,7 @@ impl From<&TokenTree> for Token {
                     "<" => { Token::Punct(Punct::LessThan) },
                     ">" => { Token::Punct(Punct::LargerThan) },
                     "&" => { Token::Punct(Punct::And) },
+                    "!" => { Token::Punct(Punct::ExclamationMark) },
 
                     _ => { panic!("Unknown punctation: {}", s) }
                 }

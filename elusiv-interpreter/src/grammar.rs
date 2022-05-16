@@ -32,7 +32,8 @@ pub enum Stmt {
     
     // Terminal stmts
     Let(SingleId, bool, Type, Expr),    // Let.1 is the mutability
-    Assign(SingleId, Expr),
+    Assign(Id, Expr),
+    // `partial v = fn<generics>(params) { <<Stmt>> }`
     Partial(SingleId, Expr, Box<Stmt>),
     Return(Expr),
 }
@@ -64,7 +65,8 @@ pub enum Expr {
     BinOp(Box<Expr>, BinOp, Box<Expr>),
     Literal(String),
     Id(Id),
-    Fn(Id, Vec<Expr>),
+    // fn_name<generics>(params)
+    Fn(Id, Vec<Id>, Vec<Expr>),
     Array(Vec<Expr>),
     Unwrap(Box<Expr>),
     Invalid,
@@ -84,6 +86,7 @@ pub enum BinOp {
 pub enum UnOp {
     Ref,
     Deref,
+    Not,
 }
 
 /// - `rounds` == None means that the Stmt uses the same round as the scope or other stmts surrounding it
@@ -183,7 +186,7 @@ impl Stmt {
                 let rounds = match result_true.rounds.clone() {
                     Some(t) => {
                         match result_false.rounds.clone() {
-                            Some(f) => Some(quote!{ max(#t + #f) }),
+                            Some(f) => Some(quote!{ max(#t, #f) }),
                             None => Some(t)
                         }
                     },
@@ -231,12 +234,12 @@ impl Stmt {
             },
 
             // The partial assignment calls another method generated using the same partial computation macro
-            Stmt::Partial(SingleId(id), Expr::Fn(Id::Single(SingleId(fn_id)), fn_args), child) => {
+            Stmt::Partial(SingleId(id), Expr::Fn(Id::Single(SingleId(fn_id)), generics, fn_args), child) => {
                 let ident: TokenStream = id.parse().unwrap();
 
                 let mut args = fn_args.clone();
                 args.insert(0, Expr::Id(Id::Single(SingleId(String::from("round")))));
-                let fn_call: TokenStream = Expr::Fn(Id::Single(SingleId(format!("{}_partial", fn_id))), args.clone()).into();
+                let fn_call: TokenStream = Expr::Fn(Id::Single(SingleId(format!("{}_partial", fn_id))), generics.clone(), args.clone()).into();
                 let size: TokenStream = format!("{}_ROUNDS_COUNT", fn_id.to_uppercase()).parse().unwrap();
 
                 let child_result = child.to_stream(start_round);
@@ -271,8 +274,8 @@ impl Stmt {
                 }
             },
 
-            Stmt::Assign(SingleId(id), expr) => {
-                let ident: TokenStream = id.parse().unwrap();
+            Stmt::Assign(id, expr) => {
+                let ident: TokenStream = id.to_string().parse().unwrap();
                 let value: TokenStream = expr.into();
 
                 StmtResult { stream: quote!{ #ident = #value; }, rounds: None }
@@ -305,14 +308,20 @@ impl From<Expr> for TokenStream {
                 quote!{ (#op #e) }
             },
             Expr::Id(id) => id.to_string().parse().unwrap(),
-            Expr::Fn(id, exprs) => {
+            Expr::Fn(id, generics, exprs) => {
                 let id: TokenStream = id.to_string().parse().unwrap();
                 let mut args = quote!{};
                 for expr in exprs {
                     let expr: TokenStream = expr.into();
                     args.extend(quote!{ #expr, });
                 }
-                quote!{ #id(#args) }
+
+                let mut generics: TokenStream = generics.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(",").parse().unwrap();
+                if !generics.is_empty() {
+                    generics = quote!{ :: < #generics > };
+                }
+
+                quote!{ #id #generics (#args) }
             },
             Expr::Array(exprs) => {
                 let mut args = quote!{};
@@ -359,6 +368,7 @@ impl ToString for UnOp {
         let c = match self {
             UnOp::Ref => "&",
             UnOp::Deref => "*",
+            UnOp::Not => "!",
         };
         String::from(c)
     }
@@ -422,11 +432,12 @@ impl Expr {
             Expr::BinOp(l, _, r) => merge((*l).all_vars(), (*r).all_vars()),
             Expr::UnOp(_, e) => (*e).all_vars(),
             Expr::Literal(_) => vec![],
-            Expr::Id(id) => vec![id.to_string()],
-            Expr::Fn(id, e) => merge(vec![id.get_var().clone()], Expr::Array(e.clone()).all_vars()),
+            Expr::Fn(id, _, e) => merge(vec![id.get_var().clone()], Expr::Array(e.clone()).all_vars()),
             Expr::Array(e) => e.iter().map(|e| e.all_vars()).fold(Vec::new(), merge),
             Expr::Unwrap(e) => (*e).all_vars(),
             Expr::Invalid => panic!("Invalid expression"),
+
+            Expr::Id(id) => vec![id.to_string()],
         }
     }
 }
@@ -466,7 +477,7 @@ mod tests {
         assert_eq_stream!(
             TokenStream::from(
                 Expr::Unwrap(
-                    Box::new(Expr::Fn(Id::Single(SingleId(String::from("fn_name"))), vec![]))
+                    Box::new(Expr::Fn(Id::Single(SingleId(String::from("fn_name"))), vec![], vec![]))
                 )
             ),
             quote!{ match fn_name() { Some(v) => v, None => return Err("Unwrap error") } }
