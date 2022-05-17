@@ -1,17 +1,21 @@
 pub mod vkey;
-mod prepare_inputs;
-mod miller_loop;
-mod final_exponentiation;
-mod verify;
-mod verification_key;
-mod proof;
-mod lazy_stack;
-pub mod state;
+mod verifier;
+mod ram;
 
-pub use prepare_inputs::*;
-pub use miller_loop::*;
-pub use final_exponentiation::*;
-pub use verify::*;
-pub use verification_key::*;
-pub use proof::*;
-pub use state::ProofAccount;
+pub use verifier::*;
+use ark_bn254::{ Fq2, Fq12, G1Affine, G2Affine, G1Projective };
+
+/// A Groth16 verification key
+pub trait VerificationKey {
+    const PUBLIC_INPUTS_COUNT: usize;
+
+    fn gamma_abc_g1_0() -> G1Projective;
+    fn gamma_abc_g1() -> Vec<G1Affine>;
+    fn alpha_g1_beta_g2() -> Fq12;
+    fn gamma_g2_neg_pc(coeff_index: usize, i: usize) -> &'static Fq2;
+    fn delta_g2_neg_pc(coeff_index: usize, i: usize) -> &'static Fq2;
+    fn alpha_g1() -> G1Affine;
+    fn beta_g2() -> G2Affine;
+    fn gamma_g2() -> G2Affine;
+    fn delta_g2() -> G2Affine;
+}

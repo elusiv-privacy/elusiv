@@ -47,6 +47,7 @@ pub enum ElusivInstruction {
     ComputeCommitment,
     FinalizeCommitment,
 
+    // Instructions used for accounts management
     // Resets the main MT and creates a new active TreeAccount PDA
     ActivateTree,
     ArchiveTree,

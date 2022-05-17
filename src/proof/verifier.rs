@@ -5,6 +5,8 @@ use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWra
 use ark_ff::{ One, Zero, biginteger::BigInteger256, field_new };
 use ark_ec::models::bn::BnParameters;
 use std::ops::Neg;
+use super::VerificationKey;
+use super::ram::LazyRAM;
 
 // We combine the miller loop and the coefficient generation for B
 // - miller loop ref: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L99
@@ -392,39 +394,6 @@ pub fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
     let mut k = f.clone();
     k.frobenius_map(u);
     k
-}
-
-pub struct RAM<N: Clone> {
-    data: Vec<Option<N>>,
-    frame: usize,
-}
-
-impl<N: Clone> RAM<N> {
-    pub fn new(size: usize) -> Self {
-        let mut data = vec![];
-        for _ in 0..size { data.push(None); }
-        RAM { data, frame: 0 }
-    }
-
-    pub fn write(&mut self, value: N, index: usize) {
-        self.data[self.frame + index] = Some(value);
-    }
-
-    pub fn read(&self, index: usize) -> N {
-        self.data[self.frame + index].clone().unwrap()
-    }
-
-    pub fn free(&mut self, index: usize) {
-        self.data[self.frame + index] = None;
-    }
-
-    pub fn inc_frame(&mut self, frame: usize) {
-        self.frame += frame;
-    }
-
-    pub fn dec_frame(&mut self, frame: usize) {
-        self.frame -= frame;
-    }
 }
 
 #[cfg(test)]

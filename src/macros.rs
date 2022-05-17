@@ -48,15 +48,6 @@ macro_rules! account_data {
     };
 }
 
-/// Writes the bytes from an iterator into an writer (overriding any existing bytes)
-macro_rules! write_into {
-    ($writer: expr, $bytes: expr) => {
-        for (i, &byte) in $bytes.iter().enumerate() {
-            $writer[i] = byte;
-        }
-    };
-}
-
 /// Raises two to the power of the supplied exponent
 macro_rules! two_pow {
     ($exponent: expr) => {
@@ -64,6 +55,7 @@ macro_rules! two_pow {
     };
 }
 
+/// Recursive max construction
 macro_rules! max {
     ($x: expr) => ($x);
     ($x: expr, $($z: expr),+) => (::std::cmp::max($x, max!($($z),*)));
@@ -75,6 +67,5 @@ pub(crate) use guard_pda_account;
 pub(crate) use pda_account_no_data;
 pub(crate) use account_data_mut;
 pub(crate) use account_data;
-pub(crate) use write_into;
 pub(crate) use two_pow;
 pub(crate) use max;

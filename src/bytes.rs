@@ -1,21 +1,20 @@
-use crate::macros::{ write_into };
-use super::fields::utils::*;
-use super::types::U256;
 use solana_program::program_error::{ ProgramError, ProgramError::InvalidArgument };
 
 /// Serialization and Deserialization trait used for account fields
 pub trait SerDe {
     type T;
     const SIZE: usize;
-    fn deserialize(data: &[u8]) -> Self::T;
-    fn serialize(value: Self::T) -> Vec<u8>;
 
-    /// Overwrites the values in the writer slice
-    fn write(value: Self::T, writer: &[u8]) {
-        write_into!(writer, Self::serialize(value));
+    fn deserialize(data: &[u8]) -> Self::T;
+    fn serialize(value: Self::T, data: &mut [u8]);
+
+    fn serialize_vec(value: Self::T, zero: Self::T) -> Vec<u8> {
+        let mut v = vec![Self::SIZE; zero];
+        Self::serialize(value, &mut v);
+        v
     }
 
-    /// Deserializes the value using the first SIZE bytes and returns the value and remaining bytes
+    /// Deserializes the value using the first `SIZE` bytes and returns the value and remaining bytes
     fn split_at_front(data: &[u8]) -> Result<(Self::T, &[u8]), ProgramError> {
         let value = data.get(..Self::SIZE)
             .map(|s| Self::deserialize(s))
@@ -42,8 +41,9 @@ impl_zero!(u8, 0);
 impl_zero!(u64, 0);
 
 /// This trait generates the backing store object for account fields
-/// - why is this needed? Since not all top-level objects are SerDe objects (e.g. LazyStacks)
-/// - so for them field would return a LazyStack and for a u64 e.g. it would just return data again
+/// - why is this needed?
+///     - our usual jit approach for serialization is maintaining a mutable slice with the bytes and have getter/setter functions
+///     - sometimes we want special data-structures, like our LazyRAM which on it's own manages the mutable slice
 pub trait SerDeManager<T> {
     const SIZE_BYTES: usize;
 
@@ -69,13 +69,16 @@ macro_rules! impl_for_uint {
             #[inline]
             fn deserialize(data: &[u8]) -> Self::T {
                 let mut arr = [0; Self::SIZE];
+                assert!(data.len() >= Self::SIZE);
                 for i in 0..Self::SIZE { arr[i] = data[i]; }
                 $ty::from_le_bytes(arr)
             }
         
             #[inline]
-            fn serialize(value: Self::T) -> Vec<u8> {
-                $ty::to_le_bytes(value).to_vec()
+            fn serialize(value: Self::T, data: &mut [u8]) {
+                let a = $ty::to_le_bytes(value);
+                assert!(data.len() >= Self::SIZE);
+                for i in 0..Self::SIZE { data[i] = a[i]; }
             }
         }
     };
@@ -100,68 +103,80 @@ impl SerDe for bool {
     #[inline] fn serialize(value: Self::T) -> Vec<u8> { vec![if value { 1 } else { 0 }] }
 }
 
+// Impl for array of serializable values
 impl<const N: usize, E: SerDe<T=E> + Zero<T=E>> SerDe for [E; N] {
-    type T = Self;
+    type T = [E; N];
     const SIZE: usize = N * E::SIZE;
 
-    fn deserialize<'a>(data: &'a mut [u8]) -> Result<Self::T, ProgramError> {
+    fn deserialize<'a>(data: &'a mut [u8]) -> [E; N] {
         let mut v = [E::ZERO; N];
+        assert!(data.len() >= Self::SIZE);
         for i in 0..N {
             v[i] = E::deserialize(&data[i * E::SIZE..(i + 1) * E::SIZE]);
         }
-        Ok(v)
+        v
     }
 
-    fn serialize(value: Self::T) -> Vec<u8> {
-        let mut buffer = Vec::new();
+    fn serialize(value: Self::T, data: &mut [u8]) {
+        assert!(data.len() >= Self::SIZE);
         for i in 0..N {
-            buffer.extend(&E::serialize(value[i]));
+            E::serialize(
+                value[i],
+                &mut data[i * E::SIZE..(i + 1) * E::SIZE]
+            );
         }
-        buffer
     }
 }
 
+// Impl for array of array of serializable values
 impl<const X: usize, const Y: usize> SerDe for [[u8; X]; Y] {
-    type T = Self;
+    type T = [[u8; X]; Y];
     const SIZE: usize = X * Y;
 
-    fn deserialize<'a>(data: &'a mut [u8]) -> Result<Self::T, ProgramError> {
+    fn deserialize<'a>(data: &'a mut [u8]) -> [[u8; X]; Y] {
         let mut v = [[0; X]; Y];
-        for y in 0..Y {
-            write_into!(v[y], &data[y * X..(y + 1) * X]);
-        }
-        Ok(v)
-    }
+        assert!(data.len() >= Self::SIZE);
 
-    fn serialize(value: Self::T) -> Vec<u8> {
-        let mut buffer = Vec::new();
         for y in 0..Y {
+            let index = y * X;
             for x in 0..X {
-                buffer.push(value[y][x]);
+                v[y][x] = data[index + x];
             }
         }
-        buffer
+        v
+    }
+
+    fn serialize(value: [[u8; X]; Y], data: &mut [u8]) {
+        for y in 0..Y {
+            let index = y * X;
+            for x in 0..X {
+                data[index + x] = value[y][x];
+            }
+        }
     }
 }
 
-pub fn contains(bytes: U256, buffer: &[u8]) -> bool {
-    match find(bytes, buffer) {
+pub fn contains<N: SerDe<T=N> + Zero>(v: N, data: &[u8]) -> bool {
+    let length = data.len() / N::SIZE;
+    match find(v, data, length) {
         Some(_) => true,
         None => false
     }
 }
 
-pub fn not_contains(bytes: U256, buffer: &[u8]) -> bool {
-    !contains(bytes, buffer)
+pub fn not_contains<N: SerDe<T=N> + Zero>(v: N, data: &[u8]) -> bool {
+    !contains(v, data)
 }
 
-pub fn find(bytes: U256, buffer: &[u8]) -> Option<usize> {
-    let length = buffer.len() / 32;
+pub fn find<N: SerDe<T=N> + Zero>(v: N, data: &[u8], length: usize) -> Option<usize> {
+    let bytes = N::serialize_vec(v, N::ZERO);
+
+    assert!(data.len() >= length);
     'A: for i in 0..length {
         let index = i * 32;
-        if buffer[index] == bytes[0] {
+        if data[index] == bytes[0] {
             for j in 1..32 {
-                if buffer[index + j] != bytes[j] { continue 'A; }
+                if data[index + j] != bytes[j] { continue 'A; }
             }
             return Some(i);
         }
@@ -169,55 +184,24 @@ pub fn find(bytes: U256, buffer: &[u8]) -> Option<usize> {
     None
 }
 
-pub fn u64_to_u256(value: u64) -> U256 {
-    let mut buffer = vec![0; 32];
-    let bytes = value.to_le_bytes();
-    for (i, &byte) in bytes.iter().enumerate() {
-        buffer[i] = byte;
-    }
-    vec_to_array_32(buffer)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const SIZE: usize = 256;    // Max using 256 here because of u8 then there are duplicates
-
-    fn generate_buffer() -> Vec<u8> {
-        let mut buffer = Vec::new();
-        for i in 0..SIZE {
-            for _ in 0..32 {
-                buffer.push(i as u8);
-            }
-        }
-        buffer
-    }
-
     #[test]
     fn test_find_contains() {
-        let buffer = generate_buffer();
+        let length = u64::MAX / 8;
+        let data = vec![0; length];
+        for i in 0..length { data[i] = i; }
 
-        // Contains & finds
-        for i in 0..SIZE {
-            let bytes = [i as u8; 32];
-
-            assert!(contains(bytes, &buffer));
-            assert_eq!(not_contains(bytes, &buffer), false);
-
-            let index = find(bytes, &buffer).unwrap();
-            assert_eq!(index, i);
+        for i in 0..length {
+            assert_eq!(contains(i, &data[..]), true);
+            assert_eq!(find(i, &data[..], length).unwrap(), i as usize);
         }
-
-        // Doesn't contain & find
-        for i in 0..32 {
-            let mut bytes = [0; 32];
-            bytes[i] = 1;
-
-            assert!(not_contains(bytes, &buffer));
-            assert_eq!(contains(bytes, &buffer), false);
-
-            assert!(matches!(find(bytes, &buffer), None));
+        for i in length..length + 20 {
+            assert_eq!(not_contains(i, &data[..]), true);
+            assert_eq!(contains(i, &data[..]), false);
+            assert!(matches!(find(i, &data[..], length).unwrap(), None));
         }
     }
 }

@@ -108,11 +108,8 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 }
 
                 matches.extend(quote! {
-                    #ident { #fields } => {
-                        // Instruction account
+                    ElusivInstruction::#ident { #fields } => {
                         #accounts
-
-                        // Processor call
                         #fn_name(#signature)
                     },
                 })
@@ -129,7 +126,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             accounts: &[solana_program::account_info::AccountInfo],
             instruction_data: &[u8]
         ) -> solana_program::entrypoint::ProgramResult {
-            use ElusivInstruction::*;
             use solana_program::program_error::ProgramError::InvalidInstructionData;
 
             let mut data = &mut &instruction_data;
