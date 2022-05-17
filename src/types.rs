@@ -2,6 +2,7 @@ use crate::bytes::SerDe;
 use crate::macros::*;
 use ark_bn254::{ G1Affine, G2Affine };
 
+/// Unsigned 256 bit integer ordered in LE ([32] is the first byte)
 pub type U256 = [u8; 32];
 pub const U256_ZERO: U256 = [0; 32];
 

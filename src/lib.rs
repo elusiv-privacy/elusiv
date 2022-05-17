@@ -3,7 +3,6 @@ mod bytes;
 mod types;
 mod macros;
 pub mod instruction;
-pub mod queue;
 pub mod processor;
 pub mod state;
 pub mod fields;

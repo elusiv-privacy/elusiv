@@ -1,12 +1,145 @@
+//! Groth16 proof verification
+//! Since these computations are computationally very expensive, we use `elusiv_computation` macros to generate "partial"-computation-functions.
+//! Calling those functions `n` times (over the span of multiple transactions) results in a finished computation.
+
 use ark_ff::{Field, CubicExtParameters};
 use elusiv_interpreter::elusiv_computation;
-use ark_bn254::{ Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Parameters, Parameters, G1Projective };
+use ark_bn254::{ Fr, Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Parameters, Parameters, G1Projective };
 use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper };
 use ark_ff::{ One, Zero, biginteger::BigInteger256, field_new };
 use ark_ec::models::bn::BnParameters;
 use std::ops::Neg;
 use super::VerificationKey;
-use super::ram::LazyRAM;
+use crate::error::ElusivError::{ CouldNotProcessProof, ProofComputationIsAlreadyFinished };
+use crate::error::ElusivError;
+use crate::macros::guard;
+use crate::types::U256;
+
+/// - groth16 verification reference: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L41
+pub fn verify_partial<VKey: VerificationKey>(
+    round: usize,
+    verifier_account: &mut VerifierAccount,
+) -> Result<Option<bool>, ElusivError> {
+    // Public input preparation
+    if round < VKey::PREPARE_PUBLIC_INPUTS_ROUNDS {
+        let input_index = round / 254;
+        match prepare_public_inputs_partial::<VKey>(
+            round,
+            verifier_account.ram_fq,
+            verifier_account.get_public_input(input_index),
+            input_index,
+        ) {
+            None => guard!(round != VKey::PREPARE_PUBLIC_INPUTS_ROUNDS - 1, CouldNotProcessProof),
+            Some(prepared_inputs) => {
+                verifier_account.set_prepared_inputs(prepared_inputs);
+            }
+        }
+    } else
+
+    // Combined miller loop
+    if round < VKey::COMBINED_MILLER_LOOP_ROUNDS {
+        match combined_miller_loop_partial(
+            round - VKey::PREPARE_PUBLIC_INPUTS_ROUNDS,
+            verifier_account.ram_g2affine,
+            verifier_account.ram_fq12,
+            verifier_account.ram_fq2,
+            verifier_account.ram_fq6,
+            a,
+            b,
+            c,
+            prep,
+            &mut r (G2HomProjective)
+        ) {
+            None => guard!(round != VKey::COMBINED_MILLER_LOOP_ROUNDS - 1, CouldNotProcessProof),
+            Some(r) => {
+
+            }
+        }
+    } else
+
+    // Final exponentiation
+    if round < VKey::FINAL_EXPONENTIATION_ROUNDS {
+        match final_exponentiation_partial(
+            round - VKey::COMBINED_MILLER_LOOP_ROUNDS,
+            verifier_account.ram_fq12,
+            verifier_account.ram_fq2,
+            f
+        ) {
+            None => guard!(round != VKey::FINAL_EXPONENTIATION_ROUNDS - 1, CouldNotProcessProof),
+            Some(v) => {
+
+            }
+        }
+    } else {
+        return Err(ProofComputationIsAlreadyFinished)
+    }
+
+    Ok(None)
+}
+
+macro_rules! read_g1_projective {
+    ($ram: ident, $o: literal) => { G1Projective::new($ram.read(0 + $o), $ram.read(1 + $o), $ram.read(2 + $o)) };
+}
+
+/// Public input preparation
+/// - reference implementation: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L22
+/// - N public inputs (elements of the scalar field)
+/// - the total rounds required for preparation of all inputs is 254 * N
+/// - this partial computation is different from the rest, in that the caller directly passes
+fn prepare_public_inputs_partial<VKey: VerificationKey>(
+    round: usize,
+    ram_fq: &mut RAM<Fq>,
+    input: &U256,
+    input_index: usize,
+) -> Option<G1Affine> {
+    let mul_round = round % 254;
+
+    let mut acc = if mul_round == 0 { G1Projective::zero() } else { read_g1_projective!(ram_fq, 3) };
+
+    if mul_round < 254 { // Standard ec scalar multiplication
+        // Skip leading zeros
+        if mul_round < find_first_non_zero_be(input) { return None }
+
+        acc.double_in_place();
+        if get_bit_be(input, mul_round) {
+            acc += VKey::gamma_abc_g1(input_index + 1);
+        }
+
+        write_g1_projective(ram_fq, acc, 3);
+    } else {
+        let g_ic = if input_index == 0 { VKey::gamma_abc_g1_0() } else { read_g1_projective!(ram_fq, 0) };
+
+        g_ic.add_assign(acc);
+
+        if input_index < VKey::PUBLIC_INPUTS_COUNT {
+            write_g1_projective(ram_fq, g_ic, 0);
+        } else {
+            return Some(g_ic.into())
+        }
+    }
+    None
+}
+
+fn write_g1_projective(ram: &mut RAM<Fq>, g1p: G1Projective, offset: usize) {
+    ram.write(g1p.x, offset);
+    ram.write(g1p.y, offset + 1);
+    ram.write(g1p.z, offset + 2);
+}
+
+// v and the bytes of v are all in LE
+fn get_bit_be(v: U256, index: usize) -> bool {
+    let byte = index / 8;
+    v[31 - byte] >> (7 - (index % 8)) == 1
+}
+
+fn find_first_non_zero_be(v: U256) -> usize {
+    for byte in 0..32 {
+        for bit in 0..8 {
+            if v[31 - byte] >> (7 - bit) == 1 { return byte * 8 + bit }
+        }
+    }
+    256
+}
 
 // We combine the miller loop and the coefficient generation for B
 // - miller loop ref: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L99
@@ -73,11 +206,11 @@ elusiv_computation!(
     }
 );
 
-pub const fn max(a: usize, b: usize) -> usize { if a > b { a } else { b } }
+const fn max(a: usize, b: usize) -> usize { if a > b { a } else { b } }
 
 // Homogenous projective coordinates form
 #[derive(Debug)]
-pub struct G2HomProjective {
+struct G2HomProjective {
     pub x: Fq2,
     pub y: Fq2,
     pub z: Fq2,
@@ -85,7 +218,7 @@ pub struct G2HomProjective {
 
 /// Inverse of 2 (in q)
 /// - Calculated using: Fq::one().double().inverse().unwrap()
-pub const TWO_INV: Fq = Fq::new(BigInteger256::new([9781510331150239090, 15059239858463337189, 10331104244869713732, 2249375503248834476]));
+const TWO_INV: Fq = Fq::new(BigInteger256::new([9781510331150239090, 15059239858463337189, 10331104244869713732, 2249375503248834476]));
 
 /// https://docs.rs/ark-bn254/0.3.0/src/ark_bn254/curves/g2.rs.html#19
 /// COEFF_B = 3/(u+9) = (19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)
@@ -94,7 +227,7 @@ const COEFF_B: Fq2 = field_new!(Fq2,
     field_new!(Fq, "266929791119991161246907387137283842545076965332900288569378510910307636690"),
 );
 
-pub type Coefficients = (Fq2, Fq2, Fq2);
+type Coefficients = (Fq2, Fq2, Fq2);
 
 // Doubling step
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L139
@@ -126,7 +259,7 @@ elusiv_computation!(
     }
 );
 
-pub fn new_coeffs(c0: Fq2, c1: Fq2, c2: Fq2) -> Coefficients { (c0, c1, c2) }
+fn new_coeffs(c0: Fq2, c1: Fq2, c2: Fq2) -> Coefficients { (c0, c1, c2) }
 
 // Addition step
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L168
@@ -174,7 +307,7 @@ elusiv_computation!(
     }
 );
 
-pub fn frobenius_map_fq2_one(f: Fq2) -> Fq2 {
+fn frobenius_map_fq2_one(f: Fq2) -> Fq2 {
     let mut k = f.clone();
     k.frobenius_map(1);
     k
@@ -244,12 +377,12 @@ fn sub_and_mul_base_field_by_nonresidue(x: Fq6, y: Fq6) -> Fq6 {
     x - mul_base_field_by_nonresidue(y)
 }
 
-pub fn mul_base_field_by_nonresidue(v: Fq6) -> Fq6 {
+fn mul_base_field_by_nonresidue(v: Fq6) -> Fq6 {
     Fp12ParamsWrapper::<Fq12Parameters>::mul_base_field_by_nonresidue(&v)
 }
 
 // https://github.com/arkworks-rs/r1cs-std/blob/b7874406ec614748608b1739b1578092a8c97fb8/src/fields/fp6_3over2.rs#L53
-pub fn mul_fq6_by_c0_c1_0(f: Fq6, c0: &Fq2, c1: &Fq2) -> Fq6 {
+fn mul_fq6_by_c0_c1_0(f: Fq6, c0: &Fq2, c1: &Fq2) -> Fq6 {
     let v0: Fq2 = f.c0 * c0;
     let v1: Fq2 = f.c1 * c1;
 
@@ -268,7 +401,7 @@ pub fn mul_fq6_by_c0_c1_0(f: Fq6, c0: &Fq2, c1: &Fq2) -> Fq6 {
     )
 }
 
-pub fn mul_by_fp(v: &Fq2, fp: Fq) -> Fq2 {
+fn mul_by_fp(v: &Fq2, fp: Fq) -> Fq2 {
     let mut v: Fq2 = *v;
     v.mul_assign_by_fp(&fp);
     v
@@ -385,12 +518,12 @@ elusiv_computation!(
     }
 );
 
-pub fn conjugate(f: Fq12) -> Fq12 {
+fn conjugate(f: Fq12) -> Fq12 {
     let mut k = f.clone();
     k.conjugate();
     k
 }
-pub fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
+fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
     let mut k = f.clone();
     k.frobenius_map(u);
     k
@@ -398,11 +531,15 @@ pub fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
 
 #[cfg(test)]
 mod tests {
+    use crate::bytes::SerDe;
+
     use super::*;
     use std::str::FromStr;
     use ark_bn254::{ Bn254, Fq, Fq2, Parameters };
     use ark_ec::PairingEngine;
     use ark_ec::models::bn::BnParameters;
+
+    type VK = super::super::vkey::SendVerificationKey;
 
     fn f() -> Fq12 {
         let f = Fq6::new(
@@ -425,6 +562,23 @@ mod tests {
     fn coeffs() -> (Fq2, Fq2, Fq2) { (f().c0.c0, f().c1.c0, f().c0.c2) }
     fn g1_affine() -> G1Affine { G1Affine::new(f().c0.c0.c0, f().c0.c0.c1, false) }
     fn g2_affine() -> G2Affine { G2Affine::new(f().c0.c0, f().c0.c1, false) }
+
+    #[test]
+    fn test_prepare_public_inputs() {
+        let public_inputs = vec![
+            Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699");
+            VK::PUBLIC_INPUTS_COUNT
+        ];
+        let mut ram_fq: RAM<Fq> = RAM::new(20);
+        let mut value: Option<G1Affine> = None;
+        for round in 0..VK::PUBLIC_INPUTS_COUNT * 254 {
+            let input_index = round / VK::PUBLIC_INPUTS_COUNT;
+            let input = Fr::serialize_vec(public_inputs[input_index]);
+            let input: U256 = input.try_into().unwrap();
+            value = prepare_public_inputs_partial(round, ram_fq, &input, input_index);
+        }
+        assert_eq!(value.unwrap(), reference_prepare_inputs::<VK>(&public_inputs));
+    }
 
     #[test]
     fn test_mul_by_characteristics() {
@@ -497,6 +651,17 @@ mod tests {
             { return res; }
         }
     );
+
+    // Adaption of: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L22
+    fn reference_prepare_inputs<VKey: VerificationKey>(public_inputs: &[Fr]) -> G1Projective {
+        assert!(public_inputs.len() == VKey::PUBLIC_INPUTS_COUNT);
+
+        let mut g_ic = VKey::gamma_abc_g1_0();
+        for i in 0..VKey::PUBLIC_INPUTS_COUNT {
+            let b = VKey::gamma_abc_g1(i + 1);
+            g_ic.add_assign(&b.mul(public_inputs[i].into_repr()));
+        }
+    }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
     fn reference_ell(f: Fq12, coeffs: (Fq2, Fq2, Fq2), p: G1Affine) -> Fq12 {

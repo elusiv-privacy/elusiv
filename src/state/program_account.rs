@@ -1,5 +1,6 @@
 use solana_program::account_info::AccountInfo;
 use crate::bytes::SerDe;
+use crate::types::U256;
 use crate::macros::{ pda, account_data_mut, account_data };
 
 /// This trait is used by the elusiv_instruction macro
@@ -76,20 +77,18 @@ pub trait BigArrayAccount<'a>: PDAAccount {
     }
 }
 
-pub struct PartialComputationAccount {
-    is_active: bool,
-    iteration: u64,
-    round: u64,
-}
+/// Account used for computations that require multiple transactions to finish
+/// - `fee_payer` is the account that payed the fees for the whole computation up-front (will be reimbursed after a successfull computation)
+pub trait PartialComputationAccount {
+    fn get_is_active(&self) -> bool;
+    fn set_is_active(&mut self, value: bool);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    fn get_round(&self) -> u64;
+    fn set_round(&mut self, value: u64);
 
-    const TEST_SIZE: usize = 2_500_001;
+    fn get_total_rounds(&self) -> u64;
+    fn set_total_rounds(&mut self, value: u64);
 
-    struct TestAccount { }
-    impl PDAAccount for TestAccount {
-        const SEED: &'static [u8] = b"test";
-    }
+    fn get_fee_payer(&self) -> U256;
+    fn set_fee_payer(&mut self, value: U256);
 }

@@ -6,23 +6,20 @@ use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
 use crate::types::{ U256, JoinSplitProofData };
-//#![allow(unused_imports)]
 
 /// Generates a `QueueAccount` that implements the `RingQueue` trait
 macro_rules! queue_account {
     ($name: ident, $size: expr, $type: ident) => {
-        quote::quote! {
-            #[crate::macros::elusiv_account]
-            struct $name {
-                head: u64,
-                tail: u64,
-                data: [$type: $size],
-            }
+        //#[crate::macros::elusiv_account]
+        struct $name {
+            head: u64,
+            tail: u64,
+            data: [$type: $size],
+        }
 
-            impl RingQueue for $name {
-                type N = $type;
-                const SIZE: u64 = $size;
-            }
+        impl RingQueue for $name {
+            type N = $type;
+            const SIZE: u64 = $size;
         }
     };
 }

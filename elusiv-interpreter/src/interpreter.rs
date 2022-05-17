@@ -161,8 +161,8 @@ pub fn interpret(
     }
 
     quote!{
-        const #rounds_count_name: usize = #single_rounds #multi_rounds;
-        pub fn #fn_name #generics (round: usize, #parameters) -> Result<Option<#ty>, &'static str> {
+        pub const #rounds_count_name: usize = #single_rounds #multi_rounds;
+        fn #fn_name #generics (round: usize, #parameters) -> Result<Option<#ty>, &'static str> {
             match round {
                 #m
                 _ => { }
