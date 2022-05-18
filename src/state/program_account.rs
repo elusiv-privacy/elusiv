@@ -1,5 +1,6 @@
 use solana_program::account_info::AccountInfo;
 use crate::bytes::SerDe;
+use crate::error::ElusivError;
 use crate::types::U256;
 use crate::macros::{ pda, account_data_mut, account_data };
 

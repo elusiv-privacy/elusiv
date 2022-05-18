@@ -2,8 +2,8 @@ use ark_bn254::{ Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective };
 use ark_ff::{BigInteger256, Zero};
 use crate::proof::VerificationKey;
 
-pub struct StoreVerificationKey {}
-impl VerificationKey for StoreVerificationKey {
+pub struct MergeVerificationKey {}
+impl VerificationKey for MergeVerificationKey {
 	const PUBLIC_INPUTS_COUNT: usize = 2;
 
 	fn gamma_abc_g1_0() -> G1Projective {

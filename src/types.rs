@@ -20,6 +20,16 @@ impl U256 {
 
 pub type RawProof = [u8; Proof::SIZE];
 
+impl From<RawProof> for Proof {
+    fn from(raw: RawProof) -> Proof {
+        Proof {
+            a: G1Affine::deserialize(&raw),
+            b: G2Affine::deserialize(&raw[G1Affine::SIZE..]),
+            c: G1Affine::deserialize(&raw[G1Affine::SIZE + G2Affine::SIZE..]),
+        }
+    }
+}
+
 #[derive(SerDe, Copy, Clone)]
 /// A Groth16 proof
 pub struct Proof {

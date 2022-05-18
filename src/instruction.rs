@@ -1,5 +1,6 @@
 use super::types::*;
 use super::processor::*;
+use super::state::queue::{ BaseCommitmentHashRequest, SendProofRequest, MergeProofRequest, MigrateProofRequest, }
 
 #[derive(crate::macros::ElusivInstruction)]
 pub enum ElusivInstruction {
@@ -11,29 +12,23 @@ pub enum ElusivInstruction {
     #[arr(tree, ActiveTree, pda_offset = storage_account.get_active_tree())]
     #[sys(system_program, key = solana_program::system_program::id())]
     Store {
-        base_commitment: U256,  // h(nullifier, timestamp)
-        amount: u64,
-        timestamp: u64,
-        commitment: U256,
-    },
-
-    // Binary merge proof
-    Merge {
-        proof_data: JoinSplitProofData<2>,
-    },
-    
-    // Unary migrate proof
-    Migrate {
-        proof_data: JoinSplitProofData<1>,
-        current_nsmt_root: U256,
-        next_nsmt_root: U256,
+        base_commitment_request: BaseCommitmentHashRequest,
     },
 
     // Binary send proof
     Send {
-        proof_data: JoinSplitProofData<2>,
-        amount: u64,
-        recipient: U256,
+        proof_request: SendProofRequest,
+        timestamp: u64,
+    },
+
+    // Binary merge proof
+    Merge {
+        proof_request: MergeProofRequest,
+    },
+    
+    // Unary migrate proof
+    Migrate {
+        proof_request: MigrateProofRequest,
     },
 
     // Funds are transferred to the recipient

@@ -3,31 +3,15 @@ mod verifier;
 mod ram;
 
 pub use verifier::*;
-use ark_bn254::{ Fq, Fq2, Fq12, G1Affine, G2Affine, G1Projective };
-use verifier::{ COMBINED_MILLER_LOOP_ROUNDS_COUNT, FINAL_EXPONENTIATION_ROUNDS_COUNT };
+use ark_bn254::{ Fq, Fq2, Fq12, G1Affine, G2Affine };
 use ram::LazyRAM;
-use crate::macros::elusiv_account;
+use vkey::VerificationKey;
+use crate::error::ElusivError;
+use crate::error::ElusivError::{ AccountCannotBeReset };
+use crate::macros::{elusiv_account, guard};
 use crate::state::program_account::PartialComputationAccount;
-use crate::types::{ U256, MAX_PUBLIC_INPUTS_COUNT };
-
-/// Groth16 verification key
-pub trait VerificationKey {
-    const PUBLIC_INPUTS_COUNT: usize;
-
-    const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = Self::PUBLIC_INPUTS_COUNT * 254;
-    const COMBINED_MILLER_LOOP_ROUNDS: usize = Self::PREPARE_PUBLIC_INPUTS_ROUNDS + COMBINED_MILLER_LOOP_ROUNDS_COUNT;
-    const FINAL_EXPONENTIATION_ROUNDS: usize = Self::COMBINED_MILLER_LOOP_ROUNDS + FINAL_EXPONENTIATION_ROUNDS_COUNT;
-
-    fn gamma_abc_g1_0() -> G1Projective;
-    fn gamma_abc_g1(index: usize) -> Vec<G1Affine>;
-    fn alpha_g1_beta_g2() -> Fq12;
-    fn gamma_g2_neg_pc(coeff_index: usize, i: usize) -> &'static Fq2;
-    fn delta_g2_neg_pc(coeff_index: usize, i: usize) -> &'static Fq2;
-    fn alpha_g1() -> G1Affine;
-    fn beta_g2() -> G2Affine;
-    fn gamma_g2() -> G2Affine;
-    fn delta_g2() -> G2Affine;
-}
+use crate::state::queue::ProofRequest;
+use crate::types::{ U256, MAX_PUBLIC_INPUTS_COUNT, Proof };
 
 pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
 pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
@@ -38,7 +22,7 @@ pub type RAMG2Affine<'a> = LazyRAM<'a, Fq2, 10>;
 /// Account used for verifying all kinds of Groth16 proofs over the span of multiple transactions
 #[elusiv_account(pda_seed = b"proof")]
 pub struct VerificationAccount {
-    // PartialComputationAccount fields
+    // `PartialComputationAccount` trait fields
     is_active: bool,
     round: u64,
     total_rounds: u64,
@@ -62,6 +46,39 @@ pub struct VerificationAccount {
 }
 
 impl<'a> PartialComputationAccount for VerificationAccount<'a> { }
+
+impl<'a> VerificationAccount<'a> {
+    pub fn reset(
+        &mut self,
+        proof_request: ProofRequest,
+        fee_payer: U256,
+    ) -> Result<(), ElusivError> {
+        guard!(!self.get_is_active(), AccountCannotBeReset);
+
+        let vkey: dyn VerificationKey = proof_request.request.verification_key();
+
+        self.set_is_active(true);
+        self.set_round(0);
+        self.set_total_rounds(vkey::VerificationKey::ROUNDS as u64);
+        self.set_fee_payer(fee_payer);
+
+        // TODO: reset rams ?
+
+        let proof: Proof = proof_request.raw_proof().into();
+        self.set_a(proof.a);
+        self.set_b(proof.b);
+        self.set_c(proof.c);
+
+        let public_inputs = proof_request.public_inputs();
+        for i in 0..vkey::VerificationKey::PUBLIC_INPUTS_COUNT {
+            self.set_public_input(i, public_inputs[i]);
+        }
+
+        self.set_prepared_inputs(G1Affine::zero());
+
+        Ok(())
+    }
+}
 
 /// Used to store the different rams lazily
 pub struct VerificationAccountWrapper<'a> {
@@ -88,7 +105,7 @@ pub struct VerificationAccountWrapper<'a> {
     pub f: Option<Fq12>,
 }
 
-/// Creates a function that allows for lazily storing RAM objects in the VerificationAccountWrapper
+/// Creates a function that allows for lazily storing RAM objects in the `VerificationAccountWrapper`
 macro_rules! getter {
     ($fn_name: ident, $name: ident, $ty: ty) => {
         pub fn $fn_name(&mut self) -> &mut $ty {

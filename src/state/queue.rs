@@ -5,7 +5,9 @@ use crate::error::ElusivError::{ QueueIsFull, QueueIsEmpty };
 use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
-use crate::types::{ U256, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs };
+use crate::proof::vkey::VerificationKey;
+use crate::proof::vkey::{SendVerificationKey, MergeVerificationKey, MigrateVerificationKey};
+use crate::types::{ U256, JoinSplitProofData, PublicInputs, SendPublicInputs, MergePublicInputs, MigratePublicInputs, RawProof };
 
 /// Generates a `QueueAccount` that implements the `RingQueue` trait
 macro_rules! queue_account {
@@ -44,24 +46,67 @@ pub struct BaseCommitmentHashRequest {
     pub base_commitment: U256,
     pub amount: u64,
     pub commitment: U256,
+    pub is_active: bool,
+}
+
+#[derive(SerDe)]
+pub enum ProofRequest {
+    Send {
+        request: SendProofRequest,
+    },
+    Merge {
+        request: MergeProofRequest,
+    },
+    Migrate{
+        request: MigrateProofRequest
+    }
+}
+
+impl ProofRequest {
+    pub fn verification_key(&self) -> dyn VerificationKey {
+        match self {
+            Self::Send => SendVerificationKey {},
+            Self::Merge => MergeVerificationKey {},
+            Self::Migrate => MigrateVerificationKey {},
+        }
+    }
+
+    pub fn raw_proof(&self) -> RawProof {
+        match self {
+            Self::Send { request } => request.proof_data.proof,
+            Self::Merge { request } => request.proof_data.proof,
+            Self::Migrate { request } => request.proof_data.proof,
+        }
+    }
+
+    pub fn public_inputs(&self) -> Vec<U256> {
+        match self {
+            Self::Send { request } => request.public_inputs(),
+            Self::Merge { request } => request.public_inputs(),
+            Self::Migrate { request } => request.public_inputs(),
+        }
+    }
 }
 
 #[derive(SerDe)]
 pub struct SendProofRequest {
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: SendPublicInputs,
+    pub is_active: bool,
 }
 
 #[derive(SerDe)]
 pub struct MergeProofRequest {
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: MergePublicInputs,
+    pub is_active: bool,
 }
 
 #[derive(SerDe)]
 pub struct MigrateProofRequest {
     pub proof_data: JoinSplitProofData<1>,
     pub public_inputs: MigratePublicInputs,
+    pub is_active: bool,
 }
 
 #[derive(SerDe)]
