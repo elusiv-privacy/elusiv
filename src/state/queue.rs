@@ -5,35 +5,35 @@ use crate::error::ElusivError::{ QueueIsFull, QueueIsEmpty };
 use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
-use crate::types::{ U256, JoinSplitProofData, JoinSplitPublicInputs, RawProof };
+use crate::types::{ U256, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs };
 
 /// Generates a `QueueAccount` that implements the `RingQueue` trait
 macro_rules! queue_account {
-    ($name: ident, $size: expr, $type: ident) => {
-        {
-            //#[crate::macros::elusiv_account]
-            struct $name {
-                head: u64,
-                tail: u64,
-                data: [$type: $size],
-            }
+    ($name: ident, $size: expr, $ty: ty) => {
+        struct $name {
+            head: u64,
+            tail: u64,
+            data: [$ty; $size],
+        }
 
-            impl RingQueue for $name {
-                type N = $type;
-                const SIZE: u64 = $size;
-            }
+        impl RingQueue for $name {
+            type N = $ty;
+            const SIZE: u64 = $size;
         }
     };
 }
 
 // Queue used for storing the base_commitments and amounts that should be hashed into commitments
+//#[crate::macros::elusiv_account]
 queue_account!(BaseCommitmentQueueAccount, 1024, BaseCommitmentHashRequest);
 
 // Queue used for storing commitments that should sequentially inserted into the active Merkle tree
 queue_account!(CommitmentQueueAccount, 1024, U256);
 
-// Queue storing any kind of proof that needs to be verified
-queue_account!(ProofQueueAccount, 256, ProofRequest);
+// Queues for proof requests
+queue_account!(SendProofQueueAccount, 256, SendProofRequest);
+queue_account!(MergeProofQueueAccount, 10, MergeProofRequest);
+queue_account!(MigrateProofQueueAccount, 10, MigrateProofRequest);
 
 // Queue storing the money transfer requests derived from verified Send proofs
 queue_account!(SendQueueAccount, 256, SendFinalizationRequest);
@@ -47,9 +47,21 @@ pub struct BaseCommitmentHashRequest {
 }
 
 #[derive(SerDe)]
-pub struct ProofRequest<const N: usize> {
-    pub proof_data: JoinSplitProofData<N>,
-    pub public_inputs: JoinSplitProofData<N>,
+pub struct SendProofRequest {
+    pub proof_data: JoinSplitProofData<2>,
+    pub public_inputs: SendPublicInputs,
+}
+
+#[derive(SerDe)]
+pub struct MergeProofRequest {
+    pub proof_data: JoinSplitProofData<2>,
+    pub public_inputs: MergePublicInputs,
+}
+
+#[derive(SerDe)]
+pub struct MigrateProofRequest {
+    pub proof_data: JoinSplitProofData<1>,
+    pub public_inputs: MigratePublicInputs,
 }
 
 #[derive(SerDe)]

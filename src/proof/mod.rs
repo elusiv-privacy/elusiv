@@ -10,7 +10,7 @@ use crate::macros::elusiv_account;
 use crate::state::program_account::PartialComputationAccount;
 use crate::types::{ U256, MAX_PUBLIC_INPUTS_COUNT };
 
-/// A Groth16 verification key
+/// Groth16 verification key
 pub trait VerificationKey {
     const PUBLIC_INPUTS_COUNT: usize;
 

@@ -42,74 +42,76 @@ pub struct JoinSplitPublicInputs<const N: usize> {
     pub commitment: U256,
 }
 
-#[derive(SerDe)]
-pub enum PublicInputs {
-    Send {
-        join_split: JoinSplitPublicInputs<2>,
-        recipient: U256,
-        amount: u64,
-        timestamp: u64,
-    },
-    Merge {
-        join_split: JoinSplitPublicInputs<2>,
-    },
-    Migrate {
-        join_split: JoinSplitPublicInputs<1>,
-        current_nsmt_root: U256,
-        next_nsmt_root: U256,
-    },
+pub trait PublicInputs {
+    fn public_inputs(&self) -> Vec<Fr>;
 }
 
 pub const MAX_PUBLIC_INPUTS_COUNT: usize = 7;
 
-impl PublicInputs {
-    pub fn get_public_inputs(&self) -> Vec<Fr> {
-        match self {
-            // Send public inputs: https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/send_binary.circom
-            Self::Send { join_split, recipient, amount, timestamp } => {
-                let s = Self::pack_sending_details(recipient, amount, timestamp);
+#[derive(SerDe)]
+/// Send public inputs: https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/send_binary.circom
+pub struct SendPublicInputs {
+    pub join_split: JoinSplitPublicInputs<2>,
+    pub recipient: U256,
+    pub amount: u64,
+    pub timestamp: u64,
+}
 
-                vec![
-                    s[0],
-                    s[1],
-                    join_split.root_hashes[0].into(),
-                    join_split.root_hashes[1].into(),
-                    join_split.nullifier_hashes[0].into(),
-                    join_split.nullifier_hashes[1].into(),
-                    join_split.commitment.into(),
-                ]
-            },
+#[derive(SerDe)]
+// https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/merge_binary.circom
+pub struct MergePublicInputs {
+    pub join_split: JoinSplitPublicInputs<2>,
+}
 
-            // https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/merge_binary.circom
-            Self::Merge { join_split } => {
-                vec![
-                    join_split.root_hashes[0].into(),
-                    join_split.root_hashes[1].into(),
-                    join_split.nullifier_hashes[0].into(),
-                    join_split.nullifier_hashes[1].into(),
-                    join_split.commitment.into(),
-                ]
-            },
+#[derive(SerDe)]
+// https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/migrate_unary.circom
+pub struct MigratePublicInputs {
+    pub join_split: JoinSplitPublicInputs<1>,
+    pub current_nsmt_root: U256,
+    pub next_nsmt_root: U256,
+}
 
-            // https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/migrate_unary.circom
-            Self::Migrate { join_split, current_nsmt_root, next_nsmt_root } => {
-                vec![
-                    join_split.root_hashes[0].into(),
-                    join_split.nullifier_hashes[0].into(),
-                    join_split.commitment.into(),
-                    current_nsmt_root.into(),
-                    next_nsmt_root.into(),
-                ]
-            }
-        }
-    }
-
-    /// Convention: https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/send.circom#L76
-    fn pack_sending_details(recipient: U256, amount: u64, timestamp: u64) -> [Fr; 2] {
-        let recipient = recipient.to_le_limbs();
-        [
-            [0, timestamp, amount, recipient[3]].into(),
+impl PublicInputs for SendPublicInputs {
+    fn public_inputs(&self) -> Vec<Fr> {
+        // Packing sending details (with convention: https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/send.circom#L76)
+        let recipient = self.recipient.to_le_limbs();
+        let packed = [
+            [0, self.timestamp, self.amount, recipient[3]].into(),
             [0, recipient[0], recipient[1], recipient[2]].into()
+        ];
+
+        vec![
+            packed[0],
+            packed[1],
+            self.join_split.root_hashes[0].into(),
+            self.join_split.root_hashes[1].into(),
+            self.join_split.nullifier_hashes[0].into(),
+            self.join_split.nullifier_hashes[1].into(),
+            self.join_split.commitment.into(),
+        ]
+    }
+}
+
+impl PublicInputs for MergePublicInputs {
+    fn public_inputs(&self) -> Vec<Fr> {
+        vec![
+            self.join_split.root_hashes[0].into(),
+            self.join_split.root_hashes[1].into(),
+            self.join_split.nullifier_hashes[0].into(),
+            self.join_split.nullifier_hashes[1].into(),
+            self.join_split.commitment.into(),
+        ]
+    }
+}
+
+impl PublicInputs for MergePublicInputs {
+    fn public_inputs(&self) -> Vec<Fr> {
+        vec![
+            self.join_split.root_hashes[0].into(),
+            self.join_split.nullifier_hashes[0].into(),
+            self.join_split.commitment.into(),
+            self.current_nsmt_root.into(),
+            self.next_nsmt_root.into(),
         ]
     }
 }
