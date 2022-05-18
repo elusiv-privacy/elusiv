@@ -5,21 +5,23 @@ use crate::error::ElusivError::{ QueueIsFull, QueueIsEmpty };
 use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
-use crate::types::{ U256, JoinSplitProofData };
+use crate::types::{ U256, JoinSplitProofData, JoinSplitPublicInputs, RawProof };
 
 /// Generates a `QueueAccount` that implements the `RingQueue` trait
 macro_rules! queue_account {
     ($name: ident, $size: expr, $type: ident) => {
-        //#[crate::macros::elusiv_account]
-        struct $name {
-            head: u64,
-            tail: u64,
-            data: [$type: $size],
-        }
+        {
+            //#[crate::macros::elusiv_account]
+            struct $name {
+                head: u64,
+                tail: u64,
+                data: [$type: $size],
+            }
 
-        impl RingQueue for $name {
-            type N = $type;
-            const SIZE: u64 = $size;
+            impl RingQueue for $name {
+                type N = $type;
+                const SIZE: u64 = $size;
+            }
         }
     };
 }
@@ -45,21 +47,9 @@ pub struct BaseCommitmentHashRequest {
 }
 
 #[derive(SerDe)]
-/// Request for verifying either a `Send`, `Merge` and `Migrate` proof
-pub enum ProofRequest {
-    Send {
-        proof_data: JoinSplitProofData<2>,
-        recipient: U256,
-        amount: u64,
-    },
-    Merge {
-        proof_data: JoinSplitProofData<2>,
-    },
-    Migrate {
-        proof_data: JoinSplitProofData<1>,
-        current_nsmt_root: U256,
-        next_nsmt_root: U256,
-    },
+pub struct ProofRequest<const N: usize> {
+    pub proof_data: JoinSplitProofData<N>,
+    pub public_inputs: JoinSplitProofData<N>,
 }
 
 #[derive(SerDe)]

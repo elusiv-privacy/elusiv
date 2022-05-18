@@ -1,6 +1,6 @@
 mod storage;
 mod tree;
-mod program_account;
+pub mod program_account;
 pub mod queue;
 pub mod pool;
 pub mod reserve;

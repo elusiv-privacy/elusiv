@@ -78,7 +78,10 @@ pub trait BigArrayAccount<'a>: PDAAccount {
 }
 
 /// Account used for computations that require multiple transactions to finish
-/// - `fee_payer` is the account that payed the fees for the whole computation up-front (will be reimbursed after a successfull computation)
+/// - `is_active`: if false: the account can be reset and a new computation can start, if true: clients can participate in the current computation by sending tx
+/// - `round`: the index of the last round
+/// - `total_rounds`: the count of all rounds
+/// - `fee_payer`: account that payed the fees for the whole computation up-front (will be reimbursed after a successfull computation)
 pub trait PartialComputationAccount {
     fn get_is_active(&self) -> bool;
     fn set_is_active(&mut self, value: bool);

@@ -6,6 +6,7 @@ use ark_ff::BigInteger256;
 use crate::bytes::SerDe;
 
 /// From &[u8] to [u8; 8]
+#[macro_export]
 macro_rules! u64_array {
     ($v: ident, $o: expr) => {
         [$v[$o + 0], $v[$o + 1], $v[$o + 2], $v[$o + 3], $v[$o + 4], $v[$o + 5], $v[$o + 6], $v[$o + 7]]

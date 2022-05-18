@@ -77,23 +77,23 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 // Init (using SerDeManager)
                 init.extend(quote! {
-                    let (#field_name, data) = data.split_at_mut(#ty::SIZE);
-                    let #field_name = #ty::mut_backing_store(#field_name)?;
+                    let (#field_name, data) = data.split_at_mut(<#ty>::SIZE);
+                    let #field_name = <#ty>::mut_backing_store(#field_name)?;
                 });
 
                 // Size increase
                 total_size.extend(quote! {
-                    + #ty::SIZE
+                    + <#ty>::SIZE
                 });
 
                 // Getter and setter
                 functions.extend(quote! {
                     pub fn #getter_name(&self) -> #ty {
-                        #ty::deserialize(self.#field_name)
+                        <#ty>::deserialize(self.#field_name)
                     }
 
                     pub fn #setter_name(&mut self, value: #ty) {
-                        #ty::write(value, self.#field_name);
+                        <#ty>::write(value, self.#field_name);
                     }
                 });
             },
@@ -103,24 +103,24 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 // Array init
                 init.extend(quote! {
-                    let (#field_name, data) = data.split_at_mut(#ty::SIZE * #field_size);
+                    let (#field_name, data) = data.split_at_mut(<#ty>::SIZE * #field_size);
                 }); 
 
                 // Size increase
                 total_size.extend(quote! {
-                    + (#ty::SIZE * #field_size)
+                    + (<#ty>::SIZE * #field_size)
                 });
 
                 // Array getter and setter
                 functions.extend(quote! {
                     pub fn #getter_name(&self, index: usize) -> #ty {
-                        let slice = &self.#field_name[index * #ty::SIZE..(index + 1) * #ty::SIZE];
-                        #ty::deserialize(slice)
+                        let slice = &self.#field_name[index * <#ty>::SIZE..(index + 1) * <#ty>::SIZE];
+                        <#ty>::deserialize(slice)
                     }
 
                     pub fn #setter_name(&mut self, index: usize, value: #ty) {
-                        let offset = index * #ty::SIZE;
-                        #ty::write(value, &self.#field_name[offset..offset + #ty::SIZE]);
+                        let offset = index * <#ty>::SIZE;
+                        <#ty>::write(value, &self.#field_name[offset..offset + <#ty>::SIZE]);
                     }
                 });
             },
