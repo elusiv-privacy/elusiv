@@ -7,8 +7,7 @@ use ark_bn254::{ Fq, Fq2, Fq12, G1Affine, G2Affine };
 use ram::LazyRAM;
 use vkey::VerificationKey;
 use crate::error::ElusivError;
-use crate::error::ElusivError::{ AccountCannotBeReset };
-use crate::macros::{elusiv_account, guard};
+use crate::macros::elusiv_account;
 use crate::state::program_account::PartialComputationAccount;
 use crate::state::queue::ProofRequest;
 use crate::types::{ U256, MAX_PUBLIC_INPUTS_COUNT, Proof };
@@ -53,14 +52,9 @@ impl<'a> VerificationAccount<'a> {
         proof_request: ProofRequest,
         fee_payer: U256,
     ) -> Result<(), ElusivError> {
-        guard!(!self.get_is_active(), AccountCannotBeReset);
-
         let vkey: dyn VerificationKey = proof_request.request.verification_key();
 
-        self.set_is_active(true);
-        self.set_round(0);
-        self.set_total_rounds(vkey::VerificationKey::ROUNDS as u64);
-        self.set_fee_payer(fee_payer);
+        self.reset_values(vkey::VerificationKey::ROUNDS, fee_payer);
 
         // TODO: reset rams ?
 

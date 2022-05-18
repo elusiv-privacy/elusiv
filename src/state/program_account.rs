@@ -1,8 +1,9 @@
 use solana_program::account_info::AccountInfo;
 use crate::bytes::SerDe;
 use crate::error::ElusivError;
+use crate::error::ElusivError::AccountCannotBeReset;
 use crate::types::U256;
-use crate::macros::{ pda, account_data_mut, account_data };
+use crate::macros::{ pda, account_data_mut, account_data, guard };
 
 /// This trait is used by the elusiv_instruction macro
 pub trait PDAAccount {
@@ -95,4 +96,15 @@ pub trait PartialComputationAccount {
 
     fn get_fee_payer(&self) -> U256;
     fn set_fee_payer(&mut self, value: U256);
+
+    fn reset_values(&mut self, total_rounds: usize, fee_payer: U256) -> Result<(), ElusivError> {
+        guard!(!self.get_is_active(), AccountCannotBeReset);
+
+        self.set_is_active(true);
+        self.set_round(0);
+        self.set_total_rounds(total_rounds as u64);
+        self.set_fee_payer(fee_payer);
+
+        Ok(())
+    }
 }
