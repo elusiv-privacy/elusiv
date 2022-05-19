@@ -12,50 +12,38 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let fn_name: TokenStream = upper_camel_to_upper_snake(&ident.to_string()).to_lowercase().parse().unwrap();
                 let mut accounts = quote! {};
                 let mut fields = quote! {};
+                let mut signature = quote! {};
 
                 for field in var.fields {
                     let field_name = field.ident.clone().unwrap();
                     fields.extend(quote! { #field_name, });
                 }
 
-                let mut signature = quote! { #fields };
-
                 // Account attributes
                 for attr in var.attrs {
                     let attr_name = attr.path.get_ident().unwrap().to_string();
                     let sub_attrs = sub_attrs_prepare(attr.tokens.to_string());
-                    let sub_attrs: Vec<&str> = (&sub_attrs).split(",").collect();
-                    let account: TokenStream = sub_attrs[0].parse().unwrap();
+                    let sub_attrs: Vec<&str> = (&sub_attrs[1..sub_attrs.len() - 1]).split(",").collect();
+                    let mut account: TokenStream = sub_attrs[0].parse().unwrap();
 
                     accounts.extend(quote! {
                         let #account = solana_program::account_info::next_account_info(account_info_iter)?;    
                     });
 
                     match attr_name.as_str() {
-                        "prg" => {  // Program owned account with static pubkey
-                            let ty = program_account_type(sub_attrs[1]);
-
-                            // Static pubkey check
-                            accounts.extend(quote!{
-                                guard!(#ty::KEY == #account.key, InvalidAccount);
-
-                                let acc_data = account_data_mut(#account);
-                                let mut #account = #ty::from_data(acc_data)?;
-                            });
+                        "usr_inf" => {  // User `AccountInfo`
                         },
-                        "usr" => {  // User account
-                        },
-                        "sig" => {  // User account as signer
+                        "sig_inf" => {  // User `AccountInfo` as signer
                             // Check signer
                             accounts.extend(quote!{
-                                guard!(#account.is_signer(), InvalidAccount);
+                                guard!(#account.is_signer, InvalidAccount);
                             });
                         },
-                        "sys" => {  // System program account
+                        "sys_inf" => {  // System program `AccountInfo`
                             // Check that system progam fits the key expression's pubkey
                             let key: TokenStream = named_sub_attribute("key", sub_attrs[1]).parse().unwrap();
                             accounts.extend(quote!{
-                                guard!(#key == #account.key, InvalidAccount);
+                                guard!(#key == *#account.key, InvalidAccount);
                             });
                         },
                         v => {  // PDA based accounts
@@ -66,37 +54,47 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                             // PDA check
                             accounts.extend(quote!{
-                                guard_pda_account!(#account, #ty::pda_seed(&[#pda_offset]));
-                                let acc_data = account_data_mut(#account);
+                                guard!(<#ty>::is_valid_pubkey(&[#pda_offset], #account.key), InvalidAccount);
                             });
 
                             match v {
-                                "pda" => {  // Single PDA account
+                                "pda_acc" => {  // Single PDA account
                                     accounts.extend(quote!{
-                                        let mut #account = #ty::from_data(acc_data)?;
+                                        let acc_data = &mut #account.data.borrow_mut()[..];
+                                        let #account = #ty::new(acc_data)?;
                                     });
+                                    account = quote!{ &#account };
                                 },
-                                "pdi" => {  // Single PDA AccountInfo (!)
+                                "pda_mut" => {  // Single mutable PDA account
+                                    accounts.extend(quote!{
+                                        let acc_data = &mut #account.data.borrow_mut()[..];
+                                        let mut #account = #ty::new(acc_data)?;
+                                    });
+                                    account = quote!{ &mut #account };
                                 },
-                                "arr" => {  // Base account and n additional PDA array-accounts
+                                "pda_inf" => {  // Single PDA `AccountInfo` (!)
+                                },
+                                "pda_arr" => {  // Base account and n additional PDA array-accounts
                                     let ty = program_account_type(sub_attrs[1]);
         
                                     // Base PDA offset (u64)
                                     let pda_offset: TokenStream = named_sub_attribute("pda_offset", sub_attrs[2]).parse().unwrap();
         
                                     accounts.extend(quote!{
-                                        // Array accounts plus PDA check for each
-                                        let mut array_accounts = Vec::new();
-                                        for i in 0..#ty::ACCOUNTS_COUNT {
-                                            let array_account = solana_program::account_info::next_account_info(account_info_iter)?;    
-                                            array_accounts.push(array_account);
-        
-                                            guard_pda_account!(array_account, #ty::pda_seed(&[#pda_offset, i as u64]));
-                                        }
-                                        guard!(#ty::ACCOUNTS_COUNT == sub, InvalidAccount);
+                                        let acc_data = &mut #account.data.borrow_mut()[..];
 
-                                        let #account = #ty::new(acc_data, array_accounts)?;
+                                        // Array accounts plus PDA check for each
+                                        let mut accounts = Vec::new();
+                                        for i in 0..#ty::COUNT {
+                                            let array_account = solana_program::account_info::next_account_info(account_info_iter)?;    
+                                            guard!(<#ty>::is_valid_pubkey(&[#pda_offset, i as u64], array_account.key), InvalidAccount);
+                                            accounts.push(array_account);
+                                        }
+                                        guard!(#ty::COUNT == accounts.len(), InvalidAccount);
+
+                                        let #account = #ty::new(acc_data, accounts)?;
                                     });
+                                    account = quote!{ &#account };
                                 },
                                 _ => { panic!("Invalid attribute name") }
                             }
@@ -110,7 +108,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 matches.extend(quote! {
                     ElusivInstruction::#ident { #fields } => {
                         #accounts
-                        #fn_name(#signature)
+                        #fn_name(#signature #fields)
                     },
                 })
             }
@@ -121,15 +119,15 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
     quote! {
         // Program entrypoint and instruction matching
         solana_program::entrypoint!(process_instruction);
-        pub fn process_instruction(
+        pub fn process_instruction<'a>(
             program_id: &solana_program::pubkey::Pubkey,
-            accounts: &[solana_program::account_info::AccountInfo],
+            accounts: &'a [solana_program::account_info::AccountInfo<'a>],
             instruction_data: &[u8]
         ) -> solana_program::entrypoint::ProgramResult {
             use solana_program::program_error::ProgramError::InvalidInstructionData;
 
             let mut data = &mut &instruction_data;
-            let instruction = borsh::BorshDeserialize::deserialize(data).or(Err(InvalidInstructionData.into()));
+            let instruction = ElusivInstruction::deserialize(data); // panics for wrong instruction data
             let account_info_iter = &mut accounts.iter();
             
             match instruction {

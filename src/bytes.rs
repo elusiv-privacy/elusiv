@@ -8,9 +8,9 @@ pub trait SerDe {
     fn deserialize(data: &[u8]) -> Self::T;
     fn serialize(value: Self::T, data: &mut [u8]);
 
-    fn serialize_vec(value: Self::T, zero: Self::T) -> Vec<u8> {
-        let mut v = vec![Self::SIZE; zero];
-        Self::serialize(value, &mut v);
+    fn serialize_vec(value: Self::T) -> Vec<u8> {
+        let mut v = vec![0; Self::SIZE];
+        Self::serialize(value, &mut v[..]);
         v
     }
 
@@ -44,18 +44,18 @@ impl_zero!(u64, 0);
 /// - why is this needed?
 ///     - our usual jit approach for serialization is maintaining a mutable slice with the bytes and have getter/setter functions
 ///     - sometimes we want special data-structures, like our LazyRAM which on it's own manages the mutable slice
-pub trait SerDeManager<T> {
+pub trait SerDeManager<'a, T> {
     const SIZE_BYTES: usize;
 
     /// Returns either data or a special field handeling se/de on it's own (e.g. a LazyHeapStack)
-    fn mut_backing_store<'a>(data: &'a mut [u8]) -> Result<T, ProgramError>;
+    fn mut_backing_store(data: &'a mut [u8]) -> Result<T, ProgramError>;
 }
 
 /// SerDeManager default impl for all types that impl SerDe themselves (atomic types)
-impl<T: SerDe> SerDeManager<&mut[u8]> for T {
+impl<'a, T: SerDe> SerDeManager<'a, &'a mut[u8]> for T {
     const SIZE_BYTES: usize = Self::SIZE;
 
-    fn mut_backing_store<'a>(data: &'a mut [u8]) -> Result<&mut [u8], ProgramError> {
+    fn mut_backing_store(data: &'a mut [u8]) -> Result<&'a mut [u8], ProgramError> {
         Ok(data)
     }
 }
@@ -91,24 +91,24 @@ impl SerDe for u8 {
     type T = Self;
     const SIZE: usize = 1;
 
-    #[inline] fn deserialize(data: &[u8]) -> Self::T { data[0] }
-    #[inline] fn serialize(value: Self::T) -> Vec<u8> { vec![value] }
+    #[inline] fn deserialize(data: &[u8]) -> u8 { data[0] }
+    #[inline] fn serialize(value: u8, data: &mut [u8]) { data[0] = value; }
 }
 
 impl SerDe for bool {
     type T = Self;
     const SIZE: usize = 1;
 
-    #[inline] fn deserialize(data: &[u8]) -> Self::T { data[0] == 1 }
-    #[inline] fn serialize(value: Self::T) -> Vec<u8> { vec![if value { 1 } else { 0 }] }
+    #[inline] fn deserialize(data: &[u8]) -> bool { data[0] == 1 }
+    #[inline] fn serialize(value: bool, data: &mut [u8]) { data[0] = if value { 1 } else { 0 }; }
 }
 
 // Impl for array of serializable values
-impl<const N: usize, E: SerDe<T=E> + Zero<T=E>> SerDe for [E; N] {
+impl<const N: usize, E: SerDe<T=E> + Zero<T=E> + Clone + Copy> SerDe for [E; N] {
     type T = [E; N];
     const SIZE: usize = N * E::SIZE;
 
-    fn deserialize<'a>(data: &'a mut [u8]) -> [E; N] {
+    fn deserialize(data: &[u8]) -> [E; N] {
         let mut v = [E::ZERO; N];
         assert!(data.len() >= Self::SIZE);
         for i in 0..N {
@@ -117,7 +117,7 @@ impl<const N: usize, E: SerDe<T=E> + Zero<T=E>> SerDe for [E; N] {
         v
     }
 
-    fn serialize(value: Self::T, data: &mut [u8]) {
+    fn serialize(value: [E; N], data: &mut [u8]) {
         assert!(data.len() >= Self::SIZE);
         for i in 0..N {
             E::serialize(
@@ -133,7 +133,7 @@ impl<const X: usize, const Y: usize> SerDe for [[u8; X]; Y] {
     type T = [[u8; X]; Y];
     const SIZE: usize = X * Y;
 
-    fn deserialize<'a>(data: &'a mut [u8]) -> [[u8; X]; Y] {
+    fn deserialize(data: &[u8]) -> [[u8; X]; Y] {
         let mut v = [[0; X]; Y];
         assert!(data.len() >= Self::SIZE);
 
@@ -156,7 +156,7 @@ impl<const X: usize, const Y: usize> SerDe for [[u8; X]; Y] {
     }
 }
 
-pub fn contains<N: SerDe<T=N> + Zero>(v: N, data: &[u8]) -> bool {
+pub fn contains<N: SerDe<T=N>>(v: N, data: &[u8]) -> bool {
     let length = data.len() / N::SIZE;
     match find(v, data, length) {
         Some(_) => true,
@@ -164,12 +164,12 @@ pub fn contains<N: SerDe<T=N> + Zero>(v: N, data: &[u8]) -> bool {
     }
 }
 
-pub fn not_contains<N: SerDe<T=N> + Zero>(v: N, data: &[u8]) -> bool {
+pub fn not_contains<N: SerDe<T=N>>(v: N, data: &[u8]) -> bool {
     !contains(v, data)
 }
 
-pub fn find<N: SerDe<T=N> + Zero>(v: N, data: &[u8], length: usize) -> Option<usize> {
-    let bytes = N::serialize_vec(v, N::ZERO);
+pub fn find<N: SerDe<T=N>>(v: N, data: &[u8], length: usize) -> Option<usize> {
+    let bytes = N::serialize_vec(v);
 
     assert!(data.len() >= length);
     'A: for i in 0..length {
@@ -190,18 +190,23 @@ mod tests {
 
     #[test]
     fn test_find_contains() {
-        let length = u64::MAX / 8;
-        let data = vec![0; length];
-        for i in 0..length { data[i] = i; }
+        let length = 1000usize;
+        let mut data = vec![0; length * 8];
+        for i in 0..length {
+            let bytes = u64::to_le_bytes(i as u64);
+            for j in 0..8 {
+                data[i * 8 + j] = bytes[j];
+            }
+        }
 
         for i in 0..length {
-            assert_eq!(contains(i, &data[..]), true);
-            assert_eq!(find(i, &data[..], length).unwrap(), i as usize);
+            assert_eq!(contains(i as u64, &data[..]), true);
+            assert_eq!(find(i as u64, &data[..], length).unwrap(), i as usize);
         }
         for i in length..length + 20 {
-            assert_eq!(not_contains(i, &data[..]), true);
-            assert_eq!(contains(i, &data[..]), false);
-            assert!(matches!(find(i, &data[..], length).unwrap(), None));
+            assert_eq!(not_contains(i as u64, &data[..]), true);
+            assert_eq!(contains(i as u64, &data[..]), false);
+            assert!(matches!(find(i as u64, &data[..], length), None));
         }
     }
 }

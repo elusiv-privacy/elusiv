@@ -1,28 +1,32 @@
 //! Bn254 base field modulus: `q = 21888242871839275222246405745257275088696311157297823662689037894645226208583`
 //! Bn254 scalar field modulus: `r = 21888242871839275222246405745257275088548364400416034343698204186575808495617`
 
-use ark_bn254::{ Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, FqParameters, FrParameters };
+use ark_bn254::{Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine};
 use ark_ff::BigInteger256;
 use crate::bytes::SerDe;
+use crate::types::{U256, u256_to_le_limbs};
 
 /// From &[u8] to [u8; 8]
 #[macro_export]
 macro_rules! u64_array {
     ($v: ident, $o: expr) => {
-        [$v[$o + 0], $v[$o + 1], $v[$o + 2], $v[$o + 3], $v[$o + 4], $v[$o + 5], $v[$o + 6], $v[$o + 7]]
+        [$v[$o], $v[$o + 1], $v[$o + 2], $v[$o + 3], $v[$o + 4], $v[$o + 5], $v[$o + 6], $v[$o + 7]]
     };
 }
+
+const BASE_MODULUS: BigInteger256 = BigInteger256([0x3c208c16d87cfd47, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]);
+const SCALAR_MODULUS: BigInteger256 = BigInteger256([4891460686036598785u64, 2896914383306846353u64, 13281191951274694749u64, 3486998266802970665u64]);
 
 /// Constructs a base field element from an element in montgomery form
 /// - panics if the supplied element is >= the base field modulus `q`
 fn safe_base_montgomery(e: BigInteger256) -> Fq {
-    if e < FqParameters::MODULUS { Fq::new(e) } else { panic!() }
+    if e < BASE_MODULUS { Fq::new(e) } else { panic!() }
 }
 
 /// Constructs a scalar field element from an element in montgomery form
 /// - panics if the supplied element is >= the scalar field modulus `r`
 fn safe_scalar_montgomery(e: BigInteger256) -> Fr {
-    if e < FrParameters::MODULUS { Fr::new(e) } else { panic!() }
+    if e < SCALAR_MODULUS { Fr::new(e) } else { panic!() }
 }
 
 /// BigInteger256 efficiently from LE buffer
@@ -120,8 +124,8 @@ impl SerDe for Fq2 {
     fn serialize(value: Fq2, data: &mut [u8]) {
         assert!(data.len() >= 64);
 
-        write_base_montgomery(value.c0.c0, data, 0);
-        write_base_montgomery(value.c0.c1, data, 32);
+        write_base_montgomery(value.c0, data, 0);
+        write_base_montgomery(value.c0, data, 32);
     }
 }
 
@@ -172,50 +176,60 @@ impl SerDe for Fq12 {
     }
 }
 
-impl SerDe for G1Affine {
-    type T = G1Affine;
+#[derive(Copy, Clone)]
+pub struct G1A(pub G1Affine);
+
+#[derive(Copy, Clone)]
+pub struct G2A(pub G2Affine);
+
+impl SerDe for G1A {
+    type T = G1A;
     const SIZE: usize = 65;
 
-    fn deserialize(data: &[u8]) -> G1Affine {
+    fn deserialize(data: &[u8]) -> G1A {
         assert!(data.len() >= 65);
 
-        G1Affine::new(
+        G1A(G1Affine::new(
             fq_montgomery!(data, 0),
             fq_montgomery!(data, 32),
-            bool::deserialize(&data[64]),
-        )
+            bool::deserialize(&data[64..]),
+        ))
     }
 
-    fn serialize(value: G1Affine, data: &mut [u8]) {
+    fn serialize(value: G1A, data: &mut [u8]) {
         assert!(data.len() >= 65);
 
-        write_base_montgomery(value.x, data, 0);
-        write_base_montgomery(value.y, data, 32);
-        bool::serialize(value.infinity, &mut data[64]);
+        write_base_montgomery(value.0.x, data, 0);
+        write_base_montgomery(value.0.y, data, 32);
+        bool::serialize(value.0.infinity, &mut data[64..]);
     }
 }
 
-impl SerDe for G2Affine {
-    type T = G2Affine;
+impl SerDe for G2A {
+    type T = G2A;
     const SIZE: usize = 129;
 
-    fn deserialize(data: &[u8]) -> G2Affine {
+    fn deserialize(data: &[u8]) -> G2A {
         assert!(data.len() >= 129);
 
-        G2Affine::new(
+        G2A(G2Affine::new(
             Fq2::new(fq_montgomery!(data, 0), fq_montgomery!(data, 32)),
             Fq2::new(fq_montgomery!(data, 64), fq_montgomery!(data, 96)),
-            bool::deserialize(&data[128]),
-        )
+            bool::deserialize(&data[128..]),
+        ))
     }
 
-    fn serialize(value: G2Affine, data: &mut [u8]) {
+    fn serialize(value: G2A, data: &mut [u8]) {
         assert!(data.len() >= 129);
 
-        write_base_montgomery(value.x, data, 0);
-        write_base_montgomery(value.y, data, 32);
-        write_base_montgomery(value.c1.c0, data, 64);
-        write_base_montgomery(value.c1.c1, data, 96);
-        bool::serialize(value.infinity, &mut data[128]);
+        write_base_montgomery(value.0.x.c0, data, 0);
+        write_base_montgomery(value.0.x.c0, data, 32);
+        write_base_montgomery(value.0.y.c0, data, 64);
+        write_base_montgomery(value.0.y.c1, data, 96);
+        bool::serialize(value.0.infinity, &mut data[128..]);
     }
+}
+
+pub fn u256_to_fr(v: &U256) -> Fr {
+    safe_scalar_montgomery(BigInteger256(u256_to_le_limbs(*v)))
 }

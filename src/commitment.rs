@@ -1,6 +1,5 @@
 mod poseidon_hash;
 mod poseidon_constants;
-pub mod state;
 
 pub use poseidon_hash::*;
 pub use poseidon_constants::ITERATIONS;
@@ -15,7 +14,7 @@ use crate::types::U256;
 /// - multiple of these accounts can exist
 #[elusiv_account(pda_seed = b"base_commitment")]
 pub struct BaseCommitmentHashingAccount {
-    // `PartialComputationAccount` trait fields
+    // `PartialComputationAccount` trait
     is_active: bool,
     round: u64,
     total_rounds: u64,
@@ -40,7 +39,7 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
 /// - only one of these accounts can exist per MT
 #[elusiv_account(pda_seed = b"commitment")]
 pub struct CommitmentHashingAccount {
-    // `PartialComputationAccount` trait fields
+    // `PartialComputationAccount` trait
     is_active: bool,
     round: u64,
     total_rounds: u64,

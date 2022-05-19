@@ -10,7 +10,7 @@ use ark_ff::{ One, Zero, biginteger::BigInteger256, field_new };
 use ark_ec::models::bn::BnParameters;
 use std::ops::Neg;
 use super::*;
-use crate::error::ElusivError::{ CouldNotProcessProof, ProofComputationIsAlreadyFinished };
+use crate::error::ElusivError::{ CouldNotProcessProof, ComputationIsAlreadyFinished };
 use crate::error::ElusivError;
 use crate::macros::guard;
 use crate::types::U256;
@@ -79,7 +79,7 @@ pub fn verify_partial<VKey: VerificationKey>(
             }
         }
     } else {
-        return Err(ProofComputationIsAlreadyFinished)
+        return Err(ComputationIsAlreadyFinished)
     }
 
     Ok(None)

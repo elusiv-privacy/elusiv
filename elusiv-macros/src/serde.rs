@@ -58,7 +58,7 @@ pub fn impl_serde(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
             quote! {
                 impl #impl_generics SerDe for #ident #ty_generics #where_clause {
                     type T = Self;
-                    const SIZE: usize = crate::macros::max!(#size);
+                    const SIZE: usize =  crate::macros::max!(#size);
                 
                     fn deserialize(data: &[u8]) -> Self::T {
                         assert!(data.len() >= Self::SIZE);

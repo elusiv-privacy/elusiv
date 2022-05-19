@@ -1,45 +1,51 @@
-use crate::macros::{ elusiv_account, two_pow };
-use solana_program::entrypoint::ProgramResult;
+use crate::macros::elusiv_account;
 use crate::types::U256;
 use crate::bytes::*;
-use crate::error::ElusivError::{ CommitmentAlreadyExists, NoRoomForCommitment };
-use crate::macros::guard;
 use super::program_account::*;
 
+/// Height of the active Merkle Tree
 pub const MT_HEIGHT: usize = 20;
-pub const MT_SIZE: usize = two_pow!(MT_HEIGHT + 1);
-pub const MT_COMMITMENT_START: usize = two_pow!(MT_HEIGHT) - 1;
-const HISTORY_ARRAY_COUNT: usize = 10;
 
-#[elusiv_account(pda_seed = b"storage", big_array = [U256; MT_SIZE])]
-struct StorageAccount {
-    /// Points to the next commitment in the active MT
+/// Count of all nodes in the merkle-tree
+pub const MT_SIZE: usize = 2usize.pow(MT_HEIGHT as u32 + 1);
+
+/// Index of the first commitment in the Merkle Tree
+pub const MT_COMMITMENT_START: usize = 2usize.pow(MT_HEIGHT as u32) - 1;
+
+/// Since before submitting a proof request the current root can change, we store the previous ones
+const HISTORY_ARRAY_COUNT: usize = 100;
+
+const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(MT_SIZE, U256::SIZE);
+
+// The `StorageAccount` contains the active Merkle Tree that stores new commitments
+// - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
+// - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
+#[elusiv_account(pda_seed = b"storage", multi_account = STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT)]
+pub struct StorageAccount {
+    // Points to the next commitment in the active MT
     next_commitment_ptr: u64,
-    /// Stores the last HISTORY_ARRAY_COUNT roots of the active tree
-    active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
-    /// The amount of already finished MTs
+
+    // The amount of already finished MTs
     trees_count: u64,
+
     // The amount of archived MTs
     archived_count: u64,
+
+    // Stores the last HISTORY_ARRAY_COUNT roots of the active tree
+    active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
 }
 
-impl<'a> StorageAccount<'a> {
+impl<'a, 'b> BigArrayAccount<'b> for StorageAccount<'a, 'b> {
+    type T = U256;
+}
+
+impl<'a, 'b> StorageAccount<'a, 'b> {
     pub fn reset(&mut self) {
         self.set_next_commitment_ptr(0);
 
         for i in 0..self.active_mt_root_history.len() {
             self.active_mt_root_history[i] = 0;
         }
-    }
-
-    pub fn can_insert_commitment(&self, commitment: U256) -> ProgramResult {
-        guard!(self.get_next_commitment_ptr() < two_pow!(MT_HEIGHT), NoRoomForCommitment);
-        guard!(
-            not_contains(commitment, self.get_mut_array_slice(MT_COMMITMENT_START, MT_SIZE - 1)),
-            CommitmentAlreadyExists
-        );
-
-        Ok(())
     }
 
     /// Inserts commitment and the above hashes
@@ -62,6 +68,7 @@ impl<'a> StorageAccount<'a> {
         self.get(0)
     }
 
+    /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: U256) -> bool {
         root == self.get_root() || contains(root, self.active_mt_root_history)
     }
@@ -86,5 +93,5 @@ impl<'a> StorageAccount<'a> {
 }
 
 pub fn mt_array_index(layer: usize, index: usize) -> usize {
-    two_pow!(layer) - 1 + index
+    2usize.pow(layer as u32) - 1 + index
 }

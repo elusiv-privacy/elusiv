@@ -6,7 +6,7 @@ pub mod instruction;
 pub mod processor;
 pub mod state;
 pub mod fields;
-pub mod proof;
-pub mod commitment;
+//pub mod proof;
+//pub mod commitment;
 
 solana_program::declare_id!("AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7");

@@ -1,32 +1,51 @@
 use super::types::*;
+use super::bytes::SerDe;
+use crate::macros::*;
 use super::processor::*;
-use super::state::queue::{ BaseCommitmentHashRequest, SendProofRequest, MergeProofRequest, MigrateProofRequest, }
+use super::state::queue::{
+    BaseCommitmentQueueAccount,
+    BaseCommitmentHashRequest,
+    SendProofRequest,
+    SendProofQueueAccount,
+};
+use super::state::{
+    program_account::{PDAAccount,MultiAccountAccount},
+    pool::PoolAccount,
+    StorageAccount,
+    NullifierAccount,
+};
+use crate::error::ElusivError::{InvalidAccount};
 
-#[derive(crate::macros::ElusivInstruction)]
+#[derive(SerDe, ElusivInstruction)]
+//#[derive(SerDe)]
 pub enum ElusivInstruction {
     // Client sends base commitment and amount to be stored in the Elusiv program
-    #[sig(sender)]
-    #[prg(storage_account, Storage)]
-    #[prg(queue, BaseCommitmentQueue)]
-    #[pdi(pool, Pool)]
-    #[arr(tree, ActiveTree, pda_offset = storage_account.get_active_tree())]
-    #[sys(system_program, key = solana_program::system_program::id())]
+    #[sig_inf(sender)]
+    #[pda_inf(pool, Pool)]
+    #[sys_inf(system_program, key = solana_program::system_program::id())]
+    #[pda_mut(queue, BaseCommitmentQueue)]
     Store {
         base_commitment_request: BaseCommitmentHashRequest,
     },
 
-    // Binary send proof
+    // Binary send proof request
+    #[sig_inf(relayer)]
+    #[pda_inf(pool, Pool)]
+    #[sys_inf(system_program, key = solana_program::system_program::id())]
+    #[pda_arr(storage_account, Storage, pda_offset = 0)]
+    #[pda_arr(nullifier_account0, Nullifier, pda_offset = 0)]
+    #[pda_arr(nullifier_account1, Nullifier, pda_offset = 0)]
+    #[pda_mut(queue, SendProofQueue)]
     Send {
         proof_request: SendProofRequest,
-        timestamp: u64,
     },
 
-    // Binary merge proof
-    Merge {
+    // Binary merge proof request
+    /*Merge {
         proof_request: MergeProofRequest,
     },
     
-    // Unary migrate proof
+    // Unary migrate proof request
     Migrate {
         proof_request: MigrateProofRequest,
     },
@@ -42,8 +61,13 @@ pub enum ElusivInstruction {
     ComputeCommitment,
     FinalizeCommitment,
 
-    // Instructions used for accounts management
-    // Resets the main MT and creates a new active TreeAccount PDA
+    // Creates a new `NullifierAccount`
+    CreateNewTree,
+
+    // Resets the main MT
     ActivateTree,
-    ArchiveTree,
+
+    // Closes the oldest `NullifierAccount` and creates a `ArchivedTreeAccount`
+    ArchiveTree,*/
+
 }

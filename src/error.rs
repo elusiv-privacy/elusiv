@@ -22,7 +22,6 @@ pub enum ElusivError {
     NoRoomForNullifier,
     InvalidNullifierAccount,
     NullifierAccountDoesNotExist,
-    NullifierAccountDuplicate,
 
     // Commitment
     CommitmentAlreadyExists,
@@ -34,6 +33,8 @@ pub enum ElusivError {
     // Proof
     InvalidProof,
     InvalidPublicInputs,
+    InvalidFeePayer,
+    InvalidTimestamp,
     InvalidVerificationKey,
     CouldNotParseProof,
     CouldNotProcessProof,

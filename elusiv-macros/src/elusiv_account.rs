@@ -17,44 +17,54 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let mut init = quote! {};
     let mut fields = quote! {};
     let mut signature = quote! {};
+    let mut lifetimes = quote!{ 'a };
     let mut functions = quote! {};
 
     // Attributes
     let attrs = sub_attrs_prepare(attrs.to_string());
     let attrs: Vec<&str> = (&attrs).split(",").collect();
+
+    // Lifetimes
+    for attr in &attrs {
+        let attr_ident = attr.split("=").next().unwrap();
+        match attr_ident {
+            "multi_account" => {
+                lifetimes.extend(quote! { , 'b });
+            },
+            _ => {}
+        }
+    }
+
+    // Special implementations
     for attr in attrs {
         let attr_ident = attr.split("=").next().unwrap();
         match attr_ident {
             "pda_seed" => { // PDA based account
                 let seed: TokenStream = named_sub_attribute("pda_seed", attr).parse().unwrap();
                 impls.extend(quote! {
-                    impl<'a> crate::state::program_account::PDAAccount for #name<'a> {
+                    impl<#lifetimes> crate::state::program_account::PDAAccount for #name<#lifetimes> {
                         const SEED: &'static [u8] = #seed;
                     }
                 });
             },
-            "big_array" => {    // Turns this PDA account into a BigArrayAccount
-                let big_array: String = named_sub_attribute("big_array", attr).parse().unwrap();
-                let big_array: Vec<&str> = (&big_array[1..big_array.len() - 1]).split(";").collect();
-
-                let ty: TokenStream = big_array[0].parse().unwrap();
-                let size: TokenStream = big_array[1].parse().unwrap();
+            "multi_account" => {    // Turns this PDA account into a Multi account
+                let multi_account: String = named_sub_attribute("multi_account", attr).parse().unwrap();
+                let count: TokenStream = multi_account.parse().unwrap();
 
                 impls.extend(quote! {
-                    impl<'a> crate::state::program_account::BigArrayAccount<'a> for #name<'a> {
-                        type T = #ty;
-                        const SIZE: usize = #size;
+                    impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'b> for #name<#lifetimes> {
+                        const COUNT: usize = #count;
 
-                        fn get_array_accounts(&self) -> Vec<solana_program::account_info::AccountInfo<'a>> {
-                            self.array_accounts
+                        fn get_account(&self, account_index: usize) -> &solana_program::account_info::AccountInfo<'b> {
+                            &self.accounts[account_index]
                         }
                     }
                 });
 
-                // Add array_accounts field
-                fields.extend(quote! { array_accounts, });
-                definition.extend(quote! { array_accounts: Vec<solana_program::account_info::AccountInfo<'a>>, });
-                signature.extend(quote! { array_accounts: Vec<solana_program::account_info::AccountInfo<'a>>, });
+                // Add accounts field
+                fields.extend(quote! { accounts, });
+                definition.extend(quote! { accounts: Vec<&'b solana_program::account_info::AccountInfo<'b>>, });
+                signature.extend(quote! { accounts: Vec<&'b solana_program::account_info::AccountInfo<'b>>, });
             },
             _ => { panic!("Invalid attribute {}", attr) }
         }
@@ -77,7 +87,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 // Init (using SerDeManager)
                 init.extend(quote! {
-                    let (#field_name, data) = data.split_at_mut(<#ty>::SIZE);
+                    let (#field_name, d) = d.split_at_mut(<#ty>::SIZE);
                     let #field_name = <#ty>::mut_backing_store(#field_name)?;
                 });
 
@@ -93,7 +103,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     }
 
                     pub fn #setter_name(&mut self, value: #ty) {
-                        <#ty>::write(value, self.#field_name);
+                        <#ty>::serialize(value, &mut self.#field_name);
                     }
                 });
             },
@@ -103,7 +113,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 // Array init
                 init.extend(quote! {
-                    let (#field_name, data) = data.split_at_mut(<#ty>::SIZE * #field_size);
+                    let (#field_name, d) = d.split_at_mut(<#ty>::SIZE * #field_size);
                 }); 
 
                 // Size increase
@@ -120,7 +130,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                     pub fn #setter_name(&mut self, index: usize, value: #ty) {
                         let offset = index * <#ty>::SIZE;
-                        <#ty>::write(value, &self.#field_name[offset..offset + <#ty>::SIZE]);
+                        <#ty>::serialize(value, &mut self.#field_name[offset..offset + <#ty>::SIZE]);
                     }
                 });
             },
@@ -129,17 +139,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     }
 
     quote! {
-        pub struct #name<'a> {
+        pub struct #name<#lifetimes> {
             #definition
         }
 
-        impl<'a> #name<'a> {
+        impl<#lifetimes> #name<#lifetimes> {
             const TOTAL_SIZE: usize = 0 #total_size;
 
-            pub fn new(data: &'a mut [u8], #signature) -> Result<Self, solana_program::program_error::ProgramError> {
+            pub fn new(d: &'a mut [u8], #signature) -> Result<Self, solana_program::program_error::ProgramError> {
                 // Check for correct size
                 crate::macros::guard!(
-                    data.len() == Self::TOTAL_SIZE,
+                    d.len() == Self::TOTAL_SIZE,
                     crate::error::ElusivError::InvalidAccountSize
                 );
 

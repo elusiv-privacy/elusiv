@@ -1,3 +1,6 @@
 //! Currently the single SOL pool used to store funds
 
-crate::macros::pda_account_no_data!(PoolAccount, b"sol_pool");
+pub struct PoolAccount {}
+impl crate::state::program_account::PDAAccount for PoolAccount {
+    const SEED: &'static [u8] = b"sol_pool";
+}

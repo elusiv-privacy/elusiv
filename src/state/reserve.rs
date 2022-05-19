@@ -1,3 +1,6 @@
-//! The DAOs main SOL reserve account
+//! Program account storing funds
  
-crate::macros::pda_account_no_data!(ReserveAccount, b"sol_reserve");
+pub struct ReserveAccount {}
+impl crate::state::program_account::PDAAccount for ReserveAccount {
+    const SEED: &'static [u8] = b"sol_reserve";
+}

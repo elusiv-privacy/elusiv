@@ -47,14 +47,12 @@ pub struct VerificationAccount {
 impl<'a> PartialComputationAccount for VerificationAccount<'a> { }
 
 impl<'a> VerificationAccount<'a> {
-    pub fn reset(
+    pub fn reset<VKey: VerificationKey>(
         &mut self,
         proof_request: ProofRequest,
         fee_payer: U256,
     ) -> Result<(), ElusivError> {
-        let vkey: dyn VerificationKey = proof_request.request.verification_key();
-
-        self.reset_values(vkey::VerificationKey::ROUNDS, fee_payer);
+        self.reset_values(VKey::VerificationKey::ROUNDS, fee_payer);
 
         // TODO: reset rams ?
 
@@ -64,7 +62,7 @@ impl<'a> VerificationAccount<'a> {
         self.set_c(proof.c);
 
         let public_inputs = proof_request.public_inputs();
-        for i in 0..vkey::VerificationKey::PUBLIC_INPUTS_COUNT {
+        for i in 0..VKey::VerificationKey::PUBLIC_INPUTS_COUNT {
             self.set_public_input(i, public_inputs[i]);
         }
 
