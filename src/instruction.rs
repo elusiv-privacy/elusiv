@@ -1,12 +1,12 @@
-use super::types::*;
 use super::bytes::SerDe;
 use crate::macros::*;
 use super::processor::*;
 use super::state::queue::{
     BaseCommitmentQueueAccount,
     BaseCommitmentHashRequest,
-    SendProofRequest,
-    SendProofQueueAccount,
+    SendProofQueueAccount, SendProofRequest,
+    MergeProofQueueAccount, MergeProofRequest,
+    MigrateProofQueueAccount, MigrateProofRequest,
 };
 use super::state::{
     program_account::{PDAAccount,MultiAccountAccount},
@@ -38,6 +38,29 @@ pub enum ElusivInstruction {
     #[pda_mut(queue, SendProofQueue)]
     Send {
         proof_request: SendProofRequest,
+    },
+
+    // Binary merge proof request
+    #[sig_inf(relayer)]
+    #[pda_inf(pool, Pool)]
+    #[sys_inf(system_program, key = solana_program::system_program::id())]
+    #[pda_arr(storage_account, Storage, pda_offset = 0)]
+    #[pda_arr(nullifier_account0, Nullifier, pda_offset = 0)]
+    #[pda_arr(nullifier_account1, Nullifier, pda_offset = 0)]
+    #[pda_mut(queue, MergeProofQueue)]
+    Merge {
+        proof_request: MergeProofRequest,
+    },
+
+    // Unary migrate proof request
+    #[sig_inf(relayer)]
+    #[pda_inf(pool, Pool)]
+    #[sys_inf(system_program, key = solana_program::system_program::id())]
+    #[pda_arr(storage_account, Storage, pda_offset = 0)]
+    #[pda_arr(nullifier_account, Nullifier, pda_offset = 0)]
+    #[pda_mut(queue, MigrateProofQueue)]
+    Migrate {
+        proof_request: MigrateProofRequest,
     },
 
     // Binary merge proof request

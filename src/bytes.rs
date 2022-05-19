@@ -164,10 +164,6 @@ pub fn contains<N: SerDe<T=N>>(v: N, data: &[u8]) -> bool {
     }
 }
 
-pub fn not_contains<N: SerDe<T=N>>(v: N, data: &[u8]) -> bool {
-    !contains(v, data)
-}
-
 pub fn find<N: SerDe<T=N>>(v: N, data: &[u8], length: usize) -> Option<usize> {
     let bytes = N::serialize_vec(v);
 
@@ -204,7 +200,6 @@ mod tests {
             assert_eq!(find(i as u64, &data[..], length).unwrap(), i as usize);
         }
         for i in length..length + 20 {
-            assert_eq!(not_contains(i as u64, &data[..]), true);
             assert_eq!(contains(i as u64, &data[..]), false);
             assert!(matches!(find(i as u64, &data[..], length), None));
         }

@@ -12,6 +12,8 @@ use crate::state::queue::{
     RingQueue,
     BaseCommitmentQueue,BaseCommitmentQueueAccount,BaseCommitmentHashRequest,
     SendProofQueue,SendProofQueueAccount,SendProofRequest,
+    MergeProofQueue,MergeProofQueueAccount,MergeProofRequest,
+    MigrateProofQueue,MigrateProofQueueAccount,MigrateProofRequest,
 };
 use crate::error::ElusivError::{InvalidAmount, InvalidInstructionData, CommitmentAlreadyExists, InvalidFeePayer, InvalidTimestamp};
 
@@ -47,10 +49,10 @@ pub fn store<'a>(
 const TIMESTAMP_PRUNING: usize = 4;
 
 /// Enqueues a send proof and takes the computation fee from the relayer
-pub fn send<'a, 'b>(
-    relayer: &AccountInfo,
-    pool: &AccountInfo,
-    system_program: &AccountInfo,
+pub fn send<'a, 'b, 'c>(
+    relayer: &AccountInfo<'c>,
+    pool: &AccountInfo<'c>,
+    system_program: &AccountInfo<'c>,
     storage_account: &StorageAccount,
     nullifier_account0: &NullifierAccount<'a, 'b>,
     nullifier_account1: &NullifierAccount<'a, 'b>,
@@ -77,17 +79,72 @@ pub fn send<'a, 'b>(
 
     // Transfer funds + fees
     let fee = 0;
-    //send_with_system_program(relayer, pool, system_program, fee)?;
+    send_with_system_program(relayer, pool, system_program, fee)?;
 
     // Enqueue request
     guard!(!request.is_active, InvalidInstructionData);
     queue.enqueue(request)
 }
 
-pub fn merge() -> ProgramResult {
-    Ok(())
+/// Enqueues a merge proof and takes the computation fee from the relayer
+pub fn merge<'a, 'b, 'c>(
+    relayer: &AccountInfo<'c>,
+    pool: &AccountInfo<'c>,
+    system_program: &AccountInfo<'c>,
+    storage_account: &StorageAccount,
+    nullifier_account0: &NullifierAccount<'a, 'b>,
+    nullifier_account1: &NullifierAccount<'a, 'b>,
+    queue: &mut MergeProofQueueAccount,
+
+    request: MergeProofRequest,
+) -> ProgramResult {
+    let mut queue = MergeProofQueue::new(queue);
+
+    // Verify public inputs
+    check_join_split_public_inputs(
+        &request.public_inputs.join_split,
+        &request.proof_data,
+        &storage_account,
+        [&nullifier_account0, &nullifier_account1],
+    )?;
+    guard!(request.fee_payer == relayer.key.to_bytes(), InvalidFeePayer);
+
+    // Transfer funds + fees
+    let fee = 0;
+    send_with_system_program(relayer, pool, system_program, fee)?;
+
+    // Enqueue request
+    guard!(!request.is_active, InvalidInstructionData);
+    queue.enqueue(request)
 }
 
-pub fn migrate() -> ProgramResult {
-    Ok(())
+/// Enqueues a migrate proof and takes the computation fee from the relayer
+pub fn migrate<'a, 'b, 'c>(
+    relayer: &AccountInfo<'c>,
+    pool: &AccountInfo<'c>,
+    system_program: &AccountInfo<'c>,
+    storage_account: &StorageAccount,
+    nullifier_account: &NullifierAccount<'a, 'b>,
+    queue: &mut MigrateProofQueueAccount,
+
+    request: MigrateProofRequest,
+) -> ProgramResult {
+    let mut queue = MigrateProofQueue::new(queue);
+
+    // Verify public inputs
+    check_join_split_public_inputs(
+        &request.public_inputs.join_split,
+        &request.proof_data,
+        &storage_account,
+        [&nullifier_account],
+    )?;
+    guard!(request.fee_payer == relayer.key.to_bytes(), InvalidFeePayer);
+
+    // Transfer funds + fees
+    let fee = 0;
+    send_with_system_program(relayer, pool, system_program, fee)?;
+
+    // Enqueue request
+    guard!(!request.is_active, InvalidInstructionData);
+    queue.enqueue(request)
 }

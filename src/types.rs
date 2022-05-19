@@ -6,7 +6,6 @@ use ark_bn254::Fr;
 
 /// Unsigned 256 bit integer ordered in LE ([32] is the first byte)
 pub type U256 = [u8; 32];
-pub const U256_ZERO: U256 = [0; 32];
 
 pub fn u256_to_le_limbs(v: U256) -> [u64; 4] {
     [
@@ -131,9 +130,9 @@ fn pack_inputs(recipient: U256, timestamp: u64, amount: u64) -> [U256; 2] {
     u64::serialize(recipient[3], &mut a[24..]);
 
     let mut b = [0u8; 32];
-    u64::serialize(recipient[0], &mut a[8..]);
-    u64::serialize(recipient[1], &mut a[16..]);
-    u64::serialize(recipient[2], &mut a[24..]);
+    u64::serialize(recipient[0], &mut b[8..]);
+    u64::serialize(recipient[1], &mut b[16..]);
+    u64::serialize(recipient[2], &mut b[24..]);
 
     [a, b]
 }
