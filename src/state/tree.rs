@@ -2,8 +2,7 @@ use crate::macros::{elusiv_account, guard};
 use solana_program::entrypoint::ProgramResult;
 use crate::types::U256;
 use crate::bytes::*;
-use crate::error::ElusivError::{ NullifierAlreadyExists, NoRoomForNullifier };
-use super::program_account::*;
+use crate::error::ElusivError::{NullifierAlreadyExists};
 
 /// The count of nullifiers is the count of leafes in the MT
 const NULLIFIERS_COUNT: usize = 2usize.pow(super::MT_HEIGHT as u32);

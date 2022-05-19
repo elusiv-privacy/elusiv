@@ -51,7 +51,7 @@ queue_account!(MergeProofQueue, MergeProofQueueAccount, 10, MergeProofRequest);
 queue_account!(MigrateProofQueue, MigrateProofQueueAccount, 10, MigrateProofRequest);
 
 // Queue storing the money transfer requests derived from verified Send proofs
-queue_account!(FinalizeSendQueue, FinalizeSendQueueAccount, 256, SendFinalizationRequest);
+queue_account!(FinalizeSendQueue, FinalizeSendQueueAccount, 256, FinalizeSendRequest);
 
 #[derive(SerDe, PartialEq)]
 /// Request for computing `commitment = h(base_commitment, amount)`
@@ -113,7 +113,7 @@ pub struct MigrateProofRequest {
 
 #[derive(SerDe, PartialEq)]
 /// Request for transferring `amount` funds to a `recipient`
-pub struct SendFinalizationRequest {
+pub struct FinalizeSendRequest {
     pub amount: u64,
     pub recipient: U256,
 }

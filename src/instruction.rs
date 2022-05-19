@@ -7,6 +7,7 @@ use super::state::queue::{
     SendProofQueueAccount, SendProofRequest,
     MergeProofQueueAccount, MergeProofRequest,
     MigrateProofQueueAccount, MigrateProofRequest,
+    FinalizeSendQueueAccount,
 };
 use super::state::{
     program_account::{PDAAccount,MultiAccountAccount},
@@ -14,7 +15,7 @@ use super::state::{
     StorageAccount,
     NullifierAccount,
 };
-use crate::error::ElusivError::{InvalidAccount};
+use crate::error::ElusivError::InvalidAccount;
 
 #[derive(SerDe, ElusivInstruction)]
 //#[derive(SerDe)]
@@ -29,7 +30,7 @@ pub enum ElusivInstruction {
     },
 
     // Binary send proof request
-    #[sig_inf(relayer)]
+    #[sig_inf(fee_payer)]
     #[pda_inf(pool, Pool)]
     #[sys_inf(system_program, key = solana_program::system_program::id())]
     #[pda_arr(storage_account, Storage, pda_offset = 0)]
@@ -41,7 +42,7 @@ pub enum ElusivInstruction {
     },
 
     // Binary merge proof request
-    #[sig_inf(relayer)]
+    #[sig_inf(fee_payer)]
     #[pda_inf(pool, Pool)]
     #[sys_inf(system_program, key = solana_program::system_program::id())]
     #[pda_arr(storage_account, Storage, pda_offset = 0)]
@@ -53,7 +54,7 @@ pub enum ElusivInstruction {
     },
 
     // Unary migrate proof request
-    #[sig_inf(relayer)]
+    #[sig_inf(fee_payer)]
     #[pda_inf(pool, Pool)]
     #[sys_inf(system_program, key = solana_program::system_program::id())]
     #[pda_arr(storage_account, Storage, pda_offset = 0)]
@@ -64,19 +65,14 @@ pub enum ElusivInstruction {
     },
 
     // Binary merge proof request
-    /*Merge {
-        proof_request: MergeProofRequest,
-    },
-    
-    // Unary migrate proof request
-    Migrate {
-        proof_request: MigrateProofRequest,
-    },
 
     // Funds are transferred to the recipient
+    #[usr_inf(fee_payer)]
+    #[pda_inf(pool, Pool)]
+    #[pda_mut(queue, FinalizeSendQueue)]
     FinalizeSend,
 
-    InitProof,
+    /*InitProof,
     ComputeProof,
     FinalizeProof,
 

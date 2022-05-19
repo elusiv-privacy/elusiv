@@ -4,6 +4,7 @@ use solana_program::{
     native_token::LAMPORTS_PER_SOL,
     clock::Clock,
     sysvar::Sysvar,
+    program_error::ProgramError,
 };
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount};
@@ -14,8 +15,9 @@ use crate::state::queue::{
     SendProofQueue,SendProofQueueAccount,SendProofRequest,
     MergeProofQueue,MergeProofQueueAccount,MergeProofRequest,
     MigrateProofQueue,MigrateProofQueueAccount,MigrateProofRequest,
+    FinalizeSendQueue,FinalizeSendQueueAccount,
 };
-use crate::error::ElusivError::{InvalidAmount, InvalidInstructionData, CommitmentAlreadyExists, InvalidFeePayer, InvalidTimestamp};
+use crate::error::ElusivError::{InvalidAmount, InvalidInstructionData, CommitmentAlreadyExists, InvalidFeePayer, InvalidTimestamp, InvalidRecipient};
 
 pub const MINIMUM_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 pub const MAXIMUM_STORE_AMOUNT: u64 = u64::MAX;
@@ -50,7 +52,7 @@ const TIMESTAMP_PRUNING: usize = 4;
 
 /// Enqueues a send proof and takes the computation fee from the relayer
 pub fn send<'a, 'b, 'c>(
-    relayer: &AccountInfo<'c>,
+    fee_payer: &AccountInfo<'c>,
     pool: &AccountInfo<'c>,
     system_program: &AccountInfo<'c>,
     storage_account: &StorageAccount,
@@ -69,7 +71,7 @@ pub fn send<'a, 'b, 'c>(
         &storage_account,
         [&nullifier_account0, &nullifier_account1],
     )?;
-    guard!(request.fee_payer == relayer.key.to_bytes(), InvalidFeePayer);
+    guard!(request.fee_payer == fee_payer.key.to_bytes(), InvalidFeePayer);
 
     // Time stamp verification (we prune the last byte)
     let clock = Clock::get()?;
@@ -79,7 +81,7 @@ pub fn send<'a, 'b, 'c>(
 
     // Transfer funds + fees
     let fee = 0;
-    send_with_system_program(relayer, pool, system_program, fee)?;
+    send_with_system_program(fee_payer, pool, system_program, fee)?;
 
     // Enqueue request
     guard!(!request.is_active, InvalidInstructionData);
@@ -88,7 +90,7 @@ pub fn send<'a, 'b, 'c>(
 
 /// Enqueues a merge proof and takes the computation fee from the relayer
 pub fn merge<'a, 'b, 'c>(
-    relayer: &AccountInfo<'c>,
+    fee_payer: &AccountInfo<'c>,
     pool: &AccountInfo<'c>,
     system_program: &AccountInfo<'c>,
     storage_account: &StorageAccount,
@@ -107,11 +109,11 @@ pub fn merge<'a, 'b, 'c>(
         &storage_account,
         [&nullifier_account0, &nullifier_account1],
     )?;
-    guard!(request.fee_payer == relayer.key.to_bytes(), InvalidFeePayer);
+    guard!(request.fee_payer == fee_payer.key.to_bytes(), InvalidFeePayer);
 
     // Transfer funds + fees
     let fee = 0;
-    send_with_system_program(relayer, pool, system_program, fee)?;
+    send_with_system_program(fee_payer, pool, system_program, fee)?;
 
     // Enqueue request
     guard!(!request.is_active, InvalidInstructionData);
@@ -120,7 +122,7 @@ pub fn merge<'a, 'b, 'c>(
 
 /// Enqueues a migrate proof and takes the computation fee from the relayer
 pub fn migrate<'a, 'b, 'c>(
-    relayer: &AccountInfo<'c>,
+    fee_payer: &AccountInfo<'c>,
     pool: &AccountInfo<'c>,
     system_program: &AccountInfo<'c>,
     storage_account: &StorageAccount,
@@ -138,13 +140,33 @@ pub fn migrate<'a, 'b, 'c>(
         &storage_account,
         [&nullifier_account],
     )?;
-    guard!(request.fee_payer == relayer.key.to_bytes(), InvalidFeePayer);
+    guard!(request.fee_payer == fee_payer.key.to_bytes(), InvalidFeePayer);
 
     // Transfer funds + fees
     let fee = 0;
-    send_with_system_program(relayer, pool, system_program, fee)?;
+    send_with_system_program(fee_payer, pool, system_program, fee)?;
 
     // Enqueue request
     guard!(!request.is_active, InvalidInstructionData);
     queue.enqueue(request)
+}
+
+/// Transfers the funds of a send request to a recipient
+pub fn finalize_send<'a>(
+    recipient: &AccountInfo<'a>,
+    pool: &AccountInfo<'a>,
+    queue: &mut FinalizeSendQueueAccount,
+) -> ProgramResult {
+    let mut queue = FinalizeSendQueue::new(queue);
+    let request = queue.dequeue_first()?;
+
+    guard!(recipient.key.to_bytes() == request.recipient, InvalidRecipient);
+
+    **pool.try_borrow_mut_lamports()? = pool.lamports().checked_sub(request.amount)
+        .ok_or(ProgramError::from(InvalidAmount))?;
+
+    **recipient.try_borrow_mut_lamports()? = recipient.lamports().checked_add(request.amount)
+        .ok_or(ProgramError::from(InvalidAmount))?;
+
+    Ok(())
 }
