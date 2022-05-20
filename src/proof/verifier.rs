@@ -8,6 +8,7 @@ use ark_bn254::{Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Param
 use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper};
 use ark_ff::{One, Zero, biginteger::BigInteger256, field_new};
 use ark_ec::models::bn::BnParameters;
+use solana_program::program_error::ProgramError;
 use std::ops::Neg;
 use super::*;
 use crate::error::ElusivError::{CouldNotProcessProof, ComputationIsAlreadyFinished};
@@ -19,7 +20,7 @@ use crate::types::U256;
 pub fn verify_partial<VKey: VerificationKey>(
     round: usize,
     verifier_account: &mut VerificationAccountWrapper,
-) -> Result<Option<bool>, ElusivError> {
+) -> Result<Option<bool>, ProgramError> {
     // Public input preparation
     if round < VKey::PREPARE_PUBLIC_INPUTS_ROUNDS {
         let input_index = round / 254;

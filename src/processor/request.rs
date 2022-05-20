@@ -8,7 +8,7 @@ use solana_program::{
 };
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount};
-use super::utils::{check_join_split_public_inputs, send_with_system_program};
+use super::utils::{check_join_split_public_inputs, send_with_system_program, send_from_pool};
 use crate::state::queue::{
     RingQueue,
     BaseCommitmentQueue,BaseCommitmentQueueAccount,BaseCommitmentHashRequest,
@@ -162,11 +162,5 @@ pub fn finalize_send<'a>(
 
     guard!(recipient.key.to_bytes() == request.recipient, InvalidRecipient);
 
-    **pool.try_borrow_mut_lamports()? = pool.lamports().checked_sub(request.amount)
-        .ok_or(ProgramError::from(InvalidAmount))?;
-
-    **recipient.try_borrow_mut_lamports()? = recipient.lamports().checked_add(request.amount)
-        .ok_or(ProgramError::from(InvalidAmount))?;
-
-    Ok(())
+    send_from_pool(pool, recipient, request.amount)
 }

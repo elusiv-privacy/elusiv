@@ -1,5 +1,5 @@
 pub mod vkey;
-mod verifier;
+pub mod verifier;
 
 pub use verifier::*;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12, G1Affine};
@@ -25,6 +25,9 @@ pub const MAX_VERIFICATION_ACCOUNTS_COUNT: u64 = 1;
 /// Account used for verifying all kinds of Groth16 proofs over the span of multiple transactions
 #[elusiv_account(pda_seed = b"proof")]
 pub struct VerificationAccount {
+    // if true, the proof request can be finalized
+    is_verified: bool,
+
     // `PartialComputationAccount` fields
     // if false: the account can be reset and a new computation can start, if true: clients can participate in the current computation by sending tx
     is_active: bool,
@@ -50,9 +53,13 @@ pub struct VerificationAccount {
     // Public inputs
     public_input: [U256; MAX_PUBLIC_INPUTS_COUNT],
     prepared_inputs: G1A,
+
+    // Request
+    request: ProofRequest,
 }
 
 impl<'a> VerificationAccount<'a> {
+    /// A VerificationAccount can be reset after a computation has been succesfully finished or has failed
     pub fn reset<VKey: VerificationKey>(
         &mut self,
         proof_request: ProofRequest,
@@ -60,6 +67,7 @@ impl<'a> VerificationAccount<'a> {
     ) -> Result<(), ElusivError> {
         guard!(!self.get_is_active(), AccountCannotBeReset);
 
+        self.set_is_verified(false);
         self.set_is_active(true);
         self.set_round(0);
         self.set_total_rounds(VKey::ROUNDS as u64);
@@ -76,6 +84,8 @@ impl<'a> VerificationAccount<'a> {
         }
 
         self.set_prepared_inputs(G1A(G1Affine::zero()));
+
+        self.set_request(proof_request);
 
         Ok(())
     }
@@ -137,6 +147,14 @@ macro_rules! getter {
 }
 
 impl<'a> VerificationAccountWrapper<'a> {
+    pub fn new(account: &'a mut VerificationAccount<'a>) -> Self {
+        Self {
+            account,
+            ram_fq: None, ram_fq2: None, ram_fq6: None, ram_fq12: None, ram_g2affine: None,
+            a: None, b: None, c: None, prepared_inputs: None, r: None, f: None
+        }
+    }
+
     ram!(get_ram_fq, ram_fq, RAMFq);
     ram!(get_ram_fq2, ram_fq2, RAMFq2);
     ram!(get_ram_fq6, ram_fq6, RAMFq6);

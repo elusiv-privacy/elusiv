@@ -38,6 +38,8 @@ pub enum ElusivError {
     InvalidVerificationKey,
     CouldNotParseProof,
     CouldNotProcessProof,
+    CannotFinalizeUnaryProof,
+    CannotFinalizeBinaryProof,
 
     // Queue
     QueueIsEmpty,

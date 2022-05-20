@@ -1,10 +1,6 @@
 use solana_program::account_info::AccountInfo;
 use solana_program::pubkey::Pubkey;
 use crate::bytes::SerDe;
-use crate::error::ElusivError;
-use crate::error::ElusivError::AccountCannotBeReset;
-use crate::types::U256;
-use crate::macros::guard;
 
 /// This trait is used by the elusiv_instruction macro
 pub trait PDAAccount {

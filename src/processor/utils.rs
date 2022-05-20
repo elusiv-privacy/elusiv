@@ -3,9 +3,10 @@ use solana_program::{
     entrypoint::ProgramResult,
     pubkey::Pubkey,
     system_program,
+    program_error::ProgramError,
 };
 use crate::types::{JoinSplitPublicInputs, JoinSplitProofData};
-use crate::error::ElusivError::{InvalidAccount, InvalidMerkleRoot, InvalidPublicInputs};
+use crate::error::ElusivError::{InvalidAccount, InvalidMerkleRoot, InvalidPublicInputs, InvalidAmount};
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount};
 //use crate::state::queue::{CommitmentQueueAccount, RingQueue};
@@ -74,6 +75,21 @@ pub fn check_join_split_public_inputs<const N: usize>(
 
     // Check that roots are correct
     panic!();
+
+    Ok(())
+}
+
+/// Sends from a program owned pool
+pub fn send_from_pool<'a>(
+    pool: &AccountInfo<'a>,
+    recipient: &AccountInfo<'a>,
+    amount: u64,
+) -> ProgramResult {
+    **pool.try_borrow_mut_lamports()? = pool.lamports().checked_sub(amount)
+        .ok_or(ProgramError::from(InvalidAmount))?;
+
+    **recipient.try_borrow_mut_lamports()? = recipient.lamports().checked_add(amount)
+        .ok_or(ProgramError::from(InvalidAmount))?;
 
     Ok(())
 }

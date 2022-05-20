@@ -3,6 +3,7 @@ use crate::macros::*;
 use super::processor::*;
 use super::state::queue::{
     BaseCommitmentQueueAccount,
+    CommitmentQueueAccount,
     BaseCommitmentHashRequest,
     SendProofQueueAccount, SendProofRequest,
     MergeProofQueueAccount, MergeProofRequest,
@@ -19,7 +20,6 @@ use crate::proof::VerificationAccount;
 use crate::error::ElusivError::InvalidAccount;
 
 #[derive(SerDe, ElusivInstruction)]
-//#[derive(SerDe)]
 pub enum ElusivInstruction {
     // Client sends base commitment and amount to be stored in the Elusiv program
     #[sig_inf(sender)]
@@ -65,10 +65,8 @@ pub enum ElusivInstruction {
         proof_request: MigrateProofRequest,
     },
 
-    // Binary merge proof request
-
     // Funds are transferred to the recipient
-    #[usr_inf(fee_payer)]
+    #[sig_inf(fee_payer)]
     #[pda_inf(pool, Pool)]
     #[pda_mut(queue, FinalizeSendQueue)]
     FinalizeSend,
@@ -86,8 +84,33 @@ pub enum ElusivInstruction {
     #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
     InitMigrateProof { verification_account_index: u64 },
 
-    //ComputeProof,
-    //FinalizeProof,
+    // Proof verification computation
+    #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
+    ComputeProof { verification_account_index: u64 },
+
+    // Finalizing successfully verified proofs of arity 2
+    #[usr_inf(original_fee_payer)]
+    #[pda_inf(pool, Pool)]
+    #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
+    #[pda_mut(commitment_hash_queue, CommitmentQueue)]
+    #[pda_mut(finalize_send_queue, FinalizeSendQueue)]
+    #[pda_arr(nullifier_account0, Nullifier, pda_offset = tree_indices[0])]
+    #[pda_arr(nullifier_account1, Nullifier, pda_offset = tree_indices[1])]
+    FinalizeProofBinary {
+        verification_account_index: u64,
+        tree_indices: [u64; 2],
+    },
+
+    // Finalizing successfully verified proofs of arity 1
+    #[usr_inf(original_fee_payer)]
+    #[pda_inf(pool, Pool)]
+    #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
+    #[pda_mut(commitment_hash_queue, CommitmentQueue)]
+    #[pda_arr(nullifier_account, Nullifier, pda_offset = tree_index)]
+    FinalizeProofUnary {
+        verification_account_index: u64,
+        tree_index: u64,
+    },
 
     /*InitCommitment,
     ComputeCommitment,
