@@ -5,16 +5,20 @@ use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty};
 use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
-use crate::types::{U256, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, RawProof};
+use crate::types::{U256, PublicInputs, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, RawProof};
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
-    ($name: ident, $account: ident, $size: expr, $ty: ty) => {
+    ($name: ident, $account: ident, $size: literal, $ty: ty, $max_count: literal) => {
         #[elusiv_account(pda_seed = b"base_commitment")]
         pub struct $account {
             head: u64,
             tail: u64,
             data: [$ty; $size],
+        }
+
+        impl<'a> $account<'a> {
+            pub const MAX_QUEUES_COUNT: u64 = $max_count;
         }
 
         pub struct $name<'a, 'b> {
@@ -40,18 +44,18 @@ macro_rules! queue_account {
 }
 
 // Queue used for storing the base_commitments and amounts that should be hashed into commitments
-queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, 256, BaseCommitmentHashRequest);
+queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, 256, BaseCommitmentHashRequest, 1);
 
 // Queue used for storing commitments that should sequentially inserted into the active Merkle tree
-queue_account!(CommitmentQueue, CommitmentQueueAccount, 256, U256);
+queue_account!(CommitmentQueue, CommitmentQueueAccount, 256, U256, 1);
 
 // Queues for proof requests
-queue_account!(SendProofQueue, SendProofQueueAccount, 256, SendProofRequest);
-queue_account!(MergeProofQueue, MergeProofQueueAccount, 10, MergeProofRequest);
-queue_account!(MigrateProofQueue, MigrateProofQueueAccount, 10, MigrateProofRequest);
+queue_account!(SendProofQueue, SendProofQueueAccount, 256, SendProofRequest, 1);
+queue_account!(MergeProofQueue, MergeProofQueueAccount, 10, MergeProofRequest, 1);
+queue_account!(MigrateProofQueue, MigrateProofQueueAccount, 10, MigrateProofRequest, 1);
 
 // Queue storing the money transfer requests derived from verified Send proofs
-queue_account!(FinalizeSendQueue, FinalizeSendQueueAccount, 256, FinalizeSendRequest);
+queue_account!(FinalizeSendQueue, FinalizeSendQueueAccount, 256, FinalizeSendRequest, 1);
 
 #[derive(SerDe, PartialEq)]
 /// Request for computing `commitment = h(base_commitment, amount)`
@@ -78,13 +82,13 @@ impl ProofRequest {
         }
     }
 
-    /*pub fn public_inputs(&self) -> Vec<Fr> {
+    pub fn public_inputs(&self) -> Vec<U256> {
         match self {
-            Self::Send { request } => request.public_inputs(),
-            Self::Merge { request } => request.public_inputs(),
-            Self::Migrate { request } => request.public_inputs(),
+            Self::Send { request } => request.public_inputs.public_inputs_raw(),
+            Self::Merge { request } => request.public_inputs.public_inputs_raw(),
+            Self::Migrate { request } => request.public_inputs.public_inputs_raw(),
         }
-    }*/
+    }
 }
 
 #[derive(SerDe, PartialEq)]

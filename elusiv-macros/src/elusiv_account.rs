@@ -88,7 +88,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 // Init (using SerDeManager)
                 init.extend(quote! {
                     let (#field_name, d) = d.split_at_mut(<#ty>::SIZE);
-                    let #field_name = <#ty>::mut_backing_store(#field_name)?;
                 });
 
                 // Size increase

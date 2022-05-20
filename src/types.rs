@@ -51,7 +51,11 @@ pub struct JoinSplitPublicInputs<const N: usize> {
 }
 
 pub trait PublicInputs {
-    fn public_inputs(&self) -> Vec<Fr>;
+    fn public_inputs_raw(&self) -> Vec<U256>;
+
+    fn public_inputs_fr(&self) -> Vec<Fr> {
+        self.public_inputs_raw().iter().map(u256_to_fr).collect()
+    }
 }
 
 pub const MAX_PUBLIC_INPUTS_COUNT: usize = 7;
@@ -80,7 +84,7 @@ pub struct MigratePublicInputs {
 }
 
 impl PublicInputs for SendPublicInputs {
-    fn public_inputs(&self) -> Vec<Fr> {
+    fn public_inputs_raw(&self) -> Vec<U256> {
         let packed = pack_inputs(self.recipient, self.timestamp, self.amount);
 
         vec![
@@ -91,31 +95,31 @@ impl PublicInputs for SendPublicInputs {
             self.join_split.nullifier_hashes[0],
             self.join_split.nullifier_hashes[1],
             self.join_split.commitment,
-        ].iter().map(u256_to_fr).collect()
+        ]
     }
 }
 
 impl PublicInputs for MergePublicInputs {
-    fn public_inputs(&self) -> Vec<Fr> {
+    fn public_inputs_raw(&self) -> Vec<U256> {
         vec![
             self.join_split.roots[0],
             self.join_split.roots[1],
             self.join_split.nullifier_hashes[0],
             self.join_split.nullifier_hashes[1],
             self.join_split.commitment,
-        ].iter().map(u256_to_fr).collect()
+        ]
     }
 }
 
 impl PublicInputs for MigratePublicInputs {
-    fn public_inputs(&self) -> Vec<Fr> {
+    fn public_inputs_raw(&self) -> Vec<U256> {
         vec![
             self.join_split.roots[0],
             self.join_split.nullifier_hashes[0],
             self.join_split.commitment,
             self.current_nsmt_root,
             self.next_nsmt_root,
-        ].iter().map(u256_to_fr).collect()
+        ]
     }
 }
 

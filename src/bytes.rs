@@ -40,26 +40,6 @@ macro_rules! impl_zero {
 impl_zero!(u8, 0);
 impl_zero!(u64, 0);
 
-/// This trait generates the backing store object for account fields
-/// - why is this needed?
-///     - our usual jit approach for serialization is maintaining a mutable slice with the bytes and have getter/setter functions
-///     - sometimes we want special data-structures, like our LazyRAM which on it's own manages the mutable slice
-pub trait SerDeManager<'a, T> {
-    const SIZE_BYTES: usize;
-
-    /// Returns either data or a special field handeling se/de on it's own (e.g. a LazyHeapStack)
-    fn mut_backing_store(data: &'a mut [u8]) -> Result<T, ProgramError>;
-}
-
-/// SerDeManager default impl for all types that impl SerDe themselves (atomic types)
-impl<'a, T: SerDe> SerDeManager<'a, &'a mut[u8]> for T {
-    const SIZE_BYTES: usize = Self::SIZE;
-
-    fn mut_backing_store(data: &'a mut [u8]) -> Result<&'a mut [u8], ProgramError> {
-        Ok(data)
-    }
-}
-
 macro_rules! impl_for_uint {
     ($ty: ident, $size: expr) => {
         impl SerDe for $ty {

@@ -9,6 +9,8 @@ use crate::state::program_account::PartialComputationAccount;
 use crate::state::queue::BaseCommitmentHashRequest;
 use crate::types::U256;
 
+pub const MAX_BASE_COMMITMENT_ACCOUNTS_COUNT: u64 = 1;
+
 /// Account used for computing `commitment = h(base_commitment, amount)`
 /// - https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/commitment.circom#L7
 /// - multiple of these accounts can exist
@@ -30,8 +32,10 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
         request: BaseCommitmentHashRequest,
         fee_payer: U256,
     ) -> Result<(), ElusivError> {
+        self.try_reset_values(0, fee_payer)?;
         self.set_request(request);
-        self.reset_values(0, fee_payer)
+
+        Ok(())
     }
 }
 

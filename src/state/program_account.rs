@@ -72,36 +72,6 @@ pub const fn big_array_accounts_count(size: usize, element_size: usize) -> usize
     size / max + (if size % max == 0 { 0 } else { 1 })
 }
 
-/// Account used for computations that require multiple transactions to finish
-/// - `is_active`: if false: the account can be reset and a new computation can start, if true: clients can participate in the current computation by sending tx
-/// - `round`: the index of the last round
-/// - `total_rounds`: the count of all rounds
-/// - `fee_payer`: account that payed the fees for the whole computation up-front (will be reimbursed after a successfull computation)
-pub trait PartialComputationAccount {
-    fn get_is_active(&self) -> bool;
-    fn set_is_active(&mut self, value: bool);
-
-    fn get_round(&self) -> u64;
-    fn set_round(&mut self, value: u64);
-
-    fn get_total_rounds(&self) -> u64;
-    fn set_total_rounds(&mut self, value: u64);
-
-    fn get_fee_payer(&self) -> U256;
-    fn set_fee_payer(&mut self, value: U256);
-
-    fn reset_values(&mut self, total_rounds: usize, fee_payer: U256) -> Result<(), ElusivError> {
-        guard!(!self.get_is_active(), AccountCannotBeReset);
-
-        self.set_is_active(true);
-        self.set_round(0);
-        self.set_total_rounds(total_rounds as u64);
-        self.set_fee_payer(fee_payer);
-
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

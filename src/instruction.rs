@@ -15,6 +15,7 @@ use super::state::{
     StorageAccount,
     NullifierAccount,
 };
+use crate::proof::VerificationAccount;
 use crate::error::ElusivError::InvalidAccount;
 
 #[derive(SerDe, ElusivInstruction)]
@@ -34,8 +35,8 @@ pub enum ElusivInstruction {
     #[pda_inf(pool, Pool)]
     #[sys_inf(system_program, key = solana_program::system_program::id())]
     #[pda_arr(storage_account, Storage, pda_offset = 0)]
-    #[pda_arr(nullifier_account0, Nullifier, pda_offset = 0)]
-    #[pda_arr(nullifier_account1, Nullifier, pda_offset = 0)]
+    #[pda_arr(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0])]
+    #[pda_arr(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1])]
     #[pda_mut(queue, SendProofQueue)]
     Send {
         proof_request: SendProofRequest,
@@ -46,8 +47,8 @@ pub enum ElusivInstruction {
     #[pda_inf(pool, Pool)]
     #[sys_inf(system_program, key = solana_program::system_program::id())]
     #[pda_arr(storage_account, Storage, pda_offset = 0)]
-    #[pda_arr(nullifier_account0, Nullifier, pda_offset = 0)]
-    #[pda_arr(nullifier_account1, Nullifier, pda_offset = 0)]
+    #[pda_arr(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0])]
+    #[pda_arr(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1])]
     #[pda_mut(queue, MergeProofQueue)]
     Merge {
         proof_request: MergeProofRequest,
@@ -58,7 +59,7 @@ pub enum ElusivInstruction {
     #[pda_inf(pool, Pool)]
     #[sys_inf(system_program, key = solana_program::system_program::id())]
     #[pda_arr(storage_account, Storage, pda_offset = 0)]
-    #[pda_arr(nullifier_account, Nullifier, pda_offset = 0)]
+    #[pda_arr(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0])]
     #[pda_mut(queue, MigrateProofQueue)]
     Migrate {
         proof_request: MigrateProofRequest,
@@ -72,11 +73,23 @@ pub enum ElusivInstruction {
     #[pda_mut(queue, FinalizeSendQueue)]
     FinalizeSend,
 
-    /*InitProof,
-    ComputeProof,
-    FinalizeProof,
+    // Proof initialization
+    #[pda_mut(queue, SendProofQueue)]
+    #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
+    InitSendProof { verification_account_index: u64 },
 
-    InitCommitment,
+    #[pda_mut(queue, MergeProofQueue)]
+    #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
+    InitMergeProof { verification_account_index: u64 },
+
+    #[pda_mut(queue, MigrateProofQueue)]
+    #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
+    InitMigrateProof { verification_account_index: u64 },
+
+    //ComputeProof,
+    //FinalizeProof,
+
+    /*InitCommitment,
     ComputeCommitment,
     FinalizeCommitment,
 
@@ -89,4 +102,8 @@ pub enum ElusivInstruction {
     // Closes the oldest `NullifierAccount` and creates a `ArchivedTreeAccount`
     ArchiveTree,*/
 
+    /*OpenUniqueAccounts,
+
+    OpenProofVerificationAccount,    
+    OpenBaseCommitmentHashAccount,*/
 }
