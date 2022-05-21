@@ -250,12 +250,12 @@ impl Stmt {
                     if round < #size - 1 {
                         match #fn_call {
                             Ok(_) => {},
-                            Err(_) => { return Err("Partial computation error") }
+                            Err(_) => { return Err(PartialComputationError) }
                         }
                     } else if round == #size - 1 {
                         let #ident = match #fn_call {
                             Ok(Some(v)) => v,
-                            _ => { return Err("Partial computation error") }
+                            _ => { return Err(PartialComputationError) }
                         };
                         #child_body
                     }
@@ -336,7 +336,7 @@ impl From<Expr> for TokenStream {
                 quote!{
                     match #expr {
                         Some(v) => v,
-                        None => return Err("Unwrap error")
+                        None => return Err(PartialComputationError)
                     }
                 }
             },
@@ -437,7 +437,7 @@ impl Expr {
             Expr::Unwrap(e) => (*e).all_vars(),
             Expr::Invalid => panic!("Invalid expression"),
 
-            Expr::Id(id) => vec![id.to_string()],
+            Expr::Id(id) => vec![id.get_var()],
         }
     }
 }

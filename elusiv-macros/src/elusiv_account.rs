@@ -78,14 +78,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         let setter_name = ident_with_prefix(field_name, "set_");
         fields.extend(quote! { #field_name, });
 
-        // Add mutable backing byte slice
-        definition.extend(quote! { #field_name: &'a mut [u8], });
+        let mut use_getter_setter = true;
+
+        // Attribute that prevents the usage of a getter and setter
+        if let Some(_) = field.attrs.iter().find(|x| x.path.get_ident().unwrap().to_string() == "pub_non_lazy") {
+            use_getter_setter = false;
+        }
 
         match field.ty {
             Type::Path(type_path) => {  // Any field
                 let ty = type_path.into_token_stream();
 
-                // Init (using SerDeManager)
                 init.extend(quote! {
                     let (#field_name, d) = d.split_at_mut(<#ty>::SIZE);
                 });
@@ -95,20 +98,35 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     + <#ty>::SIZE
                 });
 
-                // Getter and setter
-                functions.extend(quote! {
-                    pub fn #getter_name(&self) -> #ty {
-                        <#ty>::deserialize(self.#field_name)
-                    }
+                if use_getter_setter {
+                    // Add mutable backing byte slice
+                    definition.extend(quote! { #field_name: &'a mut [u8], });
 
-                    pub fn #setter_name(&mut self, value: #ty) {
-                        <#ty>::serialize(value, &mut self.#field_name);
-                    }
-                });
+                    // Getter and setter
+                    functions.extend(quote! {
+                        pub fn #getter_name(&self) -> #ty {
+                            <#ty>::deserialize(self.#field_name)
+                        }
+
+                        pub fn #setter_name(&mut self, value: #ty) {
+                            <#ty>::serialize(value, &mut self.#field_name);
+                        }
+                    });
+                } else {
+                    definition.extend(quote! { pub #field_name: #ty, });
+
+                    init.extend(quote! {
+                        let #field_name = <#ty>::new(#field_name);
+                    });
+                }
+                
             },
             Type::Array(type_array) => {    // Array field
                 let ty = type_array.elem.clone().into_token_stream();
                 let field_size = type_array.len;
+
+                // Add mutable backing byte slice
+                definition.extend(quote! { #field_name: &'a mut [u8], });
 
                 // Array init
                 init.extend(quote! {

@@ -72,13 +72,23 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     });
                                     account = quote!{ &mut #account };
                                 },
+                                "pda_own" => {  // Single mutable PDA account
+                                    accounts.extend(quote!{
+                                        let acc_data = &mut #account.data.borrow_mut()[..];
+                                        let mut #account = #ty::new(acc_data)?;
+                                    });
+                                    account = quote!{ #account };
+                                },
                                 "pda_inf" => {  // Single PDA `AccountInfo` (!)
                                 },
                                 "pda_arr" => {  // Base account and n additional PDA array-accounts
                                     let ty = program_account_type(sub_attrs[1]);
-        
+
                                     // Base PDA offset (u64)
                                     let pda_offset: TokenStream = named_sub_attribute("pda_offset", sub_attrs[2]).parse().unwrap();
+
+                                    // Mutability
+                                    let mutability = if sub_attrs.len() > 3 { named_sub_attribute("mut", sub_attrs[3]) == "true" } else { false };
         
                                     accounts.extend(quote!{
                                         let acc_data = &mut #account.data.borrow_mut()[..];
@@ -91,10 +101,15 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                             accounts.push(array_account);
                                         }
                                         guard!(#ty::COUNT == accounts.len(), InvalidAccount);
-
-                                        let #account = #ty::new(acc_data, accounts)?;
                                     });
-                                    account = quote!{ &#account };
+
+                                    if mutability {
+                                        accounts.extend(quote!{ let mut #account = #ty::new(acc_data, accounts)?; });
+                                        account = quote!{ &mut #account };
+                                    } else {
+                                        accounts.extend(quote!{ let #account = #ty::new(acc_data, accounts)?; });
+                                        account = quote!{ &#account };
+                                    }
                                 },
                                 _ => { panic!("Invalid attribute name") }
                             }

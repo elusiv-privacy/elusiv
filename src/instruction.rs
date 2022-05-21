@@ -94,15 +94,15 @@ pub enum ElusivInstruction {
     #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
     #[pda_mut(commitment_hash_queue, CommitmentQueue)]
     #[pda_mut(finalize_send_queue, FinalizeSendQueue)]
-    #[pda_arr(nullifier_account0, Nullifier, pda_offset = tree_indices[0])]
-    #[pda_arr(nullifier_account1, Nullifier, pda_offset = tree_indices[1])]
+    #[pda_arr(nullifier_account0, Nullifier, pda_offset = tree_indices[0], mut = true)]
+    #[pda_arr(nullifier_account1, Nullifier, pda_offset = tree_indices[1], mut = true)]
     FinalizeProofBinary {
         verification_account_index: u64,
         tree_indices: [u64; 2],
     },
 
     // Finalizing successfully verified proofs of arity 1
-    #[usr_inf(original_fee_payer)]
+    /*#[usr_inf(original_fee_payer)]
     #[pda_inf(pool, Pool)]
     #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
     #[pda_mut(commitment_hash_queue, CommitmentQueue)]
@@ -110,10 +110,10 @@ pub enum ElusivInstruction {
     FinalizeProofUnary {
         verification_account_index: u64,
         tree_index: u64,
-    },
+    },*/
 
-    /*InitCommitment,
-    ComputeCommitment,
+    //InitCommitment,
+    /*ComputeCommitment,
     FinalizeCommitment,
 
     // Creates a new `NullifierAccount`

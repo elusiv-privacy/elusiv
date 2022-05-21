@@ -2,76 +2,162 @@
 //! Since these computations are computationally very expensive, we use `elusiv_computation` macros to generate "partial"-computation-functions.
 //! Calling those functions `n` times (over the span of multiple transactions) results in a finished computation.
 
-use ark_ff::{Field, CubicExtParameters};
+use ark_ec::ProjectiveCurve;
 use elusiv_interpreter::elusiv_computation;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Parameters, Parameters, G1Projective};
 use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper};
-use ark_ff::{One, Zero, biginteger::BigInteger256, field_new};
+use ark_ff::{Field, CubicExtParameters, One, Zero, biginteger::BigInteger256, field_new};
 use ark_ec::models::bn::BnParameters;
-use solana_program::program_error::ProgramError;
 use std::ops::Neg;
 use super::*;
-use crate::error::ElusivError::{CouldNotProcessProof, ComputationIsAlreadyFinished};
-use crate::error::ElusivError;
+use crate::error::ElusivError::{CouldNotProcessProof, ComputationIsAlreadyFinished, PartialComputationError};
 use crate::macros::guard;
 use crate::types::U256;
 
-/// - groth16 verification reference: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L41
 pub fn verify_partial<VKey: VerificationKey>(
     round: usize,
-    verifier_account: &mut VerificationAccountWrapper,
-) -> Result<Option<bool>, ProgramError> {
+    verifier_account: &mut VerificationAccount,
+) -> Result<Option<bool>, ElusivError> {
     // Public input preparation
     if round < VKey::PREPARE_PUBLIC_INPUTS_ROUNDS {
         let input_index = round / 254;
-        match prepare_public_inputs_partial::<VKey>(
+        let result = prepare_public_inputs_partial::<VKey>(
             round,
-            verifier_account.get_ram_fq2(),
-            &verifier_account.account.get_public_input(input_index),
+            verifier_account,
+            [0; 32],//verifier_account.account.get_public_input(input_index),
             input_index,
-        ) {
+        );
+        match result {
             None => guard!(round != VKey::PREPARE_PUBLIC_INPUTS_ROUNDS - 1, CouldNotProcessProof),
             Some(prepared_inputs) => {
-                verifier_account.account.set_prepared_inputs(G1A(prepared_inputs));
+                verifier_account.set_prepared_inputs(G1A(prepared_inputs));
 
                 // Add `r` for the miller loop to the `ram_fq2`
-                verifier_account.get_ram_fq2().write(Fq2::zero(), 0);
-                verifier_account.get_ram_fq2().write(Fq2::zero(), 1);
-                verifier_account.get_ram_fq2().write(Fq2::zero(), 2);
+                verifier_account.ram_fq2.write(Fq2::zero(), 0);
+                verifier_account.ram_fq2.write(Fq2::zero(), 1);
+                verifier_account.ram_fq2.write(Fq2::zero(), 2);
+            }
+        }
+    }
+
+    // Combined miller loop
+    else if round < VKey::COMBINED_MILLER_LOOP_ROUNDS {
+        let a = G1Affine::zero();
+        let b = G2Affine::zero();
+        let c = G1Affine::zero();
+        let prepared_inputs = G1Affine::zero();
+        let mut r = G2HomProjective { x: Fq2::zero(), y: Fq2::zero(), z: Fq2::zero() };
+
+        let result = combined_miller_loop_partial::<VKey>(
+            round - VKey::PREPARE_PUBLIC_INPUTS_ROUNDS,
+            verifier_account,
+            &a,
+            &b,
+            &c,
+            &prepared_inputs,
+            &mut r//verifier_account.get_r(),
+        )?;
+
+        match result {
+            None => {},//guard!(round != VKey::COMBINED_MILLER_LOOP_ROUNDS - 1, CouldNotProcessProof),
+            Some(f) => {
+                // Add `f` for the final exponentiation to the `ram_fq12`
+                verifier_account.ram_fq12.write(f, 0);
+            }
+        }
+    }
+    
+    // Final exponentiation
+    else if round < VKey::FINAL_EXPONENTIATION_ROUNDS {
+        let f = Fq12::zero();
+        let result = final_exponentiation_partial(
+            round - VKey::COMBINED_MILLER_LOOP_ROUNDS,
+            verifier_account,
+            &f
+        )?;
+
+        match result {
+            None => {},//guard!(round != VKey::FINAL_EXPONENTIATION_ROUNDS - 1, CouldNotProcessProof),
+            Some(v) => {
+                // Final verification, we check that: https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
+                // https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L60
+                return Ok(Some(VKey::alpha_g1_beta_g2() == v))
+            }
+        }
+    }
+
+    // Too many rounds
+    else {
+        return Err(ComputationIsAlreadyFinished)
+    }
+
+    Ok(None)
+}
+
+/// - groth16 verification reference: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L41
+/*pub fn verify_partial<'a, VKey: VerificationKey>(
+    round: usize,
+    verifier_account: &'a mut VerificationAccountWrapper<'a>,
+) -> Result<Option<bool>, ElusivError> {
+    // Public input preparation
+    if round < VKey::PREPARE_PUBLIC_INPUTS_ROUNDS {
+        let input_index = round / 254;
+        let result = prepare_public_inputs_partial::<VKey>(
+            round,
+            verifier_account.get_ram_fq(),
+            [0; 32],//verifier_account.account.get_public_input(input_index),
+            input_index,
+        );
+        match result {
+            None => guard!(round != VKey::PREPARE_PUBLIC_INPUTS_ROUNDS - 1, CouldNotProcessProof),
+            Some(prepared_inputs) => {
+                //verifier_account.account.set_prepared_inputs(G1A(prepared_inputs));
+
+                // Add `r` for the miller loop to the `ram_fq2`
+                //verifier_account.get_ram_fq2().write(Fq2::zero(), 0);
+                //verifier_account.get_ram_fq2().write(Fq2::zero(), 1);
+                //verifier_account.get_ram_fq2().write(Fq2::zero(), 2);
             }
         }
     } else
 
     // Combined miller loop
     if round < VKey::COMBINED_MILLER_LOOP_ROUNDS {
-        match combined_miller_loop_partial(
+        let a = verifier_account.get_a().0;
+        let b = verifier_account.get_b().0;
+        let c = verifier_account.get_c().0;
+        let prepared_inputs = verifier_account.get_prepared_inputs().0;
+        let mut r = G2HomProjective { x: Fq2::zero(), y: Fq2::zero(), z: Fq2::zero() };
+
+        let result = combined_miller_loop_partial::<VKey>(
             round - VKey::PREPARE_PUBLIC_INPUTS_ROUNDS,
-            verifier_account.get_ram_g2affine(),
-            verifier_account.get_ram_fq12(),
-            verifier_account.get_ram_fq2(),
-            verifier_account.get_ram_fq6(),
-            verifier_account.get_a(),
-            verifier_account.get_b(),
-            verifier_account.get_c(),
-            verifier_account.get_prepared_inputs(),
-            verifier_account.get_r(),
-        ) {
+            verifier_account,
+            &a,
+            &b,
+            &c,
+            &prepared_inputs,
+            &mut r//verifier_account.get_r(),
+        )?;
+
+        match result {
             None => guard!(round != VKey::COMBINED_MILLER_LOOP_ROUNDS - 1, CouldNotProcessProof),
             Some(f) => {
                 // Add `f` for the final exponentiation to the `ram_fq12`
-                verifier_account.get_ram_fq12().write(f, 0);
+                //verifier_account.get_ram_fq12().write(f, 0);
             }
         }
     } else
 
     // Final exponentiation
     if round < VKey::FINAL_EXPONENTIATION_ROUNDS {
-        match final_exponentiation_partial(
+        let f = Fq12::zero();
+        let result = final_exponentiation_partial(
             round - VKey::COMBINED_MILLER_LOOP_ROUNDS,
-            verifier_account.get_ram_fq12(),
-            verifier_account.get_ram_fq2(),
-            verifier_account.get_f(),
-        ) {
+            verifier_account,
+            &f
+        )?;
+
+        match result {
             None => guard!(round != VKey::FINAL_EXPONENTIATION_ROUNDS - 1, CouldNotProcessProof),
             Some(v) => {
                 // Final verification, we check that: https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
@@ -84,10 +170,10 @@ pub fn verify_partial<VKey: VerificationKey>(
     }
 
     Ok(None)
-}
+}*/
 
 macro_rules! read_g1_projective {
-    ($ram: ident, $o: literal) => { G1Projective::new($ram.read($o), $ram.read($o + 1), $ram.read($o + 2)) };
+    ($ram: expr, $o: literal) => { G1Projective::new($ram.read($o), $ram.read($o + 1), $ram.read($o + 2)) };
 }
 
 /// Public input preparation
@@ -97,31 +183,31 @@ macro_rules! read_g1_projective {
 /// - this partial computation is different from the rest, in that the caller directly passes
 fn prepare_public_inputs_partial<VKey: VerificationKey>(
     round: usize,
-    ram_fq2: &mut RAMFq2,
-    input: &U256,
+    storage: &mut VerificationAccount,
+    input: U256,
     input_index: usize,
 ) -> Option<G1Affine> {
     let mul_round = round % 254;
 
-    let mut acc = if mul_round == 0 { G1Projective::zero() } else { read_g1_projective!(ram_fq2, 3) };
+    let mut acc: G1Projective = if mul_round == 0 { G1Projective::zero() } else { read_g1_projective!(storage.ram_fq, 3) };
 
     if mul_round < 254 { // Standard ec scalar multiplication
         // Skip leading zeros
-        if mul_round < find_first_non_zero_be(input) { return None }
+        if mul_round < find_first_non_zero_be(&input) { return None }
 
         acc.double_in_place();
-        if get_bit_be(input, mul_round) {
-            acc += VKey::gamma_abc_g1(input_index + 1);
+        if get_bit_be(&input, mul_round) {
+            acc.add_assign_mixed(&VKey::gamma_abc_g1(input_index + 1));
         }
 
-        write_g1_projective(ram_fq2, acc, 3);
-    } else {
-        let g_ic = if input_index == 0 { VKey::gamma_abc_g1_0() } else { read_g1_projective!(ram_fq2, 0) };
+        write_g1_projective(&mut storage.ram_fq, acc, 3);
+    } else { // Adding
+        let mut g_ic = if input_index == 0 { VKey::gamma_abc_g1_0() } else { read_g1_projective!(storage.ram_fq, 0) };
 
-        g_ic.add_assign(acc);
+        g_ic += acc;
 
         if input_index < VKey::PUBLIC_INPUTS_COUNT {
-            write_g1_projective(ram_fq2, g_ic, 0);
+            write_g1_projective(&mut storage.ram_fq, g_ic, 0);
         } else {
             return Some(g_ic.into())
         }
@@ -135,13 +221,14 @@ fn write_g1_projective(ram: &mut RAMFq, g1p: G1Projective, offset: usize) {
     ram.write(g1p.z, offset + 2);
 }
 
-// v and the bytes of v are all in LE
-fn get_bit_be(v: U256, index: usize) -> bool {
+// `v`` and the bytes of v are all in LE
+fn get_bit_be(v: &U256, index: usize) -> bool {
     let byte = index / 8;
     v[31 - byte] >> (7 - (index % 8)) == 1
 }
 
-fn find_first_non_zero_be(v: U256) -> usize {
+// `v` is in LE
+fn find_first_non_zero_be(v: &U256) -> usize {
     for byte in 0..32 {
         for bit in 0..8 {
             if v[31 - byte] >> (7 - bit) == 1 { return byte * 8 + bit }
@@ -159,18 +246,18 @@ fn find_first_non_zero_be(v: U256) -> usize {
 // - so we have a var r = (x: rbx, y: rby, z: rbz)
 elusiv_computation!(
     combined_miller_loop<VKey: VerificationKey>(
-        ram_g2a: &mut RAMG2A, ram_fq12: &mut RAMFq12, ram_fq2: &mut RAMFq2, ram_fq6: &mut RAMFq6,
-        a: &G1A, b: &G2A, c: &G1A, prepared_inputs: &G1A, r: &mut G2HomProjective,
+        storage: &mut VerificationAccount,
+        a: &G1Affine, b: &G2Affine, c: &G1Affine, prepared_inputs: &G1Affine, r: &mut G2HomProjective,
     ) -> Fq12 {
         {
-            r.x = b.0.x;
-            r.x = b.0.y;
+            r.x = b.x;
+            r.x = b.y;
             r.x = Fq2::one();
 
             let f: Fq12 = Fq12::one();
 
             // values for B coeffs generation (https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L79)
-            let alt_b: G2Affine = b.0.neg();
+            let alt_b: G2A = G2A(b.neg());
             let c0: Fq2 = Fq2::zero();
             let c1: Fq2 = Fq2::zero();
             let c2: Fq2 = Fq2::zero();
@@ -184,17 +271,17 @@ elusiv_computation!(
                     f = f.square();
                 };
 
-                partial v = doubling_step(ram_fq2, r) { c0=v.0; c1=v.1; c2=v.2; };
-                partial v = combined_ell::<VKey>(ram_fq12, ram_fq2, ram_fq6, a.0, prepared_inputs, c.0, &c0, &c1, &c2, i, f) { f = v; };
+                partial v = doubling_step(storage, r) { c0=v.0; c1=v.1; c2=v.2; };
+                partial v = combined_ell::<VKey>(storage, a, prepared_inputs, c, &c0, &c1, &c2, i, f) { f = v; };
 
                 if (ate_loop_count > 0) {
                     if (ate_loop_count = 1) {
-                        partial v = addition_step(r, b.0) { c0=v.0; c1=v.1; c2=v.2; };
+                        partial v = addition_step(r, b) { c0=v.0; c1=v.1; c2=v.2; };
                     } else {
-                        partial v = addition_step(r, &alt_b) { c0=v.0; c1=v.1; c2=v.2; };
+                        partial v = addition_step(r, &(alt_b.0)) { c0=v.0; c1=v.1; c2=v.2; };
                     };
 
-                    partial v = combined_ell::<VKey>(ram_fq12, ram_fq2, ram_fq6, a.0, prepared_inputs, c.0, &c0, &c1, &c2, i, f) { f = v; };
+                    partial v = combined_ell::<VKey>(storage, a, prepared_inputs, c, &c0, &c1, &c2, i, f) { f = v; };
                 };
             }
         }
@@ -202,13 +289,13 @@ elusiv_computation!(
         // The final two coefficient triples
         {
             if (!(prepared_inputs.is_zero())) {
-                partial v = mul_by_characteristics(ram_fq2, b) { alt_b = v; };
-                partial v = addition_step(r, &alt_b) { c0=v.0; c1=v.1; c2=v.2; };
-                partial v = combined_ell::<VKey>(ram_fq12, ram_fq2, ram_fq6, a.0, prepared_inputs, c.0, &c0, &c1, &c2, 0, f) { f = v; };
-                partial v = mul_by_characteristics(ram_fq2, &alt_b) { alt_b = v; };
-                alt_b.y = alt_b.y.neg();
-                partial v = addition_step(r, &alt_b) { c0=v.0; c1=v.1; c2=v.2; };
-                partial v = combined_ell::<VKey>(ram_fq12, ram_fq2, ram_fq6, a.0, prepared_inputs, c.0, &c0, &c1, &c2, 0, f) { f = v; };
+                partial v = mul_by_characteristics(storage, b) { alt_b = G2A(v); };
+                partial v = addition_step(r, &(alt_b.0)) { c0=v.0; c1=v.1; c2=v.2; };
+                partial v = combined_ell::<VKey>(storage, a, prepared_inputs, c, &c0, &c1, &c2, 0, f) { f = v; };
+                partial v = mul_by_characteristics(storage, &(alt_b.0)) { alt_b = G2A(v); };
+                alt_b = G2A(G2Affine::new(alt_b.0.x, alt_b.0.y.neg(), alt_b.0.infinity));
+                partial v = addition_step(r, &(alt_b.0)) { c0=v.0; c1=v.1; c2=v.2; };
+                partial v = combined_ell::<VKey>(storage, a, prepared_inputs, c, &c0, &c1, &c2, 0, f) { f = v; };
             }
         }
         { return f; }
@@ -241,7 +328,7 @@ type Coefficients = (Fq2, Fq2, Fq2);
 // Doubling step
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L139
 elusiv_computation!(
-    doubling_step (ram_fq2: &mut RAMFq2, r: &mut G2HomProjective) -> Coefficients {
+    doubling_step(storage: &mut VerificationAccount, r: &mut G2HomProjective) -> Coefficients {
         {
             let mut a: Fq2 = r.x * r.y;
             a = mul_by_fp(&a, TWO_INV);
@@ -303,7 +390,7 @@ const TWIST_MUL_BY_Q_Y: Fq2 = Parameters::TWIST_MUL_BY_Q_Y;
 // Mul by characteristics
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L127
 elusiv_computation!(
-    mul_by_characteristics (ram_fq2: &mut RAMFq2, r: &G2Affine) -> G2Affine {
+    mul_by_characteristics(storage: &mut VerificationAccount, r: &G2Affine) -> G2Affine {
         {
             let mut x: Fq2 = frobenius_map_fq2_one(r.x);
             x = x * TWIST_MUL_BY_Q_X;
@@ -329,7 +416,7 @@ fn frobenius_map_fq2_one(f: Fq2) -> Fq2 {
 // - (also in this file's test mod there is an elusiv_computation!-implementation for the single ell to compare)
 elusiv_computation!(
     combined_ell<VKey: VerificationKey>(
-        ram_fq12: &mut RAMFq12, ram_fq2: &mut RAMFq2, ram_fq6: &mut RAMFq6,
+        storage: &mut VerificationAccount,
         a: &G1Affine, prepared_inputs: &G1Affine, c: &G1Affine, c0: &Fq2, c1: &Fq2, c2: &Fq2, coeff_index: usize, f: Fq12,
     ) -> Fq12 {
         {
@@ -340,25 +427,25 @@ elusiv_computation!(
         }
         {
             if (!(a.is_zero())) {
-                partial v = mul_by_034(ram_fq6, &a0, &a1, c2, r) { r = v }
+                partial v = mul_by_034(storage, &a0, &a1, c2, r) { r = v }
             }
         }
 
         {
-            let b0: Fq2 = mul_by_fp(VKey::gamma_g2_neg_pc(coeff_index, 0), prepared_inputs.y);
-            let b1: Fq2 = mul_by_fp(VKey::gamma_g2_neg_pc(coeff_index, 1), prepared_inputs.x);
+            let b0: Fq2 = mul_by_fp(&(VKey::gamma_g2_neg_pc_0(coeff_index)), prepared_inputs.y);
+            let b1: Fq2 = mul_by_fp(&(VKey::gamma_g2_neg_pc_1(coeff_index)), prepared_inputs.x);
         }
         {
             if (!(prepared_inputs.is_zero())) {
-                partial v = mul_by_034(ram_fq6, &b0, &b1, VKey::gamma_g2_neg_pc(coeff_index, 2), r) { r = v } }
+                partial v = mul_by_034(storage, &b0, &b1, &(VKey::gamma_g2_neg_pc_2(coeff_index)), r) { r = v } }
             }
         {
-            let d0: Fq2 = mul_by_fp(VKey::delta_g2_neg_pc(coeff_index, 0), c.y);
-            let d1: Fq2 = mul_by_fp(VKey::delta_g2_neg_pc(coeff_index, 1), c.x);
+            let d0: Fq2 = mul_by_fp(&(VKey::delta_g2_neg_pc_0(coeff_index)), c.y);
+            let d1: Fq2 = mul_by_fp(&(VKey::delta_g2_neg_pc_1(coeff_index)), c.x);
         }
         {
             if (!(c.is_zero())) {
-                partial v = mul_by_034(ram_fq6, &d0, &d1, VKey::delta_g2_neg_pc(coeff_index, 2), r) { r = v }
+                partial v = mul_by_034(storage, &d0, &d1, &(VKey::delta_g2_neg_pc_2(coeff_index)), r) { r = v }
             }
         }
 
@@ -369,8 +456,8 @@ elusiv_computation!(
 // f.mul_by_034(c0, c1, coeffs.2); (with: self -> f; c0 -> c0; d0 -> c1; d1 -> coeffs.2)
 // https://github.com/arkworks-rs/r1cs-std/blob/b7874406ec614748608b1739b1578092a8c97fb8/src/fields/fp12.rs#L43
 elusiv_computation!(
-    mul_by_034 (
-        ram_fq6: &mut RAMFq6,
+    mul_by_034(
+        storage: &mut VerificationAccount,
         c0: &Fq2, d0: &Fq2, d1: &Fq2, f: Fq12
     ) -> Fq12 {
         { let a: Fq6 = Fq6::new(f.c0.c0 * c0, f.c0.c1 * c0, f.c0.c2 * c0); }
@@ -419,12 +506,12 @@ fn mul_by_fp(v: &Fq2, fp: Fq) -> Fq2 {
 // Final exponentiation
 // - reference implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L153
 elusiv_computation!(
-    final_exponentiation (ram_fq12: &mut RAMFq12, ram_fq6: &mut RAMFq6, f: Fq12) -> Fq12 {
+    final_exponentiation(storage: &mut VerificationAccount, f: &Fq12) -> Fq12 {
         {
-            let r: Fq12 = conjugate(f);
-            let f2: Fq12 = f;
+            let r: Fq12 = conjugate(*f);
+            let f2: Fq12 = *f;
         }
-        { partial v = inverse_fq12(ram_fq6, f2)
+        { partial v = inverse_fq12(storage, f2)
             {
                 r = r * v;
                 f2 = r;
@@ -435,19 +522,19 @@ elusiv_computation!(
             r = r * f2;
             let y0: Fq12 = r;
         }
-        { partial v = exp_by_neg_x(ram_fq12, y0) { y0 = v; } }
+        { partial v = exp_by_neg_x(storage, y0) { y0 = v; } }
         {
             let y1: Fq12 = y0.cyclotomic_square();
             let y2: Fq12 = y1.cyclotomic_square();
             let y3: Fq12 = y2 * y1;
             let y4: Fq12 = y3;
         }
-        { partial v = exp_by_neg_x(ram_fq12, y4) { y4 = v; } }
+        { partial v = exp_by_neg_x(storage, y4) { y4 = v; } }
         {
             let y5: Fq12 = y4.cyclotomic_square();
             let y6: Fq12 = y5;
         }
-        { partial v = exp_by_neg_x(ram_fq12, y6) { y6 = v; } }
+        { partial v = exp_by_neg_x(storage, y6) { y6 = v; } }
         {
             y3 = conjugate(y3);
             y6 = conjugate(y6);
@@ -482,7 +569,7 @@ elusiv_computation!(
 // https://github.com/arkworks-rs/algebra/blob/4dd6c3446e8ab22a2ba13505a645ea7b3a69f493/ff/src/fields/models/quadratic_extension.rs#L366
 // Guide to Pairing-based Cryptography, Algorithm 5.19.
 elusiv_computation!(
-    inverse_fq12 (ram_fq6: &mut RAMFq6, f: Fq12) -> Fq12 {
+    inverse_fq12(storage: &mut VerificationAccount, f: Fq12) -> Fq12 {
         { let v1: Fq6 = f.c1.square(); }
         { let v2: Fq6 = f.c0.square(); }
         { let mut v0: Fq6 = sub_and_mul_base_field_by_nonresidue(v2, v1); }
@@ -498,7 +585,7 @@ elusiv_computation!(
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L78
 // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ff/src/fields/models/fp12_2over3over2.rs#L56
 elusiv_computation!(
-    exp_by_neg_x (ram_fq12: &mut RAMFq12, fe: Fq12) -> Fq12 {
+    exp_by_neg_x(storage: &mut VerificationAccount, fe: Fq12) -> Fq12 {
         {
             let fe_inverse: Fq12 = conjugate(fe);
             let res: Fq12 = Fq12::one();
@@ -537,7 +624,7 @@ fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
     k.frobenius_map(u);
     k
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use crate::bytes::SerDe;
@@ -545,8 +632,9 @@ mod tests {
     use super::*;
     use std::str::FromStr;
     use ark_bn254::{ Fr, Bn254 };
-    use ark_ec::PairingEngine;
+    use ark_ec::{AffineCurve, PairingEngine};
     use ark_ec::models::bn::BnParameters;
+    use ark_ff::PrimeField;
 
     type VK = super::super::vkey::SendVerificationKey;
 
@@ -574,7 +662,7 @@ mod tests {
 
     macro_rules! ram {
         ($id: ident, $ty: ty, $size: literal) => {
-            let mut data = vec![0; <$ty>::SIZE_BYTES];
+            let mut data = vec![0; <$ty>::SIZE];
             let mut $id = <$ty>::new(&mut data);
         };
     }
@@ -587,7 +675,7 @@ mod tests {
     #[test]
     fn test_prepare_public_inputs() {
         let public_inputs = vec![
-            Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699");
+            Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap();
             VK::PUBLIC_INPUTS_COUNT
         ];
         ram!(ram_fq, RAMFq, 1);
@@ -595,9 +683,9 @@ mod tests {
         let mut value: Option<G1Affine> = None;
         for round in 0..VK::PUBLIC_INPUTS_COUNT * 254 {
             let input_index = round / VK::PUBLIC_INPUTS_COUNT;
-            let input = Fr::serialize_vec(public_inputs[input_index], Fr::zero());
+            let input = Fr::serialize_vec(public_inputs[input_index]);
             let input: U256 = input.try_into().unwrap();
-            value = prepare_public_inputs_partial(round, ram_fq, &input, input_index);
+            value = prepare_public_inputs_partial::<VK>(round, &mut ram_fq, &input, input_index);
         }
 
         assert_eq!(value.unwrap(), reference_prepare_inputs::<VK>(&public_inputs));
@@ -664,8 +752,11 @@ mod tests {
         let mut g_ic = VKey::gamma_abc_g1_0();
         for i in 0..VKey::PUBLIC_INPUTS_COUNT {
             let b = VKey::gamma_abc_g1(i + 1);
-            g_ic.add_assign(&b.mul(public_inputs[i].into_repr()));
+            let v = &b.mul(public_inputs[i].into_repr());
+            g_ic += v;
         }
+
+        g_ic
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
@@ -698,4 +789,4 @@ mod tests {
         if !Parameters::X_IS_NEGATIVE { f.conjugate(); }
         f
     }
-}
+}*/

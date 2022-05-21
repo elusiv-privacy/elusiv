@@ -50,6 +50,7 @@ pub enum ElusivError {
     MerkleTreeIsNotFullYet,
 
     // Partial computations
+    PartialComputationError,
     AccountCannotBeReset,
     ComputationIsNotYetFinished,
     ComputationIsAlreadyFinished,

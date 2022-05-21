@@ -6,10 +6,9 @@ use solana_program::{
     program_error::ProgramError,
 };
 use crate::types::{JoinSplitPublicInputs, JoinSplitProofData};
-use crate::error::ElusivError::{InvalidAccount, InvalidMerkleRoot, InvalidPublicInputs, InvalidAmount};
+use crate::error::ElusivError::{InvalidAccount, InvalidMerkleRoot, InvalidPublicInputs, InvalidAmount, NullifierAlreadyExists};
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount};
-//use crate::state::queue::{CommitmentQueueAccount, RingQueue};
 
 /// Sends lamports from the sender Sender to the recipient
 pub fn send_with_system_program<'a>(
@@ -47,34 +46,31 @@ pub fn check_join_split_public_inputs<const N: usize>(
     nullifier_accounts: [&NullifierAccount; N],
     //commitment_queue_account: &CommitmentQueueAccount,
 ) -> ProgramResult {
+    assert!(N <= 2);
+
     let uses_multiple_trees = N > 1 && proof_data.tree_indices[0] != proof_data.tree_indices[1];
+    let active_tree_index = storage_account.get_trees_count();
 
     // Check that roots are the same if they represent the same tree
     guard!(!uses_multiple_trees || public_inputs.roots[0] == public_inputs.roots[1], InvalidMerkleRoot);
 
-    // Check that roots are valid by matching the nullifier account
-    //storage_account.is_root_valid(nullifier_accounts[0], proof_data.roots[0])?;
-    //storage_account.is_root_valid(nullifier_accounts[1], proof_data.roots[1])?;
-
-    // Check that nullifier hashes are different for the same tree
-    /*if N > 1 {
-        guard!(
-            !uses_multiple_trees || proof_data.nullifiers[0] != proof_data.nullifiers[1],
-            InvalidPublicInputs
-        );
+    // Check that roots are valid
+    for i in 0..N {
+        // For the active tree: root can either be the last root or any root from the active_mt_root_history
+        if proof_data.tree_indices[i] == active_tree_index {
+            guard!(storage_account.is_root_valid(public_inputs.roots[i]), InvalidMerkleRoot);
+        } else { // For a non-active tree: root can only be one value
+            guard!(public_inputs.roots[i] == nullifier_accounts[i].get_root(), InvalidMerkleRoot);
+        }
     }
 
-    // Check that commitment is new and is not in queue
-    // TODO: reevaluate if it makes sense to verify the commitment uniqueness here (seems uneccesary)
-    storage_account.can_insert_commitment(public_inputs.commitment)?;
-    //commitment_queue_account.contains(public_inputs.commitment);
+    // Check that nullifier_hashes for the same tree are different
+    guard!(!uses_multiple_trees || public_inputs.nullifier_hashes[0] == public_inputs.nullifier_hashes[1], InvalidPublicInputs);
 
-    // Check if nullifiers are new
-    nullifier_accounts[0].can_insert_nullifier(proof_data.nullifiers[0])?;
-    nullifier_accounts[1].can_insert_nullifier(proof_data.nullifiers[1])?;*/
-
-    // Check that roots are correct
-    panic!();
+    // Check that nullifier_hashes can be inserted
+    for i in 0..N {
+        guard!(nullifier_accounts[i].can_insert_nullifier_hash(public_inputs.nullifier_hashes[i]), NullifierAlreadyExists);
+    }
 
     Ok(())
 }

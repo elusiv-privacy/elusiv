@@ -4,7 +4,6 @@ use solana_program::{
     native_token::LAMPORTS_PER_SOL,
     clock::Clock,
     sysvar::Sysvar,
-    program_error::ProgramError,
 };
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount};
@@ -48,7 +47,7 @@ pub fn store<'a>(
     queue.enqueue(request)
 }
 
-const TIMESTAMP_PRUNING: usize = 4;
+const TIMESTAMP_BITS_PRUNING: usize = 5;
 
 /// Enqueues a send proof and takes the computation fee from the relayer
 pub fn send<'a, 'b, 'c>(
@@ -76,8 +75,8 @@ pub fn send<'a, 'b, 'c>(
     // Time stamp verification (we prune the last byte)
     let clock = Clock::get()?;
     let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();
-    let timestamp = request.public_inputs.timestamp >> TIMESTAMP_PRUNING;
-    guard!(timestamp == current_timestamp >> TIMESTAMP_PRUNING, InvalidTimestamp);
+    let timestamp = request.public_inputs.timestamp >> TIMESTAMP_BITS_PRUNING;
+    guard!(timestamp == current_timestamp >> TIMESTAMP_BITS_PRUNING, InvalidTimestamp);
 
     // Transfer funds + fees
     let fee = 0;

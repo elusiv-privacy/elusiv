@@ -169,5 +169,5 @@ impl StorageMapping {
 }
 
 pub fn ram_name(ty: &str) -> TokenStream {
-    format!("ram_{}", ty.to_lowercase()).parse::<TokenStream>().unwrap()
+    format!("storage.ram_{}", ty.to_lowercase()).parse::<TokenStream>().unwrap()
 }

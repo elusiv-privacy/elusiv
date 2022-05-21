@@ -13,6 +13,7 @@ const NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = 1;
 /// - we use BTreeMaps to store the nullifiers
 #[elusiv_account(pda_seed = b"tree", multi_account = NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT)]
 pub struct NullifierAccount {
+    root: U256,
     nullifiers_count: u64,
 }
 
@@ -24,14 +25,11 @@ pub struct ArchivedTreeAccount {
 }
 
 impl<'a, 'b> NullifierAccount<'a, 'b> {
-    pub fn can_insert_nullifier(&self, nullifier: U256) -> ProgramResult {
-        guard!(self.get_nullifiers_count() < NULLIFIERS_COUNT as u64, NullifierAlreadyExists);
-        //guard!(not_contains(nullifier, self.get_full_array()), NoRoomForNullifier);
-
-        Ok(())
+    pub fn can_insert_nullifier_hash(&self, _nullifier: U256) -> bool {
+        self.get_nullifiers_count() < NULLIFIERS_COUNT as u64// && not_contains(nullifier, self.get_full_array()), NoRoomForNullifier);
     }
 
-    pub fn insert_nullifier(&mut self, nullifier: U256) -> ProgramResult {
+    pub fn insert_nullifier_hash(&mut self, _nullifier: U256) -> ProgramResult {
         let count = self.get_nullifiers_count();
         guard!(count < NULLIFIERS_COUNT as u64, NullifierAlreadyExists);
 

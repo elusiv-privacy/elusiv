@@ -162,7 +162,7 @@ pub fn interpret(
 
     quote!{
         pub const #rounds_count_name: usize = #single_rounds #multi_rounds;
-        fn #fn_name #generics (round: usize, #parameters) -> Result<Option<#ty>, &'static str> {
+        fn #fn_name #generics (round: usize, #parameters) -> Result<Option<#ty>, ElusivError> {
             match round {
                 #m
                 _ => { }
