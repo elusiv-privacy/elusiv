@@ -8,5 +8,6 @@ pub mod state;
 pub mod fields;
 pub mod proof;
 pub mod commitment;
+pub mod entrypoint;
 
 solana_program::declare_id!("AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7");

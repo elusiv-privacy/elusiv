@@ -1,3 +1,5 @@
+use ark_bn254::Fr;
+use ark_ff::Zero;
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::macros::guard;
 use crate::state::NullifierAccount;
@@ -182,4 +184,14 @@ pub fn finalize_proof_unary<'a>(
     }
 
     Ok(())
+}
+
+pub fn test_fail() -> ProgramResult {
+    solana_program::log::sol_log_compute_units();
+
+    let mut state = [Fr::zero(), Fr::zero(), Fr::zero()];
+    crate::commitment::poseidon_hash::binary_poseidon_hash_partial(0, &mut state);
+
+    solana_program::log::sol_log_compute_units();
+    panic!()
 }

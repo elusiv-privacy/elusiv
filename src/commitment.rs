@@ -1,4 +1,4 @@
-mod poseidon_hash;
+pub mod poseidon_hash;
 mod poseidon_constants;
 
 use poseidon_hash::*;

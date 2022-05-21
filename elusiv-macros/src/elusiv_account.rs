@@ -29,7 +29,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         let attr_ident = attr.split("=").next().unwrap();
         match attr_ident {
             "multi_account" => {
-                lifetimes.extend(quote! { , 'b });
+                lifetimes.extend(quote! { , 'b, 't });
             },
             _ => {}
         }
@@ -52,10 +52,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 let count: TokenStream = multi_account.parse().unwrap();
 
                 impls.extend(quote! {
-                    impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'b> for #name<#lifetimes> {
+                    impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'t> for #name<#lifetimes> {
                         const COUNT: usize = #count;
 
-                        fn get_account(&self, account_index: usize) -> &solana_program::account_info::AccountInfo<'b> {
+                        fn get_account(&self, account_index: usize) -> &solana_program::account_info::AccountInfo<'t> {
                             &self.accounts[account_index]
                         }
                     }
@@ -63,8 +63,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 // Add accounts field
                 fields.extend(quote! { accounts, });
-                definition.extend(quote! { accounts: Vec<&'b solana_program::account_info::AccountInfo<'b>>, });
-                signature.extend(quote! { accounts: Vec<&'b solana_program::account_info::AccountInfo<'b>>, });
+                definition.extend(quote! { accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>, });
+                signature.extend(quote! { accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>, });
             },
             _ => { panic!("Invalid attribute {}", attr) }
         }

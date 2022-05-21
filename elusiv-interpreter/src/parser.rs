@@ -208,10 +208,7 @@ impl From<&[Token]> for Expr {
                     Expr::Literal(lit) => {
                         Expr::Id(Id::Path(PathId(vec![a.clone(), lit.clone()])))
                     }
-                    _ => {
-                        println!("Invalid var accessors (.) with tail: {:?}", tail);
-                        Expr::Invalid
-                    }
+                    _ => Expr::Invalid
                 }
             },
             // Double colon separated idents
@@ -235,10 +232,7 @@ impl From<&[Token]> for Expr {
                     Expr::Literal(lit) => {
                         Expr::Id(Id::Path(PathId(vec![a.clone(), lit.clone()])))
                     }
-                    _ => {
-                        println!("Invalid var accessors (::) with tail: {:?}", tail);
-                        Expr::Invalid
-                    }
+                    _ => Expr::Invalid
                 }
             },
 

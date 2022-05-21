@@ -16,7 +16,7 @@ use crate::state::queue::{
     MigrateProofQueue,MigrateProofQueueAccount,MigrateProofRequest,
     FinalizeSendQueue,FinalizeSendQueueAccount,
 };
-use crate::error::ElusivError::{InvalidAmount, InvalidInstructionData, CommitmentAlreadyExists, InvalidFeePayer, InvalidTimestamp, InvalidRecipient, InvalidAccount};
+use crate::error::ElusivError::{InvalidAmount, InvalidInstructionData, CommitmentAlreadyExists, InvalidFeePayer, InvalidTimestamp, InvalidRecipient};
 
 pub const MINIMUM_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 pub const MAXIMUM_STORE_AMOUNT: u64 = u64::MAX;
@@ -50,13 +50,13 @@ pub fn store<'a>(
 const TIMESTAMP_BITS_PRUNING: usize = 5;
 
 /// Enqueues a send proof and takes the computation fee from the relayer
-pub fn send<'a, 'b, 'c>(
+pub fn send<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'c>,
     pool: &AccountInfo<'c>,
     system_program: &AccountInfo<'c>,
     storage_account: &StorageAccount,
-    nullifier_account0: &NullifierAccount<'a, 'b>,
-    nullifier_account1: &NullifierAccount<'a, 'b>,
+    nullifier_account0: &NullifierAccount<'a, 'b, 'd>,
+    nullifier_account1: &NullifierAccount<'a, 'b, 'd>,
     queue: &mut SendProofQueueAccount,
 
     request: SendProofRequest,
@@ -88,13 +88,13 @@ pub fn send<'a, 'b, 'c>(
 }
 
 /// Enqueues a merge proof and takes the computation fee from the relayer
-pub fn merge<'a, 'b, 'c>(
+pub fn merge<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'c>,
     pool: &AccountInfo<'c>,
     system_program: &AccountInfo<'c>,
     storage_account: &StorageAccount,
-    nullifier_account0: &NullifierAccount<'a, 'b>,
-    nullifier_account1: &NullifierAccount<'a, 'b>,
+    nullifier_account0: &NullifierAccount<'a, 'b, 'd>,
+    nullifier_account1: &NullifierAccount<'a, 'b, 'd>,
     queue: &mut MergeProofQueueAccount,
 
     request: MergeProofRequest,
@@ -120,17 +120,17 @@ pub fn merge<'a, 'b, 'c>(
 }
 
 /// Enqueues a migrate proof and takes the computation fee from the relayer
-pub fn migrate<'a, 'b, 'c>(
+pub fn migrate<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'c>,
     pool: &AccountInfo<'c>,
     system_program: &AccountInfo<'c>,
     storage_account: &StorageAccount,
-    nullifier_account: &NullifierAccount<'a, 'b>,
+    nullifier_account: &NullifierAccount<'a, 'b, 'd>,
     queue: &mut MigrateProofQueueAccount,
 
     request: MigrateProofRequest,
 ) -> ProgramResult {
-    let mut queue = MigrateProofQueue::new(queue);
+    /*let mut queue = MigrateProofQueue::new(queue);
 
     // Verify public inputs
     check_join_split_public_inputs(
@@ -147,7 +147,8 @@ pub fn migrate<'a, 'b, 'c>(
 
     // Enqueue request
     guard!(!request.is_active, InvalidInstructionData);
-    queue.enqueue(request)
+    queue.enqueue(request)*/
+    Ok(())
 }
 
 /// Transfers the funds of a send request to a recipient

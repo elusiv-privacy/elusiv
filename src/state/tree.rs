@@ -24,7 +24,7 @@ pub struct ArchivedTreeAccount {
     nullifier_root: U256,
 }
 
-impl<'a, 'b> NullifierAccount<'a, 'b> {
+impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
     pub fn can_insert_nullifier_hash(&self, _nullifier: U256) -> bool {
         self.get_nullifiers_count() < NULLIFIERS_COUNT as u64// && not_contains(nullifier, self.get_full_array()), NoRoomForNullifier);
     }

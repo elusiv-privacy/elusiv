@@ -22,10 +22,10 @@ pub trait PDAAccount {
 const MAX_ACCOUNT_SIZE: usize = 10_000_000;
 
 /// Allows for storing data across multiple accounts
-pub trait MultiAccountAccount<'a>: PDAAccount {
+pub trait MultiAccountAccount<'t>: PDAAccount {
     /// The count of subsidiary accounts
     const COUNT: usize;
-    fn get_account(&self, account_index: usize) -> &AccountInfo<'a>;
+    fn get_account(&self, account_index: usize) -> &AccountInfo<'t>;
 }
 
 macro_rules! data_slice {

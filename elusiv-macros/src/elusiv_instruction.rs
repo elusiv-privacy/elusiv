@@ -224,11 +224,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
     quote! {
         // Program entrypoint and instruction matching
         solana_program::entrypoint!(process_instruction);
-        pub fn process_instruction<'a>(
-            program_id: &solana_program::pubkey::Pubkey,
-            accounts: &'a [solana_program::account_info::AccountInfo<'a>],
-            instruction_data: &[u8]
-        ) -> solana_program::entrypoint::ProgramResult {
+        pub fn process_instruction(program_id: &solana_program::pubkey::Pubkey, accounts: &[solana_program::account_info::AccountInfo], instruction_data: &[u8]) -> solana_program::entrypoint::ProgramResult {
             use solana_program::program_error::ProgramError::InvalidInstructionData;
 
             let mut data = &mut &instruction_data;

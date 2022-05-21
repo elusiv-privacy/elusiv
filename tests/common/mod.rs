@@ -1,3 +1,2 @@
-pub mod common;
-
-mod store;
+mod program;
+pub use program::*;

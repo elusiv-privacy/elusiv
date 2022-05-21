@@ -35,11 +35,11 @@ pub struct StorageAccount {
     active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
 }
 
-impl<'a, 'b> BigArrayAccount<'b> for StorageAccount<'a, 'b> {
+impl<'a, 'b, 't> BigArrayAccount<'t> for StorageAccount<'a, 'b, 't> {
     type T = U256;
 }
 
-impl<'a, 'b> StorageAccount<'a, 'b> {
+impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     pub fn reset(&mut self) {
         self.set_next_commitment_ptr(0);
 
