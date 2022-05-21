@@ -27,8 +27,6 @@ pub fn upper_camel_to_upper_snake(camel: &str) -> String {
 pub fn sub_attrs_prepare<'a>(sub_attrs: String) -> String {
     let mut sub_attrs = String::from(sub_attrs);
     sub_attrs.retain(|c| !c.is_whitespace());
-    //sub_attrs.pop();
-    //sub_attrs.remove(0);
     sub_attrs
 }
 

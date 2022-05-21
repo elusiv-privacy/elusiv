@@ -9,7 +9,6 @@ use crate::state::queue::{
     MigrateProofQueue,MigrateProofQueueAccount,
     FinalizeSendQueue,FinalizeSendQueueAccount,
     CommitmentQueue,CommitmentQueueAccount,
-    //BaseCommitmentQueue,BaseCommitmentQueueAccount,
 };
 use crate::error::ElusivError::{InvalidAccount, ComputationIsNotYetFinished, InvalidProof, CannotFinalizeUnaryProof, CannotFinalizeBinaryProof, InvalidFeePayer};
 use crate::proof::{
@@ -184,11 +183,3 @@ pub fn finalize_proof_unary<'a>(
 
     Ok(())
 }
-
-/*pub fn init_base_commitment(
-    queue: &mut BaseCommitmentQueueAccount,
-) -> ProgramResult {
-    guard!(verification_account_index < MAX_VERIFICATION_ACCOUNTS_COUNT, InvalidAccount);
-
-    Ok(())
-}*/

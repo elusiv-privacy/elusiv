@@ -1,13 +1,13 @@
 mod poseidon_hash;
 mod poseidon_constants;
 
-pub use poseidon_hash::*;
-pub use poseidon_constants::ITERATIONS;
+use poseidon_hash::*;
 use crate::error::ElusivError;
 use crate::macros::elusiv_account;
-use crate::state::program_account::PartialComputationAccount;
 use crate::state::queue::BaseCommitmentHashRequest;
 use crate::types::U256;
+use crate::bytes::SerDe;
+use crate::macros::guard;
 
 pub const MAX_BASE_COMMITMENT_ACCOUNTS_COUNT: u64 = 1;
 
@@ -25,14 +25,19 @@ pub struct BaseCommitmentHashingAccount {
     request: BaseCommitmentHashRequest,
 }
 
-impl<'a> PartialComputationAccount for BaseCommitmentHashingAccount<'a> { }
 impl<'a> BaseCommitmentHashingAccount<'a> {
     pub fn reset(
         &mut self,
         request: BaseCommitmentHashRequest,
         fee_payer: U256,
     ) -> Result<(), ElusivError> {
-        self.try_reset_values(0, fee_payer)?;
+        guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
+
+        self.set_is_active(true);
+        self.set_round(0);
+        self.set_total_rounds(TOTAL_POSEIDON_ROUNDS as u64);
+        self.set_fee_payer(fee_payer);
+
         self.set_request(request);
 
         Ok(())
@@ -52,14 +57,21 @@ pub struct CommitmentHashingAccount {
     commitment: U256,
 }
 
-impl<'a> PartialComputationAccount for CommitmentHashingAccount<'a> { }
 impl<'a> CommitmentHashingAccount<'a> {
     pub fn reset(
         &mut self,
         commitment: U256,
         fee_payer: U256,
     ) -> Result<(), ElusivError> {
+        guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
+
+        self.set_is_active(true);
+        self.set_round(0);
+        self.set_total_rounds(TOTAL_POSEIDON_ROUNDS as u64 * crate::state::MT_HEIGHT as u64);
+        self.set_fee_payer(fee_payer);
+
         self.set_commitment(commitment);
-        self.reset_values(0, fee_payer)
+
+        Ok(())
     }
 }

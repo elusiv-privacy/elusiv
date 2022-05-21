@@ -233,3 +233,16 @@ impl SerDe for G2A {
 pub fn u256_to_fr(v: &U256) -> Fr {
     safe_scalar_montgomery(BigInteger256(u256_to_le_limbs(*v)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_sede_fr() {
+        let f = Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap();
+        let bytes = Fr::serialize_vec(f);
+        assert_eq!(Fr::deserialize(&bytes), f);
+    }
+}

@@ -102,16 +102,17 @@ pub enum ElusivInstruction {
     },
 
     // Finalizing successfully verified proofs of arity 1
-    /*#[usr_inf(original_fee_payer)]
+    #[usr_inf(original_fee_payer)]
     #[pda_inf(pool, Pool)]
     #[pda_mut(verification_account, Verification, pda_offset = verification_account_index)]
     #[pda_mut(commitment_hash_queue, CommitmentQueue)]
-    #[pda_arr(nullifier_account, Nullifier, pda_offset = tree_index)]
+    #[pda_arr(nullifier_account, Nullifier, pda_offset = tree_index, mut = true)]
     FinalizeProofUnary {
         verification_account_index: u64,
         tree_index: u64,
-    },*/
+    },
 
+    // Commitment hash initialization
     //InitCommitment,
     /*ComputeCommitment,
     FinalizeCommitment,
