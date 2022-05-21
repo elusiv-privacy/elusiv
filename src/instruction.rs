@@ -22,51 +22,51 @@ use crate::error::ElusivError::InvalidAccount;
 #[derive(SerDe, ElusivInstruction)]
 pub enum ElusivInstruction {
     // Client sends base commitment and amount to be stored in the Elusiv program
-    #[sig_inf(sender)]
-    #[pda_inf(pool, Pool)]
-    #[sys_inf(system_program, key = solana_program::system_program::id())]
-    #[pda_mut(queue, BaseCommitmentQueue)]
+    #[usr(sender, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[sys(system_program, key = solana_program::system_program::id())]
+    #[pda(queue, BaseCommitmentQueue, [ writable ])]
     Store {
         base_commitment_request: BaseCommitmentHashRequest,
     },
 
     // Binary send proof request
-    #[sig_inf(fee_payer)]
-    #[pda_inf(pool, Pool)]
-    #[sys_inf(system_program, key = solana_program::system_program::id())]
-    #[pda_arr(storage_account, Storage, pda_offset = 0)]
-    #[pda_arr(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0])]
-    #[pda_arr(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1])]
-    #[pda_mut(queue, SendProofQueue)]
+    #[usr(fee_payer, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[sys(system_program, key = solana_program::system_program::id())]
+    #[pda(storage_account, Storage, multi_accounts)]
+    #[pda(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0], multi_accounts)]
+    #[pda(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1], multi_accounts)]
+    #[pda(queue, SendProofQueue, [ writable ])]
     Send {
         proof_request: SendProofRequest,
     },
 
     // Binary merge proof request
-    #[sig_inf(fee_payer)]
-    #[pda_inf(pool, Pool)]
-    #[sys_inf(system_program, key = solana_program::system_program::id())]
-    #[pda_arr(storage_account, Storage, pda_offset = 0)]
-    #[pda_arr(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0])]
-    #[pda_arr(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1])]
-    #[pda_mut(queue, MergeProofQueue)]
+    #[usr(fee_payer, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[sys(system_program, key = solana_program::system_program::id())]
+    #[pda(storage_account, Storage, multi_accounts)]
+    #[pda(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0], multi_accounts)]
+    #[pda(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1], multi_accounts)]
+    #[pda(queue, MergeProofQueue, [ writable ])]
     Merge {
         proof_request: MergeProofRequest,
     },
 
     // Unary migrate proof request
-    #[sig_inf(fee_payer)]
-    #[pda_inf(pool, Pool)]
-    #[sys_inf(system_program, key = solana_program::system_program::id())]
-    #[pda_arr(storage_account, Storage, pda_offset = 0)]
-    #[pda_arr(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0])]
-    #[pda_mut(queue, MigrateProofQueue)]
+    #[usr(fee_payer, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[sys(system_program, key = solana_program::system_program::id())]
+    #[pda(storage_account, Storage, multi_accounts)]
+    #[pda(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0], multi_accounts)]
+    #[pda(queue, MigrateProofQueue, [ writable ])]
     Migrate {
         proof_request: MigrateProofRequest,
     },
 
     // Funds are transferred to the recipient
-    #[sig_inf(fee_payer)]
+    /*#[usr_inf(recipient)]
     #[pda_inf(pool, Pool)]
     #[pda_mut(queue, FinalizeSendQueue)]
     FinalizeSend,
@@ -110,7 +110,7 @@ pub enum ElusivInstruction {
     FinalizeProofUnary {
         verification_account_index: u64,
         tree_index: u64,
-    },
+    },*/
 
     // Commitment hash initialization
     //InitCommitment,

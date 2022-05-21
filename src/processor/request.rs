@@ -16,7 +16,7 @@ use crate::state::queue::{
     MigrateProofQueue,MigrateProofQueueAccount,MigrateProofRequest,
     FinalizeSendQueue,FinalizeSendQueueAccount,
 };
-use crate::error::ElusivError::{InvalidAmount, InvalidInstructionData, CommitmentAlreadyExists, InvalidFeePayer, InvalidTimestamp, InvalidRecipient};
+use crate::error::ElusivError::{InvalidAmount, InvalidInstructionData, CommitmentAlreadyExists, InvalidFeePayer, InvalidTimestamp, InvalidRecipient, InvalidAccount};
 
 pub const MINIMUM_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 pub const MAXIMUM_STORE_AMOUNT: u64 = u64::MAX;

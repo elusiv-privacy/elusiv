@@ -5,7 +5,8 @@ edition = "2021"
 
 [features]
 test-bpf = []
-client = []
+# Adds the struct `InstructionABI` with functions `instruction_name(<instruction_field>) -> solana_program::instruction::Instruction` for creating instructions
+instruction-abi = []
 
 [profile.release]
 lto = true
