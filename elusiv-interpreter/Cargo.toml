@@ -14,4 +14,3 @@ prettyplease = "0.1.10"
 
 [lib]
 proc-macro = true
-crate_type = ["proc-macro"]

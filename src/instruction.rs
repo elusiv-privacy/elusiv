@@ -7,15 +7,11 @@ use super::state::queue::{
     BaseCommitmentQueueAccount,
     CommitmentQueueAccount,
     BaseCommitmentHashRequest,
-    SendProofQueueAccount, SendProofRequest,
-    MergeProofQueueAccount, MergeProofRequest,
-    MigrateProofQueueAccount, MigrateProofRequest,
     FinalizeSendQueueAccount,
 };
 use super::state::{
     program_account::{PDAAccount,MultiAccountAccount},
     pool::PoolAccount,
-    reserve::ReserveAccount,
     StorageAccount,
     NullifierAccount,
 };
@@ -23,12 +19,11 @@ use crate::proof::VerificationAccount;
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use solana_program::{
     system_program,
-    account_info::AccountInfo,
+    account_info::{next_account_info, AccountInfo},
     pubkey::Pubkey,
     entrypoint::ProgramResult,
     program_error::ProgramError::{InvalidArgument, InvalidInstructionData},
 };
-use crate::error::ElusivError;
 
 #[cfg(feature = "instruction-abi")]
 use solana_program::instruction::AccountMeta;
@@ -72,7 +67,7 @@ pub enum ElusivInstruction {
     },
 
     // Finalizing successfully verified proofs
-    #[usr(original_fee_payer, [ writable ])]
+    /*#[usr(original_fee_payer, [ writable ])]
     #[pda(pool, Pool, [ writable, account_info ])]
     #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable ])]
     #[pda(commitment_hash_queue, CommitmentQueue, [ writable ])]
@@ -87,16 +82,22 @@ pub enum ElusivInstruction {
     // Base-commitment hashing
     #[usr(fee_payer, [ signer, writable ])]
     #[pda(queue, BaseCommitmentQueue, [ writable ])]
-    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = base_commitment_hash_account_index, [ writable ])]
-    InitBaseCommitmentHash{ base_commitment_hash_account_index: u64, },
+    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = hash_account_index, [ writable ])]
+    InitBaseCommitmentHash{
+        hash_account_index: u64,
+    },
     
-    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = base_commitment_hash_account_index, [ writable ])]
-    ComputeBaseCommitmentHash { base_commitment_hash_account_index: u64, },
+    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = hash_account_index, [ writable ])]
+    ComputeBaseCommitmentHash {
+        hash_account_index: u64,
+    },
 
-    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = base_commitment_hash_account_index, [ writable ])]
+    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = hash_account_index, [ writable ])]
     #[pda(commitment_queue, CommitmentQueue, [ writable ])]
-    FinalizeBaseCommitmentHash { base_commitment_hash_account_index: u64, },
-/*
+    FinalizeBaseCommitmentHash {
+        hash_account_index: u64,
+    },
+
     // Commitment (MT-root) hashing
     #[usr(fee_payer, [ signer, writable ])]
     #[pda(queue, CommitmentQueue, [ writable ])]
@@ -109,48 +110,34 @@ pub enum ElusivInstruction {
 
     #[pda(hashing_account, CommitmentHashing, [ writable ])]
     #[pda(storage_account, Storage, [ multi_accounts, writable ])]
-    FinalizeCommitmentHash,*/
+    FinalizeCommitmentHash,
 
     // Funds are transferred to the recipient
     #[usr(recipient, [ writable ])]
     #[pda(pool, Pool, [ writable, account_info ])]
     #[pda(queue, FinalizeSendQueue, [ writable ])]
     FinalizeSend,
-/*
+
+    /*
     CreateNewTree,
     ActivateTree,
     ArchiveTree,
-
-    // Opens all accounts that only have single instances
-    #[usr(payer, [ writable, signer ])]
-    #[pda(pool, Pool, [ writable, account_info ])]
-    #[pda(reserve, Reserve, [ writable, account_info ])]
-    #[pda(commitment_queue, CommitmentQueue, [ writable, account_info ])]
-    #[pda(base_commitment_queue, BaseCommitmentQueue, [ writable, account_info ])]
-    #[pda(send_queue, SendProofQueue, [ writable, account_info ])]
-    #[pda(merge_queue, MergeProofQueue, [ writable, account_info ])]
-    #[pda(migrate_queue, MigrateProofQueue, [ writable, account_info ])]
-    #[pda(storage_account, Storage, [ writable, multi_accounts, account_info ])]
-    #[pda(commitment_hash_account, CommitmentHashing, [ writable, account_info ])]
-    #[sys(system_program, key = system_program::id())]
-    OpenUniqueAccount,
     */
 
-    // Opens a new `BaseCommitmentHashAccount` if there not enough yet with the reserve as payer
-    #[pda(reserve, Reserve, [ writable, account_info ])]
-    #[pda(hash_account, BaseCommitmentHashing, pda_offset = base_commitment_hash_account_index, [ writable, account_info ])]
+    #[usr(payer, [ writable, signer ])]
+    #[usr(pda_account, [ writable, account_info ])]
     #[sys(system_program, key = system_program::id())]
-    OpenBaseCommitmentHashAccount {
-        base_commitment_hash_account_index: u64,
+    OpenSingleInstanceAccount {
+        kind: SingleInstanceAccountKind,
     },
 
-    // Opens a new `VerificationAccount` if there not enough yet with the reserve as payer
-    #[pda(reserve, Reserve, [ writable, account_info ])]
-    #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable, account_info ])]
+    #[usr(payer, [ writable, signer ])]
+    #[usr(pda_account, [ writable, account_info ])]
     #[sys(system_program, key = system_program::id())]
-    OpenProofVerificationAccount {
-        verification_account_index: u64,
+    OpenMultiInstanceAccount {
+        pda_offset: u64,
+        kind: MultiInstanceAccountKind,
     },
 
-    TestFail,
+    TestFail,*/
 }

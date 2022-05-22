@@ -43,10 +43,10 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     let sub_attrs_ignore_braces: Vec<&str> = (&fields_alt[1..fields_alt.len() - 1]).split(",").collect();
 
                     let mut account: TokenStream = sub_attrs[0].parse().unwrap();
-                    let mut account_init = Vec::new(); // used for creating the instruction objects with the abi-feature
+                    //let mut account_init = Vec::new(); // used for creating the instruction objects with the abi-feature
 
                     accounts.extend(quote! {
-                        let #account = solana_program::account_info::next_account_info(account_info_iter)?;    
+                        let #account = next_account_info(account_info_iter)?;    
                     });
 
                     // Signer check
@@ -66,7 +66,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     }
 
                     let mut_token = if is_writable { quote!{ mut } } else { quote!{} };
-                    let account_init_fn = if is_writable { quote!{ new } } else { quote!{ new_readonly } };
+                    //let account_init_fn = if is_writable { quote!{ new } } else { quote!{ new_readonly } };
 
                     match attr_name.as_str() {
                         // User `AccountInfo` (usage: <name>)
@@ -85,9 +85,9 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 }
                             }*/
 
-                            account_init.push(quote!{
+                            /*account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
-                            });
+                            });*/
                         },
 
                         "prg" => {
@@ -105,9 +105,9 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 if #key != *#account.key{ return Err(InvalidArgument) };
                             });
 
-                            account_init.push(quote!{
+                            /*account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(#key, #is_signer));
-                            });
+                            });*/
                         },
 
                         // PDA accounts (usage: <name> <AccountType> <pda_offset: u64 = ..>? <account_info>? <multi_account>? <ownership>)
@@ -143,9 +143,9 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 if #account.owner != program_id { return Err(InvalidArgument) }
                             });
 
-                            account_init.push(quote!{
+                            /*account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(<#ty>::pubkey(&[#pda_offset]).0, #is_signer));
-                            });
+                            });*/
 
                             if multi_account {
                                 let write_check = if is_writable { quote!{ if !sub_account.is_writable { return Err(InvalidArgument) } } } else { quote!{} };
@@ -155,7 +155,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     let acc_data = &mut #account.data.borrow_mut()[..];
                                     let mut accounts = Vec::new();
                                     for i in 0..#ty::COUNT {
-                                        let sub_account = solana_program::account_info::next_account_info(account_info_iter)?;    
+                                        let sub_account = next_account_info(account_info_iter)?;    
 
                                         if !<#ty>::is_valid_pubkey(&[#pda_offset, i as u64], sub_account.key) { return Err(InvalidArgument) }
                                         if sub_account.owner != program_id { return Err(InvalidArgument) }
@@ -167,11 +167,11 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     if #ty::COUNT == accounts.len() { return Err(InvalidArgument) }
                                 });
 
-                                account_init.push(quote!{
+                                /*account_init.push(quote!{
                                     for i in 0..#ty::COUNT {
                                         accounts.push(AccountMeta::#account_init_fn(<#ty>::pubkey(&[#pda_offset, i as u64]).0, #is_signer));
                                     }
-                                });
+                                });*/
 
                                 if as_account_info {
                                     accounts.extend(quote!{
@@ -192,10 +192,8 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 if !as_account_info {
                                     accounts.extend(quote!{
                                         let acc_data = &mut #account.data.borrow_mut()[..];
-                                        let #account = <#ty>::new(acc_data)?;
+                                        let #mut_token #account = <#ty>::new(acc_data)?;
                                     });
-
-                                    accounts.extend(quote!{ let #mut_token #account = <#ty>::new(acc_data)?; });
 
                                     if is_writable {
                                         if transfer_ownership {

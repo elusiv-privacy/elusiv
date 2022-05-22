@@ -11,168 +11,91 @@ use crate::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount, Se
 use crate::proof::{VerificationAccount};
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::error::ElusivError::{InvalidAccountBalance, InvalidInstructionData};
-use crate::macros::guard;
+use crate::macros::*;
+use crate::bytes::SerDe;
+
+#[derive(SerDe)]
+pub enum SingleInstanceAccountKind {
+    Pool,
+    Reserve,
+    CommitmentQueue,
+    SendQueue,
+    MergeQueue,
+    MigrateQueue,
+    CommitmentHashing,
+}
+
+macro_rules! single_instance_account {
+    ($v: ident, $e: ident) => {
+        match $v {
+            SingleInstanceAccountKind::Pool => PoolAccount::$e,
+            SingleInstanceAccountKind::Reserve => ReserveAccount::$e,
+            SingleInstanceAccountKind::CommitmentQueue => CommitmentQueueAccount::$e,
+            SingleInstanceAccountKind::SendQueue => SendProofQueueAccount::$e,
+            SingleInstanceAccountKind::MergeQueue => MergeProofQueueAccount::$e,
+            SingleInstanceAccountKind::MigrateQueue => MigrateProofQueueAccount::$e,
+            SingleInstanceAccountKind::CommitmentHashing => CommitmentHashingAccount::$e,
+        }
+    };
+}
 
 /// Used to open the PDA accounts, of which types there always only exist one instance
-pub fn open_unique_accounts<'a>(
+pub fn open_single_instance_account<'a>(
     payer: &AccountInfo<'a>,
-    pool: &AccountInfo<'a>,
-    reserve: &AccountInfo<'a>,
-    commitment_queue: &AccountInfo<'a>,
-    base_commitment_queue: &AccountInfo<'a>,
-    send_queue: &AccountInfo<'a>,
-    merge_queue: &AccountInfo<'a>,
-    migrate_queue: &AccountInfo<'a>,
-    storage_account: Vec<&AccountInfo<'a>>,
-    commitment_hash_account: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
     system_program: &AccountInfo<'a>,
+
+    kind: SingleInstanceAccountKind,
 ) -> ProgramResult {
-    create_pda_account::<PoolAccount>(
-        payer,
-        pool,
-        system_program,
-        0,
-        vec![0]
-    )?;
-    create_pda_account::<ReserveAccount>(
-        payer,
-        reserve, 
-        system_program,
-        0,
-        vec![0]
-    )?;
+    let account_size = single_instance_account!(kind, SIZE);
+    let offsets = &vec![0];
+    let signers_seeds = single_instance_account!(kind, offset_seed)(offsets);
+    let signers_seeds: Vec<&[u8]> = signers_seeds.iter().map(|x| &x[..]).collect();
 
-    create_pda_account::<CommitmentQueueAccount>(
-        payer,
-        commitment_queue,
-        system_program,
-        CommitmentQueueAccount::SIZE,
-        vec![0]
-    )?;
-    create_pda_account::<BaseCommitmentQueueAccount>(
-        payer,
-        base_commitment_queue,
-        system_program, BaseCommitmentQueueAccount::SIZE,
-        vec![0]
-    )?;
-    create_pda_account::<SendProofQueueAccount>(
-        payer,
-        send_queue,
-        system_program, SendProofQueueAccount::SIZE,
-        vec![0]
-    )?;
-    create_pda_account::<MergeProofQueueAccount>(
-        payer,
-        merge_queue,
-        system_program, MergeProofQueueAccount::SIZE,
-        vec![0]
-    )?;
-    create_pda_account::<MigrateProofQueueAccount>(
-        payer,
-        migrate_queue, 
-        system_program, MigrateProofQueueAccount::SIZE,
-        vec![0]
-    )?;
+    guard!(single_instance_account!(kind, pubkey)(offsets).0 == *pda_account.key, InvalidInstructionData);
 
-    create_pda_account::<CommitmentHashingAccount>(
-        payer,
-        commitment_hash_account,
-        system_program, CommitmentHashingAccount::SIZE,
-        vec![0]
-    )?;
-
-    crate_multi_pda_account::<StorageAccount>(
-        payer,
-        storage_account,
-        system_program,
-        vec![0]
-    )
+    create_pda_account(payer, pda_account, system_program, account_size, &signers_seeds)
 }
 
-/// Opens a new proof verification account
-pub fn open_proof_verification_account<'a>(
-    reserve: &AccountInfo<'a>,
-    verification_account: &AccountInfo<'a>,
+#[derive(SerDe)]
+pub enum MultiInstanceAccountKind {
+    Verification,
+    BaseCommitmentHashing,
+}
+
+macro_rules! multi_instance_account {
+    ($v: ident, $e: ident) => {
+        match $v {
+            MultiInstanceAccountKind::Verification => VerificationAccount::$e,
+            MultiInstanceAccountKind::BaseCommitmentHashing => BaseCommitmentHashingAccount::$e,
+        }
+    };
+}
+
+/// Used to open the PDA accounts, of which types there can exist multipe (that satisfy the trait: MultiInstanceAccount)
+pub fn open_multi_instance_account<'a>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
     system_program: &AccountInfo<'a>,
-    verification_account_index: u64,
+
+    pda_offset: u64,
+    kind: MultiInstanceAccountKind,
 ) -> ProgramResult {
-    guard!(verification_account_index < VerificationAccount::MAX_INSTANCES, InvalidInstructionData);
+    guard!(pda_offset < multi_instance_account!(kind, MAX_INSTANCES), InvalidInstructionData);
 
     panic!("TODO: Implement Intermediary account size");
-
-    /*create_pda_account::<VerificationAccount>(
-        reserve,
-        verification_account,
-        system_program,
-        VerificationAccount::SIZE,
-        vec![0]
-    )*/
 }
 
-/// Opens a new commitment hashing account
-pub fn open_base_commitment_hash_account<'a>(
-    reserve: &AccountInfo<'a>,
-    base_commitment_hash_account: &AccountInfo<'a>,
-    system_program: &AccountInfo<'a>,
-    base_commitment_hash_account_index: u64,
-) -> ProgramResult {
-    guard!(base_commitment_hash_account_index < BaseCommitmentHashingAccount::MAX_INSTANCES, InvalidInstructionData);
-
-    create_pda_account::<BaseCommitmentHashingAccount>(
-        reserve,
-        base_commitment_hash_account,
-        system_program,
-        BaseCommitmentHashingAccount::SIZE,
-        vec![0]
-    )
-}
-
-/// Create a multi-account PDA account and all sub-accounts
-fn crate_multi_pda_account<'a, 'b, T: PDAAccount + MultiAccountAccount<'b> + SizedAccount>(
-    payer: &AccountInfo<'a>,
-    pda_accounts: Vec<&AccountInfo<'a>>,
-    system_program: &AccountInfo<'a>,
-    base_offsets: Vec<u64>,
-) -> ProgramResult {
-    assert!(pda_accounts.len() == T::COUNT + 1);
-
-    create_pda_account::<StorageAccount>(
-        payer,
-        pda_accounts[0],
-        system_program,
-        T::SIZE,
-        base_offsets.clone()
-    )?;
-
-    for i in 0..T::COUNT {
-        let mut offsets = base_offsets.clone();
-        offsets.push(i as u64);
-        create_pda_account::<StorageAccount>(
-            payer,
-            pda_accounts[i + 1],
-            system_program,
-            MAX_ACCOUNT_SIZE,
-            offsets
-        )?;
-    }
-
-    Ok(())
-}
-
-fn create_pda_account<'a, T: PDAAccount>(
+fn create_pda_account<'a>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
     system_program: &AccountInfo<'a>,
     account_size: usize,
-    offsets: Vec<u64>,
+    signers_seeds: &[&[u8]],
 ) -> ProgramResult {
     let lamports_required = Rent::get()?.minimum_balance(account_size);
 
-    let signers_seeds = T::offset_seed(&offsets);
-    let signers_seeds: Vec<&[u8]> = signers_seeds.iter().map(|x| &x[..]).collect();
-
     guard!(payer.lamports() >= lamports_required, InvalidAccountBalance);
-    guard!(T::pubkey(&offsets).0 == *pda_account.key, InvalidInstructionData);
 
     let space: u64 = account_size.try_into().unwrap();
 

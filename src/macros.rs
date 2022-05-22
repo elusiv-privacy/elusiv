@@ -24,6 +24,14 @@ macro_rules! pda_account {
     };
 }
 
+macro_rules! sized_account {
+    ($ty: ty, $size: expr) => {
+        impl crate::state::program_account::SizedAccount for $ty {
+            const SIZE: usize = $size;
+        } 
+    };
+}
+
 macro_rules! multi_instance_account {
     ($ty: ty, $max_instances: literal) => {
         impl<'a> crate::state::program_account::MultiInstanceAccount for $ty {
@@ -35,4 +43,5 @@ macro_rules! multi_instance_account {
 pub(crate) use guard;
 pub(crate) use max;
 pub(crate) use pda_account;
+pub(crate) use sized_account;
 pub(crate) use multi_instance_account;
