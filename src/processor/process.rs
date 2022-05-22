@@ -187,11 +187,10 @@ pub fn finalize_proof_unary<'a>(
 }
 
 pub fn test_fail() -> ProgramResult {
-    solana_program::log::sol_log_compute_units();
-
     let mut state = [Fr::zero(), Fr::zero(), Fr::zero()];
-    crate::commitment::poseidon_hash::binary_poseidon_hash_partial(0, &mut state);
+    for round in 0..1 {
+        crate::commitment::poseidon_hash::binary_poseidon_hash_partial(round, &mut state);
+    }
 
-    solana_program::log::sol_log_compute_units();
-    panic!()
+    Err(CannotFinalizeBinaryProof.into())
 }

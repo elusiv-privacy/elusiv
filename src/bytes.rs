@@ -84,7 +84,7 @@ impl SerDe for bool {
 }
 
 // Impl for array of serializable values
-impl<const N: usize, E: SerDe<T=E> + Zero<T=E> + Clone + Copy> SerDe for [E; N] {
+impl< E: SerDe<T=E> + Zero<T=E> + Clone + Copy, const N: usize> SerDe for [E; N] {
     type T = [E; N];
     const SIZE: usize = N * E::SIZE;
 

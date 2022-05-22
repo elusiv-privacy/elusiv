@@ -19,14 +19,18 @@ const SCALAR_MODULUS: BigInteger256 = BigInteger256([4891460686036598785u64, 289
 
 /// Constructs a base field element from an element in montgomery form
 /// - panics if the supplied element is >= the base field modulus `q`
-fn safe_base_montgomery(e: BigInteger256) -> Fq {
+pub fn safe_base_montgomery(e: BigInteger256) -> Fq {
     if e < BASE_MODULUS { Fq::new(e) } else { panic!() }
 }
 
 /// Constructs a scalar field element from an element in montgomery form
 /// - panics if the supplied element is >= the scalar field modulus `r`
-fn safe_scalar_montgomery(e: BigInteger256) -> Fr {
+pub fn safe_scalar_montgomery(e: BigInteger256) -> Fr {
     if e < SCALAR_MODULUS { Fr::new(e) } else { panic!() }
+}
+
+pub fn try_scalar_montgomery(e: BigInteger256) -> Option<Fr> {
+    if e < SCALAR_MODULUS { Some(Fr::new(e)) } else { None }
 }
 
 /// BigInteger256 efficiently from LE buffer
@@ -232,6 +236,10 @@ impl SerDe for G2A {
 
 pub fn u256_to_fr(v: &U256) -> Fr {
     safe_scalar_montgomery(BigInteger256(u256_to_le_limbs(*v)))
+}
+
+pub fn u256_to_big_uint(v: &U256) -> BigInteger256 {
+    BigInteger256(u256_to_le_limbs(*v))
 }
 
 #[cfg(test)]

@@ -9,6 +9,8 @@ pub enum ElusivError {
     InvalidRecipient,
     InvalidAccount,
     InvalidAccountSize,
+    InvalidAccountBalance,
+    NonScalarValue,
 
     SenderIsNotSigner,
     SenderIsNotWritable,

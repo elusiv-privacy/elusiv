@@ -15,7 +15,7 @@ pub const MT_COMMITMENT_START: usize = 2usize.pow(MT_HEIGHT as u32) - 1;
 /// Since before submitting a proof request the current root can change, we store the previous ones
 const HISTORY_ARRAY_COUNT: usize = 100;
 
-const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(MT_SIZE, U256::SIZE);
+pub const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(MT_SIZE, U256::SIZE);
 
 // The `StorageAccount` contains the active Merkle Tree that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root

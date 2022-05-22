@@ -7,7 +7,8 @@ use solana_program::{
 };
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount};
-use super::utils::{check_join_split_public_inputs, send_with_system_program, send_from_pool};
+use crate::types::{JoinSplitPublicInputs, JoinSplitProofData};
+use super::utils::{send_with_system_program, send_from_pool};
 use crate::state::queue::{
     RingQueue,
     BaseCommitmentQueue,BaseCommitmentQueueAccount,BaseCommitmentHashRequest,
@@ -16,7 +17,19 @@ use crate::state::queue::{
     MigrateProofQueue,MigrateProofQueueAccount,MigrateProofRequest,
     FinalizeSendQueue,FinalizeSendQueueAccount,
 };
-use crate::error::ElusivError::{InvalidAmount, InvalidInstructionData, CommitmentAlreadyExists, InvalidFeePayer, InvalidTimestamp, InvalidRecipient};
+use crate::error::ElusivError::{
+    InvalidAmount,
+    InvalidInstructionData,
+    CommitmentAlreadyExists,
+    InvalidFeePayer,
+    InvalidTimestamp,
+    InvalidRecipient,
+    InvalidMerkleRoot,
+    InvalidPublicInputs,
+    NullifierAlreadyExists,
+    NonScalarValue,
+};
+use crate::fields::{try_scalar_montgomery, u256_to_big_uint};
 
 pub const MINIMUM_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 pub const MAXIMUM_STORE_AMOUNT: u64 = u64::MAX;
@@ -40,6 +53,10 @@ pub fn store<'a>(
     let fee = 0;
     let lamports = request.amount + fee;
     send_with_system_program(sender, pool, system_program, lamports)?;
+
+    // Check that `base_commitment` and `commitment` are in the scalar field
+    guard!(matches!(try_scalar_montgomery(u256_to_big_uint(&request.base_commitment)), Some(_)), NonScalarValue);
+    guard!(matches!(try_scalar_montgomery(u256_to_big_uint(&request.commitment)), Some(_)), NonScalarValue);
 
     // Enqueue request
     guard!(!request.is_active, InvalidInstructionData);
@@ -130,7 +147,7 @@ pub fn migrate<'a, 'b, 'c, 'd>(
 
     request: MigrateProofRequest,
 ) -> ProgramResult {
-    /*let mut queue = MigrateProofQueue::new(queue);
+    let mut queue = MigrateProofQueue::new(queue);
 
     // Verify public inputs
     check_join_split_public_inputs(
@@ -147,8 +164,7 @@ pub fn migrate<'a, 'b, 'c, 'd>(
 
     // Enqueue request
     guard!(!request.is_active, InvalidInstructionData);
-    queue.enqueue(request)*/
-    Ok(())
+    queue.enqueue(request)
 }
 
 /// Transfers the funds of a send request to a recipient
@@ -163,4 +179,41 @@ pub fn finalize_send<'a>(
     guard!(recipient.key.to_bytes() == request.recipient, InvalidRecipient);
 
     send_from_pool(pool, recipient, request.amount)
+}
+
+/// Verifies public inputs and the proof data for proof requests
+pub fn check_join_split_public_inputs<const N: usize>(
+    public_inputs: &JoinSplitPublicInputs<N>,
+    proof_data: &JoinSplitProofData<N>,
+    storage_account: &StorageAccount,
+    nullifier_accounts: [&NullifierAccount; N],
+    //commitment_queue_account: &CommitmentQueueAccount,
+) -> ProgramResult {
+    assert!(N <= 2);
+
+    let uses_multiple_trees = N > 1 && proof_data.tree_indices[0] != proof_data.tree_indices[1];
+    let active_tree_index = storage_account.get_trees_count();
+
+    // Check that roots are the same if they represent the same tree
+    guard!(!uses_multiple_trees || public_inputs.roots[0] == public_inputs.roots[1], InvalidMerkleRoot);
+
+    // Check that roots are valid
+    for i in 0..N {
+        // For the active tree: root can either be the last root or any root from the active_mt_root_history
+        if proof_data.tree_indices[i] == active_tree_index {
+            guard!(storage_account.is_root_valid(public_inputs.roots[i]), InvalidMerkleRoot);
+        } else { // For a non-active tree: root can only be one value
+            guard!(public_inputs.roots[i] == nullifier_accounts[i].get_root(), InvalidMerkleRoot);
+        }
+    }
+
+    // Check that nullifier_hashes for the same tree are different
+    guard!(!uses_multiple_trees || public_inputs.nullifier_hashes[0] == public_inputs.nullifier_hashes[1], InvalidPublicInputs);
+
+    // Check that nullifier_hashes can be inserted
+    for i in 0..N {
+        guard!(nullifier_accounts[i].can_insert_nullifier_hash(public_inputs.nullifier_hashes[i]), NullifierAlreadyExists);
+    }
+
+    Ok(())
 }

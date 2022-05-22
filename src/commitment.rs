@@ -8,6 +8,7 @@ use crate::state::queue::BaseCommitmentHashRequest;
 use crate::types::U256;
 use crate::bytes::SerDe;
 use crate::macros::guard;
+use crate::state::program_account::SizedAccount;
 
 pub const MAX_BASE_COMMITMENT_ACCOUNTS_COUNT: u64 = 1;
 

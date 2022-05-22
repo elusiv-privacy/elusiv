@@ -13,6 +13,7 @@ use crate::fields::{G1A, G2A};
 use crate::macros::guard;
 use crate::bytes::SerDe;
 use crate::error::ElusivError::AccountCannotBeReset;
+use crate::state::program_account::SizedAccount;
 
 pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
 pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;

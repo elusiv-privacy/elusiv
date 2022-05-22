@@ -9,6 +9,7 @@ pub fn impl_serde(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
 
     match &ast.data {
         syn::Data::Enum(e) => {
+            let mut sizes = quote!{};
             for (i, var) in e.variants.iter().enumerate() {
                 let var_ident = var.ident.clone();
                 let mut var_size = quote! { 0 };
@@ -53,28 +54,43 @@ pub fn impl_serde(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                         #ident::#var_ident { #fields }
                     },
                 });
+
+                sizes.extend(quote!{
+                    #ident::#var_ident { .. } => #var_size + 1,
+                });
             }
 
             quote! {
                 impl #impl_generics SerDe for #ident #ty_generics #where_clause {
                     type T = Self;
-                    const SIZE: usize =  crate::macros::max!(#size);
+                    const SIZE: usize = 1 + crate::macros::max!(#size);
                 
                     fn deserialize(data: &[u8]) -> Self::T {
-                        assert!(data.len() >= Self::SIZE);
-
                         let (tag, data) = data.split_first().unwrap();
                         match tag {
                             #de
-                            _ => { panic!("") }
+                            _ => { panic!() }
                         }
                     }
                 
                     fn serialize(value: Self::T, data: &mut [u8]) {
-                        assert!(data.len() >= Self::SIZE);
-
                         match value {
                             #ser
+                            _ => { panic!() }
+                        }
+                    }
+
+                    fn serialize_vec(value: Self::T) -> Vec<u8> {
+                        let mut v = vec![0; value.size()];
+                        Self::serialize(value, &mut v[..]);
+                        v
+                    }
+                }
+
+                impl #ty_generics #ident #ty_generics #where_clause {
+                    pub fn size(&self) -> usize {
+                        match self {
+                            #sizes
                         }
                     }
                 }

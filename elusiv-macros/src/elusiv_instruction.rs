@@ -19,7 +19,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                 // Instruction creation
                 let mut fields_with_type = quote!{};
-                let mut instruction_data = quote!{};
                 let mut user_accounts = quote!{};
                 let mut instruction_accounts = quote!{};
 
@@ -29,8 +28,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                     fields.extend(quote! { #field_name, });
                     fields_with_type.extend(quote! { #field_name: #ty, });
-
-                    instruction_data.extend(quote!{ data.extend(<#ty>::serialize_vec(#field_name)); })
                 }
 
                 // Account attributes
@@ -74,7 +71,20 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     match attr_name.as_str() {
                         // User `AccountInfo` (usage: <name>)
                         "usr" => {
-                            user_accounts.extend(quote!{ #account: UserAccount, });
+                            if is_signer {
+                                if is_writable {
+                                    user_accounts.extend(quote!{ #account: SignerAccount, });
+                                } else {
+                                    user_accounts.extend(quote!{ #account: WritableSignerAccount, });
+                                }
+                            } else {
+                                if is_writable {
+                                    user_accounts.extend(quote!{ #account: WritableUserAccount, });
+                                } else {
+                                    user_accounts.extend(quote!{ #account: UserAccount, });
+                                }
+                            }
+
                             account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
                             });
@@ -154,12 +164,20 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     }
                                 });
 
-                                if is_writable {
-                                    accounts.extend(quote!{ let mut #account = #ty::new(acc_data, accounts)?; });
-                                    account = quote!{ &mut #account };
+                                if as_account_info {
+                                    accounts.extend(quote!{
+                                        accounts.insert(0, #account);
+                                        let #account = accounts;
+                                    });
+                                    account = quote!{ #account };
                                 } else {
-                                    accounts.extend(quote!{ let #account = #ty::new(acc_data, accounts)?; });
-                                    account = quote!{ &#account };
+                                    if is_writable {
+                                        accounts.extend(quote!{ let mut #account = #ty::new(acc_data, accounts)?; });
+                                        account = quote!{ &mut #account };
+                                    } else {
+                                        accounts.extend(quote!{ let #account = #ty::new(acc_data, accounts)?; });
+                                        account = quote!{ &#account };
+                                    }
                                 }
                             } else {
                                 if !as_account_info {
@@ -202,16 +220,16 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 });
 
                 functions.extend(quote!{
-                    pub fn #fn_name(#fields_with_type #user_accounts) {
+                    pub fn #fn_name(#fields_with_type #user_accounts) -> solana_program::instruction::Instruction {
                         let mut accounts = Vec::new();
-                        let mut data = Vec::new();
 
                         #instruction_accounts
-                        #instruction_data
+                        let data = ElusivInstruction::#ident { #fields };
+                        let data = ElusivInstruction::serialize_vec(data);
 
-                        Instruction::new_with_bytes(
+                        solana_program::instruction::Instruction::new_with_bytes(
                             crate::id(),
-                            data,
+                            &data,
                             accounts,
                         )
                     }
@@ -228,7 +246,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             use solana_program::program_error::ProgramError::InvalidInstructionData;
 
             let mut data = &mut &instruction_data;
-            let instruction = ElusivInstruction::deserialize(data); // panics for wrong instruction data
+            let instruction = ElusivInstruction::deserialize(data);
             let account_info_iter = &mut accounts.iter();
             
             match instruction {
@@ -238,10 +256,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
         }
 
         #[cfg(feature = "instruction-abi")]
-        pub struct InstructionABI {}
-
-        #[cfg(feature = "instruction-abi")]
-        impl InstructionABI {
+        impl ElusivInstruction {
             #functions
         }
 
@@ -249,10 +264,13 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
         pub struct UserAccount(pub solana_program::pubkey::Pubkey);
 
         #[cfg(feature = "instruction-abi")]
+        pub struct WritableUserAccount(pub solana_program::pubkey::Pubkey);
+
+        #[cfg(feature = "instruction-abi")]
         pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
 
         #[cfg(feature = "instruction-abi")]
-        pub struct WritableSigner(pub solana_program::pubkey::Pubkey);
+        pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
     }
 }
 

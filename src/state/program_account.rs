@@ -7,11 +7,16 @@ pub trait PDAAccount {
     const SEED: &'static [u8];
 
     fn pubkey(offsets: &[u64]) -> (Pubkey, u8) {
+        let seed = Self::offset_seed(offsets);
+        let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
+        Pubkey::find_program_address(&seed, &crate::id())
+    }
+
+    fn offset_seed(offsets: &[u64]) -> Vec<Vec<u8>> {
         let mut seed: Vec<Vec<u8>> = vec![Self::SEED.to_vec()];
         let offsets: Vec<Vec<u8>> = offsets.iter().map(|x| x.to_le_bytes().to_vec()).collect();
         seed.extend(offsets);
-        let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
-        Pubkey::find_program_address(&seed, &crate::id())
+        seed
     }
 
     fn is_valid_pubkey(offsets: &[u64], pubkey: &Pubkey) -> bool {
@@ -19,7 +24,11 @@ pub trait PDAAccount {
     }
 } 
 
-const MAX_ACCOUNT_SIZE: usize = 10_000_000;
+pub trait SizedAccount {
+    const SIZE: usize;
+}
+
+pub const MAX_ACCOUNT_SIZE: usize = 10_000_000;
 
 /// Allows for storing data across multiple accounts
 pub trait MultiAccountAccount<'t>: PDAAccount {

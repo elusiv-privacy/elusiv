@@ -13,18 +13,24 @@ use super::state::queue::{
 use super::state::{
     program_account::{PDAAccount,MultiAccountAccount},
     pool::PoolAccount,
+    reserve::ReserveAccount,
     StorageAccount,
     NullifierAccount,
 };
 use crate::proof::VerificationAccount;
+use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::error::ElusivError::InvalidAccount;
+use solana_program::system_program;
+
+#[cfg(feature = "instruction-abi")]
+use solana_program::instruction::AccountMeta;
 
 #[derive(SerDe, ElusivInstruction)]
 pub enum ElusivInstruction {
     // Client sends base commitment and amount to be stored in the Elusiv program
     #[usr(sender, [ writable, signer ])]
     #[pda(pool, Pool, [ writable, account_info ])]
-    #[sys(system_program, key = solana_program::system_program::id())]
+    #[sys(system_program, key = system_program::id())]
     #[pda(queue, BaseCommitmentQueue, [ writable ])]
     Store {
         base_commitment_request: BaseCommitmentHashRequest,
@@ -33,7 +39,7 @@ pub enum ElusivInstruction {
     // Binary send proof request
     #[usr(fee_payer, [ writable, signer ])]
     #[pda(pool, Pool, [ writable, account_info ])]
-    #[sys(system_program, key = solana_program::system_program::id())]
+    #[sys(system_program, key = system_program::id())]
     #[pda(storage_account, Storage, multi_accounts)]
     #[pda(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0], [ multi_accounts ])]
     #[pda(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1], [ multi_accounts ])]
@@ -45,7 +51,7 @@ pub enum ElusivInstruction {
     // Binary merge proof request
     #[usr(fee_payer, [ writable, signer ])]
     #[pda(pool, Pool, [ writable, account_info ])]
-    #[sys(system_program, key = solana_program::system_program::id())]
+    #[sys(system_program, key = system_program::id())]
     #[pda(storage_account, Storage, multi_accounts)]
     #[pda(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0], [ multi_accounts ])]
     #[pda(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1], [ multi_accounts ])]
@@ -57,7 +63,7 @@ pub enum ElusivInstruction {
     // Unary migrate proof request
     #[usr(fee_payer, [ writable, signer ])]
     #[pda(pool, Pool, [ writable, account_info ])]
-    #[sys(system_program, key = solana_program::system_program::id())]
+    #[sys(system_program, key = system_program::id())]
     #[pda(storage_account, Storage, multi_accounts)]
     #[pda(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0], [ multi_accounts ])]
     #[pda(queue, MigrateProofQueue, [ writable ])]
@@ -126,10 +132,35 @@ pub enum ElusivInstruction {
     // Closes the oldest `NullifierAccount` and creates a `ArchivedTreeAccount`
     ArchiveTree,*/
 
-    /*OpenUniqueAccounts,
+    // Opens all accounts that only have single instances
+    #[usr(payer, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[pda(reserve, Reserve, [ writable, account_info ])]
+    #[pda(commitment_queue, CommitmentQueue, [ writable, account_info ])]
+    #[pda(base_commitment_queue, BaseCommitmentQueue, [ writable, account_info ])]
+    #[pda(send_queue, SendProofQueue, [ writable, account_info ])]
+    #[pda(merge_queue, MergeProofQueue, [ writable, account_info ])]
+    #[pda(migrate_queue, MigrateProofQueue, [ writable, account_info ])]
+    #[pda(storage_account, Storage, [ writable, multi_accounts, account_info ])]
+    #[pda(commitment_hash_account, CommitmentHashing, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    OpenUniqueAccounts,
 
-    OpenProofVerificationAccount,    
-    OpenBaseCommitmentHashAccount,*/
+    // Opens a new `BaseCommitmentHashAccount` if there not enough yet with the reserve as payer
+    #[pda(reserve, Reserve, [ writable, account_info ])]
+    #[pda(hash_account, BaseCommitmentHashing, pda_offset = base_commitment_hash_account_index, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    OpenBaseCommitmentHashAccount {
+        base_commitment_hash_account_index: u64,
+    },
 
-    TestFail
+    // Opens a new `VerificationAccount` if there not enough yet with the reserve as payer
+    #[pda(reserve, Reserve, [ writable, account_info ])]
+    #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    OpenProofVerificationAccount {
+        verification_account_index: u64,
+    },
+
+    TestFail,
 }

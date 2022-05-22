@@ -37,15 +37,15 @@ pub fn binary_poseidon_hash_partial(round: usize, state: &mut [Fr; 3]) {
     state[2] += constants[2];
 
     // Sbox
-    if round < 4 || round >= 61 { // First and last full rounds
+    if round < 4 || round >= 61 { // First and last full rounds (~ 15397 CUs)
         round!(0, state);
         round!(1, state);
         round!(2, state);
-    } else { // Middle partial rounds
+    } else { // Middle partial rounds (~ 5200 CUs)
         round!(0, state);
     }
 
-    // Mix 
+    // Mix (~ 17590)
     let mut new_state = [Fr::zero(); 3];
     matrix_mix!(new_state, 0, 0, state);
     matrix_mix!(new_state, 1, 3, state);
@@ -72,6 +72,37 @@ mod tests {
         assert_eq!(
             full_poseidon2_hash(Fr::zero(), Fr::zero()),
             Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap(),
+        );
+
+        assert_eq!(
+            full_poseidon2_hash(Fr::from_str("1").unwrap(), Fr::from_str("2").unwrap()),
+            Fr::from_str("7853200120776062878684798364095072458815029376092732009249414926327459813530").unwrap(),
+        );
+
+        assert_eq!(
+            full_poseidon2_hash(Fr::from_str("4631032765893457899344").unwrap(), Fr::from_str("3453623782378239237823937").unwrap()),
+            Fr::from_str("15798376151120407607995325383260410478881539926269713789760505676493608861934").unwrap(),
+        );
+
+        assert_eq!(
+            full_poseidon2_hash(Fr::from_str("78758278433947439").unwrap(), Fr::from_str("2727127217219281927655748957").unwrap()),
+            Fr::from_str("10053855256797203809243706937712819679696785488432523709871608122822392032095").unwrap(),
+        );
+
+        assert_eq!(
+            full_poseidon2_hash(Fr::from_str("74758992786068504743996048").unwrap(), Fr::from_str("8434739230482761332454").unwrap()),
+            Fr::from_str("17221088121480185305804562315627270623879289277074607312826677888427107195721").unwrap(),
+        );
+
+        // Inverted last two hashes
+        assert_eq!(
+            full_poseidon2_hash(Fr::from_str("2727127217219281927655748957").unwrap(), Fr::from_str("78758278433947439").unwrap()),
+            Fr::from_str("12873223109498890755823667267246854666756739205168367165343839421529315277098").unwrap(),
+        );
+
+        assert_eq!(
+            full_poseidon2_hash(Fr::from_str("8434739230482761332454").unwrap(), Fr::from_str("74758992786068504743996048").unwrap()),
+            Fr::from_str("19385810945896973295264096509875610220438906021083240188787615240974188410069").unwrap(),
         );
     }
 }

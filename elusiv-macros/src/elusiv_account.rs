@@ -160,13 +160,15 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             #definition
         }
 
-        impl<#lifetimes> #name<#lifetimes> {
-            const TOTAL_SIZE: usize = 0 #total_size;
+        impl<#lifetimes> SizedAccount for #name<#lifetimes> {
+            const SIZE: usize =  0 #total_size;
+        }
 
+        impl<#lifetimes> #name<#lifetimes> {
             pub fn new(d: &'a mut [u8], #signature) -> Result<Self, solana_program::program_error::ProgramError> {
                 // Check for correct size
                 crate::macros::guard!(
-                    d.len() == Self::TOTAL_SIZE,
+                    d.len() == Self::SIZE,
                     crate::error::ElusivError::InvalidAccountSize
                 );
 

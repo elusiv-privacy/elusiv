@@ -6,6 +6,7 @@ use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
 use crate::types::{U256, PublicInputs, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, RawProof};
+use super::program_account::SizedAccount;
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
