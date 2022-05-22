@@ -63,13 +63,13 @@ pub fn open_unique_accounts<'a>(
     )?;
     create_pda_account::<MergeProofQueueAccount>(
         payer,
-        send_queue,
+        merge_queue,
         system_program, MergeProofQueueAccount::SIZE,
         vec![0]
     )?;
     create_pda_account::<MigrateProofQueueAccount>(
         payer,
-        send_queue, 
+        migrate_queue, 
         system_program, MigrateProofQueueAccount::SIZE,
         vec![0]
     )?;
@@ -98,13 +98,15 @@ pub fn open_proof_verification_account<'a>(
 ) -> ProgramResult {
     guard!(verification_account_index < MAX_VERIFICATION_ACCOUNTS_COUNT, InvalidInstructionData);
 
-    create_pda_account::<VerificationAccount>(
+    panic!("TODO: Implement Intermediary account size");
+
+    /*create_pda_account::<VerificationAccount>(
         reserve,
         verification_account,
         system_program,
         VerificationAccount::SIZE,
         vec![0]
-    )
+    )*/
 }
 
 /// Opens a new commitment hashing account
@@ -141,7 +143,7 @@ fn crate_multi_pda_account<'a, 'b, T: PDAAccount + MultiAccountAccount<'b> + Siz
         T::SIZE,
         base_offsets.clone()
     )?;
-    
+
     for i in 0..T::COUNT {
         let mut offsets = base_offsets.clone();
         offsets.push(i as u64);
