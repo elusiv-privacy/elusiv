@@ -7,15 +7,6 @@ use ark_bn254::Fr;
 /// Unsigned 256 bit integer ordered in LE ([32] is the first byte)
 pub type U256 = [u8; 32];
 
-pub fn u256_to_le_limbs(v: U256) -> [u64; 4] {
-    [
-        u64::from_le_bytes(u64_array!(v, 0)),
-        u64::from_le_bytes(u64_array!(v, 8)),
-        u64::from_le_bytes(u64_array!(v, 16)),
-        u64::from_le_bytes(u64_array!(v, 24)),
-    ]
-}
-
 pub type RawProof = [u8; Proof::SIZE];
 
 impl From<RawProof> for Proof {
@@ -139,6 +130,15 @@ fn pack_inputs(recipient: U256, timestamp: u64, amount: u64) -> [U256; 2] {
     u64::serialize(recipient[2], &mut b[24..]);
 
     [a, b]
+}
+
+pub fn u256_to_le_limbs(v: U256) -> [u64; 4] {
+    [
+        u64::from_le_bytes(u64_array!(v, 0)),
+        u64::from_le_bytes(u64_array!(v, 8)),
+        u64::from_le_bytes(u64_array!(v, 16)),
+        u64::from_le_bytes(u64_array!(v, 24)),
+    ]
 }
 
 #[cfg(test)]

@@ -238,6 +238,12 @@ pub fn u256_to_fr(v: &U256) -> Fr {
     safe_scalar_montgomery(BigInteger256(u256_to_le_limbs(*v)))
 }
 
+pub fn fr_to_u256_le(fr: Fr) -> U256 {
+    let mut u256 = [0; 32];
+    Fr::serialize(fr, &mut u256);
+    u256
+}
+
 pub fn u256_to_big_uint(v: &U256) -> BigInteger256 {
     BigInteger256(u256_to_le_limbs(*v))
 }

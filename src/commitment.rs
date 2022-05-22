@@ -7,10 +7,12 @@ use crate::macros::elusiv_account;
 use crate::state::queue::BaseCommitmentHashRequest;
 use crate::types::U256;
 use crate::bytes::SerDe;
-use crate::macros::guard;
+use crate::macros::{guard, multi_instance_account};
 use crate::state::program_account::SizedAccount;
-
-pub const MAX_BASE_COMMITMENT_ACCOUNTS_COUNT: u64 = 1;
+use solana_program::program_error::ProgramError;
+use crate::fields::fr_to_u256_le;
+use ark_bn254::Fr;
+use ark_ff::{Zero, BigInteger256};
 
 /// Account used for computing `commitment = h(base_commitment, amount)`
 /// - https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/commitment.circom#L7
@@ -24,20 +26,30 @@ pub struct BaseCommitmentHashingAccount {
     fee_payer: U256,
 
     request: BaseCommitmentHashRequest,
+
+    state: [U256; 3],
 }
+
+// We allow multiple instances, since base_commitments can be computed in parallel
+multi_instance_account!(BaseCommitmentHashingAccount<'a>, 1);
 
 impl<'a> BaseCommitmentHashingAccount<'a> {
     pub fn reset(
         &mut self,
         request: BaseCommitmentHashRequest,
         fee_payer: U256,
-    ) -> Result<(), ElusivError> {
+    ) -> Result<(), ProgramError> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
 
         self.set_is_active(true);
         self.set_round(0);
         self.set_total_rounds(TOTAL_POSEIDON_ROUNDS as u64);
         self.set_fee_payer(fee_payer);
+
+        // Reset hashing state
+        self.set_state(0, fr_to_u256_le(Fr::zero()));
+        self.set_state(1, request.base_commitment);
+        self.set_state(2, fr_to_u256_le(Fr::from(BigInteger256::new([0, 0, 0, request.amount]))));
 
         self.set_request(request);
 
@@ -56,6 +68,8 @@ pub struct CommitmentHashingAccount {
     fee_payer: U256,
 
     commitment: U256,
+
+    state: [U256; 3],
 }
 
 impl<'a> CommitmentHashingAccount<'a> {
@@ -63,7 +77,7 @@ impl<'a> CommitmentHashingAccount<'a> {
         &mut self,
         commitment: U256,
         fee_payer: U256,
-    ) -> Result<(), ElusivError> {
+    ) -> Result<(), ProgramError> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
 
         self.set_is_active(true);

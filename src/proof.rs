@@ -10,7 +10,7 @@ use crate::macros::elusiv_account;
 use crate::state::queue::ProofRequest;
 use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof};
 use crate::fields::{G1A, G2A};
-use crate::macros::guard;
+use crate::macros::{guard, multi_instance_account};
 use crate::bytes::SerDe;
 use crate::error::ElusivError::AccountCannotBeReset;
 use crate::state::program_account::SizedAccount;
@@ -20,8 +20,6 @@ pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
 pub type RAMFq6<'a> = LazyRAM<'a, Fq6, 10>;
 pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 10>;
 pub type RAMG2A<'a> = LazyRAM<'a, G2A, 4>;
-
-pub const MAX_VERIFICATION_ACCOUNTS_COUNT: u64 = 1;
 
 /// Account used for verifying all kinds of Groth16 proofs over the span of multiple transactions
 #[elusiv_account(pda_seed = b"proof")]
@@ -62,6 +60,9 @@ pub struct VerificationAccount {
     // Request
     request: ProofRequest,
 }
+
+// We can allow multiple parallel proof verifications
+multi_instance_account!(VerificationAccount<'a>, 1);
 
 impl<'a> VerificationAccount<'a> {
     /// A VerificationAccount can be reset after a computation has been succesfully finished or has failed

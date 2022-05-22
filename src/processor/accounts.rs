@@ -6,10 +6,10 @@ use solana_program::{
     sysvar::Sysvar,
     rent::Rent,
 };
-use crate::state::{StorageAccount, pool::PoolAccount, reserve::ReserveAccount, program_account::{PDAAccount, SizedAccount, MultiAccountAccount, MAX_ACCOUNT_SIZE}};
+use crate::state::{StorageAccount, pool::PoolAccount, reserve::ReserveAccount, program_account::{PDAAccount, SizedAccount, MultiAccountAccount, MAX_ACCOUNT_SIZE, MultiInstanceAccount}};
 use crate::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount, SendProofQueueAccount, MergeProofQueueAccount, MigrateProofQueueAccount};
-use crate::proof::{VerificationAccount, MAX_VERIFICATION_ACCOUNTS_COUNT};
-use crate::commitment::{BaseCommitmentHashingAccount, MAX_BASE_COMMITMENT_ACCOUNTS_COUNT, CommitmentHashingAccount};
+use crate::proof::{VerificationAccount};
+use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::error::ElusivError::{InvalidAccountBalance, InvalidInstructionData};
 use crate::macros::guard;
 
@@ -96,7 +96,7 @@ pub fn open_proof_verification_account<'a>(
     system_program: &AccountInfo<'a>,
     verification_account_index: u64,
 ) -> ProgramResult {
-    guard!(verification_account_index < MAX_VERIFICATION_ACCOUNTS_COUNT, InvalidInstructionData);
+    guard!(verification_account_index < VerificationAccount::MAX_INSTANCES, InvalidInstructionData);
 
     panic!("TODO: Implement Intermediary account size");
 
@@ -116,7 +116,7 @@ pub fn open_base_commitment_hash_account<'a>(
     system_program: &AccountInfo<'a>,
     base_commitment_hash_account_index: u64,
 ) -> ProgramResult {
-    guard!(base_commitment_hash_account_index < MAX_BASE_COMMITMENT_ACCOUNTS_COUNT, InvalidInstructionData);
+    guard!(base_commitment_hash_account_index < BaseCommitmentHashingAccount::MAX_INSTANCES, InvalidInstructionData);
 
     create_pda_account::<BaseCommitmentHashingAccount>(
         reserve,

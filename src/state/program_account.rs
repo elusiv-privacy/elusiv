@@ -24,8 +24,20 @@ pub trait PDAAccount {
     }
 } 
 
-pub trait SizedAccount {
+pub trait SizedAccount: PDAAccount {
     const SIZE: usize;
+}
+
+/// Certain accounts, like the `VerificationAccount` can be instantiated multiple times.
+/// - this allows for parallel computations
+/// - we use this trait to verify that a certain PDA is valid, since we generate PDAs with their index as last seed element
+/// - so we can compare this index with `MAX_INSTANCES` to check validity
+pub trait MultiInstanceAccount: PDAAccount {
+    const MAX_INSTANCES: u64;
+
+    fn is_valid(&self, index: u64) -> bool {
+        index < Self::MAX_INSTANCES
+    }
 }
 
 pub const MAX_ACCOUNT_SIZE: usize = 10_000_000;

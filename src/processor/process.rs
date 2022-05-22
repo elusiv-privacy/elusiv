@@ -2,7 +2,7 @@ use ark_bn254::Fr;
 use ark_ff::Zero;
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::macros::guard;
-use crate::state::NullifierAccount;
+use crate::state::{NullifierAccount, StorageAccount, program_account::MultiInstanceAccount};
 use crate::state::queue::{
     RingQueue,
     ProofRequest,FinalizeSendRequest,
@@ -11,10 +11,18 @@ use crate::state::queue::{
     MigrateProofQueue,MigrateProofQueueAccount,
     FinalizeSendQueue,FinalizeSendQueueAccount,
     CommitmentQueue,CommitmentQueueAccount,
+    BaseCommitmentQueue,BaseCommitmentQueueAccount,
 };
-use crate::error::ElusivError::{InvalidAccount, ComputationIsNotYetFinished, InvalidProof, CannotFinalizeUnaryProof, CannotFinalizeBinaryProof, InvalidFeePayer};
+use crate::error::ElusivError::{
+    InvalidAccount,
+    ComputationIsNotYetFinished,
+    ComputationIsAlreadyFinished,
+    InvalidProof,
+    CannotFinalizeUnaryProof,
+    CannotFinalizeBinaryProof,
+    InvalidFeePayer,
+};
 use crate::proof::{
-    MAX_VERIFICATION_ACCOUNTS_COUNT,
     VerificationAccount,
     verifier::verify_partial,
     vkey::{
@@ -23,7 +31,13 @@ use crate::proof::{
         MigrateVerificationKey
     },
 };
+use crate::commitment::{
+    BaseCommitmentHashingAccount,
+    CommitmentHashingAccount,
+    poseidon_hash::{TOTAL_POSEIDON_ROUNDS, binary_poseidon_hash_partial},
+};
 use super::utils::send_from_pool;
+use crate::fields::{u256_to_fr, fr_to_u256_le};
 
 /// Dequeues a proof request and places it into a `VerificationAccount`
 macro_rules! init_proof {
@@ -33,7 +47,7 @@ macro_rules! init_proof {
             verification_account: &mut VerificationAccount,
             verification_account_index: u64,
         ) -> ProgramResult {
-            guard!(verification_account_index < MAX_VERIFICATION_ACCOUNTS_COUNT, InvalidAccount);
+            guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
             guard!(!verification_account.get_is_active(), ComputationIsNotYetFinished);
         
             let mut queue = <$queue_ty>::new(queue);
@@ -54,7 +68,7 @@ pub fn compute_proof(
     verification_account: &mut VerificationAccount,
     verification_account_index: u64,
 ) -> ProgramResult {
-    guard!(verification_account_index < MAX_VERIFICATION_ACCOUNTS_COUNT, InvalidAccount);
+    guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
     guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
 
     let request = verification_account.get_request();
@@ -104,7 +118,7 @@ pub fn finalize_proof_binary<'a>(
     verification_account_index: u64,
     tree_indices: [u64; 2], // indices of the two trees into which the nullifiers will be inserted
 ) -> ProgramResult {
-    guard!(verification_account_index < MAX_VERIFICATION_ACCOUNTS_COUNT, InvalidAccount);
+    guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
     guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(verification_account.get_is_verified(), InvalidProof);
 
@@ -161,7 +175,7 @@ pub fn finalize_proof_unary<'a>(
     verification_account_index: u64,
     tree_index: u64,
 ) -> ProgramResult {
-    guard!(verification_account_index < MAX_VERIFICATION_ACCOUNTS_COUNT, InvalidAccount);
+    guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
     guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(verification_account.get_is_verified(), InvalidProof);
 
@@ -182,6 +196,118 @@ pub fn finalize_proof_unary<'a>(
         },
         _ => return Err(CannotFinalizeBinaryProof.into()),
     }
+
+    Ok(())
+}
+
+/// Dequeues a base commitment hashing request and places it in the `BaseCommitmentHashingAccount`
+/// - this request will result in a single hash computation
+pub fn init_base_commitment_hash(
+    fee_payer: &AccountInfo,
+    queue: &mut BaseCommitmentQueueAccount,
+    hashing_account: &mut BaseCommitmentHashingAccount,
+    base_commitment_hash_account_index: u64,
+) -> ProgramResult {
+    guard!(hashing_account.is_valid(base_commitment_hash_account_index), InvalidAccount);
+    guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
+
+    let mut queue = BaseCommitmentQueue::new(queue);
+    let request = queue.dequeue_first()?;
+    hashing_account.reset(request, fee_payer.key.to_bytes())
+}
+
+pub fn compute_base_commitment_hash(
+    hashing_account: &mut BaseCommitmentHashingAccount,
+    base_commitment_hash_account_index: u64,
+) -> ProgramResult {
+    guard!(hashing_account.is_valid(base_commitment_hash_account_index), InvalidAccount);
+    guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
+
+    let round = hashing_account.get_round();
+
+    let mut state = [
+        u256_to_fr(&hashing_account.get_state(0)),
+        u256_to_fr(&hashing_account.get_state(1)),
+        u256_to_fr(&hashing_account.get_state(2)),
+    ];
+
+    if round < hashing_account.get_total_rounds() {
+        binary_poseidon_hash_partial(round.try_into().unwrap(), &mut state);
+    } else {
+        return Err(ComputationIsAlreadyFinished.into())
+    }
+
+    hashing_account.set_state(0, fr_to_u256_le(state[0]));
+    hashing_account.set_state(1, fr_to_u256_le(state[1]));
+    hashing_account.set_state(2, fr_to_u256_le(state[2]));
+
+    hashing_account.set_round(round + 1);
+
+    Ok(())
+}
+
+pub fn finalize_base_commitment_hash(
+    hashing_account: &mut BaseCommitmentHashingAccount,
+    commitment_hash_queue: &mut CommitmentQueueAccount,
+    base_commitment_hash_account_index: u64,
+) -> ProgramResult {
+    guard!(hashing_account.is_valid(base_commitment_hash_account_index), InvalidAccount);
+    guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
+    guard!(hashing_account.get_round() == hashing_account.get_total_rounds(), ComputationIsNotYetFinished);
+
+    let result = hashing_account.get_state(0);
+
+    // If the client sent a flawed commitment value, we will not insert the commitment
+    if hashing_account.get_request().commitment == result {
+        let mut queue = CommitmentQueue::new(commitment_hash_queue);
+        queue.enqueue(result)?;
+    }
+
+    hashing_account.set_is_active(false);
+
+    Ok(())
+}
+
+/// Dequeues a commitment hashing request and places it in the `CommitmentHashingAccount`
+/// - this request will result in a full merkle root hash computation
+pub fn init_commitment_hash(
+    fee_payer: &AccountInfo,
+    queue: &mut CommitmentQueueAccount,
+    hashing_account: &mut CommitmentHashingAccount,
+) -> ProgramResult {
+    guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
+
+    let mut queue = CommitmentQueue::new(queue);
+    let request = queue.dequeue_first()?;
+    hashing_account.reset(request, fee_payer.key.to_bytes())
+}
+
+pub fn compute_commitment_hash(
+    hashing_account: &mut CommitmentHashingAccount,
+) -> ProgramResult {
+    guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
+
+    let round = hashing_account.get_round();
+
+    // Compute all hashes
+
+    panic!("TODO");
+
+    hashing_account.set_round(round + 1);
+
+    Ok(())
+}
+
+pub fn finalize_commitment_hash(
+    hashing_account: &mut CommitmentHashingAccount,
+    storage_account: &mut StorageAccount,
+) -> ProgramResult {
+    guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
+    guard!(hashing_account.get_round() == hashing_account.get_total_rounds(), ComputationIsNotYetFinished);
+
+    // Insert hashes into the storage account
+
+    panic!("TODO");
 
     Ok(())
 }

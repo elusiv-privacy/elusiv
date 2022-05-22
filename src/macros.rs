@@ -16,5 +16,23 @@ macro_rules! max {
     ($x: expr, $($z: expr),+) => { if $x < max!($($z),*) { max!($($z),*) } else { $x } };
 }
 
+macro_rules! pda_account {
+    ($ty: ty, $seed: expr) => {
+        impl crate::state::program_account::PDAAccount for $ty {
+            const SEED: &'static [u8] = $seed;
+        } 
+    };
+}
+
+macro_rules! multi_instance_account {
+    ($ty: ty, $max_instances: literal) => {
+        impl<'a> crate::state::program_account::MultiInstanceAccount for $ty {
+            const MAX_INSTANCES: u64 = $max_instances;
+        }
+    };
+}
+
 pub(crate) use guard;
 pub(crate) use max;
+pub(crate) use pda_account;
+pub(crate) use multi_instance_account;
