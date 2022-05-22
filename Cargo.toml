@@ -2,16 +2,22 @@
 name = "elusiv"
 version = "0.1.0"
 edition = "2021"
+publish = false
+
+[workspace]
+members = [
+  ".",
+  "elusiv-macros",
+  "elusiv-interpreter",
+]
 
 [features]
 # Adds the functions `instruction_name(..) -> solana_program::instruction::Instruction` to `ElusivInstruction`
 instruction-abi = []
-# Switches to a compute units per tx model
-tx-wide-compute-cap = []
 
 [dependencies]
-elusiv-macros = { path = "elusiv-macros" }
-elusiv-interpreter = { path = "elusiv-interpreter" }
+elusiv-interpreter = { path = "./elusiv-interpreter" }
+elusiv-macros = { path = "./elusiv-macros" }
 
 solana-program = "1.9.5"
 ark-bn254 = "0.3.0"
@@ -19,7 +25,7 @@ ark-ff = "0.3.0"
 ark-ec = "0.3.0"
 
 [dev-dependencies]
-elusiv = { path = ".", features = ["instruction-abi"] }
+#elusiv = { path = ".", features = ["instruction-abi"] }
 assert_matches = "1.5.0"
 solana-program-test = "1.9.5"
 solana-sdk = "1.9.5"

@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 
 pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
     let mut matches = quote!{};
-    let mut functions = quote!{};
+    //let mut functions = quote!{};
 
     match &ast.data {
         syn::Data::Enum(e) => {
@@ -18,16 +18,16 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let mut signature = quote!{};
 
                 // Instruction creation
-                let mut fields_with_type = quote!{};
-                let mut user_accounts = quote!{};
-                let mut instruction_accounts = quote!{};
+                //let mut fields_with_type = quote!{};
+                //let mut user_accounts = quote!{};
+                //let mut instruction_accounts = quote!{};
 
                 for field in var.fields {
                     let field_name = field.ident.clone().unwrap();
-                    let ty = field.ty;
+                    //let ty = field.ty;
 
                     fields.extend(quote! { #field_name, });
-                    fields_with_type.extend(quote! { #field_name: #ty, });
+                    //fields_with_type.extend(quote! { #field_name: #ty, });
                 }
 
                 // Account attributes
@@ -53,7 +53,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     let is_signer = matches!(sub_attrs_ignore_braces.iter().find(|&x| *x == "signer"), Some(_));
                     if is_signer {
                         accounts.extend(quote!{
-                            guard!(#account.is_signer, InvalidAccount);
+                            if !#account.is_signer { return Err(InvalidArgument) }
                         });
                     }
 
@@ -61,7 +61,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     let is_writable= matches!(sub_attrs_ignore_braces.iter().find(|&x| *x == "writable"), Some(_));
                     if is_writable {
                         accounts.extend(quote!{
-                            guard!(#account.is_writable, InvalidAccount);
+                            if !#account.is_writable { return Err(InvalidArgument) }
                         });
                     }
 
@@ -71,7 +71,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     match attr_name.as_str() {
                         // User `AccountInfo` (usage: <name>)
                         "usr" => {
-                            if is_signer {
+                            /*if is_signer {
                                 if is_writable {
                                     user_accounts.extend(quote!{ #account: SignerAccount, });
                                 } else {
@@ -83,10 +83,16 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 } else {
                                     user_accounts.extend(quote!{ #account: UserAccount, });
                                 }
-                            }
+                            }*/
 
                             account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
+                            });
+                        },
+
+                        "prg" => {
+                            accounts.extend(quote!{
+                                if #account.owner != program_id { return Err(InvalidArgument) }
                             });
                         },
 
@@ -96,7 +102,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             let key: TokenStream = named_sub_attribute("key", sub_attrs[1]).parse().unwrap();
 
                             accounts.extend(quote!{
-                                guard!(#key == *#account.key, InvalidAccount);
+                                if #key != *#account.key{ return Err(InvalidArgument) };
                             });
 
                             account_init.push(quote!{
@@ -133,8 +139,8 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                             // PDA and ownership verification
                             accounts.extend(quote!{
-                                guard!(<#ty>::is_valid_pubkey(&[#pda_offset], #account.key), InvalidAccount);
-                                guard!(#account.owner == program_id, InvalidAccount);
+                                if !<#ty>::is_valid_pubkey(&[#pda_offset], #account.key) { return Err(InvalidArgument) }
+                                if #account.owner != program_id { return Err(InvalidArgument) }
                             });
 
                             account_init.push(quote!{
@@ -142,7 +148,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             });
 
                             if multi_account {
-                                let write_check = if is_writable { quote!{ guard!(sub_account.is_writable, InvalidAccount); } } else { quote!{} };
+                                let write_check = if is_writable { quote!{ if !sub_account.is_writable { return Err(InvalidArgument) } } } else { quote!{} };
 
                                 // Sub-accounts with PDA and ownership check for each
                                 accounts.extend(quote!{
@@ -150,12 +156,15 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     let mut accounts = Vec::new();
                                     for i in 0..#ty::COUNT {
                                         let sub_account = solana_program::account_info::next_account_info(account_info_iter)?;    
-                                        guard!(<#ty>::is_valid_pubkey(&[#pda_offset, i as u64], sub_account.key), InvalidAccount);
-                                        guard!(sub_account.owner == program_id, InvalidAccount);
+
+                                        if !<#ty>::is_valid_pubkey(&[#pda_offset, i as u64], sub_account.key) { return Err(InvalidArgument) }
+                                        if sub_account.owner != program_id { return Err(InvalidArgument) }
+
                                         #write_check
                                         accounts.push(sub_account);
                                     }
-                                    guard!(#ty::COUNT == accounts.len(), InvalidAccount);
+
+                                    if #ty::COUNT == accounts.len() { return Err(InvalidArgument) }
                                 });
 
                                 account_init.push(quote!{
@@ -209,7 +218,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     signature.extend(quote!{ #account, });
 
                     // Add account init
-                    instruction_accounts.extend(account_init.iter().fold(quote!{}, |acc, x| quote!{ #acc #x }));
+                    //instruction_accounts.extend(account_init.iter().fold(quote!{}, |acc, x| quote!{ #acc #x }));
                 }
 
                 matches.extend(quote! {
@@ -219,7 +228,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     },
                 });
 
-                functions.extend(quote!{
+                /*functions.extend(quote!{
                     pub fn #fn_name(#fields_with_type #user_accounts) -> solana_program::instruction::Instruction {
                         let mut accounts = Vec::new();
 
@@ -233,29 +242,23 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             accounts,
                         )
                     }
-                });
+                });*/
             }
         },
         _ => {}
     }
 
     quote! {
-        // Program entrypoint and instruction matching
-        solana_program::entrypoint!(process_instruction);
-        pub fn process_instruction(program_id: &solana_program::pubkey::Pubkey, accounts: &[solana_program::account_info::AccountInfo], instruction_data: &[u8]) -> solana_program::entrypoint::ProgramResult {
-            use solana_program::program_error::ProgramError::InvalidInstructionData;
-
-            let mut data = &mut &instruction_data;
-            let instruction = ElusivInstruction::deserialize(data);
+        pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], instruction: ElusivInstruction) -> ProgramResult {
             let account_info_iter = &mut accounts.iter();
             
             match instruction {
                 #matches
-                _ => { Err(InvalidInstructionData.into()) }
+                _ => { Err(InvalidInstructionData) }
             }
-        }
+        }        
 
-        #[cfg(feature = "instruction-abi")]
+        /*#[cfg(feature = "instruction-abi")]
         impl ElusivInstruction {
             #functions
         }
@@ -270,7 +273,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
         pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
 
         #[cfg(feature = "instruction-abi")]
-        pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
+        pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);*/
     }
 }
 

@@ -5,7 +5,7 @@ use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty};
 use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
-use crate::types::{U256, PublicInputs, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, RawProof};
+use crate::types::{U256, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, RawProof, PublicInputs};
 use super::program_account::SizedAccount;
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
@@ -94,25 +94,25 @@ impl ProofRequest {
 
 #[derive(SerDe, PartialEq)]
 pub struct SendProofRequest {
+    pub proof: RawProof,
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: SendPublicInputs,
-    pub is_active: bool,
     pub fee_payer: U256,
 }
 
 #[derive(SerDe, PartialEq)]
 pub struct MergeProofRequest {
+    pub proof: RawProof,
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: MergePublicInputs,
-    pub is_active: bool,
     pub fee_payer: U256,
 }
 
 #[derive(SerDe, PartialEq)]
 pub struct MigrateProofRequest {
+    pub proof: RawProof,
     pub proof_data: JoinSplitProofData<1>,
     pub public_inputs: MigratePublicInputs,
-    pub is_active: bool,
     pub fee_payer: U256,
 }
 

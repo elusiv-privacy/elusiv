@@ -7,18 +7,20 @@ use solana_program::{
 };
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount};
+use crate::state::program_account::PDAAccount;
 use crate::types::{JoinSplitPublicInputs, JoinSplitProofData};
 use super::utils::{send_with_system_program, send_from_pool};
 use crate::state::queue::{
     RingQueue,
     BaseCommitmentQueue,BaseCommitmentQueueAccount,BaseCommitmentHashRequest,
-    SendProofQueue,SendProofQueueAccount,SendProofRequest,
-    MergeProofQueue,MergeProofQueueAccount,MergeProofRequest,
-    MigrateProofQueue,MigrateProofQueueAccount,MigrateProofRequest,
-    FinalizeSendQueue,FinalizeSendQueueAccount,
+    SendProofQueue,SendProofQueueAccount,
+    MergeProofQueue,MergeProofQueueAccount,
+    MigrateProofQueue,MigrateProofQueueAccount,
+    FinalizeSendQueue,FinalizeSendQueueAccount, ProofRequest,
 };
 use crate::error::ElusivError::{
     InvalidAmount,
+    InvalidAccount,
     InvalidInstructionData,
     CommitmentAlreadyExists,
     InvalidFeePayer,
@@ -67,104 +69,96 @@ pub fn store<'a>(
 const TIMESTAMP_BITS_PRUNING: usize = 5;
 
 /// Enqueues a send proof and takes the computation fee from the relayer
-pub fn send<'a, 'b, 'c, 'd>(
+pub fn request_proof_verification<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'c>,
     pool: &AccountInfo<'c>,
     system_program: &AccountInfo<'c>,
     storage_account: &StorageAccount,
     nullifier_account0: &NullifierAccount<'a, 'b, 'd>,
     nullifier_account1: &NullifierAccount<'a, 'b, 'd>,
-    queue: &mut SendProofQueueAccount,
+    queue: &AccountInfo,
 
-    request: SendProofRequest,
+    request: ProofRequest,
+    tree_indices: [u64; 2],
 ) -> ProgramResult {
-    let mut queue = SendProofQueue::new(queue);
+    let mut queue_data = &mut queue.data.borrow_mut()[..];
 
-    // Verify public inputs
-    check_join_split_public_inputs(
-        &request.public_inputs.join_split,
-        &request.proof_data,
-        &storage_account,
-        [&nullifier_account0, &nullifier_account1],
-    )?;
-    guard!(request.fee_payer == fee_payer.key.to_bytes(), InvalidFeePayer);
+    match request {
+        ProofRequest::Send { request } => {
+            guard!(SendProofQueueAccount::is_valid_pubkey(&vec![0], queue.key), InvalidAccount);
+            let mut queue = SendProofQueueAccount::new(&mut queue_data)?;
+            let mut queue = SendProofQueue::new(&mut queue);
 
-    // Time stamp verification (we prune the last byte)
-    let clock = Clock::get()?;
-    let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();
-    let timestamp = request.public_inputs.timestamp >> TIMESTAMP_BITS_PRUNING;
-    guard!(timestamp == current_timestamp >> TIMESTAMP_BITS_PRUNING, InvalidTimestamp);
+            // Verify public inputs
+            check_join_split_public_inputs(
+                &request.public_inputs.join_split,
+                &request.proof_data,
+                &storage_account,
+                [&nullifier_account0, &nullifier_account1],
+            )?;
+            guard!(tree_indices[0] == request.proof_data.tree_indices[0] && tree_indices[0] == request.proof_data.tree_indices[0], InvalidInstructionData);
+            guard!(request.fee_payer == fee_payer.key.to_bytes(), InvalidFeePayer);
 
-    // Transfer funds + fees
-    let fee = 0;
-    send_with_system_program(fee_payer, pool, system_program, fee)?;
+            // Time stamp verification (we prune the last byte)
+            let clock = Clock::get()?;
+            let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();
+            let timestamp = request.public_inputs.timestamp >> TIMESTAMP_BITS_PRUNING;
+            guard!(timestamp == current_timestamp >> TIMESTAMP_BITS_PRUNING, InvalidTimestamp);
 
-    // Enqueue request
-    guard!(!request.is_active, InvalidInstructionData);
-    queue.enqueue(request)
-}
+            // Transfer funds + fees
+            let fee = 0;
+            send_with_system_program(fee_payer, pool, system_program, fee)?;
 
-/// Enqueues a merge proof and takes the computation fee from the relayer
-pub fn merge<'a, 'b, 'c, 'd>(
-    fee_payer: &AccountInfo<'c>,
-    pool: &AccountInfo<'c>,
-    system_program: &AccountInfo<'c>,
-    storage_account: &StorageAccount,
-    nullifier_account0: &NullifierAccount<'a, 'b, 'd>,
-    nullifier_account1: &NullifierAccount<'a, 'b, 'd>,
-    queue: &mut MergeProofQueueAccount,
+            // Enqueue request
+            queue.enqueue(request)
+        },
 
-    request: MergeProofRequest,
-) -> ProgramResult {
-    let mut queue = MergeProofQueue::new(queue);
+        ProofRequest::Merge { request } => {
+            guard!(MergeProofQueueAccount::is_valid_pubkey(&vec![0], queue.key), InvalidAccount);
+            let mut queue = MergeProofQueueAccount::new(&mut queue_data)?;
+            let mut queue = MergeProofQueue::new(&mut queue);
 
-    // Verify public inputs
-    check_join_split_public_inputs(
-        &request.public_inputs.join_split,
-        &request.proof_data,
-        &storage_account,
-        [&nullifier_account0, &nullifier_account1],
-    )?;
-    guard!(request.fee_payer == fee_payer.key.to_bytes(), InvalidFeePayer);
+            // Verify public inputs
+            check_join_split_public_inputs(
+                &request.public_inputs.join_split,
+                &request.proof_data,
+                &storage_account,
+                [&nullifier_account0, &nullifier_account1],
+            )?;
+            guard!(tree_indices[0] == request.proof_data.tree_indices[0] && tree_indices[0] == request.proof_data.tree_indices[0], InvalidInstructionData);
+            guard!(request.fee_payer == fee_payer.key.to_bytes(), InvalidFeePayer);
 
-    // Transfer funds + fees
-    let fee = 0;
-    send_with_system_program(fee_payer, pool, system_program, fee)?;
+            // Transfer funds + fees
+            let fee = 0;
+            send_with_system_program(fee_payer, pool, system_program, fee)?;
 
-    // Enqueue request
-    guard!(!request.is_active, InvalidInstructionData);
-    queue.enqueue(request)
-}
+            // Enqueue request
+            queue.enqueue(request)
+        },
 
-/// Enqueues a migrate proof and takes the computation fee from the relayer
-pub fn migrate<'a, 'b, 'c, 'd>(
-    fee_payer: &AccountInfo<'c>,
-    pool: &AccountInfo<'c>,
-    system_program: &AccountInfo<'c>,
-    storage_account: &StorageAccount,
-    nullifier_account: &NullifierAccount<'a, 'b, 'd>,
-    queue: &mut MigrateProofQueueAccount,
+        ProofRequest::Migrate { request } => {
+            guard!(MigrateProofQueueAccount::is_valid_pubkey(&vec![0], queue.key), InvalidAccount);
+            let mut queue = MigrateProofQueueAccount::new(&mut queue_data)?;
+            let mut queue = MigrateProofQueue::new(&mut queue);
 
-    request: MigrateProofRequest,
-) -> ProgramResult {
-    let mut queue = MigrateProofQueue::new(queue);
+            // Verify public inputs
+            check_join_split_public_inputs(
+                &request.public_inputs.join_split,
+                &request.proof_data,
+                &storage_account,
+                [&nullifier_account0],
+            )?;
+            guard!(tree_indices[0] == request.proof_data.tree_indices[0], InvalidInstructionData);
+            guard!(request.fee_payer == fee_payer.key.to_bytes(), InvalidFeePayer);
 
-    // Verify public inputs
-    check_join_split_public_inputs(
-        &request.public_inputs.join_split,
-        &request.proof_data,
-        &storage_account,
-        [&nullifier_account],
-    )?;
-    guard!(request.fee_payer == fee_payer.key.to_bytes(), InvalidFeePayer);
+            // Transfer funds + fees
+            let fee = 0;
+            send_with_system_program(fee_payer, pool, system_program, fee)?;
 
-    // Transfer funds + fees
-    let fee = 0;
-    send_with_system_program(fee_payer, pool, system_program, fee)?;
-
-    // Enqueue request
-    guard!(!request.is_active, InvalidInstructionData);
-    queue.enqueue(request)
+            // Enqueue request
+            queue.enqueue(request)
+        }
+    }
 }
 
 /// Transfers the funds of a send request to a recipient

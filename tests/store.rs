@@ -1,7 +1,7 @@
 mod common;
 use common::*;
 
-use assert_matches::*;
+/*use assert_matches::*;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program_test::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
@@ -46,4 +46,4 @@ async fn test_fail() {
     );
     transaction.sign(&[&payer], recent_blockhash);
     assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
-}
+}*/

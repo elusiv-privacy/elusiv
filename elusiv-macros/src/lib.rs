@@ -20,7 +20,7 @@ pub fn elusiv_account(args: proc_macro::TokenStream, input: proc_macro::TokenStr
 }
 
 /// Instructions account parsing, entrypoint creation
-#[proc_macro_derive(ElusivInstruction, attributes(usr, sys, pda))]
+#[proc_macro_derive(ElusivInstruction, attributes(usr, sys, pda, prg))]
 pub fn elusiv_instruction(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     impl_elusiv_instruction(&ast).into()

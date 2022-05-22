@@ -27,6 +27,13 @@ pub struct Proof {
     pub c: G1A,
 }
 
+#[derive(SerDe, PartialEq)]
+pub enum ProofKind {
+    Send,
+    Merge,
+    Migrate,
+}
+
 /// Minimum data (without public inputs) required for our n-ary join-split based proofs
 #[derive(SerDe, PartialEq)]
 pub struct JoinSplitProofData<const N: usize> {

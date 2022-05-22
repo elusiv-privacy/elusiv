@@ -3,6 +3,7 @@ use ark_ff::Zero;
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount, program_account::MultiInstanceAccount};
+use crate::state::program_account::PDAAccount;
 use crate::state::queue::{
     RingQueue,
     ProofRequest,FinalizeSendRequest,
@@ -15,6 +16,7 @@ use crate::state::queue::{
 };
 use crate::error::ElusivError::{
     InvalidAccount,
+    InvalidInstructionData,
     ComputationIsNotYetFinished,
     ComputationIsAlreadyFinished,
     InvalidProof,
@@ -36,32 +38,46 @@ use crate::commitment::{
     CommitmentHashingAccount,
     poseidon_hash::{TOTAL_POSEIDON_ROUNDS, binary_poseidon_hash_partial},
 };
+use crate::types::ProofKind;
 use super::utils::send_from_pool;
 use crate::fields::{u256_to_fr, fr_to_u256_le};
 
 /// Dequeues a proof request and places it into a `VerificationAccount`
 macro_rules! init_proof {
-    ($fn_name: ident, $req: ident, $queue_ty: ty, $queue_account_ty: ty, $vkey: ty) => {
-        pub fn $fn_name<'a>(
-            queue: &mut $queue_account_ty,
-            verification_account: &mut VerificationAccount,
-            verification_account_index: u64,
-        ) -> ProgramResult {
-            guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
-            guard!(!verification_account.get_is_active(), ComputationIsNotYetFinished);
-        
-            let mut queue = <$queue_ty>::new(queue);
+    ($queue_account_ty: ty, $queue_ty: ty, $queue: ident, $verification_account: ident, $kind: ident, $vkey: ty) => {
+        {
+            guard!(<$queue_account_ty>::is_valid_pubkey(&vec![0], $queue.key), InvalidAccount);
+            let mut queue_data = &mut $queue.data.borrow_mut()[..];
+            let mut queue = <$queue_account_ty>::new(&mut queue_data)?;
+            let mut queue = <$queue_ty>::new(&mut queue);
             let request = queue.dequeue_first()?;
-            verification_account.reset::<$vkey>(ProofRequest::$req { request })?;
-        
-            Ok(())
+            $verification_account.reset::<$vkey>(ProofRequest::$kind { request })
         }
     };
 }
 
-init_proof!(init_send_proof, Send, SendProofQueue, SendProofQueueAccount, SendVerificationKey);
-init_proof!(init_merge_proof, Merge, MergeProofQueue, MergeProofQueueAccount, MergeVerificationKey);
-init_proof!(init_migrate_proof, Migrate, MigrateProofQueue, MigrateProofQueueAccount, MigrateVerificationKey);
+pub fn init_proof(
+    queue: &AccountInfo,
+    verification_account: &mut VerificationAccount,
+
+    kind: ProofKind,
+    verification_account_index: u64,
+) -> ProgramResult {
+    guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
+    guard!(!verification_account.get_is_active(), ComputationIsNotYetFinished);
+
+    match kind {
+        ProofKind::Send => {
+            init_proof!(MergeProofQueueAccount, MergeProofQueue, queue, verification_account, Merge, MergeVerificationKey)
+        },
+        ProofKind::Merge => {
+            init_proof!(MergeProofQueueAccount, MergeProofQueue, queue, verification_account, Merge, MergeVerificationKey)
+        },
+        ProofKind::Migrate => {
+            init_proof!(MigrateProofQueueAccount, MigrateProofQueue, queue, verification_account, Migrate, MigrateVerificationKey)
+        }
+    }.or(Err(InvalidInstructionData.into()))
+}
 
 /// Partial proof verification computation
 pub fn compute_proof(
@@ -107,7 +123,8 @@ pub fn compute_proof(
 /// - `original_fee_payer` is the fee payer that payed the computation fee upfront
 /// - for Send: enqueue a `FinalizeSendRequest`, enqueue commitment, save nullifier-hashes
 /// - for Merge: enqueue commitment, save nullifier-hashes
-pub fn finalize_proof_binary<'a>(
+/// - for Migrate: enqueue commitment, update NSMT-root
+pub fn finalize_proof<'a>(
     original_fee_payer: &AccountInfo<'a>,
     pool: &AccountInfo<'a>,
     verification_account: &mut VerificationAccount,
@@ -115,8 +132,9 @@ pub fn finalize_proof_binary<'a>(
     finalize_send_queue: &mut FinalizeSendQueueAccount,
     nullifier_account0: &mut NullifierAccount,
     nullifier_account1: &mut NullifierAccount,
+
     verification_account_index: u64,
-    tree_indices: [u64; 2], // indices of the two trees into which the nullifiers will be inserted
+    tree_indices: [u64; 2],
 ) -> ProgramResult {
     guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
     guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
@@ -144,6 +162,7 @@ pub fn finalize_proof_binary<'a>(
             guard!(original_fee_payer.key.to_bytes() == request.fee_payer, InvalidFeePayer);
             send_from_pool(pool, original_fee_payer, 0)?;
         },
+
         ProofRequest::Merge { request } => {
             // Check for correct trees and insert nullifiers
             guard!(tree_indices[0] == request.proof_data.tree_indices[0], InvalidAccount);
@@ -158,34 +177,11 @@ pub fn finalize_proof_binary<'a>(
             guard!(original_fee_payer.key.to_bytes() == request.fee_payer, InvalidFeePayer);
             send_from_pool(pool, original_fee_payer, 0)?;
         },
-        _ => return Err(CannotFinalizeUnaryProof.into()),
-    }
 
-    Ok(())
-}
-
-// Finalizes proofs of arity one
-// - for Migrate: enqueue commitment, save nullifier-hash
-pub fn finalize_proof_unary<'a>(
-    original_fee_payer: &AccountInfo<'a>,
-    pool: &AccountInfo<'a>,
-    verification_account: &mut VerificationAccount,
-    commitment_hash_queue: &mut CommitmentQueueAccount,
-    nullifier_account: &mut NullifierAccount,
-    verification_account_index: u64,
-    tree_index: u64,
-) -> ProgramResult {
-    guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
-    guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
-    guard!(verification_account.get_is_verified(), InvalidProof);
-
-    let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
-
-    match verification_account.get_request() {
         ProofRequest::Migrate { request } => {
             // Check for correct tree and insert nullifier
-            guard!(tree_index == request.proof_data.tree_indices[0], InvalidAccount);
-            nullifier_account.insert_nullifier_hash(request.public_inputs.join_split.nullifier_hashes[0])?;
+            guard!(tree_indices[0] == request.proof_data.tree_indices[0], InvalidAccount);
+            nullifier_account0.insert_nullifier_hash(request.public_inputs.join_split.nullifier_hashes[0])?;
 
             // Enqueue commitment
             commitment_queue.enqueue(request.public_inputs.join_split.commitment)?;
@@ -193,8 +189,9 @@ pub fn finalize_proof_unary<'a>(
             // Repay fee_payer
             guard!(original_fee_payer.key.to_bytes() == request.fee_payer, InvalidFeePayer);
             send_from_pool(pool, original_fee_payer, 0)?;
-        },
-        _ => return Err(CannotFinalizeBinaryProof.into()),
+
+            panic!("NSTM not implemented")
+        }
     }
 
     Ok(())
@@ -202,6 +199,7 @@ pub fn finalize_proof_unary<'a>(
 
 /// Dequeues a base commitment hashing request and places it in the `BaseCommitmentHashingAccount`
 /// - this request will result in a single hash computation
+/// - computation: `commitment = h(base_commitment, amount)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
 pub fn init_base_commitment_hash(
     fee_payer: &AccountInfo,
     queue: &mut BaseCommitmentQueueAccount,
@@ -284,6 +282,7 @@ pub fn init_commitment_hash(
 
 pub fn compute_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
+    storage_account: &StorageAccount,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
 

@@ -27,7 +27,8 @@ pub struct ArchivedTreeAccount {
 
 impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
     pub fn can_insert_nullifier_hash(&self, _nullifier: U256) -> bool {
-        self.get_nullifiers_count() < NULLIFIERS_COUNT as u64// && not_contains(nullifier, self.get_full_array()), NoRoomForNullifier);
+        //self.get_nullifiers_count() < NULLIFIERS_COUNT as u64// && not_contains(nullifier, self.get_full_array()), NoRoomForNullifier);
+        panic!("TODO: add BTree Map");
     }
 
     pub fn insert_nullifier_hash(&mut self, _nullifier: U256) -> ProgramResult {
@@ -36,6 +37,8 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
 
         //self.set(ptr as usize, nullifier);
         self.set_nullifiers_count(count + 1);
+
+        panic!("TODO: add BTree Map and insert nullifier");
 
         Ok(())
     }

@@ -14,3 +14,10 @@
 
 # Elusiv
 Scaling privacy with compliance in mind for the [Solana](https://github.com/solana-labs/solana) blockchain.
+
+## In progress
+- [ ] switching to tx wide compute cap (and adding proc-macro based compute units/fee-calculator)
+- [ ] multi-account BTreeMap storage for nullifiers
+- [ ] adding long-time nullifier-sparse-merkle-tree-storage
+- [ ] readding unit tests and integration tests
+- [ ] commitment-hash batching
