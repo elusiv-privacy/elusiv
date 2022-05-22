@@ -1,250 +1,166 @@
-use solana_program::{
-    program_error::{
-        ProgramError,
-        ProgramError::InvalidArgument,
-    }, pubkey::Pubkey,
+use super::bytes::SerDe;
+use crate::macros::*;
+use super::processor::*;
+use super::state::queue::{
+    BaseCommitmentQueueAccount,
+    CommitmentQueueAccount,
+    BaseCommitmentHashRequest,
+    SendProofQueueAccount, SendProofRequest,
+    MergeProofQueueAccount, MergeProofRequest,
+    MigrateProofQueueAccount, MigrateProofRequest,
+    FinalizeSendQueueAccount,
 };
-use std::convert::TryInto;
-use super::fields::{ utils::*, scalar::* };
-use super::groth16::PROOF_BYTES_SIZE;
+use super::state::{
+    program_account::{PDAAccount,MultiAccountAccount},
+    pool::PoolAccount,
+    reserve::ReserveAccount,
+    StorageAccount,
+    NullifierAccount,
+};
+use crate::proof::VerificationAccount;
+use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
+use crate::error::ElusivError::InvalidAccount;
+use solana_program::system_program;
 
-pub const PUBLIC_INPUTS_COUNT: usize = 2;
+#[cfg(feature = "instruction-abi")]
+use solana_program::instruction::AccountMeta;
 
-pub const INIT_DEPOSIT: u8 = 0;
-pub const COMPUTE_DEPOSIT: u8 = 1;
-pub const FINISH_DEPOSIT: u8 = 2;
-pub const INIT_WITHDRAW: u8 = 3;
-pub const COMPUTE_WITHDRAW: u8 = 4;
-pub const FINISH_WITHDRAW: u8 = 5;
-
+#[derive(SerDe, ElusivInstruction)]
 pub enum ElusivInstruction {
-    /// Initialize deposit, store amount and start hashing
-    /// 
-    /// Accounts expected:
-    /// 0. [signer, writable] Depositor account
-    /// 1. [owned, writable] Program account
-    /// 2. [owned, writable] Deposit account
-    InitDeposit {
-        /// Deposit amount in Lamports
-        amount: u64,
-
-        /// Poseidon Commitment
-        /// - in Montgomery form
-        commitment: ScalarLimbs,
+    // Client sends base commitment and amount to be stored in the Elusiv program
+    #[usr(sender, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    #[pda(queue, BaseCommitmentQueue, [ writable ])]
+    Store {
+        base_commitment_request: BaseCommitmentHashRequest,
     },
 
-    /// Compute the Merkle tree hashes
-    /// 
-    /// Accounts expected:
-    /// 0. [owned, writable] Deposit account
-    ComputeDeposit,
-
-    /// Finish the hash computation and deposit SOL
-    /// 
-    /// Accounts expected:
-    /// 0. [signer, writable] Depositor account
-    /// 1. [owned, writable] Program account
-    /// 2. [owned, writable] Deposit account
-    /// 2. [static] System program
-    FinishDeposit,
-
-    /// Withdraw SOL
-    /// 
-    /// Accounts expected:
-    /// 0. [owned, writable] Program account
-    /// 1. [owned, writable] Withdraw account
-    InitWithdraw {
-        /// Pubkey
-        recipient: Pubkey,
-
-        /// Withdrawal amount in Lamports
-        amount: u64,
-
-        /// Public inputs (in LE repr form)
-        /// - root
-        /// - nullifier_hash
-        /// 
-        /// Soon also:
-        /// - amount
-        /// - recipient
-        /// - token id
-        public_inputs: [[u8; 32]; PUBLIC_INPUTS_COUNT],
-
-        /// Groth16 proof
-        /// 
-        /// - g1/g2 affines (client uses projectives, relayer performs conversion)
-        /// - in Montgomery form
-        /// Consists of:
-        /// - A: 2 * 32 bytes + infinity byte
-        /// - B: 2 * (2 * 32 bytes) + infinity byte
-        /// - C: 2 * 32 bytes + infinity byte
-        proof: [u8; PROOF_BYTES_SIZE],
+    // Binary send proof request
+    #[usr(fee_payer, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    #[pda(storage_account, Storage, multi_accounts)]
+    #[pda(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0], [ multi_accounts ])]
+    #[pda(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1], [ multi_accounts ])]
+    #[pda(queue, SendProofQueue, [ writable ])]
+    Send {
+        proof_request: SendProofRequest,
     },
 
-    /// Groth16 verification computation
-    /// 
-    /// Accounts expected:
-    /// 0. [owned, writable] Withdraw account
-    VerifyWithdraw,
+    // Binary merge proof request
+    #[usr(fee_payer, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    #[pda(storage_account, Storage, multi_accounts)]
+    #[pda(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0], [ multi_accounts ])]
+    #[pda(nullifier_account1, Nullifier, pda_offset = proof_request.proof_data.tree_indices[1], [ multi_accounts ])]
+    #[pda(queue, MergeProofQueue, [ writable ])]
+    Merge {
+        proof_request: MergeProofRequest,
+    },
 
-    /// Transfers the funds to the recipient
-    /// 
-    /// Accounts expected:
-    /// 0. [signer, writable] Relayer
-    /// 1. [owned, writable] Program account
-    /// 2. [owned, writable] Withdraw account
-    /// 3. [writable] Recipient account
-    FinishWithdraw,
-}
+    // Unary migrate proof request
+    #[usr(fee_payer, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    #[pda(storage_account, Storage, multi_accounts)]
+    #[pda(nullifier_account0, Nullifier, pda_offset = proof_request.proof_data.tree_indices[0], [ multi_accounts ])]
+    #[pda(queue, MigrateProofQueue, [ writable ])]
+    Migrate {
+        proof_request: MigrateProofRequest,
+    },
 
-impl ElusivInstruction {
-    pub fn unpack(data: &[u8]) -> Result<Self, ProgramError> {
-        let (&tag, rest) = data
-            .split_first()
-            .ok_or(ProgramError::InvalidInstructionData)?;
+    // Funds are transferred to the recipient
+    #[usr(recipient, [ writable ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[pda(queue, FinalizeSendQueue, [ writable ])]
+    FinalizeSend,
 
-        match tag {
-            INIT_DEPOSIT => Self::unpack_deposit(&rest),
-            COMPUTE_DEPOSIT => Ok(Self::ComputeDeposit),
-            FINISH_DEPOSIT => Ok(Self::FinishDeposit),
+    // Proof initialization
+    #[pda(queue, SendProofQueue, [ writable ])]
+    #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable ])]
+    InitSendProof { verification_account_index: u64 },
 
-            INIT_WITHDRAW => Self::unpack_init_withdraw(&rest),
-            COMPUTE_WITHDRAW => Ok(Self::VerifyWithdraw),
-            FINISH_WITHDRAW => Ok(Self::FinishWithdraw),
+    #[pda(queue, MergeProofQueue, [ writable ])]
+    #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable ])]
+    InitMergeProof { verification_account_index: u64 },
 
-            _ => Err(InvalidArgument)
-        }
-    }
+    #[pda(queue, MigrateProofQueue, [ writable ])]
+    #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable ])]
+    InitMigrateProof { verification_account_index: u64 },
 
-    fn unpack_deposit(data: &[u8]) -> Result<Self, ProgramError> {
-        // Unpack deposit amount
-        let (amount, data) = unpack_u64(&data)?;
-        
-        // Unpack commitment
-        let (bytes, _) = unpack_32_bytes(data)?;
-        let commitment = bytes_to_limbs(bytes);
+    // Proof verification computation
+    #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable ])]
+    ComputeProof { verification_account_index: u64 },
 
-        Ok(ElusivInstruction::InitDeposit{ amount, commitment })
-    }
+    // Finalizing successfully verified proofs of arity 2
+    #[usr(original_fee_payer, [ writable ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable ])]
+    #[pda(commitment_hash_queue, CommitmentQueue, [ writable ])]
+    #[pda(finalize_send_queue, FinalizeSendQueue, [ writable ])]
+    #[pda(nullifier_account0, Nullifier, pda_offset = tree_indices[0], [ writable, multi_accounts ])]
+    #[pda(nullifier_account1, Nullifier, pda_offset = tree_indices[1], [ writable, multi_accounts ])]
+    FinalizeProofBinary {
+        verification_account_index: u64,
+        tree_indices: [u64; 2],
+    },
 
-    pub fn unpack_init_withdraw(data: &[u8]) -> Result<Self, ProgramError> {
-        // Recipient
-        let (recipient, data) = unpack_32_bytes(&data)?;
-        let recipient = Pubkey::new_from_array(vec_to_array_32(recipient.to_vec()));
+    // Finalizing successfully verified proofs of arity 1
+    #[usr(original_fee_payer, [ writable ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable ])]
+    #[pda(commitment_hash_queue, CommitmentQueue, [ writable ])]
+    #[pda(nullifier_account, Nullifier, pda_offset = tree_index, [ writable, multi_accounts ])]
+    FinalizeProofUnary {
+        verification_account_index: u64,
+        tree_index: u64,
+    },
 
-        // Unpack withdrawal amount
-        let (amount, data) = unpack_u64(&data)?;
+    // Commitment hash initialization
+    //InitCommitment,
+    /*ComputeCommitment,
+    FinalizeCommitment,
 
-        // Unpack public inputs
-        let mut public_inputs = [[0; 32]; PUBLIC_INPUTS_COUNT];
-        let mut data = data;
-        for i in 0..PUBLIC_INPUTS_COUNT {
-            let (input, d) = unpack_32_bytes(data)?;
-            public_inputs[i] = vec_to_array_32(input.to_vec());
-            data = d;
-        }
+    // Creates a new `NullifierAccount`
+    CreateNewTree,
 
-        // Raw zkSNARK proof
-        if data.len() != PROOF_BYTES_SIZE { return Err(ProgramError::InvalidInstructionData); }
-        let proof: [u8; PROOF_BYTES_SIZE] = data.try_into().unwrap();
+    // Resets the main MT
+    ActivateTree,
 
-        Ok(ElusivInstruction::InitWithdraw{ recipient, amount, proof, public_inputs })
-    }
-}
+    // Closes the oldest `NullifierAccount` and creates a `ArchivedTreeAccount`
+    ArchiveTree,*/
 
-pub fn unpack_u64(data: &[u8]) -> Result<(u64, &[u8]), ProgramError> {
-    let value = data
-        .get(..8)
-        .and_then(|slice| slice.try_into().ok())
-        .map(u64::from_le_bytes)
-        .ok_or(InvalidArgument)?;
+    // Opens all accounts that only have single instances
+    #[usr(payer, [ writable, signer ])]
+    #[pda(pool, Pool, [ writable, account_info ])]
+    #[pda(reserve, Reserve, [ writable, account_info ])]
+    #[pda(commitment_queue, CommitmentQueue, [ writable, account_info ])]
+    #[pda(base_commitment_queue, BaseCommitmentQueue, [ writable, account_info ])]
+    #[pda(send_queue, SendProofQueue, [ writable, account_info ])]
+    #[pda(merge_queue, MergeProofQueue, [ writable, account_info ])]
+    #[pda(migrate_queue, MigrateProofQueue, [ writable, account_info ])]
+    #[pda(storage_account, Storage, [ writable, multi_accounts, account_info ])]
+    #[pda(commitment_hash_account, CommitmentHashing, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    OpenUniqueAccounts,
 
-    Ok((value, &data[8..]))
-}
+    // Opens a new `BaseCommitmentHashAccount` if there not enough yet with the reserve as payer
+    #[pda(reserve, Reserve, [ writable, account_info ])]
+    #[pda(hash_account, BaseCommitmentHashing, pda_offset = base_commitment_hash_account_index, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    OpenBaseCommitmentHashAccount {
+        base_commitment_hash_account_index: u64,
+    },
 
-pub fn unpack_32_bytes(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
-    let bytes = data.get(..32).ok_or(InvalidArgument)?;
+    // Opens a new `VerificationAccount` if there not enough yet with the reserve as payer
+    #[pda(reserve, Reserve, [ writable, account_info ])]
+    #[pda(verification_account, Verification, pda_offset = verification_account_index, [ writable, account_info ])]
+    #[sys(system_program, key = system_program::id())]
+    OpenProofVerificationAccount {
+        verification_account_index: u64,
+    },
 
-    Ok((bytes, &data[32..]))
-}
-
-pub fn unpack_limbs(data: &[u8]) -> Result<(ScalarLimbs, &[u8]), ProgramError> {
-    let (bytes, data) = unpack_32_bytes(data)?;
-
-    Ok((bytes_to_limbs(bytes), data))
-}
-
-pub fn unpack_bool(data: &[u8]) -> Result<(bool, &[u8]), ProgramError> {
-    let (&byte, rest) = data.split_first().ok_or(ProgramError::InvalidInstructionData)?;
-
-    Ok((byte == 1, rest))
-}
-
-pub fn generate_init_withdraw_data(
-    recipient: Pubkey,
-    amount: u64,
-    public_inputs: [[u8; 32]; PUBLIC_INPUTS_COUNT],
-    proof: super::groth16::Proof,
-) -> Vec<u8> {
-    let mut data = vec![INIT_WITHDRAW];
-
-    data.extend(recipient.to_bytes());
-    data.extend(amount.to_le_bytes());
-
-    for input in public_inputs {
-        data.extend(input);
-    }
-
-    data.extend(proof.to_bytes());
-
-    data
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::str::FromStr;
-    use ark_ff::{ bytes::ToBytes };
-    use ark_bn254::Fq;
-
-    // Test subsidiary unpacking functions
-    #[test]
-    fn test_unpack_u64() {
-        let d: [u8; 8] = [0b00000001, 0, 0, 0, 0, 0, 0, 0b00000000];
-
-        // Test little endian interpretation
-        let (v, _) = unpack_u64(&d).unwrap();
-        assert_eq!(v, 1);
-    }
-
-    #[test]
-    fn test_unpack_withdraw() {
-        // Withdrawal data
-        let mut data = vec![4];
-        data.extend([0; 8]);
-        data.extend([0; 32]);
-        data.extend([0; 32]);
-        data.extend(str_to_bytes("15200472642106544087859624808573647436446459686589177220422407004547835364093"));
-        data.extend(str_to_bytes("18563249006229852218279298661872929163955035535605917747249479039354347737308"));
-        data.push(0);
-        data.extend(str_to_bytes("20636553466803549451478361961314475483171634413642350348046906733449463808895"));
-        data.extend(str_to_bytes("3955337224043097728615186066317353350659966424133589619785214107405965410236"));
-        data.extend(str_to_bytes("16669477906162214549333998971085624527095786690622350917799822973577201769757"));
-        data.extend(str_to_bytes("10686129702127228201109048634021146893529704437134012687698468995076983569763"));
-        data.push(0);
-        data.extend(str_to_bytes("7825488021728597353611301562108479035418173715138578342437621330551207000521"));
-        data.extend(str_to_bytes("17385834695111423269684287513728144523333186942287839669241715541894829818572"));
-        data.push(0);
-        data.extend(str_to_bytes("17385834695111423269684287513728144523333186942287839669241715541894829818572"));
-        data.extend(str_to_bytes("17385834695111423269684287513728144523333186942287839669241715541894829818572"));
-
-        ElusivInstruction::unpack(&data).unwrap();
-    }
-
-    fn str_to_bytes(str: &str) -> Vec<u8> {
-        let s = Fq::from_str(&str).unwrap();
-        let mut writer: Vec<u8> = vec![];
-        s.0.write(&mut writer).unwrap();
-        writer
-    }
+    TestFail,
 }

@@ -1,34 +1,22 @@
-use {
-    solana_program::hash::Hash,
-    solana_program_test::*,
-    solana_sdk::signature::Keypair,
+use solana_program::hash::Hash;
+use solana_program::instruction::Instruction;
+use solana_program_test::*;
+use solana_sdk::signature::Keypair;
+use elusiv::entrypoint::process_instruction;
+use solana_sdk::compute_budget::ComputeBudgetInstruction;
 
-    elusiv::entrypoint::process_instruction,
-
-    super::accounts::*,
-};
-
-pub async fn start_program<F>(setup: F, iterations: u64) -> (solana_program_test::BanksClient, Keypair, Hash)
-where F: Fn(&mut ProgramTest) -> ()
-{
+pub async fn start_program_solana_program_test() -> (solana_program_test::BanksClient, Keypair, Hash) {
     let mut test = ProgramTest::default();
     let program_id = elusiv::id();
     test.add_program("elusiv", program_id, processor!(process_instruction));
-
-    setup(&mut test);
-
-    let cus = 2000000 * iterations;
-
-    test.set_compute_max_units(cus);
     test.start().await
 }
 
-pub async fn start_program_with_program_accounts(iterations: u64) -> (solana_program_test::BanksClient, Keypair, Hash) {
-    let setup = |test: &mut ProgramTest| {
-        let data = new_program_accounts_data();
-        test.add_account_with_base64_data(program_account_id(), 100000000, elusiv::id(), &data.0);
-        test.add_account_with_base64_data(deposit_account_id(), 100000000, elusiv::id(), &data.1);
-        test.add_account_with_base64_data(withdraw_account_id(), 100000000, elusiv::id(), &data.2);
-    };
-    start_program(setup, iterations).await
+// https://github.com/solana-labs/solana/blob/a1522d00242c2888a057c3d4238d902f063af9be/program-runtime/src/compute_budget.rs#L14
+pub const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+
+// Fee for CUs: https://github.com/solana-labs/solana/blob/3d9874b95a4bda9bb99cb067f168811296d208cc/sdk/src/fee.rs
+pub fn request_compute_units(count: u32) -> Instruction {
+    assert!(count <= MAX_COMPUTE_UNIT_LIMIT);
+    ComputeBudgetInstruction::request_units(count, 0)
 }

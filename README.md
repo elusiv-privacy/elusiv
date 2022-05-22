@@ -1,11 +1,16 @@
-[![CI](https://github.com/elusivcash/elusiv/actions/workflows/test.yaml/badge.svg)](https://github.com/elusivcash/elusiv/actions/workflows/test.yaml) [![codecov](https://codecov.io/gh/elusivcash/elusiv/branch/master/graph/badge.svg?token=E6EBAGCE0M)](https://codecov.io/gh/elusivcash/elusiv) [![Security audit](https://github.com/elusivcash/elusiv/actions/workflows/audit.yaml/badge.svg)](https://github.com/elusivcash/elusiv/actions/workflows/audit.yaml)
+<div align="center">
+    <img src="https://github.com/elusiv-privacy/.github/blob/main/profile/elusiv.svg" width="150"/>
+</div>
 
-# elusiv
-### Devnet usage
-#### First time
-- build program with `npm run build`
-- deploy contract for first time with `npm run deploy` (generates new keypair)
+<br/>
 
-#### Redeploy changes
-- redeploy program to same programID: `npm run redeploy`
-- deploy new storage account: `npm run setup`
+<div align="center">
+
+[![CI](https://github.com/elusivcash/elusiv/actions/workflows/test.yaml/badge.svg)](https://github.com/elusivcash/elusiv/actions/workflows/test.yaml)
+[![Codecov](https://codecov.io/gh/elusivcash/elusiv/branch/master/graph/badge.svg?token=E6EBAGCE0M)](https://codecov.io/gh/elusivcash/elusiv)
+[![Dependency check](https://github.com/elusivcash/elusiv/actions/workflows/audit.yaml/badge.svg)](https://github.com/elusivcash/elusiv/actions/workflows/audit.yaml)
+
+</div>
+
+# Elusiv
+Scaling privacy with compliance in mind for the [Solana](https://github.com/solana-labs/solana) blockchain.
