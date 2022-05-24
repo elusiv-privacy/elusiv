@@ -133,7 +133,7 @@ fn pack_inputs(recipient: U256, timestamp: u64, amount: u64) -> Result<[U256; 2]
     a.extend(vec![0; 8]);
     u64::serialize(&timestamp, &mut a)?;
     u64::serialize(&amount, &mut a)?;
-    u64::serialize(&recipient[3], &mut a);
+    u64::serialize(&recipient[3], &mut a)?;
 
     let mut b = Vec::new();
     b.extend(vec![0; 8]);
@@ -198,8 +198,31 @@ mod test {
         assert_eq!(proof.c.0, after.c.0);
     }
 
+    const ZERO: U256 = [0; 32];
+
     #[test]
     fn test_max_public_inputs_count() {
-        panic!()
+        assert!(
+            SendPublicInputs {
+                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO, ZERO ], roots: [ ZERO, ZERO ], commitment: ZERO },
+                recipient: ZERO,
+                amount: 0,
+                timestamp: 0,
+            }.public_inputs_raw().len() <= MAX_PUBLIC_INPUTS_COUNT
+        );
+
+        assert!(
+            MergePublicInputs {
+                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO, ZERO ], roots: [ ZERO, ZERO ], commitment: ZERO },
+            }.public_inputs_raw().len() <= MAX_PUBLIC_INPUTS_COUNT
+        );
+
+        assert!(
+            MigratePublicInputs {
+                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO ], roots: [ ZERO ], commitment: ZERO },
+                current_nsmt_root: ZERO,
+                next_nsmt_root: ZERO,
+            }.public_inputs_raw().len() <= MAX_PUBLIC_INPUTS_COUNT
+        );
     }
 }

@@ -69,6 +69,7 @@ pub fn slice_to_array<N: Default + Copy, const SIZE: usize>(s: &[N]) -> [N; SIZE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::macros::BorshSerDeSized;
 
     #[test]
     fn test_find_contains() {
@@ -89,5 +90,26 @@ mod tests {
             assert_eq!(contains(i as u64, &data[..]), false);
             assert!(matches!(find(i as u64, &data[..], length), None));
         }
+    }
+
+    #[derive(BorshDeserialize, BorshSerialize)]
+    struct A { }
+    impl_borsh_sized!(A, 11);
+
+    #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+    struct B { a0: A, a1: A, a2: A }
+
+    #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+    enum C {
+        A { a: A },
+        B { b: B },
+        AB { a: A, b: B },
+    }
+
+    #[test]
+    fn test_borsh_ser_de_sized() {
+        assert_eq!(A::SIZE, 11);
+        assert_eq!(B::SIZE, 33);
+        assert_eq!(C::SIZE, 11 + 33 + 1);
     }
 }

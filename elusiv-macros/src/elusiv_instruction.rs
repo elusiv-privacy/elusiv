@@ -1,5 +1,5 @@
 use quote::quote;
-use super::utils::{ upper_camel_to_upper_snake, sub_attrs_prepare, named_sub_attribute };
+use super::utils::{ upper_camel_to_upper_snake, named_sub_attribute };
 use proc_macro2::TokenStream;
 
 pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
@@ -130,12 +130,9 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             // Multi accounts account
                             let multi_account = sub_attrs.contains(&"multi_accounts");
 
-                            // PDA and ownership verification
+                            // PDA verification
                             accounts.extend(quote!{
                                 if !<#ty>::is_valid_pubkey(&[#pda_offset], #account.key) { return Err(InvalidArgument) }
-
-                                // -> we do no owner ship checks, since redundant for PDA
-                                //if #account.owner != program_id { return Err(InvalidArgument) }
                             });
 
                             /*account_init.push(quote!{
@@ -143,23 +140,16 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             });*/
 
                             if multi_account {
-                                let write_check = if is_writable { quote!{ if !sub_account.is_writable { return Err(InvalidArgument) } } } else { quote!{} };
+                                let write_check = if is_writable { quote!{ if !accounts[i].is_writable { return Err(InvalidArgument) } } } else { quote!{} };
 
                                 // Sub-accounts with PDA and ownership check for each
                                 accounts.extend(quote!{
                                     let acc_data = &mut #account.data.borrow_mut()[..];
-                                    let mut accounts = Vec::new();
+                                    let mut accounts = next_account_infos(account_info_iter, #ty::COUNT)?;
                                     for i in 0..#ty::COUNT {
-                                        let sub_account = next_account_info(account_info_iter)?;    
-
-                                        if !<#ty>::is_valid_pubkey(&[#pda_offset, i as u64], sub_account.key) { return Err(InvalidArgument) }
-                                        //if sub_account.owner != program_id { return Err(InvalidArgument) }
-
+                                        if !<#ty>::is_valid_pubkey(&[#pda_offset, i as u64], accounts[i].key) { return Err(InvalidArgument) }
                                         #write_check
-                                        accounts.push(sub_account);
                                     }
-
-                                    if #ty::COUNT == accounts.len() { return Err(InvalidArgument) }
                                 });
 
                                 /*account_init.push(quote!{

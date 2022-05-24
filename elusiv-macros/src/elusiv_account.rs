@@ -63,8 +63,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 // Add accounts field
                 fields.extend(quote! { accounts, });
-                definition.extend(quote! { accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>, });
-                signature.extend(quote! { accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>, });
+                definition.extend(quote! { accounts: &'b [solana_program::account_info::AccountInfo<'t>], });
+                signature.extend(quote! { accounts: &'b [solana_program::account_info::AccountInfo<'t>], });
             },
             _ => { panic!("Invalid attribute {}", attr) }
         }
