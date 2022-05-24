@@ -2,6 +2,7 @@ use crate::macros::elusiv_account;
 use crate::types::U256;
 use crate::bytes::*;
 use super::program_account::*;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Height of the active Merkle Tree
 pub const MT_HEIGHT: usize = 20;
@@ -41,7 +42,7 @@ impl<'a, 'b, 't> BigArrayAccount<'t> for StorageAccount<'a, 'b, 't> {
 
 impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     pub fn reset(&mut self) {
-        self.set_next_commitment_ptr(0);
+        self.set_next_commitment_ptr(&0);
 
         for i in 0..self.active_mt_root_history.len() {
             self.active_mt_root_history[i] = 0;
@@ -51,10 +52,10 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     /// Inserts commitment and the above hashes
     pub fn insert_commitment(&mut self, values: [U256; MT_HEIGHT + 1]) {
         let ptr = self.get_next_commitment_ptr() as usize;
-        self.set_next_commitment_ptr(ptr as u64 + 1);
+        self.set_next_commitment_ptr(&(ptr as u64 + 1));
 
         // Save last root
-        self.set_active_mt_root_history(ptr % HISTORY_ARRAY_COUNT, self.get_root());
+        self.set_active_mt_root_history(ptr % HISTORY_ARRAY_COUNT, &self.get_root());
 
         // Insert values into the tree
         for (i, &value) in values.iter().enumerate() {
@@ -70,7 +71,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: U256) -> bool {
-        root == self.get_root() || contains(root, self.active_mt_root_history)
+        //root == self.get_root() || contains(root, self.active_mt_root_history)
+        panic!()
     }
 
     pub fn get_mt_opening(&self, index: usize) -> [U256; MT_HEIGHT] {

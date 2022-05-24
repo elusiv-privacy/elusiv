@@ -1,6 +1,8 @@
 pub mod vkey;
 pub mod verifier;
 
+use borsh::{BorshSerialize, BorshDeserialize};
+use crate::fields::Wrap;
 pub use verifier::*;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12, G1Affine};
 use ark_ff::Zero;
@@ -11,9 +13,9 @@ use crate::state::queue::ProofRequest;
 use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof};
 use crate::fields::{G1A, G2A};
 use crate::macros::{guard, multi_instance_account};
-use crate::bytes::SerDe;
 use crate::error::ElusivError::AccountCannotBeReset;
 use crate::state::program_account::SizedAccount;
+use crate::bytes::BorshSerDeSized;
 
 pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
 pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
@@ -72,24 +74,24 @@ impl<'a> VerificationAccount<'a> {
     ) -> Result<(), ElusivError> {
         guard!(!self.get_is_active(), AccountCannotBeReset);
 
-        self.set_is_verified(false);
-        self.set_is_active(true);
-        self.set_round(0);
-        self.set_total_rounds(VKey::ROUNDS as u64);
+        self.set_is_verified(&false);
+        self.set_is_active(&true);
+        self.set_round(&0);
+        self.set_total_rounds(&VKey::ROUNDS.try_into().unwrap());
 
         let proof: Proof = proof_request.raw_proof().into();
-        self.set_a(proof.a);
-        self.set_b(proof.b);
-        self.set_c(proof.c);
+        self.set_a(&proof.a);
+        self.set_b(&proof.b);
+        self.set_c(&proof.c);
 
         let public_inputs = proof_request.public_inputs();
         for i in 0..VKey::PUBLIC_INPUTS_COUNT {
-            self.set_public_input(i, public_inputs[i]);
+            self.set_public_input(i, &public_inputs[i]);
         }
 
-        self.set_prepared_inputs(G1A(G1Affine::zero()));
+        self.set_prepared_inputs(&G1A(G1Affine::zero()));
 
-        self.set_request(proof_request);
+        self.set_request(&proof_request);
 
         Ok(())
     }
@@ -103,7 +105,7 @@ impl<'a> VerificationAccount<'a> {
 }
 
 /// Stores data lazily on the heap, read requests will trigger deserialization
-pub struct LazyRAM<'a, N: Clone + Copy + SerDe<T=N>, const SIZE: usize> {
+pub struct LazyRAM<'a, N: Clone + Copy, const SIZE: usize> where Wrap<N>: BorshSerDeSized {
     /// Stores all serialized values
     /// - if an element has value None, it has not been initialized yet
     data: Vec<Option<N>>,
@@ -114,8 +116,8 @@ pub struct LazyRAM<'a, N: Clone + Copy + SerDe<T=N>, const SIZE: usize> {
     frame: usize,
 }
 
-impl<'a, N: Clone + Copy + SerDe<T=N>, const SIZE: usize> LazyRAM<'a, N, SIZE> {
-    const SIZE: usize = N::SIZE * SIZE;
+impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>: BorshSerDeSized {
+    const SIZE: usize = <Wrap<N>>::SIZE * SIZE;
 
     pub fn new(source: &'a mut [u8]) -> Self {
         assert!(source.len() == Self::SIZE);
@@ -134,9 +136,9 @@ impl<'a, N: Clone + Copy + SerDe<T=N>, const SIZE: usize> LazyRAM<'a, N, SIZE> {
         match &self.data[i] {
             Some(v) => v.clone(),
             None => {
-                let data = &self.source[i * N::SIZE..(i + 1) * N::SIZE];
-                let v = N::deserialize(data);
-                self.data[i] = Some(v);
+                let data = &self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE];
+                let v = <Wrap<N>>::try_from_slice(&data).unwrap();
+                self.data[i] = Some(v.0);
                 (&self.data[i]).unwrap().clone()
             }
         }
@@ -161,8 +163,10 @@ impl<'a, N: Clone + Copy + SerDe<T=N>, const SIZE: usize> LazyRAM<'a, N, SIZE> {
         for (i, &change) in self.changes.iter().enumerate() {
             if change {
                 if let Some(value) = self.data[i] {
-                    let data = &mut self.source[i * N::SIZE..(i + 1) * N::SIZE];
-                    N::serialize(value, data);
+                    <Wrap<N>>::override_slice(
+                        &Wrap(value),
+                        &mut self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE]
+                    );
                 }
             }
         }

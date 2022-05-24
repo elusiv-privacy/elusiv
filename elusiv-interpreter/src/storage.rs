@@ -81,16 +81,11 @@ impl StorageMappings {
         }
     }
 
-    pub fn free(&mut self, r: MemoryId) -> TokenStream {
+    pub fn free(&mut self, r: MemoryId) {
         let m = self.get_mapping(&r.ty);
         if !m.contains(&r.id) { m.allocate(&r.id); }
 
-        //let index = m.get_position(&r.id);
-        //let name = ram_name(&r.ty);
         m.deallocate(&r.id);
-        
-        //quote!{ #name.free(#index); } not required for a ram, so removed
-        quote!{}
     }
 
     pub fn write(&mut self, w: MemoryId) -> TokenStream {

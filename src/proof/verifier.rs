@@ -30,7 +30,7 @@ pub fn verify_partial<VKey: VerificationKey>(
         match result {
             None => guard!(round != VKey::PREPARE_PUBLIC_INPUTS_ROUNDS - 1, CouldNotProcessProof),
             Some(prepared_inputs) => {
-                verifier_account.set_prepared_inputs(G1A(prepared_inputs));
+                verifier_account.set_prepared_inputs(&G1A(prepared_inputs));
 
                 // Add `r` for the miller loop to the `ram_fq2`
                 verifier_account.ram_fq2.write(Fq2::zero(), 0);
@@ -546,17 +546,17 @@ fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
     k.frobenius_map(u);
     k
 }
-/*
+
 #[cfg(test)]
 mod tests {
-    use crate::bytes::SerDe;
-
     use super::*;
     use std::str::FromStr;
     use ark_bn254::{ Fr, Bn254 };
     use ark_ec::{AffineCurve, PairingEngine};
     use ark_ec::models::bn::BnParameters;
     use ark_ff::PrimeField;
+    use borsh::BorshSerialize;
+    use crate::fields::Wrap;
 
     type VK = super::super::vkey::SendVerificationKey;
 
@@ -578,14 +578,12 @@ mod tests {
         Fq12::new(f, f)
     }
 
-    fn coeffs() -> (Fq2, Fq2, Fq2) { (f().c0.c0, f().c1.c0, f().c0.c2) }
-    fn g1_affine() -> G1Affine { G1Affine::new(f().c0.c0.c0, f().c0.c0.c1, false) }
     fn g2_affine() -> G2Affine { G2Affine::new(f().c0.c0, f().c0.c1, false) }
 
-    macro_rules! ram {
-        ($id: ident, $ty: ty, $size: literal) => {
-            let mut data = vec![0; <$ty>::SIZE];
-            let mut $id = <$ty>::new(&mut data);
+    macro_rules! storage {
+        ($id: ident) => {
+            let mut data = vec![0; VerificationAccount::SIZE];
+            let mut $id = VerificationAccount::new(&mut data).unwrap();
         };
     }
 
@@ -600,14 +598,13 @@ mod tests {
             Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap();
             VK::PUBLIC_INPUTS_COUNT
         ];
-        ram!(ram_fq, RAMFq, 1);
-
+        storage!(storage);
         let mut value: Option<G1Affine> = None;
         for round in 0..VK::PUBLIC_INPUTS_COUNT * 254 {
             let input_index = round / VK::PUBLIC_INPUTS_COUNT;
-            let input = Fr::serialize_vec(public_inputs[input_index]);
+            let input = <Wrap<Fr>>::try_to_vec(&Wrap(public_inputs[input_index])).unwrap();
             let input: U256 = input.try_into().unwrap();
-            value = prepare_public_inputs_partial::<VK>(round, &mut ram_fq, &input, input_index);
+            value = prepare_public_inputs_partial::<VK>(round, &mut storage, input, input_index);
         }
 
         assert_eq!(value.unwrap(), reference_prepare_inputs::<VK>(&public_inputs));
@@ -615,11 +612,10 @@ mod tests {
 
     #[test]
     fn test_mul_by_characteristics() {
-        ram!(ram_fq2, RAMFq2, 1);
-
+        storage!(storage);
         let mut value: Option<G2Affine> = None;
         for round in 0..MUL_BY_CHARACTERISTICS_ROUNDS_COUNT {
-            value = mul_by_characteristics_partial(round, &mut ram_fq2, &g2_affine()).unwrap();
+            value = mul_by_characteristics_partial(round, &mut storage, &g2_affine()).unwrap();
         }
 
         assert_eq!(value.unwrap(), reference_mul_by_char(g2_affine()));
@@ -632,11 +628,10 @@ mod tests {
 
     #[test]
     fn test_inverse_fq12() {
-        ram!(ram_fq6, RAMFq6, 1);
-
+        storage!(storage);
         let mut value: Option<Fq12> = None;
         for round in 0..INVERSE_FQ12_ROUNDS_COUNT {
-            value = inverse_fq12_partial(round, &mut ram_fq6, f()).unwrap();
+            value = inverse_fq12_partial(round, &mut storage, f()).unwrap();
         }
 
         assert_eq!(value.unwrap(), f().inverse().unwrap());
@@ -644,11 +639,10 @@ mod tests {
 
     #[test]
     fn test_exp_by_neg_x() {
-        ram!(ram_fq12, RAMFq12, 1);
-
+        storage!(storage);
         let mut value: Option<Fq12> = None;
         for round in 0..EXP_BY_NEG_X_ROUNDS_COUNT {
-            value = exp_by_neg_x_partial(round, &mut ram_fq12, f()).unwrap();
+            value = exp_by_neg_x_partial(round, &mut storage, f()).unwrap();
         }
 
         assert_eq!(value.unwrap(), reference_exp_by_neg_x(f()));
@@ -656,12 +650,10 @@ mod tests {
 
     #[test]
     fn test_final_exponentiation() {
-        ram!(ram_fq12, RAMFq12, 1);
-        ram!(ram_fq6, RAMFq6, 1);
-
+        storage!(storage);
         let mut value = None;
         for round in 0..FINAL_EXPONENTIATION_ROUNDS_COUNT {
-            value = final_exponentiation_partial(round, &mut ram_fq12, &mut ram_fq6, f()).unwrap();
+            value = final_exponentiation_partial(round, &mut storage, &f()).unwrap();
         }
 
         assert_eq!(value.unwrap(), Bn254::final_exponentiation(&f()).unwrap());
@@ -682,7 +674,7 @@ mod tests {
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
-    fn reference_ell(f: Fq12, coeffs: (Fq2, Fq2, Fq2), p: G1Affine) -> Fq12 {
+    /*fn reference_ell(f: Fq12, coeffs: (Fq2, Fq2, Fq2), p: G1Affine) -> Fq12 {
         let mut c0: Fq2 = coeffs.0;
         let mut c1: Fq2 = coeffs.1;
         let c2: Fq2 = coeffs.2;
@@ -693,7 +685,7 @@ mod tests {
         let mut f = f;
         f.mul_by_034(&c0, &c1, &c2);
         f
-    }
+    }*/
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L127
     fn reference_mul_by_char(r: G2Affine) -> G2Affine {
@@ -711,4 +703,4 @@ mod tests {
         if !Parameters::X_IS_NEGATIVE { f.conjugate(); }
         f
     }
-}*/
+}

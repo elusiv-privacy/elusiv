@@ -50,7 +50,7 @@ macro_rules! init_proof {
             let mut queue_data = &mut $queue.data.borrow_mut()[..];
             let mut queue = <$queue_account_ty>::new(&mut queue_data)?;
             let mut queue = <$queue_ty>::new(&mut queue);
-            let request = queue.dequeue_first()?;
+            let request = queue.dequeue_first()?.request;
             $verification_account.reset::<$vkey>(ProofRequest::$kind { request })
         }
     };
@@ -98,15 +98,15 @@ pub fn compute_proof(
         Ok(result) => match result {
             Some(final_result) => { // After last round we receive the verification result
                 if final_result {
-                    verification_account.set_is_verified(true);
+                    verification_account.set_is_verified(&true);
                 } else {
-                    verification_account.set_is_active(false);
+                    verification_account.set_is_active(&false);
                 }
             },
             None => {}
         },
         Err(e) => { // An error can only happen with flawed inputs -> cancel verification
-            verification_account.set_is_active(false);
+            verification_account.set_is_active(&false);
             return Err(e.into());
         }
     }
@@ -114,7 +114,7 @@ pub fn compute_proof(
     // Serialize rams
     verification_account.serialize_rams();
 
-    verification_account.set_round(round + 1);
+    verification_account.set_round(&(round + 1));
 
     Ok(())
 }
@@ -211,7 +211,7 @@ pub fn init_base_commitment_hash(
 
     let mut queue = BaseCommitmentQueue::new(queue);
     let request = queue.dequeue_first()?;
-    hashing_account.reset(request, fee_payer.key.to_bytes())
+    hashing_account.reset(request.request, fee_payer.key.to_bytes())
 }
 
 pub fn compute_base_commitment_hash(
@@ -235,11 +235,11 @@ pub fn compute_base_commitment_hash(
         return Err(ComputationIsAlreadyFinished.into())
     }
 
-    hashing_account.set_state(0, fr_to_u256_le(state[0]));
-    hashing_account.set_state(1, fr_to_u256_le(state[1]));
-    hashing_account.set_state(2, fr_to_u256_le(state[2]));
+    hashing_account.set_state(0, &fr_to_u256_le(&state[0]));
+    hashing_account.set_state(1, &fr_to_u256_le(&state[1]));
+    hashing_account.set_state(2, &fr_to_u256_le(&state[2]));
 
-    hashing_account.set_round(round + 1);
+    hashing_account.set_round(&(round + 1));
 
     Ok(())
 }
@@ -261,7 +261,7 @@ pub fn finalize_base_commitment_hash(
         queue.enqueue(result)?;
     }
 
-    hashing_account.set_is_active(false);
+    hashing_account.set_is_active(&false);
 
     Ok(())
 }
@@ -276,7 +276,7 @@ pub fn init_commitment_hash(
     guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
     let mut queue = CommitmentQueue::new(queue);
-    let request = queue.dequeue_first()?;
+    let request = queue.dequeue_first()?.request;
     hashing_account.reset(request, fee_payer.key.to_bytes())
 }
 
@@ -292,7 +292,7 @@ pub fn compute_commitment_hash(
 
     panic!("TODO");
 
-    hashing_account.set_round(round + 1);
+    hashing_account.set_round(&(round + 1));
 
     Ok(())
 }

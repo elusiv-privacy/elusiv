@@ -1,3 +1,4 @@
+use borsh::{BorshSerialize, BorshDeserialize};
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
@@ -12,9 +13,9 @@ use crate::proof::{VerificationAccount};
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::error::ElusivError::{InvalidAccountBalance, InvalidInstructionData};
 use crate::macros::*;
-use crate::bytes::SerDe;
+use crate::bytes::BorshSerDeSized;
 
-#[derive(SerDe)]
+#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum SingleInstanceAccountKind {
     Pool,
     Reserve,
@@ -57,7 +58,7 @@ pub fn open_single_instance_account<'a>(
     create_pda_account(payer, pda_account, system_program, account_size, &signers_seeds)
 }
 
-#[derive(SerDe)]
+#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum MultiInstanceAccountKind {
     Verification,
     BaseCommitmentHashing,
@@ -74,16 +75,17 @@ macro_rules! multi_instance_account {
 
 /// Used to open the PDA accounts, of which types there can exist multipe (that satisfy the trait: MultiInstanceAccount)
 pub fn open_multi_instance_account<'a>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-    system_program: &AccountInfo<'a>,
+    _payer: &AccountInfo<'a>,
+    _pda_account: &AccountInfo<'a>,
+    _system_program: &AccountInfo<'a>,
 
     pda_offset: u64,
     kind: MultiInstanceAccountKind,
 ) -> ProgramResult {
-    guard!(pda_offset < multi_instance_account!(kind, MAX_INSTANCES), InvalidInstructionData);
+    //guard!(pda_offset < multi_instance_account!(kind, MAX_INSTANCES), InvalidInstructionData);
 
-    panic!("TODO: Implement Intermediary account size");
+    //panic!("TODO: Implement Intermediary account size");
+    Ok(())
 }
 
 fn create_pda_account<'a>(

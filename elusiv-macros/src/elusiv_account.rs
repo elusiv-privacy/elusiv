@@ -105,11 +105,14 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     // Getter and setter
                     functions.extend(quote! {
                         pub fn #getter_name(&self) -> #ty {
-                            <#ty>::deserialize(self.#field_name)
+                            <#ty>::try_from_slice(self.#field_name).unwrap()
                         }
 
-                        pub fn #setter_name(&mut self, value: #ty) {
-                            <#ty>::serialize(value, &mut self.#field_name);
+                        pub fn #setter_name(&mut self, value: &#ty) {
+                            let v = <#ty>::try_to_vec(value).unwrap();
+                            for i in 0..v.len() {
+                                self.#field_name[i] = v[i];
+                            }
                         }
                     });
                 } else {
@@ -142,12 +145,15 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 functions.extend(quote! {
                     pub fn #getter_name(&self, index: usize) -> #ty {
                         let slice = &self.#field_name[index * <#ty>::SIZE..(index + 1) * <#ty>::SIZE];
-                        <#ty>::deserialize(slice)
+                        <#ty>::try_from_slice(slice).unwrap()
                     }
 
-                    pub fn #setter_name(&mut self, index: usize, value: #ty) {
+                    pub fn #setter_name(&mut self, index: usize, value: &#ty) {
                         let offset = index * <#ty>::SIZE;
-                        <#ty>::serialize(value, &mut self.#field_name[offset..offset + <#ty>::SIZE]);
+                        let v = <#ty>::try_to_vec(value).unwrap();
+                        for i in 0..v.len() {
+                            self.#field_name[offset..offset + <#ty>::SIZE][i] = v[i];
+                        }
                     }
                 });
             },
@@ -160,7 +166,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             #definition
         }
 
-        impl<#lifetimes> SizedAccount for #name<#lifetimes> {
+        impl<#lifetimes> crate::state::program_account::SizedAccount for #name<#lifetimes> {
             const SIZE: usize =  0 #total_size;
         }
 
