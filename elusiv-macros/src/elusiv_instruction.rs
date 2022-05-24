@@ -1,5 +1,5 @@
 use quote::quote;
-use super::utils::{ upper_camel_to_upper_snake, sub_attrs_prepare, named_sub_attribute };
+use super::utils::{ upper_camel_to_upper_snake, named_sub_attribute };
 use proc_macro2::TokenStream;
 
 pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
@@ -35,12 +35,9 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     let attr_name = attr.path.get_ident().unwrap().to_string();
 
                     // Sub-attrs are the fields as in #[usr(sub_attr0 = .., sub_attr1, ..)]
-                    let fields = sub_attrs_prepare(attr.tokens.to_string());
-                    let mut fields_alt = fields.clone();
-                    fields_alt.retain(|x| x != ']' && x != '[');
-
-                    let sub_attrs: Vec<&str> = (&fields[1..fields.len() - 1]).split(",").collect();
-                    let sub_attrs_ignore_braces: Vec<&str> = (&fields_alt[1..fields_alt.len() - 1]).split(",").collect();
+                    let mut fields = attr.tokens.to_string();
+                    fields.retain(|x| x != '(' && x != ')' && !x.is_whitespace());
+                    let sub_attrs: Vec<&str> = fields.split(",").collect();
 
                     let mut account: TokenStream = sub_attrs[0].parse().unwrap();
                     //let mut account_init = Vec::new(); // used for creating the instruction objects with the abi-feature
@@ -50,15 +47,14 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     });
 
                     // Signer check
-                    let is_signer = matches!(sub_attrs_ignore_braces.iter().find(|&x| *x == "signer"), Some(_));
-                    if is_signer {
+                    if sub_attrs.contains(&"signer") {
                         accounts.extend(quote!{
                             if !#account.is_signer { return Err(InvalidArgument) }
                         });
                     }
 
                     // Writable check
-                    let is_writable= matches!(sub_attrs_ignore_braces.iter().find(|&x| *x == "writable"), Some(_));
+                    let is_writable= sub_attrs.contains(&"writable");
                     if is_writable {
                         accounts.extend(quote!{
                             if !#account.is_writable { return Err(InvalidArgument) }
@@ -129,18 +125,14 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             } else { quote!{ 0 } };
 
                             // `AccountInfo`?
-                            let as_account_info = matches!(sub_attrs_ignore_braces.iter().find(|&x| *x == "account_info"), Some(_));
+                            let as_account_info = sub_attrs.contains(&"account_info");
 
                             // Multi accounts account
-                            let multi_account = matches!(sub_attrs_ignore_braces.iter().find(|&x| *x == "multi_accounts"), Some(_));
+                            let multi_account = sub_attrs.contains(&"multi_accounts");
 
-                            // Transfer ownership to the processor function, don't just pass a reference
-                            let transfer_ownership = matches!(sub_attrs_ignore_braces.iter().find(|&x| *x == "ownership"), Some(_));
-
-                            // PDA and ownership verification
+                            // PDA verification
                             accounts.extend(quote!{
                                 if !<#ty>::is_valid_pubkey(&[#pda_offset], #account.key) { return Err(InvalidArgument) }
-                                if #account.owner != program_id { return Err(InvalidArgument) }
                             });
 
                             /*account_init.push(quote!{
@@ -148,23 +140,16 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             });*/
 
                             if multi_account {
-                                let write_check = if is_writable { quote!{ if !sub_account.is_writable { return Err(InvalidArgument) } } } else { quote!{} };
+                                let write_check = if is_writable { quote!{ if !accounts[i].is_writable { return Err(InvalidArgument) } } } else { quote!{} };
 
                                 // Sub-accounts with PDA and ownership check for each
                                 accounts.extend(quote!{
                                     let acc_data = &mut #account.data.borrow_mut()[..];
-                                    let mut accounts = Vec::new();
+                                    let mut accounts = next_account_infos(account_info_iter, #ty::COUNT)?;
                                     for i in 0..#ty::COUNT {
-                                        let sub_account = next_account_info(account_info_iter)?;    
-
-                                        if !<#ty>::is_valid_pubkey(&[#pda_offset, i as u64], sub_account.key) { return Err(InvalidArgument) }
-                                        if sub_account.owner != program_id { return Err(InvalidArgument) }
-
+                                        if !<#ty>::is_valid_pubkey(&[#pda_offset, i as u64], accounts[i].key) { return Err(InvalidArgument) }
                                         #write_check
-                                        accounts.push(sub_account);
                                     }
-
-                                    if #ty::COUNT == accounts.len() { return Err(InvalidArgument) }
                                 });
 
                                 /*account_init.push(quote!{
@@ -189,23 +174,22 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     }
                                 }
                             } else {
-                                if !as_account_info {
-                                    accounts.extend(quote!{
-                                        let acc_data = &mut #account.data.borrow_mut()[..];
-                                        let #mut_token #account = <#ty>::new(acc_data)?;
-                                    });
-
+                                if as_account_info {
+                                    account = quote!{ &#account };
+                                } else {
                                     if is_writable {
-                                        if transfer_ownership {
-                                            account = quote!{ #account };
-                                        } else {
-                                            account = quote!{ &mut #account };
-                                        }
+                                        accounts.extend(quote!{
+                                            let acc_data = &mut #account.data.borrow_mut()[..];
+                                            let #mut_token #account = <#ty>::new(acc_data)?;
+                                        });
+                                        account = quote!{ &mut #account };
                                     } else {
+                                        accounts.extend(quote!{
+                                            let acc_data = &#account.data.borrow()[..];
+                                            let #mut_token #account = <#ty>::new(acc_data)?;
+                                        });
                                         account = quote!{ &#account };
                                     }
-                                } else {
-                                    account = quote!{ &#account };
                                 }
                             }
                         },

@@ -1,142 +1,38 @@
-use solana_program::program_error::{ ProgramError, ProgramError::InvalidArgument };
+use borsh::{BorshDeserialize, BorshSerialize};
 
-/// Serialization and Deserialization trait used for account fields
-pub trait SerDe {
-    type T;
+pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
     const SIZE: usize;
 
-    fn deserialize(data: &[u8]) -> Self::T;
-    fn serialize(value: Self::T, data: &mut [u8]);
-
-    fn serialize_vec(value: Self::T) -> Vec<u8> {
-        let mut v = vec![0; Self::SIZE];
-        Self::serialize(value, &mut v[..]);
-        v
-    }
-
-    /// Deserializes the value using the first `SIZE` bytes and returns the value and remaining bytes
-    fn split_at_front(data: &[u8]) -> Result<(Self::T, &[u8]), ProgramError> {
-        let value = data.get(..Self::SIZE)
-            .map(|s| Self::deserialize(s))
-            .ok_or(InvalidArgument)?;
-        Ok((value, &data[Self::SIZE..]))
-    }
-}
-
-pub trait Zero {
-    type T;
-    const ZERO: Self::T;
-}
-
-macro_rules! impl_zero {
-    ($ty: ident, $zero: expr) => {
-        impl Zero for $ty {
-            type T = Self;
-            const ZERO: Self::T = $zero;
+    fn override_slice(value: &Self, slice: &mut [u8]) {
+        let vec = Self::try_to_vec(value).unwrap();
+        for i in 0..vec.len() {
+            slice[i] = vec[i];
         }
+    }
+}
+
+pub const fn max(a: usize, b: usize) -> usize {
+    [a, b][(a < b) as usize]
+}
+
+macro_rules! impl_borsh_sized {
+    ($ty: ty, $size: expr) => {
+        impl BorshSerDeSized for $ty { const SIZE: usize = $size; }
     };
 }
 
-impl_zero!(u8, 0);
-impl_zero!(u64, 0);
-
-macro_rules! impl_for_uint {
-    ($ty: ident, $size: expr) => {
-        impl SerDe for $ty {
-            type T = Self;
-            const SIZE: usize = $size;
-        
-            #[inline]
-            fn deserialize(data: &[u8]) -> Self::T {
-                let mut arr = [0; Self::SIZE];
-                assert!(data.len() >= Self::SIZE);
-                for i in 0..Self::SIZE { arr[i] = data[i]; }
-                $ty::from_le_bytes(arr)
-            }
-        
-            #[inline]
-            fn serialize(value: Self::T, data: &mut [u8]) {
-                let a = $ty::to_le_bytes(value);
-                assert!(data.len() >= Self::SIZE);
-                for i in 0..Self::SIZE { data[i] = a[i]; }
-            }
-        }
-    };
+impl<E: BorshSerDeSized + Default + Copy, const N: usize> BorshSerDeSized for [E; N] {
+    const SIZE: usize = E::SIZE * N;
 }
 
-impl_for_uint!(u32, 4);
-impl_for_uint!(u64, 8);
+pub(crate) use impl_borsh_sized;
 
-impl SerDe for u8 {
-    type T = Self;
-    const SIZE: usize = 1;
+impl_borsh_sized!(u8, 1);
+impl_borsh_sized!(u32, 4);
+impl_borsh_sized!(u64, 8);
+impl_borsh_sized!(bool, 1);
 
-    #[inline] fn deserialize(data: &[u8]) -> u8 { data[0] }
-    #[inline] fn serialize(value: u8, data: &mut [u8]) { data[0] = value; }
-}
-
-impl SerDe for bool {
-    type T = Self;
-    const SIZE: usize = 1;
-
-    #[inline] fn deserialize(data: &[u8]) -> bool { data[0] == 1 }
-    #[inline] fn serialize(value: bool, data: &mut [u8]) { data[0] = if value { 1 } else { 0 }; }
-}
-
-// Impl for array of serializable values
-impl< E: SerDe<T=E> + Zero<T=E> + Clone + Copy, const N: usize> SerDe for [E; N] {
-    type T = [E; N];
-    const SIZE: usize = N * E::SIZE;
-
-    fn deserialize(data: &[u8]) -> [E; N] {
-        let mut v = [E::ZERO; N];
-        assert!(data.len() >= Self::SIZE);
-        for i in 0..N {
-            v[i] = E::deserialize(&data[i * E::SIZE..(i + 1) * E::SIZE]);
-        }
-        v
-    }
-
-    fn serialize(value: [E; N], data: &mut [u8]) {
-        assert!(data.len() >= Self::SIZE);
-        for i in 0..N {
-            E::serialize(
-                value[i],
-                &mut data[i * E::SIZE..(i + 1) * E::SIZE]
-            );
-        }
-    }
-}
-
-// Impl for array of array of serializable values
-impl<const X: usize, const Y: usize> SerDe for [[u8; X]; Y] {
-    type T = [[u8; X]; Y];
-    const SIZE: usize = X * Y;
-
-    fn deserialize(data: &[u8]) -> [[u8; X]; Y] {
-        let mut v = [[0; X]; Y];
-        assert!(data.len() >= Self::SIZE);
-
-        for y in 0..Y {
-            let index = y * X;
-            for x in 0..X {
-                v[y][x] = data[index + x];
-            }
-        }
-        v
-    }
-
-    fn serialize(value: [[u8; X]; Y], data: &mut [u8]) {
-        for y in 0..Y {
-            let index = y * X;
-            for x in 0..X {
-                data[index + x] = value[y][x];
-            }
-        }
-    }
-}
-
-pub fn contains<N: SerDe<T=N>>(v: N, data: &[u8]) -> bool {
+pub fn contains<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8]) -> bool {
     let length = data.len() / N::SIZE;
     match find(v, data, length) {
         Some(_) => true,
@@ -144,14 +40,17 @@ pub fn contains<N: SerDe<T=N>>(v: N, data: &[u8]) -> bool {
     }
 }
 
-pub fn find<N: SerDe<T=N>>(v: N, data: &[u8], length: usize) -> Option<usize> {
-    let bytes = N::serialize_vec(v);
+pub fn find<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8], length: usize) -> Option<usize> {
+    let bytes = match N::try_to_vec(&v) {
+        Ok(v) => v,
+        Err(_) => return None
+    };
 
     assert!(data.len() >= length);
     'A: for i in 0..length {
-        let index = i * 32;
+        let index = i * N::SIZE;
         if data[index] == bytes[0] {
-            for j in 1..32 {
+            for j in 1..N::SIZE {
                 if data[index + j] != bytes[j] { continue 'A; }
             }
             return Some(i);
@@ -160,9 +59,17 @@ pub fn find<N: SerDe<T=N>>(v: N, data: &[u8], length: usize) -> Option<usize> {
     None
 }
 
+pub fn slice_to_array<N: Default + Copy, const SIZE: usize>(s: &[N]) -> [N; SIZE] {
+    assert!(s.len() >= SIZE);
+    let mut a = [N::default(); SIZE];
+    for i in 0..SIZE { a[i] = s[i]; }
+    a
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::macros::BorshSerDeSized;
 
     #[test]
     fn test_find_contains() {
@@ -183,5 +90,26 @@ mod tests {
             assert_eq!(contains(i as u64, &data[..]), false);
             assert!(matches!(find(i as u64, &data[..], length), None));
         }
+    }
+
+    #[derive(BorshDeserialize, BorshSerialize)]
+    struct A { }
+    impl_borsh_sized!(A, 11);
+
+    #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+    struct B { a0: A, a1: A, a2: A }
+
+    #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+    enum C {
+        A { a: A },
+        B { b: B },
+        AB { a: A, b: B },
+    }
+
+    #[test]
+    fn test_borsh_ser_de_sized() {
+        assert_eq!(A::SIZE, 11);
+        assert_eq!(B::SIZE, 33);
+        assert_eq!(C::SIZE, 11 + 33 + 1);
     }
 }

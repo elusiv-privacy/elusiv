@@ -170,9 +170,9 @@ pub fn finalize_send<'a>(
     let mut queue = FinalizeSendQueue::new(queue);
     let request = queue.dequeue_first()?;
 
-    guard!(recipient.key.to_bytes() == request.recipient, InvalidRecipient);
+    guard!(recipient.key.to_bytes() == request.request.recipient, InvalidRecipient);
 
-    send_from_pool(pool, recipient, request.amount)
+    send_from_pool(pool, recipient, request.request.amount)
 }
 
 /// Verifies public inputs and the proof data for proof requests

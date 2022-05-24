@@ -4,6 +4,7 @@ use crate::types::U256;
 use crate::bytes::*;
 use crate::error::ElusivError::{NullifierAlreadyExists};
 use super::program_account::SizedAccount;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 /// The count of nullifiers is the count of leafes in the MT
 const NULLIFIERS_COUNT: usize = 2usize.pow(super::MT_HEIGHT as u32);
@@ -36,7 +37,7 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
         guard!(count < NULLIFIERS_COUNT as u64, NullifierAlreadyExists);
 
         //self.set(ptr as usize, nullifier);
-        self.set_nullifiers_count(count + 1);
+        self.set_nullifiers_count(&(count + 1));
 
         panic!("TODO: add BTree Map and insert nullifier");
 

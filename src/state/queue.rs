@@ -1,5 +1,6 @@
 //! Queues are used to store hash, proof verification and payment requests
 
+use borsh::{BorshSerialize, BorshDeserialize};
 use solana_program::program_error::ProgramError;
 use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty};
 use crate::macros::guard;
@@ -15,7 +16,7 @@ macro_rules! queue_account {
         pub struct $account {
             head: u64,
             tail: u64,
-            data: [$ty; $size],
+            data: [RequestWrap<$ty>; $size],
         }
 
         impl<'a> $account<'a> {
@@ -35,13 +36,20 @@ macro_rules! queue_account {
             const SIZE: u64 = $size * Self::N::SIZE as u64;
         
             fn get_head(&self) -> u64 { self.account.get_head() }
-            fn set_head(&mut self, value: u64) { self.account.set_head(value) }
+            fn set_head(&mut self, value: &u64) { self.account.set_head(value) }
             fn get_tail(&self) -> u64 { self.account.get_tail() }
-            fn set_tail(&mut self, value: u64) { self.account.set_tail(value) }
-            fn get_data(&self, index: usize) -> Self::N { self.account.get_data(index) }
-            fn set_data(&mut self, index: usize, value: Self::N) { self.account.set_data(index, value) }
+            fn set_tail(&mut self, value: &u64) { self.account.set_tail(value) }
+            fn get_data(&self, index: usize) -> RequestWrap<Self::N> { self.account.get_data(index) }
+            fn set_data(&mut self, index: usize, value: &RequestWrap<Self::N>) { self.account.set_data(index, value) }
         }
     };
+}
+
+/// The `RequestWrap` allows for adding flags to requests
+#[derive(Copy, Clone, BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct RequestWrap<N: BorshSerDeSized> {
+    pub is_being_processed: bool,
+    pub request: N,
 }
 
 // Queue used for storing the base_commitments and amounts that should be hashed into commitments
@@ -58,7 +66,7 @@ queue_account!(MigrateProofQueue, MigrateProofQueueAccount, 10, MigrateProofRequ
 // Queue storing the money transfer requests derived from verified Send proofs
 queue_account!(FinalizeSendQueue, FinalizeSendQueueAccount, 256, FinalizeSendRequest, 1);
 
-#[derive(SerDe, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
 /// Request for computing `commitment = h(base_commitment, amount)`
 pub struct BaseCommitmentHashRequest {
     pub base_commitment: U256,
@@ -67,7 +75,7 @@ pub struct BaseCommitmentHashRequest {
     pub is_active: bool,
 }
 
-#[derive(SerDe)]
+#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum ProofRequest {
     Send { request: SendProofRequest },
     Merge { request: MergeProofRequest },
@@ -92,7 +100,7 @@ impl ProofRequest {
     }
 }
 
-#[derive(SerDe, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
 pub struct SendProofRequest {
     pub proof: RawProof,
     pub proof_data: JoinSplitProofData<2>,
@@ -100,7 +108,7 @@ pub struct SendProofRequest {
     pub fee_payer: U256,
 }
 
-#[derive(SerDe, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
 pub struct MergeProofRequest {
     pub proof: RawProof,
     pub proof_data: JoinSplitProofData<2>,
@@ -108,7 +116,7 @@ pub struct MergeProofRequest {
     pub fee_payer: U256,
 }
 
-#[derive(SerDe, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
 pub struct MigrateProofRequest {
     pub proof: RawProof,
     pub proof_data: JoinSplitProofData<1>,
@@ -116,7 +124,7 @@ pub struct MigrateProofRequest {
     pub fee_payer: U256,
 }
 
-#[derive(SerDe, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
 /// Request for transferring `amount` funds to a `recipient`
 pub struct FinalizeSendRequest {
     pub amount: u64,
@@ -130,17 +138,17 @@ pub struct FinalizeSendRequest {
 /// - `head == tail - 1` => queue is full
 /// - `head == tail` => queue is empty
 pub trait RingQueue {
-    type N: PartialEq;
+    type N: PartialEq + BorshSerDeSized;
     const SIZE: u64;
 
     fn get_head(&self) -> u64;
-    fn set_head(&mut self, value: u64);
+    fn set_head(&mut self, value: &u64);
 
     fn get_tail(&self) -> u64;
-    fn set_tail(&mut self, value: u64);
+    fn set_tail(&mut self, value: &u64);
 
-    fn get_data(&self, index: usize) -> Self::N;
-    fn set_data(&mut self, index: usize, value: Self::N);
+    fn get_data(&self, index: usize) -> RequestWrap<Self::N>;
+    fn set_data(&mut self, index: usize, value: &RequestWrap<Self::N>);
 
     /// Try to enqueue a new element in the queue
     fn enqueue(&mut self, value: Self::N) -> Result<(), ProgramError> {
@@ -150,14 +158,14 @@ pub trait RingQueue {
         let next_tail = (tail + 1) % Self::SIZE;
         guard!(next_tail != head, QueueIsFull);
 
-        self.set_data(tail as usize, value);
-        self.set_tail(next_tail);
+        self.set_data(tail as usize, &RequestWrap { is_being_processed: false, request: value });
+        self.set_tail(&next_tail);
 
         Ok(())
     }
 
     /// Try to read the first element in the queue without removing it
-    fn view_first(&self) -> Result<Self::N, ProgramError> {
+    fn view_first(&self) -> Result<RequestWrap<Self::N>, ProgramError> {
         let head = self.get_head();
         let tail = self.get_tail();
 
@@ -167,14 +175,14 @@ pub trait RingQueue {
     }
 
     /// Try to remove the first element from the queue
-    fn dequeue_first(&mut self) -> Result<Self::N, ProgramError> {
+    fn dequeue_first(&mut self) -> Result<RequestWrap<Self::N>, ProgramError> {
         let head = self.get_head();
         let tail = self.get_tail();
 
         guard!(head != tail, QueueIsEmpty);
 
         let value = self.get_data(head as usize);
-        self.set_head((head + 1) % Self::SIZE);
+        self.set_head(&((head + 1) % Self::SIZE));
 
         Ok(value)
     }
@@ -184,7 +192,7 @@ pub trait RingQueue {
         let tail = self.get_tail();
 
         while ptr != tail {
-            if self.get_data(ptr as usize) == *value { return true; }
+            if self.get_data(ptr as usize).request == *value { return true; }
             ptr = (ptr + 1) % Self::SIZE;
         }
 
@@ -201,43 +209,43 @@ mod tests {
     struct TestQueue {
         head: u64,
         tail: u64,
-        data: [usize; SIZE],
+        data: [RequestWrap<u32>; SIZE],
     }
 
     impl RingQueue for TestQueue {
-        type N = usize;
+        type N = u32;
         const SIZE: u64 = SIZE as u64;
 
         fn get_head(&self) -> u64 { self.head }
-        fn set_head(&mut self, value: u64) { self.head = value; }
+        fn set_head(&mut self, value: &u64) { self.head = *value; }
 
         fn get_tail(&self) -> u64 { self.tail }
-        fn set_tail(&mut self, value: u64) { self.tail = value; }
+        fn set_tail(&mut self, value: &u64) { self.tail = *value; }
 
-        fn get_data(&self, index: usize) -> usize { self.data[index] }
-        fn set_data(&mut self, index: usize, value: usize) { self.data[index] = value; }
+        fn get_data(&self, index: usize) -> RequestWrap<u32> { self.data[index] }
+        fn set_data(&mut self, index: usize, value: &RequestWrap<u32>) { self.data[index] = *value; }
     }
 
     #[test]
     fn test_persistent_fifo() {
-        let mut queue = TestQueue { head: 0, tail: 0, data: [0; SIZE] };
+        let mut queue = TestQueue { head: 0, tail: 0, data: [RequestWrap { is_being_processed: false, request: 0 }; SIZE] };
         for i in 1..SIZE {
-            queue.enqueue(i).unwrap();
-            assert_eq!(1, queue.view_first().unwrap()); // first element does not change
+            queue.enqueue(i as u32).unwrap();
+            assert_eq!(1, queue.view_first().unwrap().request); // first element does not change
         }
     }
 
     #[test]
     fn test_max_size() {
-        let mut full_queue = TestQueue { head: 1, tail: 0, data: [0; SIZE] };
+        let mut full_queue = TestQueue { head: 1, tail: 0, data: [RequestWrap { is_being_processed: false, request: 0 }; SIZE] };
         assert!(matches!(full_queue.enqueue(1), Err(_)));
     }
 
     #[test]
     fn test_ordering() {
-        let mut queue = TestQueue { head: 0, tail: 0, data: [0; SIZE] };
+        let mut queue = TestQueue { head: 0, tail: 0, data: [RequestWrap { is_being_processed: false, request: 0 }; SIZE] };
         for i in 1..SIZE {
-            assert_eq!(i, queue.view_first().unwrap());
+            assert_eq!(i as u32, queue.view_first().unwrap().request);
             queue.dequeue_first().unwrap();
         }
         assert!(matches!(queue.dequeue_first(), Err(_)));

@@ -89,7 +89,6 @@ pub fn interpret(
 
         let mut read = quote!{};
         let mut write = quote!{};
-        let mut free = quote!{};
 
         for r in scope.read { read.extend(storage.read(r)); }
         for w in scope.write.clone() { write.extend(storage.write(w)); }
@@ -109,7 +108,7 @@ pub fn interpret(
         // If we free memory and write, we only free in the last iteration and write to different locations
         if !scope.free.is_empty() {
             let mut write_after_free = quote!{};
-            for f in scope.free.clone() { free.extend(storage.free(f)); }
+            for f in scope.free.clone() { storage.free(f); }
             for w in scope.write {
                 // Reallocate vars that have not been freed
                 if let Some(_) = scope.free.iter().find(|x| x.id == w.id) { continue; }
@@ -124,7 +123,6 @@ pub fn interpret(
                         #write_after_free
                     }
                 };
-                free = quote!{ if round == #r - 1 { #free } };
             } else {
                 write = write_after_free;
             }
@@ -143,7 +141,6 @@ pub fn interpret(
             round if round >= #start_rounds && round < #single_rounds #multi_rounds => {
                 #round
                 #read
-                #free
 
                 #ram_in #body #ram_out
 

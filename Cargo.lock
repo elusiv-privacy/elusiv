@@ -805,6 +805,7 @@ dependencies = [
  "ark-ff",
  "ark-groth16",
  "assert_matches",
+ "borsh",
  "elusiv-interpreter",
  "elusiv-macros",
  "solana-program",

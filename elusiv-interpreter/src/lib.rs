@@ -208,10 +208,6 @@ mod tests {
                         let a = ram_isize.read(0usize);
                         let mut b = ram_isize.read(1usize);
 
-                        if round == (COMPUTE_ROUNDS_COUNT) - 1 {
-                            ram_isize.free(0usize);
-                        }
-
                         ram_isize.inc_frame(2usize);
 
                         if ((a == b)) {
@@ -241,7 +237,6 @@ mod tests {
                         if round < (COMPUTE_ROUNDS_COUNT) - 1 {
                             ram_isize.write(b, 1usize);
                         } else {
-                            ram_isize.free(1usize);
                             ram_isize.write(b, 0usize);
                         }
                     },
@@ -249,8 +244,6 @@ mod tests {
                         round < 2usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) =>
                     {
                         let b = ram_isize.read(0usize);
-                        ram_isize.free(0usize);
-
                         return Ok(Some(alpha_beta.child.call(b,)));
                     },
                     _ => {}

@@ -10,12 +10,6 @@ macro_rules! guard {
     };
 }
 
-/// Recursive max construction
-macro_rules! max {
-    ($x: expr) => ($x);
-    ($x: expr, $($z: expr),+) => { if $x < max!($($z),*) { max!($($z),*) } else { $x } };
-}
-
 macro_rules! pda_account {
     ($ty: ty, $seed: expr) => {
         impl crate::state::program_account::PDAAccount for $ty {
@@ -41,7 +35,6 @@ macro_rules! multi_instance_account {
 }
 
 pub(crate) use guard;
-pub(crate) use max;
 pub(crate) use pda_account;
 pub(crate) use sized_account;
 pub(crate) use multi_instance_account;
