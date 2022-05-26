@@ -136,6 +136,12 @@ pub fn setup_queue_accounts(
     Ok(())
 }
 
+pub fn setup_storage_account(
+
+) -> ProgramResult {
+    Ok(())   
+}
+
 fn create_pda_account<'a>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,

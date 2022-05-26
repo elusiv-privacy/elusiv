@@ -51,7 +51,7 @@ async fn test_setup_pda_accounts() {
     assert_account!(VerificationAccount, banks_client, Some(0));
 }
 
-#[tokio::test]
+/*#[tokio::test]
 async fn test_setup_all_accounts() {
     let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
     setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
@@ -141,24 +141,8 @@ async fn test_setup_queue_accounts_invalid() {
     let keys = create_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
 
     // Wrong queue account size
-    {
-        let acc = create_account_rent_exepmt(&mut banks_client, &payer, recent_blockhash, 100).await;
-        queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
-    }
-
-    // TODO: Non-zero
-    {
-        //let acc = create_account_rent_exepmt(&mut banks_client, &payer, recent_blockhash, CommitmentQueueAccount::SIZE).await;
-        //let mut account = banks_client.get_account(acc.pubkey()).await.unwrap().unwrap();
-        //account.data[0] = 1;
-        //queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
-    }
-
-    // Non rent-exempt
-    {
-        //let acc = create_account_non_rent_exepmt(&mut banks_client, &payer, recent_blockhash, CommitmentQueueAccount::SIZE).await;
-        //queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
-    }
+    let acc = create_account_rent_exepmt(&mut banks_client, &payer, recent_blockhash, 100).await;
+    queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
 }
 
 #[tokio::test]
@@ -175,4 +159,4 @@ async fn test_setup_pda_accounts_invalid() {
             )
         ]
     );
-}
+}*/

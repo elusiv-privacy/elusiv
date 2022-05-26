@@ -54,7 +54,7 @@ pub fn send_from_pool<'a>(
 
 #[cfg(test)]
 mod tests {
-    #[test]
+    /*#[test]
     fn test_public_inputs_commitment_duplicate() {
         panic!()
     }
@@ -72,5 +72,5 @@ mod tests {
     #[test]
     fn test_public_inputs_valid() {
         panic!()
-    }
+    }*/
 }

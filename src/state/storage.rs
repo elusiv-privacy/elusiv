@@ -21,13 +21,10 @@ pub const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(M
 // The `StorageAccount` contains the active Merkle Tree that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
-#[elusiv_account(
-    pda_seed = b"storage",
-    multi_account = (
-        STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT;
-        max_account_size(U256::SIZE)
-    )
-)]
+#[elusiv_account(pda_seed = b"storage", multi_account = (
+    STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT;
+    max_account_size(U256::SIZE)
+))]
 pub struct StorageAccount {
     bump_seed: u8,
     initialized: bool,

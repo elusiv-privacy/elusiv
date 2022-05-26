@@ -259,6 +259,10 @@ mod tests {
     fn test_ordering() {
         let mut queue = TestQueue { head: 0, tail: 0, data: [RequestWrap { is_being_processed: false, request: 0 }; SIZE] };
         for i in 1..SIZE {
+            queue.enqueue(i as u32).unwrap();
+        }
+
+        for i in 1..SIZE {
             assert_eq!(i as u32, queue.view_first().unwrap().request);
             queue.dequeue_first().unwrap();
         }

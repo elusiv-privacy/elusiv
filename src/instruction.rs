@@ -127,6 +127,7 @@ pub enum ElusivInstruction {
     ArchiveTree,
     */
 
+    // Can be called once per `SingleInstancePDAAccountKind`
     #[usr(payer, { writable, signer })]
     #[usr(pda_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
@@ -135,6 +136,7 @@ pub enum ElusivInstruction {
         nonce: u8,  // nonce used for not-having duplicate transactions rejected (only important for this ix for test cases)
     },
 
+    // Can be called `MAX_ACCOUNTS_COUNT` times per `MultiInstancePDAAccountKind`
     #[usr(payer, { writable, signer })]
     #[usr(pda_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
@@ -144,6 +146,7 @@ pub enum ElusivInstruction {
         nonce: u8,
     },
 
+    // Setup all queue accounts and store the pubkeys in the `QueueManagementAccount`
     #[usr(base_commitment_q, { owned })]
     #[usr(commitment_q, { owned })]
     #[usr(send_proof_q, { owned })]
@@ -152,6 +155,9 @@ pub enum ElusivInstruction {
     #[usr(finalize_send_q, { owned })]
     #[pda(q_manager, QueueManagement, { writable })]
     SetupQueueAccounts,
+
+    // Can be called once, setups all sub-accounts for the storage account
+    SetupStorageAccount,
 
     TestFail,
 }
