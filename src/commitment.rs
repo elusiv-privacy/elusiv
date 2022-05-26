@@ -20,6 +20,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// - multiple of these accounts can exist
 #[elusiv_account(pda_seed = b"base_commitment")]
 pub struct BaseCommitmentHashingAccount {
+    bump_seed: u8,
+    initialized: bool,
+
     // `PartialComputationAccount` trait
     is_active: bool,
     round: u64,
@@ -62,6 +65,9 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
 /// - only one of these accounts can exist per MT
 #[elusiv_account(pda_seed = b"commitment")]
 pub struct CommitmentHashingAccount {
+    bump_seed: u8,
+    initialized: bool,
+
     // `PartialComputationAccount` trait
     is_active: bool,
     round: u64,

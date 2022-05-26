@@ -25,53 +25,14 @@ impl<E: BorshSerDeSized + Default + Copy, const N: usize> BorshSerDeSized for [E
     const SIZE: usize = E::SIZE * N;
 }
 
-// Optionals
-pub enum ElusivOption<N> {
-    Some(N),
-    None
-}
-impl<N: Copy> ElusivOption<N> {
-    pub fn unwrap(&self) -> Result<N, ProgramError> {
-        match *self {
-            ElusivOption::Some(v) => Ok(v),
-            ElusivOption::None => Err(ProgramError::InvalidArgument)
-        }
-    }
-}
-impl<N: BorshSerDeSized> BorshSerDeSized for ElusivOption<N> {
-    const SIZE: usize = N::SIZE + 1;
-}
-impl<N: BorshDeserialize + BorshSerDeSized> BorshDeserialize for ElusivOption<N> {
-    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
-        match bool::deserialize(buf)? {
-            true => Ok(ElusivOption::Some(N::deserialize(buf)?)),
-            false => Ok(ElusivOption::None),
-        }
-    }
-}
-impl<N: BorshSerialize + BorshSerDeSized> BorshSerialize for ElusivOption<N> {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        match self {
-            ElusivOption::Some(v) => {
-                writer.write_all(&vec![1])?;
-                v.serialize(writer)
-            },
-            ElusivOption::None => writer.write_all(&vec![0; N::SIZE + 1])
-        }
-    }
-}
-/*impl<E: BorshSerDeSized + Default + Copy, const N: usize> BorshSerDeSized for [E; N] {
-    const SIZE: usize = E::SIZE * N;
-}*/
-
 pub(crate) use impl_borsh_sized;
-use solana_program::program_error::ProgramError;
 
 impl_borsh_sized!(u8, 1);
 impl_borsh_sized!(u32, 4);
 impl_borsh_sized!(u64, 8);
 impl_borsh_sized!(bool, 1);
 
+// TODO: optimize find and contains with byte alignment
 pub fn contains<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8]) -> bool {
     let length = data.len() / N::SIZE;
     match find(v, data, length) {

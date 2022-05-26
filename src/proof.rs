@@ -26,6 +26,9 @@ pub type RAMG2A<'a> = LazyRAM<'a, G2A, 4>;
 /// Account used for verifying all kinds of Groth16 proofs over the span of multiple transactions
 #[elusiv_account(pda_seed = b"proof")]
 pub struct VerificationAccount {
+    bump_seed: u8,
+    initialized: bool,
+
     // if true, the proof request can be finalized
     is_verified: bool,
 

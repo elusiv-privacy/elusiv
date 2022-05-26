@@ -46,9 +46,11 @@ pub trait PDAAccount {
     }
 } 
 
+/// Every PDA account has these fields as the first fields. (elusiv_account macro guarantees this) 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct PDAAccountFields {
     pub bump_seed: u8,
+    pub initialized: bool,
 }
 
 pub trait SizedAccount {

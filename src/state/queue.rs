@@ -54,7 +54,10 @@ pub struct RequestWrap<N: BorshSerDeSized> {
 
 #[elusiv_account(pda_seed = b"queue_account")]
 pub struct QueueManagementAccount {
-    is_initialized: bool,
+    bump_seed: u8,
+    initialized: bool,
+
+    finished_setup: bool,
 
     base_commitment_queue: U256,
     commitment_queue: U256,

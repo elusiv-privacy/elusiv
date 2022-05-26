@@ -809,6 +809,7 @@ dependencies = [
  "elusiv",
  "elusiv-interpreter",
  "elusiv-macros",
+ "rand 0.8.5",
  "solana-program",
  "solana-program-test",
  "solana-sdk",

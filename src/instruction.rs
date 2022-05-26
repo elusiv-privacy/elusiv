@@ -129,17 +129,19 @@ pub enum ElusivInstruction {
 
     #[usr(payer, { writable, signer })]
     #[usr(pda_account, { writable })]
-    #[sys(system_program, key = system_program::ID)]
+    #[sys(system_program, key = system_program::ID, { ignore })]
     OpenSingleInstanceAccount {
         kind: SingleInstancePDAAccountKind,
+        nonce: u8,  // nonce used for not-having duplicate transactions rejected (only important for this ix for test cases)
     },
 
     #[usr(payer, { writable, signer })]
     #[usr(pda_account, { writable })]
-    #[sys(system_program, key = system_program::ID)]
+    #[sys(system_program, key = system_program::ID, { ignore })]
     OpenMultiInstanceAccount {
         pda_offset: u64,
         kind: MultiInstancePDAAccountKind,
+        nonce: u8,
     },
 
     #[usr(base_commitment_q, { owned })]
@@ -155,7 +157,7 @@ pub enum ElusivInstruction {
 }
 
 #[cfg(feature = "instruction-abi")]
-pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {
+pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8) -> Vec<solana_program::instruction::Instruction> {
     use ElusivInstruction as EI;
 
     let mut ixs = Vec::new();
@@ -164,18 +166,21 @@ pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instructi
     // Pool
     ixs.push(EI::open_single_instance_account(
         SingleInstancePDAAccountKind::Pool,
+        nonce,
         SignerAccount(payer),
         WritableUserAccount(PoolAccount::find(None).0)
     ));
     // QueueManager
     ixs.push(EI::open_single_instance_account(
         SingleInstancePDAAccountKind::QueueManagementAccount,
+        nonce,
         SignerAccount(payer),
         WritableUserAccount(QueueManagementAccount::find(None).0)
     ));
     // CommitmentHashing
     ixs.push(EI::open_single_instance_account(
         SingleInstancePDAAccountKind::CommitmentHashing,
+        nonce,
         SignerAccount(payer),
         WritableUserAccount(CommitmentHashingAccount::find(None).0)
     ));
@@ -185,6 +190,7 @@ pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instructi
     ixs.push(EI::open_multi_instance_account(
         0,
         MultiInstancePDAAccountKind::BaseCommitmentHashing,
+        nonce,
         SignerAccount(payer),
         WritableUserAccount(BaseCommitmentHashingAccount::find(Some(0)).0)
     ));
@@ -192,6 +198,7 @@ pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instructi
     ixs.push(EI::open_multi_instance_account(
         0,
         MultiInstancePDAAccountKind::Verification,
+        nonce,
         SignerAccount(payer),
         WritableUserAccount(VerificationAccount::find(Some(0)).0)
     ));

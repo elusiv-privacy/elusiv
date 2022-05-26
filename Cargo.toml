@@ -19,6 +19,7 @@ ark-ff = "0.3.0"
 ark-ec = "0.3.0"
 
 [dev-dependencies]
+rand = "0.8.5"
 elusiv = { path = ".", features = ["instruction-abi"] }
 assert_matches = "1.5.0"
 solana-program-test = "1.9.5"

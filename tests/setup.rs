@@ -1,0 +1,178 @@
+//! Tests the account setup process
+
+mod common;
+use rand::Rng;
+use common::program_setup::*;
+use common::{
+    get_balance,
+    get_data,
+};
+use elusiv::commitment::{CommitmentHashingAccount, BaseCommitmentHashingAccount};
+use elusiv::instruction::{ElusivInstruction, SignerAccount, UserAccount, WritableUserAccount};
+use elusiv::processor::SingleInstancePDAAccountKind;
+use elusiv::proof::VerificationAccount;
+use elusiv::state::pool::PoolAccount;
+use elusiv::state::program_account::{PDAAccount, SizedAccount};
+use elusiv::state::queue::QueueManagementAccount;
+use solana_program_test::*;
+use solana_sdk::{signature::Signer, transaction::Transaction};
+use assert_matches::assert_matches;
+use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount};
+
+macro_rules! assert_account {
+    ($ty: ty, $banks_client: ident, $offset: expr) => {
+        {
+            let mut data = get_data(&mut $banks_client, <$ty>::find($offset).0).await;
+
+            // Check balance and data size
+            assert!(get_balance(&mut $banks_client, <$ty>::find($offset).0).await > 0);
+            assert_eq!(data.len(), <$ty>::SIZE);
+
+            // Check bump and initialized flag
+            let account = <$ty>::new(&mut data).unwrap();
+            assert_eq!(account.get_bump_seed(), <$ty>::find($offset).1);
+            assert_eq!(account.get_initialized(), true);
+        }
+    };
+}
+
+#[tokio::test]
+async fn test_setup_pda_accounts() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+
+    // Single instance PDAs
+    assert_account!(PoolAccount, banks_client, None);
+    assert_account!(QueueManagementAccount, banks_client, None);
+    assert_account!(CommitmentHashingAccount, banks_client, None);
+
+    // Multi instance PDAs
+    assert_account!(BaseCommitmentHashingAccount, banks_client, Some(0));
+    assert_account!(VerificationAccount, banks_client, Some(0));
+}
+
+#[tokio::test]
+async fn test_setup_all_accounts() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+
+    // Create queue accounts
+    let queues = setup_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
+
+    let mut queue_manager = get_data(&mut banks_client, QueueManagementAccount::find(None).0).await;
+    let queue_manager = QueueManagementAccount::new(&mut queue_manager[..]).unwrap();
+
+    // Check queue pubkeys
+    assert_eq!(queue_manager.get_base_commitment_queue(), queues.base_commitment.to_bytes());
+    assert_eq!(queue_manager.get_commitment_queue(), queues.commitment.to_bytes());
+    assert_eq!(queue_manager.get_send_proof_queue(), queues.send_proof.to_bytes());
+    assert_eq!(queue_manager.get_merge_proof_queue(), queues.merge_proof.to_bytes());
+    assert_eq!(queue_manager.get_migrate_proof_queue(), queues.migrate_proof.to_bytes());
+    assert_eq!(queue_manager.get_finalize_send_queue(), queues.finalize_send.to_bytes());
+
+    // Finished setup flag
+    assert!(queue_manager.get_finished_setup());
+}
+
+#[tokio::test]
+#[should_panic]
+async fn test_setup_pda_accounts_duplicate() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+
+    // Should fail because of PDAs already existing
+    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+}
+
+#[tokio::test]
+#[should_panic]
+async fn test_setup_queue_accounts_duplicate() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+    setup_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
+
+    // Should fail because of initialization flag
+    setup_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
+}
+
+macro_rules! tx_should_fail {
+    ($banks_client: ident, $payer: ident, $recent_blockhash: ident, $ixs: expr) => {
+        {
+            let mut transaction = Transaction::new_with_payer(
+                &$ixs,
+                Some(&$payer.pubkey()),
+            );
+            transaction.sign(&[&$payer], $recent_blockhash);
+
+            assert_matches!($banks_client.process_transaction(transaction).await, Err(_));
+        }
+    };
+}
+
+macro_rules! queue_accounts_tx_should_fail {
+    ($banks_client: ident, $payer: ident, $recent_blockhash: ident, $keys: ident, $acc: expr) => {
+        let mut keys = $keys.clone();
+        keys.commitment = $acc.pubkey();
+
+        tx_should_fail!(
+            $banks_client, $payer, $recent_blockhash,
+            setup_queue_accounts_ix(&keys)
+        );
+    };
+}
+
+#[tokio::test]
+#[should_panic]
+/// Test function for the test macro `queue_accounts_tx_should_fail`
+async fn test_setup_queue_accounts_should_fail() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+    let keys = create_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
+
+    // We set the correct commitment_queue_account so that `queue_accounts_tx_should_fail` panics
+    let acc = create_account_rent_exepmt(&mut banks_client, &payer, recent_blockhash, CommitmentQueueAccount::SIZE).await;
+    queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
+}
+
+#[tokio::test]
+async fn test_setup_queue_accounts_invalid() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+    let keys = create_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
+
+    // Wrong queue account size
+    {
+        let acc = create_account_rent_exepmt(&mut banks_client, &payer, recent_blockhash, 100).await;
+        queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
+    }
+
+    // TODO: Non-zero
+    {
+        //let acc = create_account_rent_exepmt(&mut banks_client, &payer, recent_blockhash, CommitmentQueueAccount::SIZE).await;
+        //let mut account = banks_client.get_account(acc.pubkey()).await.unwrap().unwrap();
+        //account.data[0] = 1;
+        //queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
+    }
+
+    // Non rent-exempt
+    {
+        //let acc = create_account_non_rent_exepmt(&mut banks_client, &payer, recent_blockhash, CommitmentQueueAccount::SIZE).await;
+        //queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
+    }
+}
+
+#[tokio::test]
+async fn test_setup_pda_accounts_invalid() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+
+    // Wrong PDA
+    tx_should_fail!(
+        banks_client, payer, recent_blockhash, vec![
+            ElusivInstruction::open_single_instance_account(
+                SingleInstancePDAAccountKind::Pool, 0,
+                SignerAccount(payer.pubkey()),
+                WritableUserAccount(QueueManagementAccount::find(None).0)
+            )
+        ]
+    );
+}

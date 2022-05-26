@@ -47,15 +47,18 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     }
                 });
 
-                // Add `bump_seed` field
-                fields.extend(quote! { bump_seed, });
-                definition.extend(quote! { bump_seed: &'a mut [u8], });
-                init.extend(quote! { let (bump_seed, d) = d.split_at_mut(1); }); 
-                total_size.extend(quote! { + 1 });
-                functions.extend(quote! {
-                    pub fn get_bump_seed(&self, index: usize) -> u8 { self.bump_seed[0] }
-                    pub fn set_bump_seed(&mut self, index: usize, value: u8) { self.bump_seed[0] = value; }
-                });
+                let mut fields_iter = input.fields.iter();
+                let first_field = fields_iter.next().expect("First field has to be `bump_seed: u8`");
+                assert_eq!(
+                    first_field.to_token_stream().to_string(), "bump_seed : u8",
+                    "First field has to be `bump_seed: u8`"
+                );
+
+                let second_field = fields_iter.next().expect("First field has to be `initialized: bool`");
+                assert_eq!(
+                    second_field.to_token_stream().to_string(), "initialized : bool",
+                    "First field has to be `initialized: bool`"
+                );
             },
             "multi_account" => {    // Turns this PDA account into a Multi account
                 let multi_account: String = named_sub_attribute("multi_account", attr).parse().unwrap();
