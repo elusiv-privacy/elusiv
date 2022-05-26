@@ -28,6 +28,7 @@ pub const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(M
 pub struct StorageAccount {
     bump_seed: u8,
     initialized: bool,
+    pubkeys: [U256; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],
 
     // Points to the next commitment in the active MT
     next_commitment_ptr: u64,

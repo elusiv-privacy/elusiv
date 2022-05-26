@@ -35,11 +35,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         }
     }
 
+    // Iter used for fields: `bump_seed`, `initialized`, `pubkeys` that traits "require"
+    let fields_iter = input.clone();
+    let mut fields_iter = fields_iter.fields.iter();
+    let mut is_pda = false;
+
     // Special implementations
     for attr in attrs {
         let attr_ident = attr.split("=").next().unwrap();
         match attr_ident {
             "pda_seed" => { // PDA based account
+                is_pda = true;
                 let seed: TokenStream = named_sub_attribute("pda_seed", attr).parse().unwrap();
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::PDAAccount for #name<#lifetimes> {
@@ -47,30 +53,32 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     }
                 });
 
-                let mut fields_iter = input.fields.iter();
                 let first_field = fields_iter.next().expect("First field has to be `bump_seed: u8`");
                 assert_eq!(
                     first_field.to_token_stream().to_string(), "bump_seed : u8",
-                    "First field has to be `bump_seed: u8`"
+                    "Could not find field has to be `bump_seed: u8`"
                 );
 
                 let second_field = fields_iter.next().expect("First field has to be `initialized: bool`");
                 assert_eq!(
                     second_field.to_token_stream().to_string(), "initialized : bool",
-                    "First field has to be `initialized: bool`"
+                    "Could not find field has to be `initialized: bool`"
                 );
             },
             "multi_account" => {    // Turns this PDA account into a Multi account
+                assert!(is_pda);
+
                 let multi_account: String = named_sub_attribute("multi_account", attr).parse().unwrap();
                 let multi_account = (&multi_account[1..multi_account.len() - 1]).split(";").collect::<Vec<&str>>();
                 let count: TokenStream = multi_account[0].parse().unwrap();
                 let max_account_size: TokenStream = multi_account[1].parse().unwrap();
 
-                // Add `pubkeys` field
-                fields.extend(quote! { pubkeys, });
-                definition.extend(quote! { pubkeys: &'a mut [u8], });
-                init.extend(quote! { let (pubkeys, d) = d.split_at_mut(U256::SIZE * #count); }); 
-                total_size.extend(quote! { + U256::SIZE * #count });
+                let field = fields_iter.next().expect("First field has to be `initialized: bool`");
+                assert_eq!(
+                    field.to_token_stream().to_string(), format!("pubkeys : [U256 ; {}]", multi_account[0]),
+                    "Could not find field has to be `pubkeys: [U256; <count>]`"
+                );
+
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'t> for #name<#lifetimes> {
                         const COUNT: usize = #count;
@@ -79,9 +87,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         fn get_all_pubkeys(&self) -> Vec<U256> {
                             let mut res = Vec::new();
                             for i in 0..Self::COUNT {
-                                res.push(
-                                    U256::try_from_slice(&self.pubkeys[i * U256::SIZE..]).unwrap()
-                                );
+                                res.push(self.get_pubkeys(i));
                             }
                             res
                         }
@@ -89,11 +95,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         fn set_all_pubkeys(&mut self, pubkeys: &[U256]) {
                             assert!(pubkeys.len() == Self::COUNT);
                             for i in 0..Self::COUNT {
-                                let offset = i * U256::SIZE;
-                                let v = U256::try_to_vec(&pubkeys[i]).unwrap();
-                                for j in 0..v.len() {
-                                    self.pubkeys[offset..][j] = v[j];
-                                }
+                                self.set_pubkeys(i, &pubkeys[i]);
                             }
                         }
 

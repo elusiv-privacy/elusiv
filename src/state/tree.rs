@@ -13,16 +13,15 @@ const NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = 1;
 
 /// NullifierAccount is a  big-array storing `NULLIFIERS_COUNT` nullifiers over multiple PDA accounts
 /// - we use BTreeMaps to store the nullifiers
-#[elusiv_account(
-    pda_seed = b"tree",
-    multi_account = (
-        NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT;
-        0
-    )
-)]
+#[elusiv_account(pda_seed = b"tree", multi_account = (
+    NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT;
+    0
+))]
 pub struct NullifierAccount {
     bump_seed: u8,
     initialized: bool,
+
+    pubkeys: [U256; NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT],
 
     root: U256,
     nullifiers_count: u64,
