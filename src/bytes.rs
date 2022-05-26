@@ -25,7 +25,47 @@ impl<E: BorshSerDeSized + Default + Copy, const N: usize> BorshSerDeSized for [E
     const SIZE: usize = E::SIZE * N;
 }
 
+// Optionals
+pub enum ElusivOption<N> {
+    Some(N),
+    None
+}
+impl<N: Copy> ElusivOption<N> {
+    pub fn unwrap(&self) -> Result<N, ProgramError> {
+        match *self {
+            ElusivOption::Some(v) => Ok(v),
+            ElusivOption::None => Err(ProgramError::InvalidArgument)
+        }
+    }
+}
+impl<N: BorshSerDeSized> BorshSerDeSized for ElusivOption<N> {
+    const SIZE: usize = N::SIZE + 1;
+}
+impl<N: BorshDeserialize + BorshSerDeSized> BorshDeserialize for ElusivOption<N> {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        match bool::deserialize(buf)? {
+            true => Ok(ElusivOption::Some(N::deserialize(buf)?)),
+            false => Ok(ElusivOption::None),
+        }
+    }
+}
+impl<N: BorshSerialize + BorshSerDeSized> BorshSerialize for ElusivOption<N> {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        match self {
+            ElusivOption::Some(v) => {
+                writer.write_all(&vec![1])?;
+                v.serialize(writer)
+            },
+            ElusivOption::None => writer.write_all(&vec![0; N::SIZE + 1])
+        }
+    }
+}
+/*impl<E: BorshSerDeSized + Default + Copy, const N: usize> BorshSerDeSized for [E; N] {
+    const SIZE: usize = E::SIZE * N;
+}*/
+
 pub(crate) use impl_borsh_sized;
+use solana_program::program_error::ProgramError;
 
 impl_borsh_sized!(u8, 1);
 impl_borsh_sized!(u32, 4);
@@ -57,6 +97,20 @@ pub fn find<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8], length: usiz
         }
     }
     None
+}
+
+pub fn is_zero(s: &[u8]) -> bool {
+    for i in (0..s.len()).step_by(16) {
+        if s.len() - i >= 16 {
+            let arr: [u8; 16] = s[i..i+16].try_into().unwrap();
+            if u128::from_be_bytes(arr) != 0 { return false }
+        } else {
+            for i in i..s.len() {
+                if s[i] != 0 { return false }
+            }
+        }
+    }
+    true
 }
 
 pub fn slice_to_array<N: Default + Copy, const SIZE: usize>(s: &[N]) -> [N; SIZE] {

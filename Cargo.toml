@@ -4,13 +4,6 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[workspace]
-members = [
-  ".",
-  "elusiv-macros",
-  "elusiv-interpreter",
-]
-
 [features]
 # Adds the functions `instruction_name(..) -> solana_program::instruction::Instruction` to `ElusivInstruction`
 instruction-abi = []
@@ -26,7 +19,7 @@ ark-ff = "0.3.0"
 ark-ec = "0.3.0"
 
 [dev-dependencies]
-#elusiv = { path = ".", features = ["instruction-abi"] }
+elusiv = { path = ".", features = ["instruction-abi"] }
 assert_matches = "1.5.0"
 solana-program-test = "1.9.5"
 solana-sdk = "1.9.5"

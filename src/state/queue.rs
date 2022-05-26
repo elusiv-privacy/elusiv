@@ -12,7 +12,7 @@ use super::program_account::SizedAccount;
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
     ($name: ident, $account: ident, $size: literal, $ty: ty, $max_count: literal) => {
-        #[elusiv_account(pda_seed = b"base_commitment")]
+        #[elusiv_account]
         pub struct $account {
             head: u64,
             tail: u64,
@@ -50,6 +50,20 @@ macro_rules! queue_account {
 pub struct RequestWrap<N: BorshSerDeSized> {
     pub is_being_processed: bool,
     pub request: N,
+}
+
+#[elusiv_account(pda_seed = b"queue_account")]
+pub struct QueueManagementAccount {
+    is_initialized: bool,
+
+    base_commitment_queue: U256,
+    commitment_queue: U256,
+
+    send_proof_queue: U256,
+    merge_proof_queue: U256,
+    migrate_proof_queue: U256,
+
+    finalize_send_queue: U256,
 }
 
 // Queue used for storing the base_commitments and amounts that should be hashed into commitments
@@ -102,7 +116,6 @@ impl ProofRequest {
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
 pub struct SendProofRequest {
-    pub proof: RawProof,
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: SendPublicInputs,
     pub fee_payer: U256,
@@ -110,7 +123,6 @@ pub struct SendProofRequest {
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
 pub struct MergeProofRequest {
-    pub proof: RawProof,
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: MergePublicInputs,
     pub fee_payer: U256,
@@ -118,7 +130,6 @@ pub struct MergeProofRequest {
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
 pub struct MigrateProofRequest {
-    pub proof: RawProof,
     pub proof_data: JoinSplitProofData<1>,
     pub public_inputs: MigratePublicInputs,
     pub fee_payer: U256,

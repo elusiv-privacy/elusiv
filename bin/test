@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if [ "$1" = "integration" ]; then
+    cargo test-bpf --test '*'
+elif [ "$1" = "unit" ]; then
+    cargo test-bpf
+fi

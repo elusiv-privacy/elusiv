@@ -1,7 +1,9 @@
 //! Currently the single SOL pool used to store funds
 
-use crate::macros::{pda_account, sized_account};
+use crate::macros::{elusiv_account};
+use crate::bytes::BorshSerDeSized;
+use borsh::{BorshDeserialize, BorshSerialize};
+use crate::state::program_account::SizedAccount;
 
-pub struct PoolAccount {}
-pda_account!(PoolAccount, b"sol_pool");
-sized_account!(PoolAccount, 1);
+#[elusiv_account(pda_seed = b"sol_pool")]
+pub struct PoolAccount { }

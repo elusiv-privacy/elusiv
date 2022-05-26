@@ -1,0 +1,3 @@
+#!/bin/bash
+
+cargo build-bpf --manifest-path=elusiv/Cargo.toml --bpf-out-dir=dist/program

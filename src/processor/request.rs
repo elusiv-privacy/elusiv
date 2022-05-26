@@ -85,7 +85,6 @@ pub fn request_proof_verification<'a, 'b, 'c, 'd>(
 
     match request {
         ProofRequest::Send { request } => {
-            guard!(SendProofQueueAccount::is_valid_pubkey(&vec![0], queue.key), InvalidAccount);
             let mut queue = SendProofQueueAccount::new(&mut queue_data)?;
             let mut queue = SendProofQueue::new(&mut queue);
 
@@ -114,7 +113,6 @@ pub fn request_proof_verification<'a, 'b, 'c, 'd>(
         },
 
         ProofRequest::Merge { request } => {
-            guard!(MergeProofQueueAccount::is_valid_pubkey(&vec![0], queue.key), InvalidAccount);
             let mut queue = MergeProofQueueAccount::new(&mut queue_data)?;
             let mut queue = MergeProofQueue::new(&mut queue);
 
@@ -137,7 +135,6 @@ pub fn request_proof_verification<'a, 'b, 'c, 'd>(
         },
 
         ProofRequest::Migrate { request } => {
-            guard!(MigrateProofQueueAccount::is_valid_pubkey(&vec![0], queue.key), InvalidAccount);
             let mut queue = MigrateProofQueueAccount::new(&mut queue_data)?;
             let mut queue = MigrateProofQueue::new(&mut queue);
 

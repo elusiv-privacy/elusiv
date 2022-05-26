@@ -10,22 +10,6 @@ macro_rules! guard {
     };
 }
 
-macro_rules! pda_account {
-    ($ty: ty, $seed: expr) => {
-        impl crate::state::program_account::PDAAccount for $ty {
-            const SEED: &'static [u8] = $seed;
-        } 
-    };
-}
-
-macro_rules! sized_account {
-    ($ty: ty, $size: expr) => {
-        impl crate::state::program_account::SizedAccount for $ty {
-            const SIZE: usize = $size;
-        } 
-    };
-}
-
 macro_rules! multi_instance_account {
     ($ty: ty, $max_instances: literal) => {
         impl<'a> crate::state::program_account::MultiInstanceAccount for $ty {
@@ -35,6 +19,4 @@ macro_rules! multi_instance_account {
 }
 
 pub(crate) use guard;
-pub(crate) use pda_account;
-pub(crate) use sized_account;
 pub(crate) use multi_instance_account;

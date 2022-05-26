@@ -1,38 +1,62 @@
-use borsh::{BorshSerialize, BorshDeserialize};
+use borsh::{BorshDeserialize, BorshSerialize};
+use elusiv_macros::BorshSerDeSized;
 use solana_program::account_info::AccountInfo;
+use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 
 use crate::bytes::BorshSerDeSized;
+use crate::types::U256;
 
 /// This trait is used by the elusiv_instruction macro
 pub trait PDAAccount {
     const SEED: &'static [u8];
 
-    fn pubkey(offsets: &[u64]) -> (Pubkey, u8) {
-        let seed = Self::offset_seed(offsets);
+    fn find(offset: Option<u64>) -> (Pubkey, u8) {
+        let seed = Self::offset_seed(offset);
         let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
+
         Pubkey::find_program_address(&seed, &crate::id())
     }
 
-    fn offset_seed(offsets: &[u64]) -> Vec<Vec<u8>> {
-        let mut seed: Vec<Vec<u8>> = vec![Self::SEED.to_vec()];
-        let offsets: Vec<Vec<u8>> = offsets.iter().map(|x| x.to_le_bytes().to_vec()).collect();
-        seed.extend(offsets);
-        seed
+    fn pubkey(offset: Option<u64>, bump: u8) -> Result<Pubkey, ProgramError> {
+        let mut seed = Self::offset_seed(offset);
+        seed.push(vec![bump]);
+        let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
+
+        match Pubkey::create_program_address(&seed, &crate::id()) {
+            Ok(v) => Ok(v),
+            Err(_) => Err(ProgramError::InvalidSeeds)
+        }
     }
 
-    fn is_valid_pubkey(offsets: &[u64], pubkey: &Pubkey) -> bool {
-        Self::pubkey(offsets).0 == *pubkey
+    fn offset_seed(offset: Option<u64>) -> Vec<Vec<u8>> {
+        match offset {
+            Some(offset) => vec![Self::SEED.to_vec(), offset.to_le_bytes().to_vec()],
+            None => vec![Self::SEED.to_vec()]
+        }
+        
+    }
+
+    fn is_valid_pubkey(account: &AccountInfo, offset: Option<u64>, pubkey: &Pubkey) -> Result<bool, ProgramError> {
+        let acc_data = &account.data.borrow()[..PDAAccountFields::SIZE];
+        match PDAAccountFields::try_from_slice(&acc_data) {
+            Ok(a) => Ok(Self::pubkey(offset, a.bump_seed)? == *pubkey),
+            Err(_) => Err(ProgramError::InvalidAccountData)
+        }
     }
 } 
 
-pub trait SizedAccount: PDAAccount {
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct PDAAccountFields {
+    pub bump_seed: u8,
+}
+
+pub trait SizedAccount {
     const SIZE: usize;
 }
 
 /// Certain accounts, like the `VerificationAccount` can be instantiated multiple times.
 /// - this allows for parallel computations
-/// - we use this trait to verify that a certain PDA is valid, since we generate PDAs with their index as last seed element
 /// - so we can compare this index with `MAX_INSTANCES` to check validity
 pub trait MultiInstanceAccount: PDAAccount {
     const MAX_INSTANCES: u64;
@@ -48,6 +72,16 @@ pub const MAX_ACCOUNT_SIZE: usize = 10_000_000;
 pub trait MultiAccountAccount<'t>: PDAAccount {
     /// The count of subsidiary accounts
     const COUNT: usize;
+
+    /// The size an intermediary account has (not last account)
+    const INTERMEDIARY_ACCOUNT_SIZE: usize;
+
+    /// Returns a slice of length `Self::COUNT` containing all pubkeys of the sub-accounts
+    fn get_all_pubkeys(&self) -> Vec<U256>;
+
+    /// Set the `Self::COUNT` sub-accounts pubkeys
+    fn set_all_pubkeys(&mut self, pubkeys: &[U256]);
+
     fn get_account(&self, account_index: usize) -> &AccountInfo<'t>;
 }
 
@@ -86,15 +120,24 @@ pub trait BigArrayAccount<'a>: MultiAccountAccount<'a> {
     }
 }
 
-pub const fn big_array_accounts_count(size: usize, element_size: usize) -> usize {
+pub const fn max_account_size(element_size: usize) -> usize {
+    MAX_ACCOUNT_SIZE / element_size
+}
+
+pub const fn big_array_accounts_count(len: usize, element_size: usize) -> usize {
     let max = MAX_ACCOUNT_SIZE / element_size;
-    size / max + (if size % max == 0 { 0 } else { 1 })
+    len / max + (if len % max == 0 { 0 } else { 1 })
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_get_set_big_array() {
-        panic!()
+        //panic!()
+        let k = Pubkey::find_program_address(&[&[1], &[2]], &crate::id());
+
+        panic!("{} {}", k.0, k.1);
     }
 }

@@ -1,12 +1,11 @@
 mod common;
-use common::*;
-
-/*use assert_matches::*;
-use solana_program::native_token::LAMPORTS_PER_SOL;
+use common::program_setup::*;
+use common::{
+    get_balance,
+    get_data,
+};
 use solana_program_test::*;
-use solana_sdk::{signature::Signer, transaction::Transaction};
-use elusiv::{instruction::*, state::queue::BaseCommitmentHashRequest};
-
+/*
 #[tokio::test]
 async fn test_store() {
     let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
@@ -32,10 +31,27 @@ async fn test_store() {
     assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 }
 
+*/
+
+macro_rules! assert_account {
+    ($ty: ty, $banks_client: ident) => {
+        assert!(get_balance(&mut $banks_client, <$ty>::pubkey(&vec![]).0).await > 0);
+        assert!(get_data(&mut $banks_client, <$ty>::pubkey(&vec![]).0).await.len() == <$ty>::SIZE);
+    };
+}
+
 #[tokio::test]
+async fn test_setup_pda_accounts() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+
+    setup_all_accounts(&mut banks_client, &payer, recent_blockhash).await;
+}
+
+/*#[tokio::test]
 #[ignore]
 async fn test_fail() {
     let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
 
     let mut transaction = Transaction::new_with_payer(
         &[

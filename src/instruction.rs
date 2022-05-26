@@ -4,6 +4,7 @@ use crate::types::ProofKind;
 use crate::bytes::BorshSerDeSized;
 use super::processor::*;
 use super::state::queue::{
+    QueueManagementAccount,
     BaseCommitmentQueueAccount,
     CommitmentQueueAccount,
     BaseCommitmentHashRequest,
@@ -32,19 +33,20 @@ use solana_program::instruction::AccountMeta;
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
 pub enum ElusivInstruction {
     // Client sends base commitment and amount to be stored in the Elusiv program
-    #[usr(sender, ( writable, signer ))]
-    #[pda(pool, Pool, ( writable, account_info ))]
+    /*#[usr(sender, { writable, signer })]
+    #[pda(pool, Pool, { writable, account_info })]
     #[sys(system_program, key = system_program::ID)]
-    #[pda(queue, BaseCommitmentQueue, ( writable ))]
+    //#[pda(q_manager, QueueManagement, { ignore })]
+    #[prg(queue, BaseCommitmentQueue, key = q_manager.get_base_commitment_queue(), { writable })]
     Store {
         base_commitment_request: BaseCommitmentHashRequest,
-    },
+    },*/
 
     // Proof request (Send, Merge, Migrate (since Migrate is unary, only first nullifier is used))
-    #[usr(fee_payer, ( writable, signer ))]
+    /*#[usr(fee_payer, ( writable, signer ))]
     #[pda(pool, Pool, ( writable, account_info ))]
     #[sys(system_program, key = system_program::ID)]
-    #[pda(storage_account, Storage, multi_accounts)]
+    #[pda(storage_account, Storage, ( multi_accounts ))]
     #[pda(nullifier_account0, Nullifier, pda_offset = tree_indices[0], ( multi_accounts ))]
     #[pda(nullifier_account1, Nullifier, pda_offset = tree_indices[1], ( multi_accounts ))]
     #[prg(queue, ( writable, account_info ))] // Parsing of the queue happens in the processor
@@ -117,7 +119,7 @@ pub enum ElusivInstruction {
     #[usr(recipient, ( writable ))]
     #[pda(pool, Pool, ( writable, account_info ))]
     #[pda(queue, FinalizeSendQueue, ( writable ))]
-    FinalizeSend,
+    FinalizeSend,*/
 
     /*
     CreateNewTree,
@@ -125,20 +127,74 @@ pub enum ElusivInstruction {
     ArchiveTree,
     */
 
-    #[usr(payer, ( writable, signer ))]
-    #[usr(pda_account, ( writable, account_info ))]
+    #[usr(payer, { writable, signer })]
+    #[usr(pda_account, { writable })]
     #[sys(system_program, key = system_program::ID)]
     OpenSingleInstanceAccount {
-        kind: SingleInstanceAccountKind,
+        kind: SingleInstancePDAAccountKind,
     },
 
-    #[usr(payer, ( writable, signer ))]
-    #[usr(pda_account, ( writable, account_info ))]
+    #[usr(payer, { writable, signer })]
+    #[usr(pda_account, { writable })]
     #[sys(system_program, key = system_program::ID)]
     OpenMultiInstanceAccount {
         pda_offset: u64,
-        kind: MultiInstanceAccountKind,
-    }
+        kind: MultiInstancePDAAccountKind,
+    },
 
-    //TestFail,
+    #[usr(base_commitment_q, { owned })]
+    #[usr(commitment_q, { owned })]
+    #[usr(send_proof_q, { owned })]
+    #[usr(merge_proof_q, { owned })]
+    #[usr(migrate_proof_q, { owned })]
+    #[usr(finalize_send_q, { owned })]
+    #[pda(q_manager, QueueManagement, { writable })]
+    SetupQueueAccounts,
+
+    TestFail,
+}
+
+#[cfg(feature = "instruction-abi")]
+pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {
+    use ElusivInstruction as EI;
+
+    let mut ixs = Vec::new();
+
+    // Single instance PDAs
+    // Pool
+    ixs.push(EI::open_single_instance_account(
+        SingleInstancePDAAccountKind::Pool,
+        SignerAccount(payer),
+        WritableUserAccount(PoolAccount::find(None).0)
+    ));
+    // QueueManager
+    ixs.push(EI::open_single_instance_account(
+        SingleInstancePDAAccountKind::QueueManagementAccount,
+        SignerAccount(payer),
+        WritableUserAccount(QueueManagementAccount::find(None).0)
+    ));
+    // CommitmentHashing
+    ixs.push(EI::open_single_instance_account(
+        SingleInstancePDAAccountKind::CommitmentHashing,
+        SignerAccount(payer),
+        WritableUserAccount(CommitmentHashingAccount::find(None).0)
+    ));
+
+    // Multi instance PDAs
+    // BaseCommitmentHashingAccount
+    ixs.push(EI::open_multi_instance_account(
+        0,
+        MultiInstancePDAAccountKind::BaseCommitmentHashing,
+        SignerAccount(payer),
+        WritableUserAccount(BaseCommitmentHashingAccount::find(Some(0)).0)
+    ));
+    // VerificationAccount
+    ixs.push(EI::open_multi_instance_account(
+        0,
+        MultiInstancePDAAccountKind::Verification,
+        SignerAccount(payer),
+        WritableUserAccount(VerificationAccount::find(Some(0)).0)
+    ));
+
+    ixs
 }

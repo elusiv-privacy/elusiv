@@ -46,14 +46,53 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         const SEED: &'static [u8] = #seed;
                     }
                 });
+
+                // Add `bump_seed` field
+                fields.extend(quote! { bump_seed, });
+                definition.extend(quote! { bump_seed: &'a mut [u8], });
+                init.extend(quote! { let (bump_seed, d) = d.split_at_mut(1); }); 
+                total_size.extend(quote! { + 1 });
+                functions.extend(quote! {
+                    pub fn get_bump_seed(&self, index: usize) -> u8 { self.bump_seed[0] }
+                    pub fn set_bump_seed(&mut self, index: usize, value: u8) { self.bump_seed[0] = value; }
+                });
             },
             "multi_account" => {    // Turns this PDA account into a Multi account
                 let multi_account: String = named_sub_attribute("multi_account", attr).parse().unwrap();
-                let count: TokenStream = multi_account.parse().unwrap();
+                let multi_account = (&multi_account[1..multi_account.len() - 1]).split(";").collect::<Vec<&str>>();
+                let count: TokenStream = multi_account[0].parse().unwrap();
+                let max_account_size: TokenStream = multi_account[1].parse().unwrap();
 
+                // Add `pubkeys` field
+                fields.extend(quote! { pubkeys, });
+                definition.extend(quote! { pubkeys: &'a mut [u8], });
+                init.extend(quote! { let (pubkeys, d) = d.split_at_mut(U256::SIZE * #count); }); 
+                total_size.extend(quote! { + U256::SIZE * #count });
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'t> for #name<#lifetimes> {
                         const COUNT: usize = #count;
+                        const INTERMEDIARY_ACCOUNT_SIZE: usize = #max_account_size;
+
+                        fn get_all_pubkeys(&self) -> Vec<U256> {
+                            let mut res = Vec::new();
+                            for i in 0..Self::COUNT {
+                                res.push(
+                                    U256::try_from_slice(&self.pubkeys[i * U256::SIZE..]).unwrap()
+                                );
+                            }
+                            res
+                        }
+
+                        fn set_all_pubkeys(&mut self, pubkeys: &[U256]) {
+                            assert!(pubkeys.len() == Self::COUNT);
+                            for i in 0..Self::COUNT {
+                                let offset = i * U256::SIZE;
+                                let v = U256::try_to_vec(&pubkeys[i]).unwrap();
+                                for j in 0..v.len() {
+                                    self.pubkeys[offset..][j] = v[j];
+                                }
+                            }
+                        }
 
                         fn get_account(&self, account_index: usize) -> &solana_program::account_info::AccountInfo<'t> {
                             &self.accounts[account_index]
@@ -63,10 +102,14 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 // Add accounts field
                 fields.extend(quote! { accounts, });
-                definition.extend(quote! { accounts: &'b [solana_program::account_info::AccountInfo<'t>], });
-                signature.extend(quote! { accounts: &'b [solana_program::account_info::AccountInfo<'t>], });
+                definition.extend(quote! {
+                    accounts: &'b [solana_program::account_info::AccountInfo<'t>],
+                });
+                signature.extend(quote! {
+                    accounts: &'b [solana_program::account_info::AccountInfo<'t>],
+                });
             },
-            _ => { panic!("Invalid attribute {}", attr) }
+            _ => { }
         }
     }
 
@@ -191,3 +234,18 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         #impls
     }
 }
+
+/*fn push_field(fields: &mut Fields, ident: &str, ty: Type) {
+    match fields {
+        syn::Fields::Named(n) => {
+            n.named.push(Field {
+                attrs: vec![],
+                vis: syn::Visibility::Inherited,
+                ident: Some(syn::Ident::new(ident, proc_macro2::Span::call_site())),
+                colon_token: Some(syn::token::Colon([proc_macro2::Span::call_site()])),
+                ty,
+            });
+        },
+        _ => panic!()
+    }
+}*/

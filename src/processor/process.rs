@@ -46,7 +46,6 @@ use crate::fields::{u256_to_fr, fr_to_u256_le};
 macro_rules! init_proof {
     ($queue_account_ty: ty, $queue_ty: ty, $queue: ident, $verification_account: ident, $kind: ident, $vkey: ty) => {
         {
-            guard!(<$queue_account_ty>::is_valid_pubkey(&vec![0], $queue.key), InvalidAccount);
             let mut queue_data = &mut $queue.data.borrow_mut()[..];
             let mut queue = <$queue_account_ty>::new(&mut queue_data)?;
             let mut queue = <$queue_ty>::new(&mut queue);

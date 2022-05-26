@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 
 pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
     let mut matches = quote!{};
-    //let mut functions = quote!{};
+    let mut functions = quote!{};
 
     match &ast.data {
         syn::Data::Enum(e) => {
@@ -18,16 +18,16 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let mut signature = quote!{};
 
                 // Instruction creation
-                //let mut fields_with_type = quote!{};
-                //let mut user_accounts = quote!{};
-                //let mut instruction_accounts = quote!{};
+                let mut fields_with_type = quote!{};
+                let mut user_accounts = quote!{};
+                let mut instruction_accounts = quote!{};
 
                 for field in var.fields {
                     let field_name = field.ident.clone().unwrap();
-                    //let ty = field.ty;
+                    let ty = field.ty;
 
                     fields.extend(quote! { #field_name, });
-                    //fields_with_type.extend(quote! { #field_name: #ty, });
+                    fields_with_type.extend(quote! { #field_name: #ty, });
                 }
 
                 // Account attributes
@@ -36,18 +36,19 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                     // Sub-attrs are the fields as in #[usr(sub_attr0 = .., sub_attr1, ..)]
                     let mut fields = attr.tokens.to_string();
-                    fields.retain(|x| x != '(' && x != ')' && !x.is_whitespace());
-                    let sub_attrs: Vec<&str> = fields.split(",").collect();
+                    fields.retain(|x| x != '{' && x != '}' && !x.is_whitespace());
+                    let sub_attrs: Vec<&str> = (&fields[1..fields.len() - 1]).split(",").collect();
 
                     let mut account: TokenStream = sub_attrs[0].parse().unwrap();
-                    //let mut account_init = Vec::new(); // used for creating the instruction objects with the abi-feature
+                    let mut account_init = Vec::new(); // used for creating the instruction objects with the abi-feature
 
                     accounts.extend(quote! {
                         let #account = next_account_info(account_info_iter)?;    
                     });
 
                     // Signer check
-                    if sub_attrs.contains(&"signer") {
+                    let is_signer = sub_attrs.contains(&"signer");
+                    if  is_signer {
                         accounts.extend(quote!{
                             if !#account.is_signer { return Err(InvalidArgument) }
                         });
@@ -61,13 +62,27 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         });
                     }
 
+                    // Ownership check
+                    let is_owned= sub_attrs.contains(&"owned");
+                    if is_owned {
+                        accounts.extend(quote!{
+                            if #account.owner != program_id { return Err(InvalidArgument) }
+                        });
+                    }
+
+                    // Ignore means not passing the account to the processor function
+                    let ignore = sub_attrs.contains(&"ignore");
+
+                    // `AccountInfo`?
+                    let as_account_info = sub_attrs.contains(&"account_info");
+
                     let mut_token = if is_writable { quote!{ mut } } else { quote!{} };
-                    //let account_init_fn = if is_writable { quote!{ new } } else { quote!{ new_readonly } };
+                    let account_init_fn = if is_writable { quote!{ new } } else { quote!{ new_readonly } };
 
                     match attr_name.as_str() {
                         // User `AccountInfo` (usage: <name>)
                         "usr" => {
-                            /*if is_signer {
+                            if is_signer {
                                 if is_writable {
                                     user_accounts.extend(quote!{ #account: SignerAccount, });
                                 } else {
@@ -79,16 +94,45 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 } else {
                                     user_accounts.extend(quote!{ #account: UserAccount, });
                                 }
-                            }*/
+                            }
 
-                            /*account_init.push(quote!{
+                            account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
-                            });*/
+                            });
                         },
 
+                        // Program owned accounts that satisfy a pubkey constraint
                         "prg" => {
+                            let ty = program_account_type(sub_attrs[1]);
+                            let key: TokenStream = named_sub_attribute("key", sub_attrs[2]).parse().unwrap();
+
+                            if !is_owned {
+                                accounts.extend(quote!{
+                                    if #account.owner != program_id { return Err(InvalidArgument) }
+                                });
+                            }
+
                             accounts.extend(quote!{
-                                if #account.owner != program_id { return Err(InvalidArgument) }
+                                if #account.key.to_bytes() != #key { return Err(InvalidArgument) }
+                            });
+
+                            if as_account_info {
+                                account = quote!{ &#account };
+                            } else {
+                                accounts.extend(quote!{
+                                    let acc_data = &mut #account.data.borrow_mut()[..];
+                                    let #mut_token #account = <#ty>::new(acc_data)?;
+                                });
+
+                                if is_writable {
+                                    account = quote!{ &mut #account };
+                                } else {
+                                    account = quote!{ &#account };
+                                }
+                            }
+
+                            account_init.push(quote!{
+                                //accounts.push(AccountMeta::#account_init_fn(#key, #is_signer));
                             });
                         },
 
@@ -98,12 +142,12 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             let key: TokenStream = named_sub_attribute("key", sub_attrs[1]).parse().unwrap();
 
                             accounts.extend(quote!{
-                                if #key != *#account.key{ return Err(InvalidArgument) };
+                                if #key != *#account.key { return Err(InvalidArgument) };
                             });
 
-                            /*account_init.push(quote!{
+                            account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(#key, #is_signer));
-                            });*/
+                            });
                         },
 
                         // PDA accounts (usage: <name> <AccountType> <pda_offset: u64 = ..>? <account_info>? <multi_account>? <ownership>)
@@ -121,23 +165,20 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             let pda_offset: TokenStream = if let Some(offset) = sub_attrs.get(2) {
                                 if offset.starts_with("pda_offset") {
                                     named_sub_attribute("pda_offset", offset).parse().unwrap()
-                                } else { quote!{ 0 } }
-                            } else { quote!{ 0 } };
-
-                            // `AccountInfo`?
-                            let as_account_info = sub_attrs.contains(&"account_info");
+                                } else { quote!{ None } }
+                            } else { quote!{ None } };
 
                             // Multi accounts account
                             let multi_account = sub_attrs.contains(&"multi_accounts");
 
                             // PDA verification
                             accounts.extend(quote!{
-                                if !<#ty>::is_valid_pubkey(&[#pda_offset], #account.key) { return Err(InvalidArgument) }
+                                if !<#ty>::is_valid_pubkey(&#account, #pda_offset, #account.key)? { return Err(InvalidArgument) }
                             });
 
-                            /*account_init.push(quote!{
-                                accounts.push(AccountMeta::#account_init_fn(<#ty>::pubkey(&[#pda_offset]).0, #is_signer));
-                            });*/
+                            account_init.push(quote!{
+                                accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#pda_offset).0, #is_signer));
+                            });
 
                             if multi_account {
                                 let write_check = if is_writable { quote!{ if !accounts[i].is_writable { return Err(InvalidArgument) } } } else { quote!{} };
@@ -147,16 +188,17 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     let acc_data = &mut #account.data.borrow_mut()[..];
                                     let mut accounts = next_account_infos(account_info_iter, #ty::COUNT)?;
                                     for i in 0..#ty::COUNT {
-                                        if !<#ty>::is_valid_pubkey(&[#pda_offset, i as u64], accounts[i].key) { return Err(InvalidArgument) }
+                                        panic!("Require sub-account pubkey check");
                                         #write_check
                                     }
                                 });
 
-                                /*account_init.push(quote!{
-                                    for i in 0..#ty::COUNT {
-                                        accounts.push(AccountMeta::#account_init_fn(<#ty>::pubkey(&[#pda_offset, i as u64]).0, #is_signer));
-                                    }
-                                });*/
+                                account_init.push(quote!{
+                                    panic!("Non PDA");
+                                    //for i in 0..#ty::COUNT {
+                                        //accounts.push(AccountMeta::#account_init_fn(<#ty>::pubkey(#pda_offset, i as u64]).0, #is_signer));
+                                    //}
+                                });
 
                                 if as_account_info {
                                     accounts.extend(quote!{
@@ -177,17 +219,14 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 if as_account_info {
                                     account = quote!{ &#account };
                                 } else {
+                                    accounts.extend(quote!{
+                                        let acc_data = &mut #account.data.borrow_mut()[..];
+                                        let #mut_token #account = <#ty>::new(acc_data)?;
+                                    });
+
                                     if is_writable {
-                                        accounts.extend(quote!{
-                                            let acc_data = &mut #account.data.borrow_mut()[..];
-                                            let #mut_token #account = <#ty>::new(acc_data)?;
-                                        });
                                         account = quote!{ &mut #account };
                                     } else {
-                                        accounts.extend(quote!{
-                                            let acc_data = &#account.data.borrow()[..];
-                                            let #mut_token #account = <#ty>::new(acc_data)?;
-                                        });
                                         account = quote!{ &#account };
                                     }
                                 }
@@ -197,10 +236,12 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     }
 
                     // Add account to processor call signature
-                    signature.extend(quote!{ #account, });
+                    if !ignore {
+                        signature.extend(quote!{ #account, });
+                    }
 
                     // Add account init
-                    //instruction_accounts.extend(account_init.iter().fold(quote!{}, |acc, x| quote!{ #acc #x }));
+                    instruction_accounts.extend(account_init.iter().fold(quote!{}, |acc, x| quote!{ #acc #x }));
                 }
 
                 matches.extend(quote! {
@@ -210,13 +251,13 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     },
                 });
 
-                /*functions.extend(quote!{
+                functions.extend(quote!{
                     pub fn #fn_name(#fields_with_type #user_accounts) -> solana_program::instruction::Instruction {
                         let mut accounts = Vec::new();
 
                         #instruction_accounts
                         let data = ElusivInstruction::#ident { #fields };
-                        let data = ElusivInstruction::serialize_vec(data);
+                        let data = ElusivInstruction::try_to_vec(&data).unwrap();
 
                         solana_program::instruction::Instruction::new_with_bytes(
                             crate::id(),
@@ -224,7 +265,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             accounts,
                         )
                     }
-                });*/
+                });
             }
         },
         _ => {}
@@ -240,7 +281,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             }
         }        
 
-        /*#[cfg(feature = "instruction-abi")]
+        #[cfg(feature = "instruction-abi")]
         impl ElusivInstruction {
             #functions
         }
@@ -255,7 +296,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
         pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
 
         #[cfg(feature = "instruction-abi")]
-        pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);*/
+        pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
     }
 }
 
