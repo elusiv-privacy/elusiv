@@ -167,8 +167,8 @@ mod tests {
         let offset = Some(12);
         let offset_bytes = u64::to_le_bytes(offset.unwrap());
         let seed = vec![SEED, &offset_bytes[..]];
-        let (expected_pubkey, expected_bump) = Pubkey::find_program_address(&seed, &crate::id());
 
+        let (expected_pubkey, expected_bump) = Pubkey::find_program_address(&seed, &crate::id());
         let (result_pubkey, result_bump) = TestPDAAccount::find(offset);
 
         assert_eq!(TestPDAAccount::offset_seed(offset), seed);
@@ -185,13 +185,98 @@ mod tests {
         assert!(!TestPDAAccount::is_valid_pubkey(&account, offset, &expected_pubkey).unwrap());
     }
 
+    const MAX_VALUES_PER_ACCOUNT: usize = max_account_size(32);
+    const ELEMENTS_COUNT: usize = MAX_VALUES_PER_ACCOUNT * 3 + 1;
+    const COUNT: usize = big_array_accounts_count(ELEMENTS_COUNT, 32);
+    const LAST_ACCOUNT_SIZE: usize = ELEMENTS_COUNT * 32 - (COUNT - 1) * (MAX_VALUES_PER_ACCOUNT * 32);
+
+    struct TestMultiAccountAccount<'t> {
+        pubkeys: [U256; COUNT],
+        accounts: [AccountInfo<'t>; COUNT],
+    }
+    impl<'t> PDAAccount for TestMultiAccountAccount<'t> {
+        const SEED: &'static [u8] = b"ABCDEFG";
+    }
+    impl<'t> MultiAccountAccount<'t> for TestMultiAccountAccount<'t> {
+        const COUNT: usize = COUNT;
+        const INTERMEDIARY_ACCOUNT_SIZE: usize = MAX_VALUES_PER_ACCOUNT * 32;
+
+        fn get_all_pubkeys(&self) -> Vec<U256> {
+            self.pubkeys.to_vec()
+        }
+
+        fn set_all_pubkeys(&mut self, pubkeys: &[U256]) {
+            assert!(pubkeys.len() == Self::COUNT);
+            for i in 0..Self::COUNT {
+                self.pubkeys[i] = pubkeys[i];
+            }
+        }
+
+        fn get_account(&self, account_index: usize) -> &AccountInfo<'t> {
+            &self.accounts[account_index]
+        }
+    }
+
     #[test]
     fn test_multi_account_account() {
+        assert_eq!(TestMultiAccountAccount::COUNT, 4);
 
+        let pk0 = Pubkey::new_unique();
+        let pk1 = Pubkey::new_unique();
+        let pk2 = Pubkey::new_unique();
+        let pk3 = Pubkey::new_unique();
+
+        account!(acc0, pk0, vec![0; TestMultiAccountAccount::INTERMEDIARY_ACCOUNT_SIZE]);
+        account!(acc1, pk1, vec![0; TestMultiAccountAccount::INTERMEDIARY_ACCOUNT_SIZE]);
+        account!(acc2, pk2, vec![0; TestMultiAccountAccount::INTERMEDIARY_ACCOUNT_SIZE]);
+        account!(acc3, pk3, vec![0; LAST_ACCOUNT_SIZE]);
+
+        let acc = TestMultiAccountAccount {
+            pubkeys: [ acc0.key.to_bytes(), acc1.key.to_bytes(), acc2.key.to_bytes(), acc3.key.to_bytes(), ],
+            accounts: [ acc0.clone(), acc1.clone(), acc2.clone(), acc3.clone() ]
+        };
+
+        assert_eq!(acc.get_all_pubkeys(), [ acc0.key.to_bytes(), acc1.key.to_bytes(), acc2.key.to_bytes(), acc3.key.to_bytes() ].to_vec());
+    }
+
+    impl<'t> BigArrayAccount<'t> for TestMultiAccountAccount<'t> {
+        type T = U256;
     }
 
     #[test]
     fn test_big_array_account() {
+        let mut acc0_data = vec![0; TestMultiAccountAccount::INTERMEDIARY_ACCOUNT_SIZE];
+        for i in 0..32 { acc0_data[1024 * 32 + i] = 1; }
 
+        let mut acc1_data = vec![0; TestMultiAccountAccount::INTERMEDIARY_ACCOUNT_SIZE];
+        for i in 0..32 { acc1_data[i] = 2; }
+
+        let mut acc2_data = vec![0; TestMultiAccountAccount::INTERMEDIARY_ACCOUNT_SIZE];
+        for i in 0..32 { acc2_data[333 * 32 + i] = 3; }
+
+        let pk0 = Pubkey::new_unique();
+        let pk1 = Pubkey::new_unique();
+        let pk2 = Pubkey::new_unique();
+        let pk3 = Pubkey::new_unique();
+
+        account!(acc0, pk0, acc0_data);
+        account!(acc1, pk1, acc1_data);
+        account!(acc2, pk2, acc2_data);
+        account!(acc3, pk3, vec![0; LAST_ACCOUNT_SIZE]);
+
+        let acc = TestMultiAccountAccount {
+            pubkeys: [ acc0.key.to_bytes(), acc1.key.to_bytes(), acc2.key.to_bytes(), acc3.key.to_bytes(), ],
+            accounts: [ acc0.clone(), acc1.clone(), acc2.clone(), acc3.clone() ]
+        };
+
+        // Getting over the border of multiple accounts
+        assert_eq!(acc.get(0), [0; 32]);
+        assert_eq!(acc.get(1024), [1; 32]);
+        assert_eq!(acc.get(MAX_VALUES_PER_ACCOUNT), [2; 32]);
+        assert_eq!(acc.get(MAX_VALUES_PER_ACCOUNT * 2 + 333), [3; 32]);
+
+        // Setting
+        acc.set(MAX_VALUES_PER_ACCOUNT, [5; 32]);
+        assert_eq!(acc.get(MAX_VALUES_PER_ACCOUNT), [5; 32]);
     }
 }

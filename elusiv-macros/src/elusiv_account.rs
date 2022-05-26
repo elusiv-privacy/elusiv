@@ -239,18 +239,3 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         #impls
     }
 }
-
-/*fn push_field(fields: &mut Fields, ident: &str, ty: Type) {
-    match fields {
-        syn::Fields::Named(n) => {
-            n.named.push(Field {
-                attrs: vec![],
-                vis: syn::Visibility::Inherited,
-                ident: Some(syn::Ident::new(ident, proc_macro2::Span::call_site())),
-                colon_token: Some(syn::token::Colon([proc_macro2::Span::call_site()])),
-                ty,
-            });
-        },
-        _ => panic!()
-    }
-}*/

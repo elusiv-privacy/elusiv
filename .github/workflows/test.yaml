@@ -63,15 +63,15 @@ jobs:
         with:
           fetch-depth: 0
 
-#      - name: Run unit tests, codecoverage
-#        env:
-#          CODECOV_TOKEN: ${{ secrets.CODECOV }}
-#        run: |
-#          cargo install cargo-tarpaulin --force
-#          cargo tarpaulin --out Xml
-#          bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
+      - name: Run unit tests, codecoverage
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV }}
+        run: |
+          cargo install cargo-tarpaulin --force
+          cargo tarpaulin --lib --out Xml
+          bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
 
-      - name: Run on chain integration tests
+      - name: Run unit tests and integration tests compiled to eBPF
         run: |
           rustup component add rustfmt --toolchain nightly-x86_64-unknown-linux-gnu
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
