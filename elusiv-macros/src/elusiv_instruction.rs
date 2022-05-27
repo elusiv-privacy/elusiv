@@ -89,7 +89,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         // User `AccountInfo` (usage: <name>)
                         "usr" => {
                             user_accounts.extend(quote!{ #account: #user_account_type, });
-
                             account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
                             });
@@ -99,6 +98,11 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         "prg" => {
                             let ty = program_account_type(sub_attrs[1]);
                             let key: TokenStream = named_sub_attribute("key", sub_attrs[2]).parse().unwrap();
+
+                            user_accounts.extend(quote!{ #account: #user_account_type, });
+                            account_init.push(quote!{
+                                accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
+                            });
 
                             if !is_owned {
                                 accounts.extend(quote!{
@@ -125,9 +129,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 }
                             }
 
-                            account_init.push(quote!{
-                                //accounts.push(AccountMeta::#account_init_fn(#key, #is_signer));
-                            });
                         },
 
                         // System program `AccountInfo` (usage: <name> <key = ..>)

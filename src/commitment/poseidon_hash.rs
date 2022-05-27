@@ -56,6 +56,8 @@ pub fn binary_poseidon_hash_partial(round: usize, state: &mut [Fr; 3]) {
 
 #[cfg(test)]
 mod tests {
+    use crate::{fields::fr_to_u256_le, state::{MT_HEIGHT, DEFAULT_VALUES}};
+
     use super::*;
     use std::str::FromStr;
 
@@ -105,4 +107,27 @@ mod tests {
             Fr::from_str("19385810945896973295264096509875610220438906021083240188787615240974188410069").unwrap(),
         );
     }
+
+    #[test]
+    fn test_mt_default_values() {
+        let mut a = Fr::zero();
+        for i in 0..=MT_HEIGHT {
+            assert_eq!(a, DEFAULT_VALUES[MT_HEIGHT - i]);
+            a = full_poseidon2_hash(a, a);
+        }
+    }
+
+    /*#[test]
+    fn generate_mt_constants() {
+        let mut strs = Vec::new();
+        let mut a = Fr::from_str("0").unwrap();
+        for i in 0..22 {
+            strs.push(format!("Fr::new(BigInteger256::new([{}, {}, {}, {}])),", a.0.0[0], a.0.0[1], a.0.0[2], a.0.0[3]));
+            println!("{}", a.to_string());
+            a = full_poseidon2_hash(a, a);
+        }
+        for s in strs.iter().rev()  {
+            println!("{}", s);
+        }
+    }*/
 }

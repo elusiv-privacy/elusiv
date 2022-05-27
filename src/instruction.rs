@@ -37,14 +37,14 @@ use solana_program::instruction::AccountMeta;
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
 pub enum ElusivInstruction {
     // Client sends base commitment and amount to be stored in the Elusiv program
-    /*#[usr(sender, { writable, signer })]
+    #[usr(sender, { writable, signer })]
     #[pda(pool, Pool, { writable, account_info })]
     #[sys(system_program, key = system_program::ID)]
-    //#[pda(q_manager, QueueManagement, { ignore })]
+    #[pda(q_manager, QueueManagement)]
     #[prg(queue, BaseCommitmentQueue, key = q_manager.get_base_commitment_queue(), { writable })]
     Store {
         base_commitment_request: BaseCommitmentHashRequest,
-    },*/
+    },
 
     // Proof request (Send, Merge, Migrate (since Migrate is unary, only first nullifier is used))
     /*#[usr(fee_payer, ( writable, signer ))]

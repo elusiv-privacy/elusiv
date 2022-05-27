@@ -16,7 +16,7 @@ use crate::state::queue::{
     SendProofQueue,SendProofQueueAccount,
     MergeProofQueue,MergeProofQueueAccount,
     MigrateProofQueue,MigrateProofQueueAccount,
-    FinalizeSendQueue,FinalizeSendQueueAccount, ProofRequest,
+    FinalizeSendQueue,FinalizeSendQueueAccount, ProofRequest, QueueManagementAccount,
 };
 use crate::error::ElusivError::{
     InvalidAmount,
@@ -41,10 +41,12 @@ pub fn store<'a>(
     sender: &AccountInfo<'a>,
     pool: &AccountInfo<'a>,
     system_program: &AccountInfo<'a>,
+    q_manager: &QueueManagementAccount,
     queue: &mut BaseCommitmentQueueAccount,
 
     request: BaseCommitmentHashRequest,
 ) -> ProgramResult {
+    guard!(q_manager.get_finished_setup(), InvalidAccount);
     let mut queue = BaseCommitmentQueue::new(queue);
 
     // Check amount (zero amounts are allowed since the user may need multiple commitments for some proofs)
@@ -61,7 +63,6 @@ pub fn store<'a>(
     guard!(matches!(try_scalar_montgomery(u256_to_big_uint(&request.commitment)), Some(_)), NonScalarValue);
 
     // Enqueue request
-    guard!(!request.is_active, InvalidInstructionData);
     guard!(!queue.contains(&request), CommitmentAlreadyExists);
     queue.enqueue(request)
 }

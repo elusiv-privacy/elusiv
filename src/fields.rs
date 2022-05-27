@@ -375,4 +375,11 @@ mod tests {
             ))
         );
     }
+
+    #[test]
+    fn test_fr_u256_parsing() {
+        let f = Fr::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap();
+        let u = fr_to_u256_le(&f);
+        assert_eq!(f, u256_to_fr(&u));
+    }
 }

@@ -20,7 +20,7 @@ pub fn verify_partial<VKey: VerificationKey>(
 ) -> Result<Option<bool>, ElusivError> {
     // Public input preparation
     if round < VKey::PREPARE_PUBLIC_INPUTS_ROUNDS {
-        let input_index = round / 254;
+        let input_index = round / PREPARE_PUBLIC_INPUTS_ROUNDS;
         let result = prepare_public_inputs_partial::<VKey>(
             round,
             verifier_account,
@@ -98,10 +98,12 @@ macro_rules! read_g1_projective {
     ($ram: expr, $o: literal) => { G1Projective::new($ram.read($o), $ram.read($o + 1), $ram.read($o + 2)) };
 }
 
+pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 255;
+
 /// Public input preparation
 /// - reference implementation: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L22
 /// - N public inputs (elements of the scalar field)
-/// - the total rounds required for preparation of all inputs is 254 * N
+/// - the total rounds required for preparation of all inputs is `PREPARE_PUBLIC_INPUTS_ROUNDS` * N
 /// - this partial computation is different from the rest, in that the caller directly passes
 fn prepare_public_inputs_partial<VKey: VerificationKey>(
     round: usize,
@@ -109,16 +111,20 @@ fn prepare_public_inputs_partial<VKey: VerificationKey>(
     input: U256,
     input_index: usize,
 ) -> Option<G1Affine> {
-    let mul_round = round % 254;
+    let mul_round = round % PREPARE_PUBLIC_INPUTS_ROUNDS;
 
-    let mut acc: G1Projective = if mul_round == 0 { G1Projective::zero() } else { read_g1_projective!(storage.ram_fq, 3) };
+    if round == 0 {
+        write_g1_projective(&mut storage.ram_fq, G1Projective::zero(), 3);
+    }
 
-    if mul_round < 254 { // Standard ec scalar multiplication
+    let mut acc: G1Projective = read_g1_projective!(storage.ram_fq, 3);
+
+    if mul_round < PREPARE_PUBLIC_INPUTS_ROUNDS - 1 { // Standard ec scalar multiplication
         // Skip leading zeros
-        if mul_round < find_first_non_zero_be(&input) { return None }
+        if mul_round < find_first_non_zero(&input) { return None }
 
         acc.double_in_place();
-        if get_bit_be(&input, mul_round) {
+        if get_bit(&input, mul_round) {
             acc.add_assign_mixed(&VKey::gamma_abc_g1(input_index + 1));
         }
 
@@ -128,7 +134,7 @@ fn prepare_public_inputs_partial<VKey: VerificationKey>(
 
         g_ic += acc;
 
-        if input_index < VKey::PUBLIC_INPUTS_COUNT {
+        if input_index < VKey::PUBLIC_INPUTS_COUNT - 1 {
             write_g1_projective(&mut storage.ram_fq, g_ic, 0);
         } else {
             return Some(g_ic.into())
@@ -143,17 +149,17 @@ fn write_g1_projective(ram: &mut RAMFq, g1p: G1Projective, offset: usize) {
     ram.write(g1p.z, offset + 2);
 }
 
-// `v`` and the bytes of v are all in LE
-fn get_bit_be(v: &U256, index: usize) -> bool {
+/// Returns the bit, indexed in bit-endian from `v` in little-endian format
+fn get_bit(v: &U256, index: usize) -> bool {
     let byte = index / 8;
     v[31 - byte] >> (7 - (index % 8)) == 1
 }
 
-// `v` is in LE
-fn find_first_non_zero_be(v: &U256) -> usize {
+/// Returns the first non-zero bit in big-endian for a value  `v` in little-endian
+fn find_first_non_zero(v: &U256) -> usize {
     for byte in 0..32 {
         for bit in 0..8 {
-            if v[31 - byte] >> (7 - bit) == 1 { return byte * 8 + bit }
+            if (v[byte] >> (7 - bit) & 1) == 1 { return 31 - byte * 8 - bit }
         }
     }
     256
@@ -556,7 +562,7 @@ mod tests {
     use ark_ec::models::bn::BnParameters;
     use ark_ff::PrimeField;
     use borsh::BorshSerialize;
-    use crate::fields::Wrap;
+    use crate::fields::{Wrap, fr_to_u256_le};
 
     type VK = super::super::vkey::SendVerificationKey;
 
@@ -595,19 +601,36 @@ mod tests {
     /*#[test]
     fn test_prepare_public_inputs() {
         let public_inputs = vec![
-            Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap();
-            VK::PUBLIC_INPUTS_COUNT
+            Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+            Fr::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+            Fr::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+            Fr::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
+            Fr::from_str("3932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+            Fr::from_str("932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+            Fr::from_str("455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
         ];
         storage!(storage);
         let mut value: Option<G1Affine> = None;
-        for round in 0..VK::PUBLIC_INPUTS_COUNT * 254 {
-            let input_index = round / VK::PUBLIC_INPUTS_COUNT;
+        for round in 0..VK::PREPARE_PUBLIC_INPUTS_ROUNDS {
+            let input_index = round / PREPARE_PUBLIC_INPUTS_ROUNDS;
             let input = <Wrap<Fr>>::try_to_vec(&Wrap(public_inputs[input_index])).unwrap();
             let input: U256 = input.try_into().unwrap();
             value = prepare_public_inputs_partial::<VK>(round, &mut storage, input, input_index);
         }
 
         assert_eq!(value.unwrap(), reference_prepare_inputs::<VK>(&public_inputs));
+    }
+
+    #[test]
+    fn test_find_first_non_zero() {
+        let f = Fr::from_str("1").unwrap();
+        assert_eq!(find_first_non_zero(&fr_to_u256_le(&f)), 255);
+    }
+
+    #[test]
+    fn test_get_bit() {
+        let f = Fr::from_str("1").unwrap();
+        assert_eq!(get_bit(&fr_to_u256_le(&f), 0), 1);
     }*/
 
     #[test]

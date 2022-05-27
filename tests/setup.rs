@@ -2,24 +2,22 @@
 
 mod common;
 use elusiv::state::StorageAccount;
-use rand::Rng;
 use common::program_setup::*;
 use common::{
     get_balance,
     get_data,
 };
 use elusiv::commitment::{CommitmentHashingAccount, BaseCommitmentHashingAccount};
-use elusiv::instruction::{ElusivInstruction, SignerAccount, UserAccount, WritableUserAccount};
+use elusiv::instruction::{ElusivInstruction, SignerAccount, WritableUserAccount};
 use elusiv::processor::SingleInstancePDAAccountKind;
 use elusiv::proof::VerificationAccount;
 use elusiv::state::pool::PoolAccount;
 use elusiv::state::program_account::{PDAAccount, SizedAccount, MultiAccountAccount};
 use elusiv::state::queue::QueueManagementAccount;
-use solana_program::account_info::AccountInfo;
 use solana_program_test::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use assert_matches::assert_matches;
-use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount};
+use elusiv::state::queue::CommitmentQueueAccount;
 
 macro_rules! assert_account {
     ($ty: ty, $banks_client: ident, $offset: expr) => {

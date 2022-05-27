@@ -99,8 +99,11 @@ pub trait MultiAccountAccount<'t>: PDAAccount {
 }
 
 macro_rules! data_slice {
-    ($data: ident, $index: ident) => {
-        $data[$index * Self::T::SIZE..($index + 1) * Self::T::SIZE] 
+    ($id: ident, $self: ident, $index: ident) => {
+        let (account_index, local_index) = $self.account_and_local_index($index);
+        let account = $self.get_account(account_index);
+        let data = &mut account.data.borrow_mut()[..];
+        let $id = &mut data[local_index * Self::T::SIZE..(local_index + 1) * Self::T::SIZE];
     };
 }
 
@@ -117,27 +120,23 @@ pub trait BigArrayAccount<'a>: MultiAccountAccount<'a> {
     // indices in this implementation are always the external array indices and not byte-indices!
     fn account_and_local_index(&self, index: usize) -> (usize, usize) {
         let account_index = index / Self::MAX_VALUES_PER_ACCOUNT;
-        (account_index, index - account_index * Self::MAX_VALUES_PER_ACCOUNT)
+        (account_index, index % Self::MAX_VALUES_PER_ACCOUNT)
     }
 
     // Returns the value at `index` from the correct sub-account
     fn get(&self, index: usize) -> Self::T {
-        let (account_index, local_index) = self.account_and_local_index(index);
-        let account = self.get_account(account_index);
-        let data = &account.data.borrow_mut()[..];
-        Self::T::try_from_slice(&data_slice!(data, local_index)).unwrap()
+        data_slice!(data, self, index);
+        Self::T::try_from_slice(data).unwrap()
     }
 
     fn set(&self, index: usize, value: Self::T) {
-        let (account_index, local_index) = self.account_and_local_index(index);
-        let account = self.get_account(account_index);
-        let data = &mut account.data.borrow_mut()[..];
-        Self::T::override_slice(&value, &mut data_slice!(data, local_index));
+        data_slice!(data, self, index);
+        Self::T::override_slice(&value, data);
     }
 }
 
 pub const fn max_account_size(element_size: usize) -> usize {
-    MAX_PERMITTED_DATA_LENGTH / element_size
+    (MAX_PERMITTED_DATA_LENGTH / element_size) * element_size
 }
 
 pub const fn big_array_accounts_count(len: usize, element_size: usize) -> usize {
@@ -181,7 +180,7 @@ mod tests {
         assert!(!TestPDAAccount::is_valid_pubkey(&account, offset, &expected_pubkey).unwrap());
     }
 
-    const MAX_VALUES_PER_ACCOUNT: usize = max_account_size(32);
+    const MAX_VALUES_PER_ACCOUNT: usize = max_account_size(32) / 32;
     const ELEMENTS_COUNT: usize = MAX_VALUES_PER_ACCOUNT * 3 + 1;
     const COUNT: usize = big_array_accounts_count(ELEMENTS_COUNT, 32);
     const LAST_ACCOUNT_SIZE: usize = ELEMENTS_COUNT * 32 - (COUNT - 1) * (MAX_VALUES_PER_ACCOUNT * 32);
@@ -195,7 +194,7 @@ mod tests {
     }
     impl<'t> MultiAccountAccount<'t> for TestMultiAccountAccount<'t> {
         const COUNT: usize = COUNT;
-        const INTERMEDIARY_ACCOUNT_SIZE: usize = MAX_VALUES_PER_ACCOUNT * 32;
+        const INTERMEDIARY_ACCOUNT_SIZE: usize = max_account_size(32);
 
         fn get_all_pubkeys(&self) -> Vec<U256> {
             self.pubkeys.to_vec()
@@ -253,6 +252,9 @@ mod tests {
         let mut acc2_data = vec![0; TestMultiAccountAccount::INTERMEDIARY_ACCOUNT_SIZE];
         for i in 0..32 { acc2_data[333 * 32 + i] = 3; }
 
+        let mut acc3_data = vec![0; TestMultiAccountAccount::LAST_ACCOUNT_SIZE];
+        for i in 0..32 { acc3_data[LAST_ACCOUNT_SIZE - 1 - i] = 6; }
+
         let pk0 = Pubkey::new_unique();
         let pk1 = Pubkey::new_unique();
         let pk2 = Pubkey::new_unique();
@@ -261,7 +263,7 @@ mod tests {
         account!(acc0, pk0, acc0_data);
         account!(acc1, pk1, acc1_data);
         account!(acc2, pk2, acc2_data);
-        account!(acc3, pk3, vec![0; LAST_ACCOUNT_SIZE]);
+        account!(acc3, pk3, acc3_data);
 
         let acc = TestMultiAccountAccount {
             pubkeys: [ acc0.key.to_bytes(), acc1.key.to_bytes(), acc2.key.to_bytes(), acc3.key.to_bytes(), ],
@@ -273,9 +275,24 @@ mod tests {
         assert_eq!(acc.get(1024), [1; 32]);
         assert_eq!(acc.get(MAX_VALUES_PER_ACCOUNT), [2; 32]);
         assert_eq!(acc.get(MAX_VALUES_PER_ACCOUNT * 2 + 333), [3; 32]);
+        assert_eq!(acc.get(TestMultiAccountAccount::VALUES_COUNT - 1), [6; 32]); // last element
 
         // Setting
         acc.set(MAX_VALUES_PER_ACCOUNT, [5; 32]);
         assert_eq!(acc.get(MAX_VALUES_PER_ACCOUNT), [5; 32]);
+    }
+
+    #[test]
+    fn test_max_account_size() {
+        assert_eq!(max_account_size(1), MAX_PERMITTED_DATA_LENGTH);
+        assert_eq!(max_account_size(2), MAX_PERMITTED_DATA_LENGTH);
+        assert_eq!(max_account_size(3), MAX_PERMITTED_DATA_LENGTH - 1);
+    }
+
+    #[test]
+    fn test_big_array_accounts_count() {
+        assert_eq!(big_array_accounts_count(MAX_PERMITTED_DATA_LENGTH, 1), 1);
+        assert_eq!(big_array_accounts_count(MAX_PERMITTED_DATA_LENGTH, 32), 32);
+        assert_eq!(big_array_accounts_count(MAX_PERMITTED_DATA_LENGTH + 1, 32), 33);
     }
 }

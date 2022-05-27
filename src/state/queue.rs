@@ -89,7 +89,6 @@ pub struct BaseCommitmentHashRequest {
     pub base_commitment: U256,
     pub amount: u64,
     pub commitment: U256,
-    pub is_active: bool,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
@@ -180,12 +179,16 @@ pub trait RingQueue {
 
     /// Try to read the first element in the queue without removing it
     fn view_first(&self) -> Result<RequestWrap<Self::N>, ProgramError> {
+        self.view(0)
+    }
+
+    fn view(&self, offset: usize) -> Result<RequestWrap<Self::N>, ProgramError> {
         let head = self.get_head();
         let tail = self.get_tail();
 
         guard!(head != tail, QueueIsEmpty);
 
-        Ok(self.get_data(head as usize))
+        Ok(self.get_data((head as usize + offset) % (Self::SIZE as usize)))
     }
 
     /// Try to remove the first element from the queue
@@ -211,6 +214,17 @@ pub trait RingQueue {
         }
 
         false
+    }
+
+    fn len(&self) -> u64 {
+        let head = self.get_head();
+        let tail = self.get_tail();
+
+        if tail < head {
+            head + tail
+        } else {
+            tail - head
+        }
     }
 }
 
@@ -246,6 +260,7 @@ mod tests {
         for i in 1..SIZE {
             queue.enqueue(i as u32).unwrap();
             assert_eq!(1, queue.view_first().unwrap().request); // first element does not change
+            assert_eq!(queue.len(), i as u64);
         }
     }
 

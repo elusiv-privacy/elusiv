@@ -84,7 +84,7 @@ pub fn slice_to_array<N: Default + Copy, const SIZE: usize>(s: &[N]) -> [N; SIZE
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::macros::BorshSerDeSized;
+    use crate::{macros::BorshSerDeSized, types::U256};
 
     #[test]
     fn test_find_contains() {
@@ -104,6 +104,16 @@ mod tests {
         for i in length..length + 20 {
             assert_eq!(contains(i as u64, &data[..]), false);
             assert!(matches!(find(i as u64, &data[..], length), None));
+        }
+    }
+
+    #[test]
+    fn test_override_slice() {
+        let mut slice = vec![0; 256];
+        U256::override_slice(&[1; 32], &mut slice[32..64]);
+
+        for i in 32..64 {
+            assert_eq!(slice[i], 1);
         }
     }
 
