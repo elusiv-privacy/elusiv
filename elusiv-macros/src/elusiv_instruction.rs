@@ -31,7 +31,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 }
 
                 // Account attributes
-                for attr in var.attrs {
+                for (i, attr) in var.attrs.iter().enumerate() {
                     let attr_name = attr.path.get_ident().unwrap().to_string();
 
                     // Sub-attrs are the fields as in #[usr(sub_attr0 = .., sub_attr1, ..)]
@@ -79,22 +79,16 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     let mut_token = if is_writable { quote!{ mut } } else { quote!{} };
                     let account_init_fn = if is_writable { quote!{ new } } else { quote!{ new_readonly } };
 
+                    let user_account_type = if is_signer {
+                        if is_writable { quote!{ SignerAccount } } else { quote!{ WritableSignerAccount } }
+                    } else {
+                        if is_writable { quote!{ WritableUserAccount } } else { quote!{ UserAccount } }
+                    };
+
                     match attr_name.as_str() {
                         // User `AccountInfo` (usage: <name>)
                         "usr" => {
-                            if is_signer {
-                                if is_writable {
-                                    user_accounts.extend(quote!{ #account: SignerAccount, });
-                                } else {
-                                    user_accounts.extend(quote!{ #account: WritableSignerAccount, });
-                                }
-                            } else {
-                                if is_writable {
-                                    user_accounts.extend(quote!{ #account: WritableUserAccount, });
-                                } else {
-                                    user_accounts.extend(quote!{ #account: UserAccount, });
-                                }
-                            }
+                            user_accounts.extend(quote!{ #account: #user_account_type, });
 
                             account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
@@ -168,8 +162,11 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 } else { quote!{ None } }
                             } else { quote!{ None } };
 
-                            // Multi accounts account
+                            // Multi account account
                             let multi_account = sub_attrs.contains(&"multi_accounts");
+
+                            // (For multi accountx account): SKIPS THE PUBKEY VERIFICATION of the subaccounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)
+                            let no_subaccount_check = sub_attrs.contains(&"no_subaccount_check");
 
                             // PDA verification
                             accounts.extend(quote!{
@@ -181,23 +178,33 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             });
 
                             if multi_account {
-                                let write_check = if is_writable { quote!{ if !accounts[i].is_writable { return Err(InvalidArgument) } } } else { quote!{} };
+                                let write_check = if !is_writable { quote!{} } else {
+                                    quote!{ if !accounts[i].is_writable { return Err(InvalidArgument) } }
+                                };
+                                let sub_account_check = if no_subaccount_check { quote!{} } else {
+                                    quote!{ if accounts[i].key.to_bytes() != fields_check.pubkeys[i] { return Err(InvalidArgument) } }
+                                };
 
                                 // Sub-accounts with PDA and ownership check for each
                                 accounts.extend(quote!{
                                     let acc_data = &mut #account.data.borrow_mut()[..];
-                                    let mut accounts = next_account_infos(account_info_iter, #ty::COUNT)?;
-                                    for i in 0..#ty::COUNT {
-                                        panic!("Require sub-account pubkey check");
+                                    let fields_check = match MultiAccountAccountFields::<{<#ty>::COUNT}>::try_from_slice(&acc_data[..MultiAccountAccountFields::<{<#ty>::COUNT}>::SIZE]) {
+                                        Ok(a) => a,
+                                        Err(_) => return Err(InvalidArgument)
+                                    };
+                                    let mut accounts = next_account_infos(account_info_iter, <#ty>::COUNT)?;
+                                    for i in 0..<#ty>::COUNT {
                                         #write_check
+                                        #sub_account_check
                                     }
                                 });
 
+                                let arr_name: TokenStream = format!("multi_accounts_{}", i).parse().unwrap();
+                                user_accounts.extend(quote!{ #arr_name: [#user_account_type; <#ty>::COUNT], });
                                 account_init.push(quote!{
-                                    panic!("Non PDA");
-                                    //for i in 0..#ty::COUNT {
-                                        //accounts.push(AccountMeta::#account_init_fn(<#ty>::pubkey(#pda_offset, i as u64]).0, #is_signer));
-                                    //}
+                                    for i in 0..<#ty>::COUNT {
+                                        accounts.push(AccountMeta::#account_init_fn(#arr_name[i].0, #is_signer));
+                                    }
                                 });
 
                                 if as_account_info {
@@ -287,15 +294,19 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
         }
 
         #[cfg(feature = "instruction-abi")]
+        #[derive(Debug)]
         pub struct UserAccount(pub solana_program::pubkey::Pubkey);
 
         #[cfg(feature = "instruction-abi")]
+        #[derive(Debug)]
         pub struct WritableUserAccount(pub solana_program::pubkey::Pubkey);
 
         #[cfg(feature = "instruction-abi")]
+        #[derive(Debug)]
         pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
 
         #[cfg(feature = "instruction-abi")]
+        #[derive(Debug)]
         pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
     }
 }

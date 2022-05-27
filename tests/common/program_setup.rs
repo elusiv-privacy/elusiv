@@ -1,3 +1,5 @@
+use elusiv::state::StorageAccount;
+use solana_program::account_info::AccountInfo;
 use solana_program::pubkey::Pubkey;
 use solana_program::{
     instruction::Instruction,
@@ -12,7 +14,8 @@ use assert_matches::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use elusiv::instruction::*;
 use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount};
-use elusiv::state::program_account::SizedAccount;
+use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount};
+use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind};
 
 pub async fn start_program_solana_program_test() -> (BanksClient, Keypair, Hash) {
     let mut test = ProgramTest::default();
@@ -103,6 +106,47 @@ pub async fn setup_queue_accounts(
     keys    
 }
 
+pub async fn setup_storage_account<'a>(
+    banks_client: &mut BanksClient,
+    payer: &Keypair,
+    recent_blockhash: Hash,
+) -> Vec<Pubkey> {
+    let mut accounts = Vec::new();
+    let mut result = Vec::new();
+    for i in 0..elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT {
+        let account_size = if i < elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT - 1 {
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE
+        } else {
+            StorageAccount::LAST_ACCOUNT_SIZE
+        };
+
+        let pk = create_account_rent_exepmt(banks_client, payer, recent_blockhash, account_size).await.pubkey();
+        result.push(pk);
+        accounts.push(WritableUserAccount(pk));
+    }
+
+    let mut transaction = Transaction::new_with_payer(
+        &[
+            ElusivInstruction::open_multi_instance_account(
+                0,
+                MultiInstancePDAAccountKind::Storage,
+                0,
+                SignerAccount(payer.pubkey()),
+                WritableUserAccount(StorageAccount::find(Some(0)).0)
+            ),
+            ElusivInstruction::setup_storage_account(
+                accounts.try_into().unwrap()
+            ),
+        ],
+        Some(&payer.pubkey()),
+    );
+    transaction.sign(&[payer], recent_blockhash);
+
+    assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+
+    result
+}
+
 pub async fn setup_all_accounts(
     banks_client: &mut BanksClient,
     payer: &Keypair,
@@ -154,14 +198,41 @@ pub async fn create_account_rent_exepmt(
     create_account(banks_client, payer, recent_blockhash, account_size, amount).await
 }
 
-pub async fn create_account_non_rent_exepmt(
+macro_rules! account {
+    ($id: ident, $pubkey: expr, $data: expr) => {
+        let mut lamports = 0;
+        let mut data = $data;
+        let owner = elusiv::id();
+        let $id = AccountInfo::new(
+            &$pubkey,
+            false, false, &mut lamports,
+            &mut data,
+            &owner,
+            false,
+            0
+        );
+    };
+}
+
+pub async fn execute_on_storage_account<F>(
     banks_client: &mut BanksClient,
-    payer: &Keypair,
-    recent_blockhash: Hash,
-    account_size: usize,
-) -> Keypair {
-    let amount = banks_client.get_rent().await.unwrap().minimum_balance(account_size);
-    create_account(banks_client, payer, recent_blockhash, account_size, amount - 100).await
+    keys: &Vec<Pubkey>,
+    clousure: F,
+) where F: Fn(&StorageAccount) -> () {
+    account!(acc0, &keys[0], vec![]);
+    account!(acc1, &keys[1], vec![]);
+    account!(acc2, &keys[2], vec![]);
+    account!(acc3, &keys[3], vec![]);
+    account!(acc4, &keys[4], vec![]);
+    account!(acc5, &keys[5], vec![]);
+    account!(acc6, &keys[6], vec![]);
+
+    let sub_accounts = vec![acc0, acc1, acc2, acc3, acc4, acc5, acc6];
+
+    let mut storage_account = super::get_data(banks_client, StorageAccount::find(Some(0)).0).await;
+    let storage_account = StorageAccount::new(&mut storage_account[..], &sub_accounts[..]).unwrap();
+
+    clousure(&storage_account)
 }
 
 // https://github.com/solana-labs/solana/blob/a1522d00242c2888a057c3d4238d902f063af9be/program-runtime/src/compute_budget.rs#L14

@@ -813,6 +813,7 @@ dependencies = [
  "solana-program",
  "solana-program-test",
  "solana-sdk",
+ "static_assertions",
 ]
 
 [[package]]

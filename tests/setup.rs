@@ -1,6 +1,7 @@
 //! Tests the account setup process
 
 mod common;
+use elusiv::state::StorageAccount;
 use rand::Rng;
 use common::program_setup::*;
 use common::{
@@ -12,8 +13,9 @@ use elusiv::instruction::{ElusivInstruction, SignerAccount, UserAccount, Writabl
 use elusiv::processor::SingleInstancePDAAccountKind;
 use elusiv::proof::VerificationAccount;
 use elusiv::state::pool::PoolAccount;
-use elusiv::state::program_account::{PDAAccount, SizedAccount};
+use elusiv::state::program_account::{PDAAccount, SizedAccount, MultiAccountAccount};
 use elusiv::state::queue::QueueManagementAccount;
+use solana_program::account_info::AccountInfo;
 use solana_program_test::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use assert_matches::assert_matches;
@@ -51,7 +53,7 @@ async fn test_setup_pda_accounts() {
     assert_account!(VerificationAccount, banks_client, Some(0));
 }
 
-/*#[tokio::test]
+#[tokio::test]
 async fn test_setup_all_accounts() {
     let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
     setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
@@ -159,4 +161,31 @@ async fn test_setup_pda_accounts_invalid() {
             )
         ]
     );
-}*/
+}
+
+#[tokio::test]
+async fn test_setup_storage_account() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+
+    let keys = setup_storage_account(&mut banks_client, &payer, recent_blockhash).await;
+
+    execute_on_storage_account(&mut banks_client, &keys, |storage_account| {
+        // Finished setup flag
+        assert!(storage_account.get_finished_setup());
+
+        // Check pubkeys
+        for i in 0..StorageAccount::COUNT {
+            assert_eq!(storage_account.get_pubkeys(i), keys[i].to_bytes());
+        }
+    }).await;
+}
+
+#[tokio::test]
+#[should_panic]
+async fn test_setup_storage_account_duplicate() {
+    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+    setup_storage_account(&mut banks_client, &payer, recent_blockhash).await;
+    
+    // Should panic because of initialization flag
+    setup_storage_account(&mut banks_client, &payer, recent_blockhash).await;
+}

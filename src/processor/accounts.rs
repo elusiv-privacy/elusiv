@@ -8,18 +8,23 @@ use solana_program::{
     sysvar::Sysvar,
     rent::Rent, pubkey::Pubkey,
 };
-use crate::{state::{pool::PoolAccount, program_account::{PDAAccount, SizedAccount, MultiInstanceAccount}, queue::{FinalizeSendQueueAccount}}, bytes::is_zero};
-use crate::state::queue::{QueueManagementAccount, CommitmentQueueAccount, BaseCommitmentQueueAccount, SendProofQueueAccount, MergeProofQueueAccount, MigrateProofQueueAccount};
+use crate::state::{
+    pool::PoolAccount,
+    program_account::{PDAAccount, SizedAccount, MultiInstanceAccount, MultiAccountAccount, BigArrayAccount},
+    queue::{FinalizeSendQueueAccount, QueueManagementAccount, CommitmentQueueAccount, BaseCommitmentQueueAccount, SendProofQueueAccount, MergeProofQueueAccount, MigrateProofQueueAccount},
+    StorageAccount,
+};
 use crate::proof::{VerificationAccount};
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::error::ElusivError::{InvalidAccountBalance, InvalidInstructionData};
 use crate::macros::*;
-use crate::bytes::{BorshSerDeSized};
+use crate::bytes::{BorshSerDeSized, is_zero};
+use crate::types::U256;
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum SingleInstancePDAAccountKind {
     Pool,
-    QueueManagementAccount,
+    QueueManagement,
     CommitmentHashing,
 }
 
@@ -27,13 +32,14 @@ pub enum SingleInstancePDAAccountKind {
 pub enum MultiInstancePDAAccountKind {
     Verification,
     BaseCommitmentHashing,
+    Storage,
 }
 
 macro_rules! single_instance_account {
     ($v: ident, $e: ident) => {
         match $v {
             SingleInstancePDAAccountKind::Pool => PoolAccount::$e,
-            SingleInstancePDAAccountKind::QueueManagementAccount => QueueManagementAccount::$e,
+            SingleInstancePDAAccountKind::QueueManagement => QueueManagementAccount::$e,
             SingleInstancePDAAccountKind::CommitmentHashing => CommitmentHashingAccount::$e,
         }
     };
@@ -61,6 +67,7 @@ macro_rules! multi_instance_account {
         match $v {
             MultiInstancePDAAccountKind::Verification => VerificationAccount::$e,
             MultiInstancePDAAccountKind::BaseCommitmentHashing => BaseCommitmentHashingAccount::$e,
+            MultiInstancePDAAccountKind::Storage => StorageAccount::$e,
         }
     };
 }
@@ -89,17 +96,27 @@ pub fn open_multi_instance_account<'a>(
     create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
 }
 
-macro_rules! verify_queue {
-    ($account: ident, $ty: ty, $manager: ident, $setter: ident) => {
-        guard!(is_zero(&$account.data.borrow()[..]), InvalidInstructionData);
-        guard!($account.data_len() == <$ty>::SIZE, InvalidInstructionData);
-        guard!($account.lamports() >= Rent::get()?.minimum_balance(<$ty>::SIZE), InvalidInstructionData);
-        guard!(*$account.owner == crate::id(), InvalidInstructionData);
+macro_rules! verify_data_account {
+    ($account: expr, $ty: ty, $check_zero: literal) => {
+        // Check zeroness
+        if $check_zero { guard!(is_zero(&$account.data.borrow()[..]), InvalidInstructionData); }
 
-        $manager.$setter(&$account.key.to_bytes());
+        // Check data size
+        guard!($account.data_len() == <$ty>::SIZE, InvalidInstructionData);
+
+        // Check rent-exemption
+        if cfg!(test) { // only unit-testing
+            guard!($account.lamports() >= u64::MAX / 2, InvalidInstructionData);
+        } else {
+            guard!($account.lamports() >= Rent::get()?.minimum_balance(<$ty>::SIZE), InvalidInstructionData);
+        }
+
+        // Check ownership
+        guard!(*$account.owner == crate::id(), InvalidInstructionData);
     };
 }
 
+/// Setup all queue accounts (they have exactly one instance each)
 pub fn setup_queue_accounts(
     base_commitment_queue: &AccountInfo,
     commitment_queue: &AccountInfo,
@@ -111,13 +128,13 @@ pub fn setup_queue_accounts(
 ) -> ProgramResult {
     guard!(!queue_manager.get_finished_setup(), InvalidInstructionData);
 
-    // Check for account non-ownership, size, zero-ness, rent-excemption and assign queue
-    verify_queue!(base_commitment_queue, BaseCommitmentQueueAccount, queue_manager, set_base_commitment_queue);
-    verify_queue!(commitment_queue, CommitmentQueueAccount, queue_manager, set_commitment_queue);
-    verify_queue!(send_proof_queue, SendProofQueueAccount, queue_manager, set_send_proof_queue);
-    verify_queue!(merge_proof_queue, MergeProofQueueAccount, queue_manager, set_merge_proof_queue);
-    verify_queue!(migrate_proof_queue, MigrateProofQueueAccount, queue_manager, set_migrate_proof_queue);
-    verify_queue!(finalize_send_queue, FinalizeSendQueueAccount, queue_manager, set_finalize_send_queue);
+    // Check for account non-ownership, size, zero-ness, rent-exemption and assign queue
+    verify_data_account!(base_commitment_queue, BaseCommitmentQueueAccount, true);
+    verify_data_account!(commitment_queue, CommitmentQueueAccount, true);
+    verify_data_account!(send_proof_queue, SendProofQueueAccount, true);
+    verify_data_account!(merge_proof_queue, MergeProofQueueAccount, true);
+    verify_data_account!(migrate_proof_queue, MigrateProofQueueAccount, true);
+    verify_data_account!(finalize_send_queue, FinalizeSendQueueAccount, true);
 
     // Check for duplicates
     let keys = vec![
@@ -131,15 +148,62 @@ pub fn setup_queue_accounts(
     let set: HashSet<Pubkey> = keys.clone().drain(..).collect();
     assert!(set.len() == keys.len());
 
+    queue_manager.set_base_commitment_queue(&keys[0].to_bytes());
+    queue_manager.set_commitment_queue(&keys[1].to_bytes());
+    queue_manager.set_send_proof_queue(&keys[2].to_bytes());
+    queue_manager.set_merge_proof_queue(&keys[3].to_bytes());
+    queue_manager.set_migrate_proof_queue(&keys[4].to_bytes());
+    queue_manager.set_finalize_send_queue(&keys[5].to_bytes());
+
     queue_manager.set_finished_setup(&true);
 
     Ok(())
 }
 
-pub fn setup_storage_account(
+pub struct IntermediaryStorageSubAccount { }
+impl SizedAccount for IntermediaryStorageSubAccount {
+    const SIZE: usize = StorageAccount::INTERMEDIARY_ACCOUNT_SIZE;
+}
 
+pub struct LastStorageSubAccount { }
+impl SizedAccount for LastStorageSubAccount {
+    const SIZE: usize = StorageAccount::LAST_ACCOUNT_SIZE;
+}
+
+/// Setup the StorageAccount with it's 7 subaccounts
+pub fn setup_storage_account(
+    storage_account: &mut StorageAccount,
 ) -> ProgramResult {
+    guard!(!storage_account.get_finished_setup(), InvalidInstructionData);
+
+    verify_storage_sub_accounts(&storage_account)?;
+
+    // Assign pubkeys
+    for i in 0..StorageAccount::COUNT {
+        storage_account.set_pubkeys(i, &storage_account.get_account(i).key.to_bytes());
+    }
+
+    // Check for duplicates
+    let set: HashSet<U256> = storage_account.get_all_pubkeys().clone().drain(..).collect();
+    assert!(set.len() == StorageAccount::COUNT);
+
+    storage_account.set_finished_setup(&true);
+
     Ok(())   
+}
+
+/// Verify the storage account sub-accounts
+/// - we do not check for zero-ness (nice our merkle-tree logic handles this)
+fn verify_storage_sub_accounts(storage_account: &StorageAccount) -> ProgramResult {
+    for i in 0..StorageAccount::COUNT {
+        if i < StorageAccount::COUNT - 1 { 
+            verify_data_account!(storage_account.get_account(i), IntermediaryStorageSubAccount, false);
+        } else { 
+            verify_data_account!(storage_account.get_account(i), LastStorageSubAccount, false);
+        }
+    }
+
+    Ok(())
 }
 
 fn create_pda_account<'a>(
@@ -152,8 +216,6 @@ fn create_pda_account<'a>(
     let lamports_required = Rent::get()?.minimum_balance(account_size);
     let space: u64 = account_size.try_into().unwrap();
     guard!(payer.lamports() >= lamports_required, InvalidAccountBalance);
-
-    solana_program::msg!("LEN: {:?}", pda_account.try_data_len());
 
     invoke_signed(
         &system_instruction::create_account(
@@ -172,10 +234,70 @@ fn create_pda_account<'a>(
 
     let data = &mut pda_account.data.borrow_mut()[..];
 
-    // Save bump
+    // Save `bump_seed`
     data[0] = bump;
-    // Set initialization flag
+    // Set `initialized` flag
     data[1] = 1;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::macros::account;
+
+    macro_rules! generate_storage_accounts {
+        ($arr: ident, $s: expr) => {
+            let mut pks = Vec::new();
+            for _ in 0..StorageAccount::COUNT { pks.push(Pubkey::new_unique()); }
+
+            account!(a0, pks[0], vec![0; $s[0]]);
+            account!(a1, pks[1], vec![0; $s[1]]);
+            account!(a2, pks[2], vec![0; $s[2]]);
+            account!(a3, pks[3], vec![0; $s[3]]);
+            account!(a4, pks[4], vec![0; $s[4]]);
+            account!(a5, pks[5], vec![0; $s[5]]);
+            account!(a6, pks[6], vec![0; $s[6]]);
+
+            let $arr = [a0, a1, a2, a3, a4, a5, a6];
+        };
+    }
+
+    #[test]
+    fn test_storage_account_valid() {
+        let mut data = vec![0; StorageAccount::SIZE];
+
+        generate_storage_accounts!(accounts, [
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::LAST_ACCOUNT_SIZE,
+        ]);
+
+        let mut storage_account = StorageAccount::new(&mut data, &accounts[..]).unwrap();
+        verify_storage_sub_accounts(&mut storage_account).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_storage_account_invalid_size() {
+        let mut data = vec![0; StorageAccount::SIZE];
+
+        generate_storage_accounts!(accounts, [
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
+            StorageAccount::LAST_ACCOUNT_SIZE - 1,
+        ]);
+
+        let mut storage_account = StorageAccount::new(&mut data, &accounts[..]).unwrap();
+        verify_storage_sub_accounts(&mut storage_account).unwrap();
+    }
 }

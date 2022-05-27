@@ -11,7 +11,11 @@ use super::state::queue::{
     FinalizeSendQueueAccount,
 };
 use super::state::{
-    program_account::{PDAAccount,MultiAccountAccount},
+    program_account::{
+        PDAAccount,
+        MultiAccountAccount,
+        MultiAccountAccountFields,
+    },
     pool::PoolAccount,
     StorageAccount,
     NullifierAccount,
@@ -157,6 +161,8 @@ pub enum ElusivInstruction {
     SetupQueueAccounts,
 
     // Can be called once, setups all sub-accounts for the storage account
+    // - `OpenMultiInstanceAccount` with `SingleInstancePDAAccountKind::Storage` has to be called before
+    #[pda(storage_account, Storage, pda_offset = Some(0), { multi_accounts, no_subaccount_check, writable })]
     SetupStorageAccount,
 
     TestFail,
@@ -178,7 +184,7 @@ pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8) -> Vec<solana_program
     ));
     // QueueManager
     ixs.push(EI::open_single_instance_account(
-        SingleInstancePDAAccountKind::QueueManagementAccount,
+        SingleInstancePDAAccountKind::QueueManagement,
         nonce,
         SignerAccount(payer),
         WritableUserAccount(QueueManagementAccount::find(None).0)

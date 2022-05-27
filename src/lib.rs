@@ -11,3 +11,6 @@ pub mod commitment;
 pub mod entrypoint;
 
 pub use entrypoint::*;
+
+#[macro_use]
+extern crate static_assertions;

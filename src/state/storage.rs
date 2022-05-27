@@ -17,6 +17,7 @@ pub const MT_COMMITMENT_START: usize = 2usize.pow(MT_HEIGHT as u32) - 1;
 const HISTORY_ARRAY_COUNT: usize = 100;
 
 pub const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(MT_SIZE, U256::SIZE);
+const_assert_eq!(STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT, 7);
 
 // The `StorageAccount` contains the active Merkle Tree that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
@@ -28,7 +29,9 @@ pub const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(M
 pub struct StorageAccount {
     bump_seed: u8,
     initialized: bool,
+
     pubkeys: [U256; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],
+    finished_setup: bool,
 
     // Points to the next commitment in the active MT
     next_commitment_ptr: u64,
@@ -45,6 +48,11 @@ pub struct StorageAccount {
 
 impl<'a, 'b, 't> BigArrayAccount<'t> for StorageAccount<'a, 'b, 't> {
     type T = U256;
+    const VALUES_COUNT: usize = MT_SIZE;
+}
+
+impl<'a, 'b, 't> MultiInstanceAccount for StorageAccount<'a, 'b, 't> {
+    const MAX_INSTANCES: u64 = 1;
 }
 
 impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
@@ -103,4 +111,14 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
 pub fn mt_array_index(layer: usize, index: usize) -> usize {
     2usize.pow(layer as u32) - 1 + index
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_storage_account() {
+        assert_eq!(STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT, 7);
+    }
 }

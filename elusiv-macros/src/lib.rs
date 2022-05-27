@@ -24,7 +24,7 @@ pub fn elusiv_account(args: proc_macro::TokenStream, input: proc_macro::TokenStr
 /// # Account attributes
 /// - Each enum variant (instruction) can require accounts
 /// - Specify accounts using attributes with the following syntax:
-/// `#[type(name, Type, pda_offset = .., key = .., [ signer, writablee, multi_accounts, account_info ])]`
+/// `#[type(name, Type, pda_offset = .., key = .., [ signer, writable, multi_accounts, account_info, no_subaccount_check ])]`
 /// - with:
 ///     - type:
 ///         - `usr`: user accounts or any `AccountInfo` that has no basic checks
@@ -41,6 +41,7 @@ pub fn elusiv_account(args: proc_macro::TokenStream, input: proc_macro::TokenStr
 ///         - `writable`
 ///         - `multi_accounts`: the `Type` has to implement the `crate::state::program_account::MultiAccountAccount` trait and `Type::COUNT + 1` accounts will be required
 ///         - `account_info`: returns an `AccountInfo` object (only relevant for PDAs)
+///         - `no_subaccount_check`: **SKIPS THE PUBKEY VERIFICATION of the subaccounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)**
 /// 
 /// # Usage
 /// ```

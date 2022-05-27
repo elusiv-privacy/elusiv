@@ -1,3 +1,5 @@
+//! Traits used to represent types of accounts, owned by the program
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_macros::BorshSerDeSized;
 use solana_program::account_info::AccountInfo;
@@ -34,23 +36,30 @@ pub trait PDAAccount {
             Some(offset) => vec![Self::SEED.to_vec(), offset.to_le_bytes().to_vec()],
             None => vec![Self::SEED.to_vec()]
         }
-        
     }
 
     fn is_valid_pubkey(account: &AccountInfo, offset: Option<u64>, pubkey: &Pubkey) -> Result<bool, ProgramError> {
         let acc_data = &account.data.borrow()[..PDAAccountFields::SIZE];
-        match PDAAccountFields::try_from_slice(&acc_data) {
+        match PDAAccountFields::try_from_slice(&acc_data[..PDAAccountFields::SIZE]) {
             Ok(a) => Ok(Self::pubkey(offset, a.bump_seed)? == *pubkey),
             Err(_) => Err(ProgramError::InvalidAccountData)
         }
     }
 } 
 
-/// Every PDA account has these fields as the first fields. (elusiv_account macro guarantees this) 
+/// Every `PDAAccount` has these fields as the first fields. (guaranteed by the `elusiv_account` macro) 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct PDAAccountFields {
     pub bump_seed: u8,
     pub initialized: bool,
+}
+
+/// Every `MultiAccountAccount` has these fields at the beginning. (guaranteed by the `elusiv_account` macro) 
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct MultiAccountAccountFields<const COUNT: usize> {
+    pub bump_seed: u8,
+    pub initialized: bool,
+    pub pubkeys: [U256; COUNT],
 }
 
 pub trait SizedAccount {
@@ -101,7 +110,9 @@ macro_rules! data_slice {
 pub trait BigArrayAccount<'a>: MultiAccountAccount<'a> {
     type T: BorshSerDeSized;
 
+    const VALUES_COUNT: usize;
     const MAX_VALUES_PER_ACCOUNT: usize = MAX_PERMITTED_DATA_LENGTH / Self::T::SIZE;
+    const LAST_ACCOUNT_SIZE: usize = (Self::VALUES_COUNT - (Self::COUNT - 1) * Self::MAX_VALUES_PER_ACCOUNT) * Self::T::SIZE;
 
     // indices in this implementation are always the external array indices and not byte-indices!
     fn account_and_local_index(&self, index: usize) -> (usize, usize) {
@@ -137,28 +148,13 @@ pub const fn big_array_accounts_count(len: usize, element_size: usize) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::macros::account;
 
     const SEED: &'static [u8] = b"TEST_seed";
 
     struct TestPDAAccount {}
     impl PDAAccount for TestPDAAccount {
         const SEED: &'static [u8] = SEED;
-    }
-
-    macro_rules! account {
-        ($id: ident, $pubkey: ident, $data: expr) => {
-            let mut lamports = 0;
-            let mut data = $data;
-            let owner = crate::id();
-            let $id = AccountInfo::new(
-                &$pubkey,
-                false, false, &mut lamports,
-                &mut data,
-                &owner,
-                false,
-                0
-            );
-        };
     }
 
     #[test]
@@ -241,10 +237,13 @@ mod tests {
 
     impl<'t> BigArrayAccount<'t> for TestMultiAccountAccount<'t> {
         type T = U256;
+        const VALUES_COUNT: usize = ELEMENTS_COUNT;
     }
 
     #[test]
     fn test_big_array_account() {
+        assert_eq!(LAST_ACCOUNT_SIZE, TestMultiAccountAccount::LAST_ACCOUNT_SIZE);
+
         let mut acc0_data = vec![0; TestMultiAccountAccount::INTERMEDIARY_ACCOUNT_SIZE];
         for i in 0..32 { acc0_data[1024 * 32 + i] = 1; }
 

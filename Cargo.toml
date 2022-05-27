@@ -13,10 +13,14 @@ elusiv-interpreter = { path = "./elusiv-interpreter" }
 elusiv-macros = { path = "./elusiv-macros" }
 
 solana-program = "1.9.5"
+
+static_assertions = "1.1.0"
 borsh = { version = "0.9.3", features = ["const-generics"] }
+
 ark-bn254 = "0.3.0"
 ark-ff = "0.3.0"
 ark-ec = "0.3.0"
+
 
 [dev-dependencies]
 rand = "0.8.5"
