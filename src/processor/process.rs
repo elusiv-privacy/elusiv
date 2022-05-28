@@ -337,12 +337,3 @@ pub fn finalize_commitment_hash(
 
     panic!("TODO");
 }
-
-pub fn test_fail() -> ProgramResult {
-    let mut state = [Fr::zero(), Fr::zero(), Fr::zero()];
-    for round in 0..1 {
-        crate::commitment::poseidon_hash::binary_poseidon_hash_partial(round, &mut state);
-    }
-
-    Err(CannotFinalizeBinaryProof.into())
-}

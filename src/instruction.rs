@@ -163,8 +163,6 @@ pub enum ElusivInstruction {
     // - `OpenMultiInstanceAccount` with `SingleInstancePDAAccountKind::Storage` has to be called before
     #[pda(storage_account, Storage, pda_offset = Some(0), { multi_accounts, no_subaccount_check, writable })]
     SetupStorageAccount,
-
-    TestFail,
 }
 
 #[cfg(feature = "instruction-abi")]
