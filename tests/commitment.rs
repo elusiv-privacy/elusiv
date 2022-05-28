@@ -2,27 +2,16 @@
 
 mod common;
 use elusiv::fields::fr_to_u256_le;
-use elusiv::state::StorageAccount;
 use elusiv::types::U256;
-use rand::Rng;
 use common::program_setup::*;
-use common::{
-    get_balance,
-    get_data,
-};
-use elusiv::commitment::{CommitmentHashingAccount, BaseCommitmentHashingAccount};
-use elusiv::instruction::{ElusivInstruction, SignerAccount, UserAccount, WritableUserAccount};
-use elusiv::processor::SingleInstancePDAAccountKind;
-use elusiv::proof::VerificationAccount;
-use elusiv::state::pool::PoolAccount;
-use elusiv::state::program_account::{PDAAccount, SizedAccount, MultiAccountAccount};
-use elusiv::state::queue::{QueueManagementAccount, BaseCommitmentHashRequest, BaseCommitmentQueue};
-use solana_program::account_info::AccountInfo;
+use common::{ get_data, };
+use elusiv::instruction::{ElusivInstruction, SignerAccount, WritableUserAccount};
+use elusiv::state::queue::{BaseCommitmentHashRequest, BaseCommitmentQueue};
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program_test::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use assert_matches::assert_matches;
-use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount};
+use elusiv::state::queue::BaseCommitmentQueueAccount;
 use std::str::FromStr;
 use ark_bn254::Fr;
 use elusiv::state::queue::RingQueue;

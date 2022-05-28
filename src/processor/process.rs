@@ -3,11 +3,9 @@ use ark_ff::Zero;
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount, program_account::MultiInstanceAccount};
-use crate::state::program_account::PDAAccount;
 use crate::state::queue::{
     RingQueue,
     ProofRequest,FinalizeSendRequest,
-    SendProofQueue,SendProofQueueAccount,
     MergeProofQueue,MergeProofQueueAccount,
     MigrateProofQueue,MigrateProofQueueAccount,
     FinalizeSendQueue,FinalizeSendQueueAccount,
@@ -20,7 +18,6 @@ use crate::error::ElusivError::{
     ComputationIsNotYetFinished,
     ComputationIsAlreadyFinished,
     InvalidProof,
-    CannotFinalizeUnaryProof,
     CannotFinalizeBinaryProof,
     InvalidFeePayer,
 };
@@ -36,7 +33,7 @@ use crate::proof::{
 use crate::commitment::{
     BaseCommitmentHashingAccount,
     CommitmentHashingAccount,
-    poseidon_hash::{TOTAL_POSEIDON_ROUNDS, binary_poseidon_hash_partial},
+    poseidon_hash::{binary_poseidon_hash_partial},
 };
 use crate::types::ProofKind;
 use super::utils::send_from_pool;
@@ -221,24 +218,27 @@ pub fn compute_base_commitment_hash(
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
     let round = hashing_account.get_round();
+    let rounds = 1;
 
-    let mut state = [
-        u256_to_fr(&hashing_account.get_state(0)),
-        u256_to_fr(&hashing_account.get_state(1)),
-        u256_to_fr(&hashing_account.get_state(2)),
-    ];
+    for round in round..round + rounds {
+        let mut state = [
+            u256_to_fr(&hashing_account.get_state(0)),
+            u256_to_fr(&hashing_account.get_state(1)),
+            u256_to_fr(&hashing_account.get_state(2)),
+        ];
 
-    if round < hashing_account.get_total_rounds() {
-        binary_poseidon_hash_partial(round.try_into().unwrap(), &mut state);
-    } else {
-        return Err(ComputationIsAlreadyFinished.into())
+        if round < hashing_account.get_total_rounds() {
+            binary_poseidon_hash_partial(round.try_into().unwrap(), &mut state);
+        } else {
+            return Err(ComputationIsAlreadyFinished.into())
+        }
+
+        hashing_account.set_state(0, &fr_to_u256_le(&state[0]));
+        hashing_account.set_state(1, &fr_to_u256_le(&state[1]));
+        hashing_account.set_state(2, &fr_to_u256_le(&state[2]));
     }
 
-    hashing_account.set_state(0, &fr_to_u256_le(&state[0]));
-    hashing_account.set_state(1, &fr_to_u256_le(&state[1]));
-    hashing_account.set_state(2, &fr_to_u256_le(&state[2]));
-
-    hashing_account.set_round(&(round + 1));
+    hashing_account.set_round(&(round + rounds));
 
     Ok(())
 }
@@ -286,12 +286,13 @@ pub fn compute_commitment_hash(
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
     let round = hashing_account.get_round();
+    let rounds = 1;
 
-    // Compute all hashes
+    for round in round..round + rounds {
+        // Compute all hashes
+    }
 
-    panic!("TODO");
-
-    hashing_account.set_round(&(round + 1));
+    hashing_account.set_round(&(round + rounds));
 
     Ok(())
 }
@@ -306,8 +307,6 @@ pub fn finalize_commitment_hash(
     // Insert hashes into the storage account
 
     panic!("TODO");
-
-    Ok(())
 }
 
 pub fn test_fail() -> ProgramResult {

@@ -7,7 +7,6 @@ use solana_program::{
 };
 use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount};
-use crate::state::program_account::PDAAccount;
 use crate::types::{JoinSplitPublicInputs, JoinSplitProofData};
 use super::utils::{send_with_system_program, send_from_pool};
 use crate::state::queue::{

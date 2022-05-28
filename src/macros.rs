@@ -1,4 +1,5 @@
-pub use elusiv_macros::*;
+pub use elusiv_derive::*;
+pub use elusiv_proc_macros::*;
 
 /// Guard statement
 /// - if the assertion evaluates to false, the error is raised

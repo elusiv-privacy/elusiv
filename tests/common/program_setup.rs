@@ -3,7 +3,6 @@ use solana_program::account_info::AccountInfo;
 use solana_program::pubkey::Pubkey;
 use solana_program::{
     instruction::Instruction,
-    system_instruction,
     hash::Hash,
 };
 use solana_program_test::*;
@@ -15,7 +14,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 use elusiv::instruction::*;
 use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount};
 use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount};
-use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind};
+use elusiv::processor::{MultiInstancePDAAccountKind};
 
 pub async fn start_program_solana_program_test() -> (BanksClient, Keypair, Hash) {
     let mut test = ProgramTest::default();
@@ -159,35 +158,6 @@ pub async fn setup_all_accounts(
     setup_queue_accounts(banks_client, payer, recent_blockhash).await;
 }
 
-async fn create_account(
-    banks_client: &mut BanksClient,
-    payer: &Keypair,
-    recent_blockhash: Hash,
-    account_size: usize,
-    amount: u64,
-) -> Keypair {
-    let new_account_keypair = Keypair::new();
-    let new_account_pubkey = new_account_keypair.pubkey();
-
-    let create_account_ix = system_instruction::create_account(
-        &payer.pubkey(),
-        &new_account_pubkey,
-        amount,
-        account_size as u64,
-        &elusiv::id(),
-    );
-    
-    let transaction = Transaction::new_signed_with_payer(
-        &[create_account_ix],
-        Some(&payer.pubkey()),
-        &[&payer, &new_account_keypair],
-        recent_blockhash,
-    );
-    assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
-    
-    new_account_keypair
-}
-
 pub async fn create_account_rent_exepmt(
     banks_client: &mut BanksClient,
     payer: &Keypair,
@@ -195,7 +165,17 @@ pub async fn create_account_rent_exepmt(
     account_size: usize,
 ) -> Keypair {
     let amount = banks_client.get_rent().await.unwrap().minimum_balance(account_size);
-    create_account(banks_client, payer, recent_blockhash, account_size, amount).await
+
+    let (ix, keypair) = elusiv_setup::create_account(payer, &elusiv::id(), account_size, amount).unwrap();
+    let transaction = Transaction::new_signed_with_payer(
+        &[ix],
+        Some(&payer.pubkey()),
+        &[&payer, &keypair],
+        recent_blockhash,
+    );
+    assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+
+    keypair
 }
 
 macro_rules! account {

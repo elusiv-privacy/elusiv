@@ -51,8 +51,6 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
         self.set_nullifiers_count(&(count + 1));
 
         panic!("TODO: add BTree Map and insert nullifier");
-
-        Ok(())
     }
 }
 

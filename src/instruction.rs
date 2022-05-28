@@ -1,14 +1,10 @@
 use crate::macros::*;
-use crate::state::queue::ProofRequest;
-use crate::types::ProofKind;
 use crate::bytes::BorshSerDeSized;
 use super::processor::*;
 use super::state::queue::{
     QueueManagementAccount,
     BaseCommitmentQueueAccount,
-    CommitmentQueueAccount,
     BaseCommitmentHashRequest,
-    FinalizeSendQueueAccount,
 };
 use super::state::{
     program_account::{
@@ -18,7 +14,6 @@ use super::state::{
     },
     pool::PoolAccount,
     StorageAccount,
-    NullifierAccount,
 };
 use crate::proof::VerificationAccount;
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};

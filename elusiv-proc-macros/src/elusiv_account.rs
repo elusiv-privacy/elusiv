@@ -3,6 +3,15 @@ use quote::{ quote, ToTokens };
 use proc_macro2::TokenStream;
 use super::utils::*;
 
+macro_rules! assert_field {
+    ($id: ident, $iter: ident, $e: expr) => {
+        let $id = $iter.next().expect(&format!("First field has to be `{}`", $e));
+        if $id.to_token_stream().to_string() != $e {
+            panic!("Could not find field has to be `{}`", $e);
+        }
+    };
+}
+
 pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenStream {
     let name = &ast.ident.clone();
 
@@ -45,6 +54,9 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         let attr_ident = attr.split("=").next().unwrap();
         match attr_ident {
             "pda_seed" => { // PDA based account
+                assert_field!(first_field, fields_iter, "bump_seed : u8");
+                assert_field!(second_field, fields_iter, "initialized : bool");
+
                 is_pda = true;
                 let seed: TokenStream = named_sub_attribute("pda_seed", attr).parse().unwrap();
                 impls.extend(quote! {
@@ -52,18 +64,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         const SEED: &'static [u8] = #seed;
                     }
                 });
-
-                let first_field = fields_iter.next().expect("First field has to be `bump_seed: u8`");
-                assert_eq!(
-                    first_field.to_token_stream().to_string(), "bump_seed : u8",
-                    "Could not find field has to be `bump_seed: u8`"
-                );
-
-                let second_field = fields_iter.next().expect("First field has to be `initialized: bool`");
-                assert_eq!(
-                    second_field.to_token_stream().to_string(), "initialized : bool",
-                    "Could not find field has to be `initialized: bool`"
-                );
             },
             "multi_account" => {    // Turns this PDA account into a Multi account
                 assert!(is_pda);
@@ -73,11 +73,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 let count: TokenStream = multi_account[0].parse().unwrap();
                 let max_account_size: TokenStream = multi_account[1].parse().unwrap();
 
-                let field = fields_iter.next().expect("First field has to be `initialized: bool`");
-                assert_eq!(
-                    field.to_token_stream().to_string(), format!("pubkeys : [U256 ; {}]", multi_account[0]),
-                    "Could not find field has to be `pubkeys: [U256; <count>]`"
-                );
+                assert_field!(first_field, fields_iter, format!("pubkeys : [U256 ; {}]", multi_account[0]));
 
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'t> for #name<#lifetimes> {
@@ -113,6 +109,11 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 signature.extend(quote! {
                     accounts: &'b [solana_program::account_info::AccountInfo<'t>],
                 });
+            },
+            "partial_computation" => {
+                assert_field!(first_field, fields_iter, "is_active : bool");
+                assert_field!(second_field, fields_iter, "instruction : u32");
+                assert_field!(third_field, fields_iter, "fee_payer : U256");
             },
             _ => { }
         }

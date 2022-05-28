@@ -56,7 +56,7 @@ pub fn binary_poseidon_hash_partial(round: usize, state: &mut [Fr; 3]) {
 
 #[cfg(test)]
 mod tests {
-    use crate::{fields::fr_to_u256_le, state::{MT_HEIGHT, DEFAULT_VALUES}};
+    use crate::{state::{MT_HEIGHT, DEFAULT_VALUES}};
 
     use super::*;
     use std::str::FromStr;

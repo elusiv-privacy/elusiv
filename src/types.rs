@@ -190,7 +190,7 @@ mod test {
             )),
         };
 
-        let mut bytes = Proof::try_to_vec(&proof).unwrap();
+        let bytes = Proof::try_to_vec(&proof).unwrap();
         let after = Proof::try_from_slice(&bytes[..]).unwrap();
 
         assert_eq!(proof.a.0, after.a.0);

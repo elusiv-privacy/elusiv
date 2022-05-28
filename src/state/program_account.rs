@@ -1,11 +1,11 @@
 //! Traits used to represent types of accounts, owned by the program
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_macros::BorshSerDeSized;
 use solana_program::account_info::AccountInfo;
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 
+use crate::macros::BorshSerDeSized;
 use crate::bytes::BorshSerDeSized;
 use crate::types::U256;
 

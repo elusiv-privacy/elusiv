@@ -8,21 +8,6 @@ pub fn ident_with_prefix(ident: &Ident, prefix: &str) -> Ident {
     Ident::new(&name, Span::call_site())
 }
 
-/// Very simple converter from upper camel case to upper snake case
-/// - so simple that it does not even handle multiple consecutive caps letters, so don't use them
-pub fn upper_camel_to_upper_snake(camel: &str) -> String {
-    let mut snake = String::new();
-
-    for (i, char) in camel.chars().enumerate() {
-        if char.is_uppercase() && i > 0 {
-            snake.push_str("_");
-        }
-        snake.push_str(&char.to_uppercase().to_string());
-    }
-
-    snake
-}
-
 /// Removes whitespaces and the first and last brackets
 pub fn sub_attrs_prepare<'a>(sub_attrs: String) -> String {
     let mut sub_attrs = String::from(sub_attrs);

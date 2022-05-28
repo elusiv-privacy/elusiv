@@ -1,23 +1,12 @@
 extern crate proc_macro;
 
-mod elusiv_account;
 mod elusiv_instruction;
 mod borsh_serde_sized;
 mod utils;
 
 use syn::{ parse_macro_input, DeriveInput };
-use elusiv_account::*;
 use elusiv_instruction::*;
 use borsh_serde_sized::*;
-
-/// Just-in-time mutable-byte-slice-backed serialization account
-/// - every field is represented by a `&mut [u8]`
-/// - every field has a setter (serialization) and getter (deserialization) function
-#[proc_macro_attribute]
-pub fn elusiv_account(args: proc_macro::TokenStream, input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let ast = parse_macro_input!(input as DeriveInput);
-    impl_elusiv_account(&ast, args.into()).into()
-}
 
 /// Instructions account parsing
 /// 

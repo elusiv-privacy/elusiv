@@ -4,13 +4,24 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[workspace]
+members = [
+    "elusiv-derive",
+    "elusiv-proc-macros",
+    "elusiv-interpreter",
+    "elusiv-computation",
+    "elusiv-setup",
+]
+
 [features]
 # Adds the functions `instruction_name(..) -> solana_program::instruction::Instruction` to `ElusivInstruction`
 instruction-abi = []
 
 [dependencies]
 elusiv-interpreter = { path = "./elusiv-interpreter" }
-elusiv-macros = { path = "./elusiv-macros" }
+elusiv-derive = { path = "./elusiv-derive" }
+elusiv-proc-macros = { path = "./elusiv-proc-macros" }
+elusiv-computation = { path = "./elusiv-computation" }
 
 solana-program = "1.9.5"
 
@@ -21,13 +32,15 @@ ark-bn254 = "0.3.0"
 ark-ff = "0.3.0"
 ark-ec = "0.3.0"
 
-
 [dev-dependencies]
-rand = "0.8.5"
 elusiv = { path = ".", features = ["instruction-abi"] }
-assert_matches = "1.5.0"
+elusiv-setup = { path = "./elusiv-setup" }
+
 solana-program-test = "1.9.5"
 solana-sdk = "1.9.5"
+
+rand = "0.8.5"
+assert_matches = "1.5.0"
 ark-groth16 = { version = "0.3.0", default-features = false }
 
 [lib]

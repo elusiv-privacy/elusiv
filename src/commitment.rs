@@ -3,17 +3,20 @@ mod poseidon_constants;
 
 use poseidon_hash::*;
 use crate::error::ElusivError;
-use crate::macros::elusiv_account;
+use crate::macros::{elusiv_account, elusiv_hash_compute_units, guard, multi_instance_account};
 use crate::state::queue::BaseCommitmentHashRequest;
 use crate::types::U256;
-use crate::macros::{guard, multi_instance_account};
 use crate::bytes::BorshSerDeSized;
-use crate::state::program_account::SizedAccount;
-use solana_program::program_error::ProgramError;
+use crate::state::{program_account::SizedAccount, MT_HEIGHT};
 use crate::fields::fr_to_u256_le;
+use solana_program::program_error::ProgramError;
 use ark_bn254::Fr;
 use ark_ff::{Zero, BigInteger256};
 use borsh::{BorshDeserialize, BorshSerialize};
+
+// Base commitment hashing instructions
+elusiv_hash_compute_units!(base_commitment_hash, 2);
+const_assert_eq!(BASE_COMMITMENT_HASH_INSTRUCTIONS.len(), 3);
 
 /// Account used for computing `commitment = h(base_commitment, amount)`
 /// - https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/commitment.circom#L7
@@ -60,6 +63,11 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
         Ok(())
     }
 }
+
+// Commitment hashing instructions
+elusiv_hash_compute_units!(commitment_hash, 20);
+const_assert_eq!(MT_HEIGHT, 20);
+const_assert_eq!(COMMITMENT_HASH_INSTRUCTIONS.len(), 24);
 
 /// Account used for computing the hashes of a MT
 /// - only one of these accounts can exist per MT

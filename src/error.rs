@@ -1,8 +1,7 @@
 use std::fmt;
 use solana_program::program_error::ProgramError;
 
-#[derive(Copy, Clone)]
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum ElusivError {
     InvalidInstructionData,
     InvalidAmount,

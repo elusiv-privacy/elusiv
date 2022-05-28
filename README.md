@@ -6,9 +6,9 @@
 
 <div align="center">
 
-[![CI](https://github.com/elusivcash/elusiv/actions/workflows/test.yaml/badge.svg)](https://github.com/elusivcash/elusiv/actions/workflows/test.yaml)
-[![Codecov](https://codecov.io/gh/elusivcash/elusiv/branch/master/graph/badge.svg?token=E6EBAGCE0M)](https://codecov.io/gh/elusivcash/elusiv)
-[![Dependency check](https://github.com/elusivcash/elusiv/actions/workflows/audit.yaml/badge.svg)](https://github.com/elusivcash/elusiv/actions/workflows/audit.yaml)
+[![Build](https://github.com/elusiv-privacy/elusiv/actions/workflows/test.yaml/badge.svg)](https://github.com/elusiv-privacy/elusiv/actions/workflows/test.yaml)
+[![codecov](https://codecov.io/gh/elusiv-privacy/elusiv/branch/master/graph/badge.svg?token=E6EBAGCE0M)](https://codecov.io/gh/elusiv-privacy/elusiv)
+[![Dependency check](https://github.com/elusiv-privacy/elusiv/actions/workflows/audit.yaml/badge.svg)](https://github.com/elusiv-privacy/elusiv/actions/workflows/audit.yaml)
 
 </div>
 
