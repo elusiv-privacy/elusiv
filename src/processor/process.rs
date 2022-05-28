@@ -5,6 +5,7 @@ use crate::macros::guard;
 use crate::state::{NullifierAccount, StorageAccount, program_account::MultiInstanceAccount};
 use crate::state::queue::{
     RingQueue,
+    QueueManagementAccount,
     ProofRequest,FinalizeSendRequest,
     MergeProofQueue,MergeProofQueueAccount,
     MigrateProofQueue,MigrateProofQueueAccount,
@@ -34,10 +35,13 @@ use crate::commitment::{
     BaseCommitmentHashingAccount,
     CommitmentHashingAccount,
     poseidon_hash::{binary_poseidon_hash_partial},
+    BaseCommitmentHashComputation,
+    CommitmentHashComputation,
 };
 use crate::types::ProofKind;
 use super::utils::send_from_pool;
 use crate::fields::{u256_to_fr, fr_to_u256_le};
+use elusiv_computation::{PartialComputation, PartialComputationInstruction};
 
 /// Dequeues a proof request and places it into a `VerificationAccount`
 macro_rules! init_proof {
@@ -49,6 +53,16 @@ macro_rules! init_proof {
             let request = queue.dequeue_first()?.request;
             $verification_account.reset::<$vkey>(ProofRequest::$kind { request })
         }
+    };
+}
+
+/// Ensures that a `PartialComputation` is finished
+macro_rules! partial_computation_is_finished {
+    ($computation: ty, $account: ident) => {
+        guard!(
+            $account.get_instruction() as usize == <$computation>::INSTRUCTIONS.len(),
+            ComputationIsNotYetFinished
+        );
     };
 }
 
@@ -80,7 +94,7 @@ pub fn compute_proof(
     verification_account: &mut VerificationAccount,
     verification_account_index: u64,
 ) -> ProgramResult {
-    guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
+    /*guard!(verification_account.is_valid(verification_account_index), InvalidAccount);
     guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
 
     let request = verification_account.get_request();
@@ -111,7 +125,7 @@ pub fn compute_proof(
     verification_account.serialize_rams();
 
     verification_account.set_round(&(round + 1));
-
+*/
     Ok(())
 }
 
@@ -198,16 +212,18 @@ pub fn finalize_proof<'a>(
 /// - computation: `commitment = h(base_commitment, amount)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
 pub fn init_base_commitment_hash(
     fee_payer: &AccountInfo,
+    q_manager: &QueueManagementAccount,
     queue: &mut BaseCommitmentQueueAccount,
     hashing_account: &mut BaseCommitmentHashingAccount,
     base_commitment_hash_account_index: u64,
 ) -> ProgramResult {
+    guard!(q_manager.get_finished_setup(), InvalidAccount);
     guard!(hashing_account.is_valid(base_commitment_hash_account_index), InvalidAccount);
     guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
     let mut queue = BaseCommitmentQueue::new(queue);
-    let request = queue.dequeue_first()?;
-    hashing_account.reset(request.request, fee_payer.key.to_bytes())
+    let request = queue.process_first()?;
+    hashing_account.reset(request, fee_payer.key.to_bytes())
 }
 
 pub fn compute_base_commitment_hash(
@@ -217,42 +233,54 @@ pub fn compute_base_commitment_hash(
     guard!(hashing_account.is_valid(base_commitment_hash_account_index), InvalidAccount);
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
-    let round = hashing_account.get_round();
-    let rounds = 1;
+    let instruction = hashing_account.get_instruction();
+    let start_round = BaseCommitmentHashComputation::INSTRUCTIONS[instruction as usize].start_round;
+    let rounds = BaseCommitmentHashComputation::INSTRUCTIONS[instruction as usize].rounds;
 
-    for round in round..round + rounds {
-        let mut state = [
-            u256_to_fr(&hashing_account.get_state(0)),
-            u256_to_fr(&hashing_account.get_state(1)),
-            u256_to_fr(&hashing_account.get_state(2)),
-        ];
+    let mut state = [
+        u256_to_fr(&hashing_account.get_state(0)),
+        u256_to_fr(&hashing_account.get_state(1)),
+        u256_to_fr(&hashing_account.get_state(2)),
+    ];
 
-        if round < hashing_account.get_total_rounds() {
-            binary_poseidon_hash_partial(round.try_into().unwrap(), &mut state);
-        } else {
-            return Err(ComputationIsAlreadyFinished.into())
-        }
 
-        hashing_account.set_state(0, &fr_to_u256_le(&state[0]));
-        hashing_account.set_state(1, &fr_to_u256_le(&state[1]));
-        hashing_account.set_state(2, &fr_to_u256_le(&state[2]));
+    for round in start_round..start_round + rounds {
+        guard!(round < BaseCommitmentHashComputation::TOTAL_ROUNDS, ComputationIsAlreadyFinished);
+        binary_poseidon_hash_partial(round.try_into().unwrap(), &mut state);
     }
 
-    hashing_account.set_round(&(round + rounds));
+    hashing_account.set_state(0, &fr_to_u256_le(&state[0]));
+    hashing_account.set_state(1, &fr_to_u256_le(&state[1]));
+    hashing_account.set_state(2, &fr_to_u256_le(&state[2]));
+
+    hashing_account.set_instruction(&(instruction + 1));
 
     Ok(())
 }
 
 pub fn finalize_base_commitment_hash(
-    hashing_account: &mut BaseCommitmentHashingAccount,
+    q_manager: &QueueManagementAccount,
+    base_commitment_hash_queue: &mut BaseCommitmentQueueAccount,
     commitment_hash_queue: &mut CommitmentQueueAccount,
+    hashing_account: &mut BaseCommitmentHashingAccount,
     base_commitment_hash_account_index: u64,
 ) -> ProgramResult {
+    guard!(q_manager.get_finished_setup(), InvalidAccount);
     guard!(hashing_account.is_valid(base_commitment_hash_account_index), InvalidAccount);
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
-    guard!(hashing_account.get_round() == hashing_account.get_total_rounds(), ComputationIsNotYetFinished);
+    partial_computation_is_finished!(BaseCommitmentHashComputation, hashing_account);
 
     let result = hashing_account.get_state(0);
+    let request = hashing_account.get_request();
+
+    // Check that first queue-element is the finished one, then dequeue it
+    {
+        let mut queue = BaseCommitmentQueue::new(base_commitment_hash_queue);
+        let first = queue.view_first()?;
+        guard!(first.request == request, ComputationIsNotYetFinished);
+
+        queue.dequeue_first()?;
+    }
 
     // If the client sent a flawed commitment value, we will not insert the commitment
     if hashing_account.get_request().commitment == result {
@@ -285,14 +313,15 @@ pub fn compute_commitment_hash(
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
-    let round = hashing_account.get_round();
-    let rounds = 1;
+    let instruction = hashing_account.get_instruction();
+    let start_round = CommitmentHashComputation::INSTRUCTIONS[instruction as usize].start_round;
+    let rounds = CommitmentHashComputation::INSTRUCTIONS[instruction as usize].rounds;
 
-    for round in round..round + rounds {
+    for round in start_round..start_round + rounds {
         // Compute all hashes
     }
 
-    hashing_account.set_round(&(round + rounds));
+    hashing_account.set_instruction(&(instruction + 1));
 
     Ok(())
 }
@@ -302,7 +331,7 @@ pub fn finalize_commitment_hash(
     storage_account: &mut StorageAccount,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
-    guard!(hashing_account.get_round() == hashing_account.get_total_rounds(), ComputationIsNotYetFinished);
+    partial_computation_is_finished!(CommitmentHashComputation, hashing_account);
 
     // Insert hashes into the storage account
 

@@ -45,6 +45,8 @@ pub enum ElusivError {
     // Queue
     QueueIsEmpty,
     QueueIsFull,
+    ElementIsNotBeingProcessed,
+    ElementIsAlreadyBeingProcessed,
 
     // Archiving
     UnableToArchiveNullifierAccount,

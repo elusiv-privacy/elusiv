@@ -1,4 +1,5 @@
 pub mod program_setup;
+pub mod log;
 
 use solana_program_test::BanksClient;
 use solana_program::pubkey::Pubkey;

@@ -38,13 +38,13 @@ pub enum ProofKind {
 }
 
 /// Minimum data (without public inputs) required for our n-ary join-split based proofs
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 pub struct JoinSplitProofData<const N: usize> {
     pub proof: RawProof,
     pub tree_indices: [u64; N],
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 pub struct JoinSplitPublicInputs<const N: usize> {
     pub nullifier_hashes: [U256; N],
     pub roots: [U256; N],
@@ -61,7 +61,7 @@ pub trait PublicInputs {
 
 pub const MAX_PUBLIC_INPUTS_COUNT: usize = 7;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 /// Send public inputs: https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/send_binary.circom
 pub struct SendPublicInputs {
     pub join_split: JoinSplitPublicInputs<2>,
@@ -70,13 +70,13 @@ pub struct SendPublicInputs {
     pub timestamp: u64,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 // https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/merge_binary.circom
 pub struct MergePublicInputs {
     pub join_split: JoinSplitPublicInputs<2>,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 // https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/migrate_unary.circom
 pub struct MigratePublicInputs {
     pub join_split: JoinSplitPublicInputs<1>,

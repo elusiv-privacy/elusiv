@@ -4,6 +4,7 @@ use super::processor::*;
 use super::state::queue::{
     QueueManagementAccount,
     BaseCommitmentQueueAccount,
+    CommitmentQueueAccount,
     BaseCommitmentHashRequest,
 };
 use super::state::{
@@ -79,29 +80,32 @@ pub enum ElusivInstruction {
     FinalizeProof {
         verification_account_index: u64,
         tree_indices: [u64; 2],
-    },
+    },*/
 
     // Base-commitment hashing
-    #[usr(fee_payer, ( signer, writable ))]
-    #[pda(queue, BaseCommitmentQueue, ( writable ))]
-    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = hash_account_index, ( writable ))]
-    InitBaseCommitmentHash{
+    #[usr(fee_payer, { signer, writable })]
+    #[pda(q_manager, QueueManagement)]
+    #[prg(queue, BaseCommitmentQueue, key = q_manager.get_base_commitment_queue(), { writable })]
+    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable })]
+    InitBaseCommitmentHash {
         hash_account_index: u64,
     },
     
-    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = hash_account_index, ( writable ))]
+    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable })]
     ComputeBaseCommitmentHash {
         hash_account_index: u64,
     },
 
-    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = hash_account_index, ( writable ))]
-    #[pda(commitment_queue, CommitmentQueue, ( writable ))]
+    #[pda(q_manager, QueueManagement)]
+    #[prg(base_queue, BaseCommitmentQueue, key = q_manager.get_base_commitment_queue(), { writable })]
+    #[prg(queue, CommitmentQueue, key = q_manager.get_commitment_queue(), { writable })]
+    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable })]
     FinalizeBaseCommitmentHash {
         hash_account_index: u64,
     },
 
     // Commitment (MT-root) hashing
-    #[usr(fee_payer, ( signer, writable ))]
+    /*#[usr(fee_payer, ( signer, writable ))]
     #[pda(queue, CommitmentQueue, ( writable ))]
     #[pda(hashing_account, CommitmentHashing, ( writable ))]
     InitCommitmentHash,

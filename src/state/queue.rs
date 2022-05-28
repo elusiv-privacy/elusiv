@@ -2,7 +2,7 @@
 
 use borsh::{BorshSerialize, BorshDeserialize};
 use solana_program::program_error::ProgramError;
-use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty};
+use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty, ElementIsAlreadyBeingProcessed, ElementIsNotBeingProcessed};
 use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
@@ -83,7 +83,7 @@ queue_account!(MigrateProofQueue, MigrateProofQueueAccount, 10, MigrateProofRequ
 // Queue storing the money transfer requests derived from verified Send proofs
 queue_account!(FinalizeSendQueue, FinalizeSendQueueAccount, 256, FinalizeSendRequest, 1);
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 /// Request for computing `commitment = h(base_commitment, amount)`
 pub struct BaseCommitmentHashRequest {
     pub base_commitment: U256,
@@ -116,28 +116,28 @@ impl ProofRequest {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 pub struct SendProofRequest {
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: SendPublicInputs,
     pub fee_payer: U256,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 pub struct MergeProofRequest {
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: MergePublicInputs,
     pub fee_payer: U256,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 pub struct MigrateProofRequest {
     pub proof_data: JoinSplitProofData<1>,
     pub public_inputs: MigratePublicInputs,
     pub fee_payer: U256,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 /// Request for transferring `amount` funds to a `recipient`
 pub struct FinalizeSendRequest {
     pub amount: u64,
@@ -151,7 +151,7 @@ pub struct FinalizeSendRequest {
 /// - `head == tail - 1` => queue is full
 /// - `head == tail` => queue is empty
 pub trait RingQueue {
-    type N: PartialEq + BorshSerDeSized;
+    type N: PartialEq + BorshSerDeSized + Clone;
     const SIZE: u64;
 
     fn get_head(&self) -> u64;
@@ -185,13 +185,13 @@ pub trait RingQueue {
     fn view(&self, offset: usize) -> Result<RequestWrap<Self::N>, ProgramError> {
         let head = self.get_head();
         let tail = self.get_tail();
-
         guard!(head != tail, QueueIsEmpty);
 
         Ok(self.get_data((head as usize + offset) % (Self::SIZE as usize)))
     }
 
     /// Try to remove the first element from the queue
+    /// - will only suceed if the first element has `is_being_processed == true`
     fn dequeue_first(&mut self) -> Result<RequestWrap<Self::N>, ProgramError> {
         let head = self.get_head();
         let tail = self.get_tail();
@@ -199,9 +199,23 @@ pub trait RingQueue {
         guard!(head != tail, QueueIsEmpty);
 
         let value = self.get_data(head as usize);
+        guard!(value.is_being_processed, ElementIsNotBeingProcessed);
         self.set_head(&((head + 1) % Self::SIZE));
 
         Ok(value)
+    }
+
+    /// Try to set `is_being_processed = true` for the first non-processed element in the queue
+    fn process_first(&mut self) -> Result<Self::N, ProgramError> {
+        let head = self.get_head();
+        let tail = self.get_tail();
+        guard!(head != tail, QueueIsEmpty);
+
+        let value = self.get_data(head as usize);
+        guard!(!value.is_being_processed, ElementIsAlreadyBeingProcessed);
+        self.set_data(head as usize, &RequestWrap { is_being_processed: true, request: value.request.clone() });
+
+        Ok(value.request)
     }
 
     fn contains(&self, value: &Self::N) -> bool {
@@ -254,9 +268,16 @@ mod tests {
         fn set_data(&mut self, index: usize, value: &RequestWrap<u32>) { self.data[index] = *value; }
     }
 
+    macro_rules! test_queue {
+        ($id: ident, $head: literal, $tail: literal) => {
+            let mut $id = TestQueue { head: $head, tail: $tail, data: [RequestWrap { is_being_processed: false, request: 0 }; SIZE] };
+        };
+    }
+
     #[test]
     fn test_persistent_fifo() {
-        let mut queue = TestQueue { head: 0, tail: 0, data: [RequestWrap { is_being_processed: false, request: 0 }; SIZE] };
+        test_queue!(queue, 0, 0);
+
         for i in 1..SIZE {
             queue.enqueue(i as u32).unwrap();
             assert_eq!(1, queue.view_first().unwrap().request); // first element does not change
@@ -266,21 +287,39 @@ mod tests {
 
     #[test]
     fn test_max_size() {
-        let mut full_queue = TestQueue { head: 1, tail: 0, data: [RequestWrap { is_being_processed: false, request: 0 }; SIZE] };
+        test_queue!(full_queue, 1, 0);
         assert!(matches!(full_queue.enqueue(1), Err(_)));
     }
 
     #[test]
+    fn test_process_before_dequeue() {
+        test_queue!(queue, 0, 0);
+
+        queue.enqueue(1).unwrap();
+        assert!(matches!(queue.dequeue_first(), Err(_)));
+        queue.process_first().unwrap();
+        assert!(matches!(queue.dequeue_first(), Ok(_)));
+    }
+
+    #[test]
     fn test_ordering() {
-        let mut queue = TestQueue { head: 0, tail: 0, data: [RequestWrap { is_being_processed: false, request: 0 }; SIZE] };
+        test_queue!(queue, 0, 0);
+
         for i in 1..SIZE {
             queue.enqueue(i as u32).unwrap();
         }
 
         for i in 1..SIZE {
             assert_eq!(i as u32, queue.view_first().unwrap().request);
+            queue.process_first().unwrap();
             queue.dequeue_first().unwrap();
         }
         assert!(matches!(queue.dequeue_first(), Err(_)));
+    }
+
+    #[test]
+    fn test_queue_accounts_setup() {
+        let mut data = vec![0; QueueManagementAccount::SIZE];
+        QueueManagementAccount::new(&mut data).unwrap();
     }
 }

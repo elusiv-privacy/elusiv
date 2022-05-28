@@ -5,8 +5,16 @@
 /// - calling a single `PartialComputationInstruction` with `compute_units` guarantees successfull execution
 #[derive(Debug)]
 pub struct PartialComputationInstruction {
+    pub start_round: u32,
     pub rounds: u32,
     pub compute_units: u32,
+}
+
+/// Representation of a partial computation
+pub trait PartialComputation<const INSTRUCTION_COUNT: usize> {
+    const INSTRUCTIONS: [PartialComputationInstruction; INSTRUCTION_COUNT];
+    const TOTAL_ROUNDS: u32;
+    const TOTAL_COMPUTE_UNITS: u32;
 }
 
 /// https://github.com/solana-labs/solana/blob/a1522d00242c2888a057c3d4238d902f063af9be/program-runtime/src/compute_budget.rs#L14

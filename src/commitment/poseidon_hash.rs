@@ -28,16 +28,16 @@ macro_rules! round {
 /// - in our implementation we use two types of rounds: computation rounds and Poseidon rounds
 /// - circom javascript reference implementation: https://github.com/iden3/circomlibjs/blob/9300d3f820b40a16d2f342ab5127a0cb9090bd15/src/poseidon_reference.js#L27
 pub fn binary_poseidon_hash_partial(round: usize, state: &mut [Fr; 3]) {
-    // Load constants
+    // Load constants (~ 260)
     let constants = constants(round);
 
-    // Ark
+    // Ark (~ 277 CUs)
     state[0] += constants[0];
     state[1] += constants[1];
     state[2] += constants[2];
 
     // Sbox
-    if round < 4 || round >= 61 { // First and last full rounds (~ 15397 CUs)
+    if round < 4 || round >= 61 { // First and last full rounds (~ 15411 CUs)
         round!(0, state);
         round!(1, state);
         round!(2, state);
@@ -45,7 +45,7 @@ pub fn binary_poseidon_hash_partial(round: usize, state: &mut [Fr; 3]) {
         round!(0, state);
     }
 
-    // Mix (~ 17590)
+    // Mix (~ 17740)
     let mut new_state = [Fr::zero(); 3];
     matrix_mix!(new_state, 0, 0, state);
     matrix_mix!(new_state, 1, 3, state);

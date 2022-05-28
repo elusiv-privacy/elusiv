@@ -75,7 +75,7 @@ pub fn setup_queue_accounts_ix(
     keys: &QueueKeys,
 ) -> Vec<Instruction> {
     vec![
-        request_compute_units(340_000),
+        request_compute_units(600_000),
         ElusivInstruction::setup_queue_accounts(
             UserAccount(keys.base_commitment),
             UserAccount(keys.commitment),

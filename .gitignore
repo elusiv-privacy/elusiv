@@ -2,3 +2,5 @@
 /node_modules
 /optimization/__pycache__
 */target
+/log
+.vscode

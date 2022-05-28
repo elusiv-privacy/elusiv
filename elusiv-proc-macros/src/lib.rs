@@ -34,9 +34,7 @@ pub fn elusiv_account(args: proc_macro::TokenStream, input: proc_macro::TokenStr
     impl_elusiv_account(&ast, args.into()).into()
 }
 
-/// Creates an array `NAME_INSTRUCTIONS: [elusiv_computation::PartialComputationInstruction; <SIZE>]`
-/// 
-/// ### Usage
+/// Creates a struct `Name` that implements `elusiv_computation::PartialComputation`
 /// - `elusiv_hash_compute_units!(<name>, <NUMBER_OF_HASHES>)`
 #[proc_macro]
 pub fn elusiv_hash_compute_units(input: proc_macro::TokenStream) -> proc_macro::TokenStream {

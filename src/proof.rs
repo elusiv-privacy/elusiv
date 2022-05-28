@@ -24,22 +24,17 @@ pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 10>;
 pub type RAMG2A<'a> = LazyRAM<'a, G2A, 4>;
 
 /// Account used for verifying all kinds of Groth16 proofs over the span of multiple transactions
-#[elusiv_account(pda_seed = b"proof")]
+#[elusiv_account(pda_seed = b"proof", partial_computation)]
 pub struct VerificationAccount {
     bump_seed: u8,
     initialized: bool,
 
+    is_active: bool,
+    instruction: u32,
+    fee_payer: U256,
+
     // if true, the proof request can be finalized
     is_verified: bool,
-
-    // if false: the account can be reset and a new computation can start, if true: clients can participate in the current computation by sending tx
-    is_active: bool,
-
-    // the index of the last round
-    round: u64,
-
-    // the count of all rounds
-    total_rounds: u64,
 
     // RAMs for storing computation values (they manage serialization on their own -> ram.serialize needs to be explicitly called)
     #[pub_non_lazy]
@@ -79,8 +74,7 @@ impl<'a> VerificationAccount<'a> {
 
         self.set_is_verified(&false);
         self.set_is_active(&true);
-        self.set_round(&0);
-        self.set_total_rounds(&VKey::ROUNDS.try_into().unwrap());
+        self.set_instruction(&0);
 
         let proof: Proof = proof_request.raw_proof().into();
         self.set_a(&proof.a);
@@ -173,5 +167,16 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_verification_account_setup() {
+        let mut data = vec![0; VerificationAccount::SIZE];
+        VerificationAccount::new(&mut data).unwrap();
     }
 }
