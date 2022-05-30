@@ -140,6 +140,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
         let getter_name = ident_with_prefix(field_name, "get_");
         let setter_name = ident_with_prefix(field_name, "set_");
+        let all_setter_name = ident_with_prefix(field_name, "set_all_");
         fields.extend(quote! { #field_name, });
 
         let mut use_getter_setter = true;
@@ -216,7 +217,14 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         let offset = index * <#ty>::SIZE;
                         let v = <#ty>::try_to_vec(value).unwrap();
                         for i in 0..v.len() {
-                            self.#field_name[offset..offset + <#ty>::SIZE][i] = v[i];
+                            self.#field_name[offset..][i] = v[i];
+                        }
+                    }
+
+                    pub fn #all_setter_name(&mut self, v: &[u8]) {
+                        assert!(v.len() == self.#field_name.len());
+                        for i in 0..v.len() {
+                            self.#field_name[i] = v[i];
                         }
                     }
                 });

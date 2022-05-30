@@ -1,7 +1,8 @@
 //! Tests the base commitment and commitment hashing
 
 mod common;
-use elusiv::fields::fr_to_u256_le;
+use elusiv::fields::{fr_to_u256_le, u256_to_fr};
+use elusiv::state::{MT_HEIGHT, EMPTY_TREE};
 use elusiv::state::program_account::MultiAccountAccount;
 use elusiv::types::U256;
 use common::program_setup::*;
@@ -29,7 +30,7 @@ use elusiv::state::{
 };
 use std::str::FromStr;
 use ark_bn254::Fr;
-use elusiv::commitment::BaseCommitmentHashComputation;
+use elusiv::commitment::{BaseCommitmentHashComputation, CommitmentHashComputation, CommitmentHashingAccount};
 use elusiv_computation::PartialComputation;
 
 fn u256_from_str(str: &str) -> U256 {
@@ -84,6 +85,7 @@ async fn test_base_commitment_to_mt() {
     let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
     setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
     let keys = setup_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
+    let storage = setup_storage_account(&mut banks_client, &payer, recent_blockhash).await;
 
     // Enqueue first and second
     tx_should_succeed(
@@ -131,17 +133,19 @@ async fn test_base_commitment_to_mt() {
     // Compute hash (should fail since not enough compute units)
     tx_should_fail(
         &[
-            ElusivInstruction::compute_base_commitment_hash(0)
+            ElusivInstruction::compute_base_commitment_hash(0, 0)
         ],
         &mut banks_client, &payer, recent_blockhash
     ).await;
 
     // Compute hashes
     for i in 0..BaseCommitmentHashComputation::INSTRUCTIONS.len() {
+        let nonce: u64 = rand::random();
+
         tx_should_succeed(
             &[
                 request_compute_units(BaseCommitmentHashComputation::INSTRUCTIONS[i].compute_units),
-                ElusivInstruction::compute_base_commitment_hash(0)
+                ElusivInstruction::compute_base_commitment_hash(0, nonce)
             ],
             &mut banks_client, &payer, recent_blockhash
         ).await;
@@ -174,18 +178,65 @@ async fn test_base_commitment_to_mt() {
     }).await;
 
     // Get storage account
-    /*let storage_account_data = get_data(&mut banks_client, StorageAccount::find(None).0).await;
-    let storage_account = MultiAccountAccountFields::<{StorageAccount::COUNT}>::new(&storage_account_data).unwrap();
-    let storage_account_sub_accounts = storage_account.pubkeys.iter()
-        .map(|x| UserAccount(Pubkey::new(&x[..])))
-        .collect::<Vec<UserAccount>>()
-        .try_into().unwrap();
+    let user_storage = storage.iter().map(|&x| UserAccount(x)).collect::<Vec<UserAccount>>().try_into().unwrap();
 
     // Init commitment hash computation
     tx_should_succeed(
         &[
-            ElusivInstruction::init_commitment_hash(SignerAccount(payer.pubkey()), WritableUserAccount(keys.commitment), storage_account_sub_accounts)
+            ElusivInstruction::init_commitment_hash(SignerAccount(payer.pubkey()), WritableUserAccount(keys.commitment), user_storage)
         ],
         &mut banks_client, &payer, recent_blockhash
-    ).await;*/
+    ).await;
+
+    // Check commitment queue
+    execute_on_commitment_queue(&mut banks_client, &keys.commitment, |queue| {
+        assert_eq!(queue.len(), 1);
+
+        let first = queue.view(0).unwrap();
+        assert_eq!(first.is_being_processed, true);
+        assert_eq!(first.request, first_request.commitment);
+    }).await;
+
+    // Compute hashes
+    for i in 0..CommitmentHashComputation::INSTRUCTIONS.len() {
+        let nonce: u64 = rand::random();
+
+        tx_should_succeed(
+            &[
+                request_compute_units(CommitmentHashComputation::INSTRUCTIONS[i].compute_units),
+                ElusivInstruction::compute_commitment_hash(nonce),
+            ],
+            &mut banks_client, &payer, recent_blockhash
+        ).await;
+    }
+
+    // Check finished hashes
+    let mut hashing_account = get_data(&mut banks_client, CommitmentHashingAccount::find(None).0).await;
+    let hashing_account = CommitmentHashingAccount::new(&mut hashing_account).unwrap();
+
+    assert_eq!(hashing_account.get_is_active(), true);
+    assert_eq!(hashing_account.get_finished_hashes(MT_HEIGHT as usize - 1), u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575"));
+
+    // Get storage account
+    let writable_storage = storage.iter().map(|&x| WritableUserAccount(x)).collect::<Vec<WritableUserAccount>>().try_into().unwrap();
+
+    // Finalize commitment hash
+    tx_should_succeed(
+        &[
+            ElusivInstruction::finalize_commitment_hash(WritableUserAccount(keys.commitment), writable_storage)
+        ],
+        &mut banks_client, &payer, recent_blockhash
+    ).await;
+
+    // Check that merkle tree is updated
+    execute_on_storage_account(&mut banks_client, &storage, |storage_account| {
+        let root = storage_account.get_root();
+        assert_eq!(root, u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575"));
+
+        let commitment = storage_account.get_node(0, MT_HEIGHT as usize);
+        assert_eq!(commitment, u256_to_fr(&first_request.commitment));
+
+        assert_eq!(storage_account.get_next_commitment_ptr(), 1);
+        assert_eq!(storage_account.get_active_mt_root_history(0), fr_to_u256_le(&EMPTY_TREE[MT_HEIGHT as usize]));
+    }).await;
 }

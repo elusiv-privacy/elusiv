@@ -234,6 +234,7 @@ pub fn init_base_commitment_hash(
 pub fn compute_base_commitment_hash(
     hashing_account: &mut BaseCommitmentHashingAccount,
     base_commitment_hash_account_index: u64,
+    _nonce: u64,
 ) -> ProgramResult {
     guard!(hashing_account.is_valid(base_commitment_hash_account_index), InvalidAccount);
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
@@ -318,6 +319,7 @@ pub fn init_commitment_hash(
 
 pub fn compute_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
+    _nonce: u64,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
@@ -346,14 +348,13 @@ pub fn compute_commitment_hash(
 
             // Save hash
             let hash = state[0];
-            //println!("FINISHED: {} {:?}", hash_num, fr_to_u256_le(&hash));
             hashing_account.set_finished_hashes(hash_num as usize, &fr_to_u256_le(&hash));
 
             // Reset state for next hash
             if hash_num < MT_HEIGHT - 1 {
                 state[0] = Fr::zero();
                 state[1 + offset as usize] = hash;
-                state[2 - offset as usize] = u256_to_fr(&hashing_account.get_siblings(hash_num as usize + 1));
+                state[2 - offset as usize] = hashing_account.get_siblings(hash_num as usize + 1).0;
             }
         }
     }
@@ -378,9 +379,18 @@ pub fn finalize_commitment_hash(
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     partial_computation_is_finished!(CommitmentHashComputation, hashing_account);
 
-    // Insert hashes into the storage account
+    // Dequeue request
+    let mut commitment_queue = CommitmentQueue::new(queue);
+    let commitment = commitment_queue.dequeue_first()?;
 
-    panic!("TODO");
+    // Insert commitment and hashes and save last root
+    let mut values = vec![commitment.request];
+    for i in 0..MT_HEIGHT as usize { values.push(hashing_account.get_finished_hashes(i)); }
+    storage_account.insert_commitment(&values);
+
+    hashing_account.set_is_active(&false);
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -411,8 +421,9 @@ mod tests {
         }, [0; 32]).unwrap();
 
         // Compute hash
-        for _ in 0..BaseCommitmentHashComputation::INSTRUCTIONS.len() {
-            compute_base_commitment_hash(&mut hashing_account, 0).unwrap();
+        for i in 1..=BaseCommitmentHashComputation::INSTRUCTIONS.len() {
+            compute_base_commitment_hash(&mut hashing_account, 0, 0).unwrap();
+            assert_eq!(hashing_account.get_instruction(), i as u32);
         }
 
         let expected = full_poseidon2_hash(bc, u64_to_scalar(amount));
@@ -441,8 +452,9 @@ mod tests {
         hashing_account.reset(commitment, ordering, siblings, [0; 32]).unwrap();
 
         // Compute hashes
-        for _ in 0..CommitmentHashComputation::INSTRUCTIONS.len() {
-            compute_commitment_hash(&mut hashing_account).unwrap();
+        for i in 1..=CommitmentHashComputation::INSTRUCTIONS.len() {
+            compute_commitment_hash(&mut hashing_account, 0).unwrap();
+            assert_eq!(hashing_account.get_instruction(), i as u32);
         }
 
         // Check hashes with hash-function
@@ -450,7 +462,7 @@ mod tests {
 
         for i in 0..MT_HEIGHT as usize {
             hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
-            assert_eq!(hashing_account.get_siblings(i), fr_to_u256_le(&EMPTY_TREE[i]));
+            assert_eq!(hashing_account.get_siblings(i).0, EMPTY_TREE[i]);
             assert_eq!(hashing_account.get_finished_hashes(i), fr_to_u256_le(&hash));
         }
 

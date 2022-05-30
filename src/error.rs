@@ -16,7 +16,7 @@ pub enum ElusivError {
 
     // Merkle tree
     InvalidMerkleTreeAccess,
-    InvalidMerkleRoot,
+    InvalidMerkleRoot, // 10
 
     // Nullifier
     NullifierAlreadyExists,
@@ -32,7 +32,7 @@ pub enum ElusivError {
     DidNotFinishHashing,
 
     // Proof
-    InvalidProof,
+    InvalidProof, // 20
     InvalidPublicInputs,
     InvalidFeePayer,
     InvalidTimestamp,
@@ -44,7 +44,7 @@ pub enum ElusivError {
 
     // Queue
     QueueIsEmpty,
-    QueueIsFull,
+    QueueIsFull, // 30
     ElementIsNotBeingProcessed,
     ElementIsAlreadyBeingProcessed,
 

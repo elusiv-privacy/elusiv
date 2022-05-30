@@ -16,6 +16,8 @@ use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, Merg
 use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount};
 use elusiv::processor::{MultiInstancePDAAccountKind, SingleInstancePDAAccountKind};
 
+use crate::common::get_data;
+
 pub async fn start_program_solana_program_test() -> (BanksClient, Keypair, Hash) {
     let mut test = ProgramTest::default();
     let program_id = elusiv::id();
@@ -200,13 +202,13 @@ pub async fn execute_on_storage_account<F>(
     keys: &Vec<Pubkey>,
     clousure: F,
 ) where F: Fn(&StorageAccount) -> () {
-    account!(acc0, &keys[0], vec![]);
-    account!(acc1, &keys[1], vec![]);
-    account!(acc2, &keys[2], vec![]);
-    account!(acc3, &keys[3], vec![]);
-    account!(acc4, &keys[4], vec![]);
-    account!(acc5, &keys[5], vec![]);
-    account!(acc6, &keys[6], vec![]);
+    account!(acc0, &keys[0], &mut get_data(banks_client, keys[0]).await);
+    account!(acc1, &keys[1], &mut get_data(banks_client, keys[1]).await);
+    account!(acc2, &keys[2], &mut get_data(banks_client, keys[2]).await);
+    account!(acc3, &keys[3], &mut get_data(banks_client, keys[3]).await);
+    account!(acc4, &keys[4], &mut get_data(banks_client, keys[4]).await);
+    account!(acc5, &keys[5], &mut get_data(banks_client, keys[5]).await);
+    account!(acc6, &keys[6], &mut get_data(banks_client, keys[6]).await);
 
     let sub_accounts = vec![acc0, acc1, acc2, acc3, acc4, acc5, acc6];
 

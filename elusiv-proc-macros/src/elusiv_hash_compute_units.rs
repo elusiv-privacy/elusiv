@@ -41,7 +41,7 @@ pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
         };
 
         if compute_units + next_cost > MAX_CUS {
-            instructions.push(PartialComputationInstruction { start_round, rounds, compute_units });
+            instructions.push(PartialComputationInstruction { start_round, rounds, compute_units: compute_units + COMPUTE_UNIT_PADDING });
 
             start_round += rounds;
             rounds = 1;
@@ -55,7 +55,7 @@ pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
     }
 
     if rounds > 0 {
-        instructions.push(PartialComputationInstruction { start_round, rounds, compute_units });
+        instructions.push(PartialComputationInstruction { start_round, rounds, compute_units: compute_units + COMPUTE_UNIT_PADDING });
     }
 
 

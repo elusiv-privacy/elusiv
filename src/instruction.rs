@@ -94,6 +94,7 @@ pub enum ElusivInstruction {
     #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable })]
     ComputeBaseCommitmentHash {
         hash_account_index: u64,
+        nonce: u64,
     },
 
     #[pda(q_manager, QueueManagement)]
@@ -113,7 +114,9 @@ pub enum ElusivInstruction {
     InitCommitmentHash,
     
     #[pda(hashing_account, CommitmentHashing, { writable })]
-    ComputeCommitmentHash,
+    ComputeCommitmentHash {
+        nonce: u64,
+    },
 
     #[pda(q_manager, QueueManagement)]
     #[prg(queue, CommitmentQueue, key = q_manager.get_commitment_queue(), { writable })]

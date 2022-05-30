@@ -100,13 +100,14 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
     pub fn is_full(&self) -> bool {
         let ptr = self.get_next_commitment_ptr() as usize;
-        ptr < MT_COMMITMENT_COUNT
+        ptr >= MT_COMMITMENT_COUNT
     }
 
     /// Inserts commitment and the above hashes
-    pub fn insert_commitment(&mut self, values: [U256; MT_HEIGHT as usize + 1]) {
+    pub fn insert_commitment(&mut self, values: &[U256]) {
+        assert!(values.len() == MT_HEIGHT as usize + 1);
+
         let ptr = self.get_next_commitment_ptr();
-        self.set_next_commitment_ptr(&(ptr + 1));
 
         // Save last root
         self.set_active_mt_root_history(ptr as usize % HISTORY_ARRAY_COUNT, &self.get_root());
@@ -117,6 +118,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
             let index = ptr >> i;
             self.set_node(&value, index as usize, level);
         }
+
+        self.set_next_commitment_ptr(&(ptr + 1));
     }
 
     /// `level`: 0 is the root level, `MT_HEIGHT` the commitment level
@@ -126,7 +129,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         let ptr = self.get_next_commitment_ptr() as usize;
 
         // Accessing a node, that is non-existent (yet) -> we use the default value 
-        if (index >> level) >= (ptr >> level) {
+        if use_default_value(index, level, ptr) {
             EMPTY_TREE[MT_HEIGHT as usize - level]
         } else {
             u256_to_fr(&self.get(mt_array_index(index, level)))
@@ -145,6 +148,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: U256) -> bool {
+        // TODO: only check till ptr
         root == self.get_root() || contains(root, self.active_mt_root_history)
     }
 
@@ -165,6 +169,11 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
 pub fn mt_array_index(index: usize, level: usize) -> usize {
     two_pow!(level as u32) - 1 + index
+}
+
+fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
+    let level_inv = MT_HEIGHT as usize - level;
+    next_leaf_ptr == 0 || (index >> level_inv) > ((next_leaf_ptr - 1) >> level_inv)
 }
 
 #[cfg(test)]
@@ -197,5 +206,13 @@ mod tests {
 
         // root
         assert_eq!(storage_account.get_node(0, 0), Fr::from_str("11702828337982203149177882813338547876343922920234831094975924378932809409969").unwrap());
+
+        for level in (0..=MT_HEIGHT as usize).rev() {
+            // Empty tree
+            assert_eq!(use_default_value(0, level, 0), true);
+
+            // One commitment
+            assert_eq!(use_default_value(0, level, 1), false);
+        }
     }
 }

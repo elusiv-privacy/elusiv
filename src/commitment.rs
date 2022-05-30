@@ -7,7 +7,7 @@ use crate::state::queue::BaseCommitmentHashRequest;
 use crate::types::U256;
 use crate::bytes::BorshSerDeSized;
 use crate::state::{program_account::SizedAccount, MT_HEIGHT};
-use crate::fields::{fr_to_u256_le, u64_to_scalar};
+use crate::fields::{fr_to_u256_le, u64_to_scalar, Wrap};
 use solana_program::program_error::ProgramError;
 use ark_bn254::Fr;
 use ark_ff::Zero;
@@ -76,7 +76,7 @@ pub struct CommitmentHashingAccount {
     commitment: U256,
     state: [U256; 3],
     ordering: u32,
-    siblings: [U256; MT_HEIGHT as usize],
+    siblings: [Wrap<Fr>; MT_HEIGHT as usize],
     finished_hashes: [U256; MT_HEIGHT as usize],
 }
 
@@ -103,9 +103,11 @@ impl<'a> CommitmentHashingAccount<'a> {
         // Assign new values
         self.set_commitment(&commitment);
         self.set_ordering(&ordering);
-        for i in 0..MT_HEIGHT as usize {
-            self.set_siblings(i, &fr_to_u256_le(&siblings[i]));
-        }
+
+        // Assign siblings
+        let mut v = Vec::new();
+        for i in 0..MT_HEIGHT as usize { Wrap(siblings[i]).serialize(&mut v).unwrap(); }
+        self.set_all_siblings(&v);
 
         Ok(())
     }
@@ -149,6 +151,8 @@ mod tests {
         assert_eq!(account.get_state(2), fr_to_u256_le(&u64_to_scalar(amount)));
 
         assert_eq!(fee_payer, account.get_fee_payer());
+
+        assert_eq!(account.get_instruction(), 0);
     }
     
     #[test]
@@ -174,11 +178,13 @@ mod tests {
         assert_eq!(account.get_state(1), fr_to_u256_le(&siblings[0]));
         assert_eq!(account.get_state(2), commitment);
 
+        assert_eq!(account.get_instruction(), 0);
+
         assert_eq!(commitment, account.get_commitment());
         assert_eq!(ordering, account.get_ordering());
         assert_eq!(fee_payer, account.get_fee_payer());
         for i in 0..MT_HEIGHT as usize {
-            assert_eq!(fr_to_u256_le(&siblings[i]), account.get_siblings(i));
+            assert_eq!(siblings[i], account.get_siblings(i).0);
         }
     }
 }
