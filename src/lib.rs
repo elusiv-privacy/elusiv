@@ -13,5 +13,7 @@ pub mod entrypoint;
 
 pub use entrypoint::*;
 
+pub use elusiv_computation;
+
 #[macro_use]
 extern crate static_assertions;
