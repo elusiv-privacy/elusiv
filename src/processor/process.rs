@@ -1,7 +1,9 @@
 use ark_bn254::Fr;
 use ark_ff::Zero;
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
+use crate::commitment::poseidon_hash::TOTAL_POSEIDON_ROUNDS;
 use crate::macros::guard;
+use crate::state::MT_HEIGHT;
 use crate::state::{NullifierAccount, StorageAccount, program_account::MultiInstanceAccount};
 use crate::state::queue::{
     RingQueue,
@@ -21,6 +23,7 @@ use crate::error::ElusivError::{
     InvalidProof,
     CannotFinalizeBinaryProof,
     InvalidFeePayer,
+    NoRoomForCommitment,
 };
 use crate::proof::{
     VerificationAccount,
@@ -217,6 +220,8 @@ pub fn init_base_commitment_hash(
     hashing_account: &mut BaseCommitmentHashingAccount,
     base_commitment_hash_account_index: u64,
 ) -> ProgramResult {
+    // TODO: queue is implemented wrong, we need to split `is_being_processed` elements somehow
+
     guard!(q_manager.get_finished_setup(), InvalidAccount);
     guard!(hashing_account.is_valid(base_commitment_hash_account_index), InvalidAccount);
     guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
@@ -237,18 +242,20 @@ pub fn compute_base_commitment_hash(
     let start_round = BaseCommitmentHashComputation::INSTRUCTIONS[instruction as usize].start_round;
     let rounds = BaseCommitmentHashComputation::INSTRUCTIONS[instruction as usize].rounds;
 
+    // Read state
     let mut state = [
         u256_to_fr(&hashing_account.get_state(0)),
         u256_to_fr(&hashing_account.get_state(1)),
         u256_to_fr(&hashing_account.get_state(2)),
     ];
 
-
+    // Hash computation
     for round in start_round..start_round + rounds {
         guard!(round < BaseCommitmentHashComputation::TOTAL_ROUNDS, ComputationIsAlreadyFinished);
-        binary_poseidon_hash_partial(round.try_into().unwrap(), &mut state);
+        binary_poseidon_hash_partial(round, &mut state);
     }
 
+    // Update state
     hashing_account.set_state(0, &fr_to_u256_le(&state[0]));
     hashing_account.set_state(1, &fr_to_u256_le(&state[1]));
     hashing_account.set_state(2, &fr_to_u256_le(&state[2]));
@@ -271,45 +278,46 @@ pub fn finalize_base_commitment_hash(
     partial_computation_is_finished!(BaseCommitmentHashComputation, hashing_account);
 
     let result = hashing_account.get_state(0);
-    let request = hashing_account.get_request();
 
     // Check that first queue-element is the finished one, then dequeue it
-    {
-        let mut queue = BaseCommitmentQueue::new(base_commitment_hash_queue);
-        let first = queue.view_first()?;
-        guard!(first.request == request, ComputationIsNotYetFinished);
-
-        queue.dequeue_first()?;
-    }
+    let mut base_commitment_queue = BaseCommitmentQueue::new(base_commitment_hash_queue);
+    let first = base_commitment_queue.dequeue_first()?;
+    guard!(first.request.commitment == result, ComputationIsNotYetFinished);
 
     // If the client sent a flawed commitment value, we will not insert the commitment
-    if hashing_account.get_request().commitment == result {
-        let mut queue = CommitmentQueue::new(commitment_hash_queue);
-        queue.enqueue(result)?;
-    }
+    let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
+    commitment_queue.enqueue(result)?;
 
     hashing_account.set_is_active(&false);
 
     Ok(())
 }
 
-/// Dequeues a commitment hashing request and places it in the `CommitmentHashingAccount`
-/// - this request will result in a full merkle root hash computation
+/// Reads a commitment hashing request and places it in the `CommitmentHashingAccount`
 pub fn init_commitment_hash(
     fee_payer: &AccountInfo,
+    q_manager: &QueueManagementAccount,
     queue: &mut CommitmentQueueAccount,
     hashing_account: &mut CommitmentHashingAccount,
+    storage_account: &StorageAccount,
 ) -> ProgramResult {
+    guard!(q_manager.get_finished_setup(), InvalidAccount);
     guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
+    guard!(!storage_account.is_full(), NoRoomForCommitment);
 
     let mut queue = CommitmentQueue::new(queue);
-    let request = queue.dequeue_first()?.request;
-    hashing_account.reset(request, fee_payer.key.to_bytes())
+    let request = queue.process_first()?;
+
+    // Get hashing siblings
+    let ordering = storage_account.get_next_commitment_ptr();
+    let siblings = storage_account.get_mt_opening(ordering as usize);
+
+    // Reset values and get hashing siblings from storage account
+    hashing_account.reset(request, ordering, siblings, fee_payer.key.to_bytes())
 }
 
 pub fn compute_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
-    storage_account: &StorageAccount,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
@@ -317,9 +325,43 @@ pub fn compute_commitment_hash(
     let start_round = CommitmentHashComputation::INSTRUCTIONS[instruction as usize].start_round;
     let rounds = CommitmentHashComputation::INSTRUCTIONS[instruction as usize].rounds;
 
+    // Read state
+    let mut state = [
+        u256_to_fr(&hashing_account.get_state(0)),
+        u256_to_fr(&hashing_account.get_state(1)),
+        u256_to_fr(&hashing_account.get_state(2)),
+    ];
+
+    // Hash computation
     for round in start_round..start_round + rounds {
-        // Compute all hashes
+        guard!(round < CommitmentHashComputation::TOTAL_ROUNDS, ComputationIsAlreadyFinished);
+
+        binary_poseidon_hash_partial(round % TOTAL_POSEIDON_ROUNDS, &mut state);
+
+        // A single hash is finished
+        if round % TOTAL_POSEIDON_ROUNDS == 64 {
+            let hash_num = round / TOTAL_POSEIDON_ROUNDS;
+            let ordering = hashing_account.get_ordering();
+            let offset = (ordering >> (hash_num + 1)) % 2;
+
+            // Save hash
+            let hash = state[0];
+            //println!("FINISHED: {} {:?}", hash_num, fr_to_u256_le(&hash));
+            hashing_account.set_finished_hashes(hash_num as usize, &fr_to_u256_le(&hash));
+
+            // Reset state for next hash
+            if hash_num < MT_HEIGHT - 1 {
+                state[0] = Fr::zero();
+                state[1 + offset as usize] = hash;
+                state[2 - offset as usize] = u256_to_fr(&hashing_account.get_siblings(hash_num as usize + 1));
+            }
+        }
     }
+
+    // Update state
+    hashing_account.set_state(0, &fr_to_u256_le(&state[0]));
+    hashing_account.set_state(1, &fr_to_u256_le(&state[1]));
+    hashing_account.set_state(2, &fr_to_u256_le(&state[2]));
 
     hashing_account.set_instruction(&(instruction + 1));
 
@@ -327,13 +369,95 @@ pub fn compute_commitment_hash(
 }
 
 pub fn finalize_commitment_hash(
+    q_manager: &QueueManagementAccount,
+    queue: &mut CommitmentQueueAccount,
     hashing_account: &mut CommitmentHashingAccount,
     storage_account: &mut StorageAccount,
 ) -> ProgramResult {
+    guard!(q_manager.get_finished_setup(), InvalidAccount);
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     partial_computation_is_finished!(CommitmentHashComputation, hashing_account);
 
     // Insert hashes into the storage account
 
     panic!("TODO");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{state::{program_account::SizedAccount, EMPTY_TREE, queue::BaseCommitmentHashRequest}, commitment::poseidon_hash::full_poseidon2_hash, fields::u64_to_scalar};
+    use crate::state::MT_HEIGHT;
+    use solana_program::native_token::LAMPORTS_PER_SOL;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_compute_base_commitment_hash() {
+        let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
+        let mut hashing_account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
+
+        // Setup hashing account
+        let bc = Fr::from_str("8337064132573119120838379738103457054645361649757131991036638108422638197362").unwrap();
+        let base_commitment = fr_to_u256_le(&bc);
+        let c = Fr::from_str("139214303935475888711984321184227760578793579443975701453971046059378311483").unwrap();
+        let commitment = fr_to_u256_le(&c);
+        let amount = LAMPORTS_PER_SOL;
+
+        // Reset values and get hashing siblings from storage account
+        hashing_account.reset(BaseCommitmentHashRequest {
+            base_commitment,
+            amount,
+            commitment,
+        }, [0; 32]).unwrap();
+
+        // Compute hash
+        for _ in 0..BaseCommitmentHashComputation::INSTRUCTIONS.len() {
+            compute_base_commitment_hash(&mut hashing_account, 0).unwrap();
+        }
+
+        let expected = full_poseidon2_hash(bc, u64_to_scalar(amount));
+
+        // Check commitment
+        let result = hashing_account.get_state(0);
+        assert_eq!(u256_to_fr(&result), expected);
+        assert_eq!(result, commitment);
+    }
+
+    #[test]
+    fn test_compute_commitment_hash() {
+        let mut data = vec![0; CommitmentHashingAccount::SIZE];
+        let mut hashing_account = CommitmentHashingAccount::new(&mut data).unwrap();
+
+        // Setup hashing account
+        let c = Fr::from_str("17943901642092756540532360474161569402553221410028090072917443956036363428842").unwrap();
+        let commitment = fr_to_u256_le(&c);
+        let ordering = 0;
+
+        // Siblings are the default values of the MT
+        let mut siblings = [Fr::zero(); MT_HEIGHT as usize];
+        for i in 0..MT_HEIGHT as usize { siblings[i] = EMPTY_TREE[i]; } 
+
+        // Reset values and get hashing siblings from storage account
+        hashing_account.reset(commitment, ordering, siblings, [0; 32]).unwrap();
+
+        // Compute hashes
+        for _ in 0..CommitmentHashComputation::INSTRUCTIONS.len() {
+            compute_commitment_hash(&mut hashing_account).unwrap();
+        }
+
+        // Check hashes with hash-function
+        let mut hash = c;
+
+        for i in 0..MT_HEIGHT as usize {
+            hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
+            assert_eq!(hashing_account.get_siblings(i), fr_to_u256_le(&EMPTY_TREE[i]));
+            assert_eq!(hashing_account.get_finished_hashes(i), fr_to_u256_le(&hash));
+        }
+
+        // Check root
+        assert_eq!(
+            hashing_account.get_finished_hashes(MT_HEIGHT as usize - 1),
+            fr_to_u256_le(&Fr::from_str("13088350874257591466321551177903363895529460375369348286819794485219676679592").unwrap())
+        );
+    }
 }

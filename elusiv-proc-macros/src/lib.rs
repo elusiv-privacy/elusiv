@@ -22,6 +22,7 @@ use elusiv_hash_compute_units::impl_elusiv_hash_compute_units;
 ///     - `multi_account = (<count_sub_accounts>, <intermediary_account_size>)`
 ///         - required fields:
 ///         1. `pubkeys: [<count_sub_accounts>]`
+///         2. `finished_setup : bool`
 /// 
 ///     - `partial_computation = <instructions>` (with instructions being a const array of `elusiv_computation::PartialComputationInstruction`)
 ///         - required fields:

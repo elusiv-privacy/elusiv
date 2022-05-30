@@ -2,7 +2,7 @@ use ark_ff::{Field, Zero};
 use ark_bn254::Fr;
 use super::poseidon_constants::*;
 
-pub const TOTAL_POSEIDON_ROUNDS: usize = 65;
+pub const TOTAL_POSEIDON_ROUNDS: u32 = 65;
 
 macro_rules! matrix_mix {
     ($new_state: ident, $s: literal, $i: literal, $state: ident) => {
@@ -27,9 +27,9 @@ macro_rules! round {
 /// - for input arity 2 we have 8 full rounds and 57 partial rounds (recommended in: https://eprint.iacr.org/2019/458.pdf (table 2, table 8))
 /// - in our implementation we use two types of rounds: computation rounds and Poseidon rounds
 /// - circom javascript reference implementation: https://github.com/iden3/circomlibjs/blob/9300d3f820b40a16d2f342ab5127a0cb9090bd15/src/poseidon_reference.js#L27
-pub fn binary_poseidon_hash_partial(round: usize, state: &mut [Fr; 3]) {
+pub fn binary_poseidon_hash_partial(round: u32, state: &mut [Fr; 3]) {
     // Load constants (~ 260)
-    let constants = constants(round);
+    let constants = constants(round as usize);
 
     // Ark (~ 277 CUs)
     state[0] += constants[0];
@@ -55,19 +55,19 @@ pub fn binary_poseidon_hash_partial(round: usize, state: &mut [Fr; 3]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::{state::{MT_HEIGHT, DEFAULT_VALUES}};
-
-    use super::*;
-    use std::str::FromStr;
-
-    fn full_poseidon2_hash(a: Fr, b: Fr) -> Fr {
-        let mut state = [Fr::zero(), a, b];
-        for round in 0..TOTAL_POSEIDON_ROUNDS {
-            binary_poseidon_hash_partial(round, &mut state);
-        }
-        state[0]
+pub fn full_poseidon2_hash(a: Fr, b: Fr) -> Fr {
+    let mut state = [Fr::zero(), a, b];
+    for round in 0..TOTAL_POSEIDON_ROUNDS {
+        binary_poseidon_hash_partial(round, &mut state);
     }
+    state[0]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{state::{MT_HEIGHT, EMPTY_TREE}};
+    use std::str::FromStr;
 
     #[test]
     fn test_binary_poseidon_hash() {
@@ -110,24 +110,20 @@ mod tests {
 
     #[test]
     fn test_mt_default_values() {
-        let mut a = Fr::zero();
-        for i in 0..=MT_HEIGHT {
-            assert_eq!(a, DEFAULT_VALUES[MT_HEIGHT - i]);
+        let mut a = full_poseidon2_hash(Fr::zero(), Fr::zero());
+        for i in 0..=MT_HEIGHT as usize {
+            assert_eq!(a, EMPTY_TREE[i]);
             a = full_poseidon2_hash(a, a);
         }
     }
 
-    /*#[test]
+    #[test]
     fn generate_mt_constants() {
-        let mut strs = Vec::new();
         let mut a = Fr::from_str("0").unwrap();
-        for i in 0..22 {
-            strs.push(format!("Fr::new(BigInteger256::new([{}, {}, {}, {}])),", a.0.0[0], a.0.0[1], a.0.0[2], a.0.0[3]));
-            println!("{}", a.to_string());
+        for i in 0..20 {
+            //println!("{}", format!("Fr::new(BigInteger256::new([{}, {}, {}, {}])),", a.0.0[0], a.0.0[1], a.0.0[2], a.0.0[3]));
             a = full_poseidon2_hash(a, a);
+            println!("{}: {}", i, a.to_string());
         }
-        for s in strs.iter().rev()  {
-            println!("{}", s);
-        }
-    }*/
+    }
 }

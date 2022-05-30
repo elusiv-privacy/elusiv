@@ -24,6 +24,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let mut total_size = quote! {};
     let mut impls = quote! {};
     let mut init = quote! {};
+    //let mut init_after = quote! {};
     let mut fields = quote! {};
     let mut signature = quote! {};
     let mut lifetimes = quote!{ 'a };
@@ -74,6 +75,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 let max_account_size: TokenStream = multi_account[1].parse().unwrap();
 
                 assert_field!(first_field, fields_iter, format!("pubkeys : [U256 ; {}]", multi_account[0]));
+                assert_field!(first_field, fields_iter, "finished_setup : bool");
 
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'t> for #name<#lifetimes> {
@@ -109,6 +111,19 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 signature.extend(quote! {
                     accounts: &'b [solana_program::account_info::AccountInfo<'t>],
                 });
+
+                // Adds check that the supplied accounts are the correct ones (failed when the account has not been setup yet)
+                // - INFO: not needed since we do this with ElusivInstruction
+                /*init_after.extend(quote!{
+                    // Check that account has been setup
+                    crate::macros::guard!(r.get_finished_setup(), crate::error::ElusivError::InvalidAccount);
+
+                    // Check for pubkey match
+                    assert_eq!(accounts.len(), Self::COUNT);
+                    for i in 0..Self::COUNT {
+                        assert_eq!(r.get_pubkeys(i), accounts[i].key.to_bytes());
+                    }
+                });*/
             },
             "partial_computation" => {
                 assert_field!(first_field, fields_iter, "is_active : bool");
@@ -231,6 +246,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 #init
 
                 Ok(#name { #fields })
+                //let r = #name { #fields };
+                // Additional checks
+                //#init_after
+                //Ok(r)
             }
 
             // Access functions

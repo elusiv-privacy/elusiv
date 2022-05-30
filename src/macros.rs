@@ -19,6 +19,15 @@ macro_rules! multi_instance_account {
     };
 }
 
+macro_rules! two_pow {
+    ($exp: expr) => {
+        match 2usize.checked_pow($exp) {
+            Some(v) => v,
+            None => panic!()
+        }
+    };
+}
+
 // Test macros
 #[cfg(test)]
 macro_rules! account {
@@ -86,6 +95,7 @@ macro_rules! generate_storage_accounts_valid_size {
 
 pub(crate) use guard;
 pub(crate) use multi_instance_account;
+pub(crate) use two_pow;
 pub(crate) use capture_compute_units_a;
 pub(crate) use capture_compute_units_b;
 

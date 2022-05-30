@@ -2,10 +2,11 @@
 
 mod common;
 use elusiv::fields::fr_to_u256_le;
+use elusiv::state::program_account::MultiAccountAccount;
 use elusiv::types::U256;
 use common::program_setup::*;
 use common::{ get_data, };
-use elusiv::instruction::{ElusivInstruction, SignerAccount, WritableUserAccount};
+use elusiv::instruction::{ElusivInstruction, SignerAccount, WritableUserAccount, UserAccount};
 use solana_program::hash::Hash;
 use solana_program::instruction::Instruction;
 use solana_program::native_token::LAMPORTS_PER_SOL;
@@ -13,13 +14,21 @@ use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use assert_matches::assert_matches;
-use elusiv::state::queue::{
-    BaseCommitmentQueueAccount, BaseCommitmentHashRequest, BaseCommitmentQueue,
-    CommitmentQueueAccount, CommitmentQueue,
+use elusiv::state::{
+    StorageAccount,
+    queue::{
+        BaseCommitmentQueueAccount, BaseCommitmentHashRequest, BaseCommitmentQueue,
+        CommitmentQueueAccount, CommitmentQueue,
+        RingQueue,
+
+    },
+    program_account::{
+        PDAAccount,
+        MultiAccountAccountFields,
+    },
 };
 use std::str::FromStr;
 use ark_bn254::Fr;
-use elusiv::state::queue::RingQueue;
 use elusiv::commitment::BaseCommitmentHashComputation;
 use elusiv_computation::PartialComputation;
 
@@ -33,17 +42,33 @@ async fn tx_should_succeed(ixs: &[Instruction], banks_client: &mut BanksClient, 
     assert_matches!(banks_client.process_transaction(tx).await, Ok(()));
 }
 
-async fn execute_on_queue<F>(banks_client: &mut BanksClient, key: &Pubkey, f: F) where F: Fn(&BaseCommitmentQueue) {
+async fn tx_should_fail(ixs: &[Instruction], banks_client: &mut BanksClient, payer: &solana_sdk::signature::Keypair, recent_blockhash: Hash) {
+    let mut tx = Transaction::new_with_payer(ixs, Some(&payer.pubkey()));
+    tx.sign(&[payer], recent_blockhash);
+    assert_matches!(banks_client.process_transaction(tx).await, Err(_));
+}
+
+macro_rules! queue {
+    ($id: ident, $ty: ty, $ty_account: ty) => {
+        let mut queue = <$ty_account>::new(&mut $id[..]).unwrap();
+        let $id = <$ty>::new(&mut queue);
+    };
+}
+
+async fn execute_on_base_queue<F>(banks_client: &mut BanksClient, key: &Pubkey, f: F) where F: Fn(&BaseCommitmentQueue) {
     let mut queue = get_data(banks_client, *key).await;
-    let mut queue = BaseCommitmentQueueAccount::new(&mut queue[..]).unwrap();
-    let queue = BaseCommitmentQueue::new(&mut queue);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount);
+    f(&queue)
+}
+
+async fn execute_on_commitment_queue<F>(banks_client: &mut BanksClient, key: &Pubkey, f: F) where F: Fn(&CommitmentQueue) {
+    let mut queue = get_data(banks_client, *key).await;
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount);
     f(&queue)
 }
 
 #[tokio::test]
-async fn test_base_commitment() {
-    //common::log::save_debug_log();
-
+async fn test_base_commitment_to_mt() {
     let first_request = BaseCommitmentHashRequest {
         base_commitment: u256_from_str("8337064132573119120838379738103457054645361649757131991036638108422638197362"),
         amount: LAMPORTS_PER_SOL,
@@ -70,7 +95,7 @@ async fn test_base_commitment() {
     ).await;
 
     // Check for requests in queue
-    execute_on_queue(&mut banks_client, &keys.base_commitment, |queue| {
+    execute_on_base_queue(&mut banks_client, &keys.base_commitment, |queue| {
         assert_eq!(queue.len(), 2);
 
         let first = queue.view(0).unwrap();
@@ -82,7 +107,7 @@ async fn test_base_commitment() {
         assert_eq!(second.request, second_request);
     }).await;
 
-    // Init computation
+    // Init bas commitment hash computation
     tx_should_succeed(
         &[
             ElusivInstruction::init_base_commitment_hash(0, SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment))
@@ -91,7 +116,7 @@ async fn test_base_commitment() {
     ).await;
 
     // Check that first request has been set to `is_being_processed` (and nothing else has changed)
-    execute_on_queue(&mut banks_client, &keys.base_commitment, |queue| {
+    execute_on_base_queue(&mut banks_client, &keys.base_commitment, |queue| {
         assert_eq!(queue.len(), 2);
 
         let first = queue.view(0).unwrap();
@@ -104,12 +129,12 @@ async fn test_base_commitment() {
     }).await;
 
     // Compute hash (should fail since not enough compute units)
-    let mut transaction = Transaction::new_with_payer(
-        &[ElusivInstruction::compute_base_commitment_hash(0)],
-        Some(&payer.pubkey()),
-    );
-    transaction.sign(&[&payer], recent_blockhash);
-    assert_matches!(banks_client.process_transaction(transaction).await, Err(_));
+    tx_should_fail(
+        &[
+            ElusivInstruction::compute_base_commitment_hash(0)
+        ],
+        &mut banks_client, &payer, recent_blockhash
+    ).await;
 
     // Compute hashes
     for i in 0..BaseCommitmentHashComputation::INSTRUCTIONS.len() {
@@ -131,7 +156,7 @@ async fn test_base_commitment() {
     ).await;
 
     // Check base_commitment_queue (first element should be gone, second now at the top)
-    execute_on_queue(&mut banks_client, &keys.base_commitment, |queue| {
+    execute_on_base_queue(&mut banks_client, &keys.base_commitment, |queue| {
         assert_eq!(queue.len(), 1);
 
         let first = queue.view(0).unwrap();
@@ -140,13 +165,27 @@ async fn test_base_commitment() {
     }).await;
 
     // Check commitment queue
-    let mut queue = get_data(&mut banks_client, keys.commitment).await;
-    let mut queue = CommitmentQueueAccount::new(&mut queue[..]).unwrap();
-    let queue = CommitmentQueue::new(&mut queue);
+    execute_on_commitment_queue(&mut banks_client, &keys.commitment, |queue| {
+        assert_eq!(queue.len(), 1);
 
-    assert_eq!(queue.len(), 1);
-    let commitment = queue.view_first().unwrap().request;
-    assert_eq!(commitment, first_request.commitment);
+        let first = queue.view(0).unwrap();
+        assert_eq!(first.is_being_processed, false);
+        assert_eq!(first.request, first_request.commitment);
+    }).await;
 
-    //common::log::get_compute_unit_pairs_from_log();
+    // Get storage account
+    /*let storage_account_data = get_data(&mut banks_client, StorageAccount::find(None).0).await;
+    let storage_account = MultiAccountAccountFields::<{StorageAccount::COUNT}>::new(&storage_account_data).unwrap();
+    let storage_account_sub_accounts = storage_account.pubkeys.iter()
+        .map(|x| UserAccount(Pubkey::new(&x[..])))
+        .collect::<Vec<UserAccount>>()
+        .try_into().unwrap();
+
+    // Init commitment hash computation
+    tx_should_succeed(
+        &[
+            ElusivInstruction::init_commitment_hash(SignerAccount(payer.pubkey()), WritableUserAccount(keys.commitment), storage_account_sub_accounts)
+        ],
+        &mut banks_client, &payer, recent_blockhash
+    ).await;*/
 }

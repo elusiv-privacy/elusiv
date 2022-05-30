@@ -189,7 +189,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 // Sub-accounts with PDA and ownership check for each
                                 accounts.extend(quote!{
                                     let acc_data = &mut #account.data.borrow_mut()[..];
-                                    let fields_check = match MultiAccountAccountFields::<{<#ty>::COUNT}>::try_from_slice(&acc_data[..MultiAccountAccountFields::<{<#ty>::COUNT}>::SIZE]) {
+                                    let fields_check = match MultiAccountAccountFields::<{<#ty>::COUNT}>::new(&acc_data) {
                                         Ok(a) => a,
                                         Err(_) => return Err(InvalidArgument)
                                     };

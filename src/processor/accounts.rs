@@ -26,13 +26,13 @@ pub enum SingleInstancePDAAccountKind {
     Pool,
     QueueManagement,
     CommitmentHashing,
+    Storage,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum MultiInstancePDAAccountKind {
     Verification,
     BaseCommitmentHashing,
-    Storage,
 }
 
 macro_rules! single_instance_account {
@@ -41,6 +41,7 @@ macro_rules! single_instance_account {
             SingleInstancePDAAccountKind::Pool => PoolAccount::$e,
             SingleInstancePDAAccountKind::QueueManagement => QueueManagementAccount::$e,
             SingleInstancePDAAccountKind::CommitmentHashing => CommitmentHashingAccount::$e,
+            SingleInstancePDAAccountKind::Storage => StorageAccount::$e,
         }
     };
 }
@@ -67,7 +68,6 @@ macro_rules! multi_instance_account {
         match $v {
             MultiInstancePDAAccountKind::Verification => VerificationAccount::$e,
             MultiInstancePDAAccountKind::BaseCommitmentHashing => BaseCommitmentHashingAccount::$e,
-            MultiInstancePDAAccountKind::Storage => StorageAccount::$e,
         }
     };
 }

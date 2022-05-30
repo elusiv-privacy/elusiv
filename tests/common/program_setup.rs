@@ -14,7 +14,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 use elusiv::instruction::*;
 use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount};
 use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount};
-use elusiv::processor::{MultiInstancePDAAccountKind};
+use elusiv::processor::{MultiInstancePDAAccountKind, SingleInstancePDAAccountKind};
 
 pub async fn start_program_solana_program_test() -> (BanksClient, Keypair, Hash) {
     let mut test = ProgramTest::default();
@@ -110,6 +110,8 @@ pub async fn setup_storage_account<'a>(
     payer: &Keypair,
     recent_blockhash: Hash,
 ) -> Vec<Pubkey> {
+    let nonce: u8 = rand::random();
+
     let mut accounts = Vec::new();
     let mut result = Vec::new();
     for i in 0..elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT {
@@ -126,12 +128,11 @@ pub async fn setup_storage_account<'a>(
 
     let mut transaction = Transaction::new_with_payer(
         &[
-            ElusivInstruction::open_multi_instance_account(
-                0,
-                MultiInstancePDAAccountKind::Storage,
-                0,
+            ElusivInstruction::open_single_instance_account(
+                SingleInstancePDAAccountKind::Storage,
+                nonce,
                 SignerAccount(payer.pubkey()),
-                WritableUserAccount(StorageAccount::find(Some(0)).0)
+                WritableUserAccount(StorageAccount::find(None).0)
             ),
             ElusivInstruction::setup_storage_account(
                 accounts.try_into().unwrap()
@@ -209,7 +210,7 @@ pub async fn execute_on_storage_account<F>(
 
     let sub_accounts = vec![acc0, acc1, acc2, acc3, acc4, acc5, acc6];
 
-    let mut storage_account = super::get_data(banks_client, StorageAccount::find(Some(0)).0).await;
+    let mut storage_account = super::get_data(banks_client, StorageAccount::find(None).0).await;
     let storage_account = StorageAccount::new(&mut storage_account[..], &sub_accounts[..]).unwrap();
 
     clousure(&storage_account)

@@ -40,7 +40,7 @@ pub trait PDAAccount {
 
     fn is_valid_pubkey(account: &AccountInfo, offset: Option<u64>, pubkey: &Pubkey) -> Result<bool, ProgramError> {
         let acc_data = &account.data.borrow()[..PDAAccountFields::SIZE];
-        match PDAAccountFields::try_from_slice(&acc_data[..PDAAccountFields::SIZE]) {
+        match PDAAccountFields::new(&acc_data) {
             Ok(a) => Ok(Self::pubkey(offset, a.bump_seed)? == *pubkey),
             Err(_) => Err(ProgramError::InvalidAccountData)
         }
@@ -54,12 +54,24 @@ pub struct PDAAccountFields {
     pub initialized: bool,
 }
 
+impl PDAAccountFields {
+    pub fn new(data: &[u8]) -> Result<Self, std::io::Error> {
+        PDAAccountFields::try_from_slice(&data[..Self::SIZE])
+    }
+}
+
 /// Every `MultiAccountAccount` has these fields at the beginning. (guaranteed by the `elusiv_account` macro) 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct MultiAccountAccountFields<const COUNT: usize> {
     pub bump_seed: u8,
     pub initialized: bool,
     pub pubkeys: [U256; COUNT],
+}
+
+impl<const COUNT: usize> MultiAccountAccountFields<COUNT> {
+    pub fn new(data: &[u8]) -> Result<Self, std::io::Error> {
+        MultiAccountAccountFields::try_from_slice(&data[..Self::SIZE])
+    }
 }
 
 pub trait SizedAccount {

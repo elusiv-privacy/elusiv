@@ -2,7 +2,7 @@
 //! Bn254 scalar field modulus: `r = 21888242871839275222246405745257275088548364400416034343698204186575808495617`
 
 use ark_bn254::{Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine};
-use ark_ff::BigInteger256;
+use ark_ff::{BigInteger256, PrimeField};
 use borsh::{BorshSerialize, BorshDeserialize};
 use crate::{types::{U256, u256_to_le_limbs}, bytes::BorshSerDeSized};
 use crate::bytes::slice_to_array;
@@ -244,6 +244,10 @@ pub fn u256_to_big_uint(v: &U256) -> BigInteger256 {
     BigInteger256(u256_to_le_limbs(*v))
 }
 
+pub fn u64_to_scalar(v: u64) -> Fr {
+    Fr::from_repr(BigInteger256::from(v)).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,5 +385,10 @@ mod tests {
         let f = Fr::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap();
         let u = fr_to_u256_le(&f);
         assert_eq!(f, u256_to_fr(&u));
+    }
+
+    #[test]
+    fn test_u64_to_scalar() {
+        assert_eq!(u64_to_scalar(999), Fr::from_str("999").unwrap());
     }
 }

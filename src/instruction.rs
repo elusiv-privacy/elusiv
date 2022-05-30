@@ -105,21 +105,24 @@ pub enum ElusivInstruction {
     },
 
     // Commitment (MT-root) hashing
-    /*#[usr(fee_payer, ( signer, writable ))]
-    #[pda(queue, CommitmentQueue, ( writable ))]
-    #[pda(hashing_account, CommitmentHashing, ( writable ))]
+    #[usr(fee_payer, { signer, writable })]
+    #[pda(q_manager, QueueManagement)]
+    #[prg(queue, CommitmentQueue, key = q_manager.get_commitment_queue(), { writable })]
+    #[pda(hashing_account, CommitmentHashing, { writable })]
+    #[pda(storage_account, Storage, { multi_accounts })]
     InitCommitmentHash,
     
-    #[pda(hashing_account, CommitmentHashing, ( writable ))]
-    #[pda(storage_account, Storage, ( multi_accounts ))]
+    #[pda(hashing_account, CommitmentHashing, { writable })]
     ComputeCommitmentHash,
 
-    #[pda(hashing_account, CommitmentHashing, ( writable ))]
-    #[pda(storage_account, Storage, ( multi_accounts, writable ))]
+    #[pda(q_manager, QueueManagement)]
+    #[prg(queue, CommitmentQueue, key = q_manager.get_commitment_queue(), { writable })]
+    #[pda(hashing_account, CommitmentHashing, { writable })]
+    #[pda(storage_account, Storage, { multi_accounts, writable })]
     FinalizeCommitmentHash,
 
     // Funds are transferred to the recipient
-    #[usr(recipient, ( writable ))]
+    /*#[usr(recipient, ( writable ))]
     #[pda(pool, Pool, ( writable, account_info ))]
     #[pda(queue, FinalizeSendQueue, ( writable ))]
     FinalizeSend,*/
@@ -161,7 +164,7 @@ pub enum ElusivInstruction {
 
     // Can be called once, setups all sub-accounts for the storage account
     // - `OpenMultiInstanceAccount` with `SingleInstancePDAAccountKind::Storage` has to be called before
-    #[pda(storage_account, Storage, pda_offset = Some(0), { multi_accounts, no_subaccount_check, writable })]
+    #[pda(storage_account, Storage, { multi_accounts, no_subaccount_check, writable })]
     SetupStorageAccount,
 }
 

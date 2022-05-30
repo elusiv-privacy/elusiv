@@ -5,6 +5,7 @@ pub mod bytes;
 pub mod instruction;
 pub mod processor;
 pub mod state;
+pub mod fee;
 pub mod fields;
 pub mod proof;
 pub mod commitment;

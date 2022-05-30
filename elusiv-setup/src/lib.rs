@@ -34,8 +34,3 @@ pub fn create_account(
 
 /// Tuple of main PDA and sub-accounts
 pub type MultiAccountAccountKeys = (Pubkey, Vec<Pubkey>);
-
-/// Returns the pubkeys of the storage account
-pub async fn get_storage_account() -> MultiAccountAccountKeys {
-    panic!()
-}

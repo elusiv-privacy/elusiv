@@ -1,5 +1,6 @@
 use crate::fields::fr_to_u256_le;
-use crate::{macros::elusiv_account, fields::u256_to_fr};
+use crate::fields::u256_to_fr;
+use crate::macros::{elusiv_account, two_pow};
 use crate::types::U256;
 use crate::bytes::*;
 use super::program_account::*;
@@ -8,13 +9,16 @@ use ark_bn254::Fr;
 use ark_ff::{BigInteger256};
 
 /// Height of the active Merkle Tree
-pub const MT_HEIGHT: usize = 20;
+pub const MT_HEIGHT: u32 = 20;
 
 /// Count of all nodes in the merkle-tree
-pub const MT_SIZE: usize = 2usize.pow(MT_HEIGHT as u32 + 1) - 1;
+pub const MT_SIZE: usize = two_pow!(MT_HEIGHT + 1) - 1;
+
+/// Count of all commitments (leafes) in the merkle-tree
+pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
 
 /// Index of the first commitment in the Merkle Tree
-pub const MT_COMMITMENT_START: usize = 2usize.pow(MT_HEIGHT as u32) - 1;
+pub const MT_COMMITMENT_START: usize = two_pow!(MT_HEIGHT) - 1;
 
 /// Since before submitting a proof request the current root can change, we store the previous ones
 const HISTORY_ARRAY_COUNT: usize = 100;
@@ -22,28 +26,29 @@ const HISTORY_ARRAY_COUNT: usize = 100;
 pub const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(MT_SIZE, U256::SIZE);
 const_assert_eq!(STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT, 7);
 
-pub const DEFAULT_VALUES: [Fr; MT_HEIGHT + 1] = [
-    Fr::new(BigInteger256::new([5691611937644566852, 17620820813181493991, 11578659137028816515, 2914824457222516369])),
-    Fr::new(BigInteger256::new([1468893897005136691, 4638128118315565334, 13680790228231065622, 1299508272559288457])),
-    Fr::new(BigInteger256::new([4698931903603764972, 15338172196201026259, 845461366581210430, 2490130590646071464])),
-    Fr::new(BigInteger256::new([2920096157871139096, 13060020165704901188, 12943162699953729247, 2234479897611199809])),
-    Fr::new(BigInteger256::new([15436988243663142679, 3814774368829636446, 13365591614313630306, 1576186299059485553])),
-    Fr::new(BigInteger256::new([13328230243323890297, 11128679064958937924, 9357000335258360483, 2104290745598804102])),
-    Fr::new(BigInteger256::new([3756085570044973516, 9536957579284113805, 2409437860359384358, 1444172494927843072])),
-    Fr::new(BigInteger256::new([15545935430856831981, 6995399324906788259, 7975302095956667197, 278329136157021172])),
-    Fr::new(BigInteger256::new([5490509226410727857, 11094896903217897359, 12299135231088992513, 424172748035087377])),
-    Fr::new(BigInteger256::new([7568814144423326948, 7756902877083136468, 2643112947961160356, 2381594894185361981])),
-    Fr::new(BigInteger256::new([11638450640257199038, 7595865483997155469, 13070293587080331272, 1693899333659075201])),
-    Fr::new(BigInteger256::new([13017598453810020150, 5751567870812522253, 14128703922746499357, 1640897934100003677])),
-    Fr::new(BigInteger256::new([16529257223091242829, 15078715808286425477, 14973738173337342358, 1311755140402558240])),
-    Fr::new(BigInteger256::new([5817658827105621581, 11059894328710668944, 9229044364542587538, 2062834750464334044])),
-    Fr::new(BigInteger256::new([17311028596387249094, 10845365150759738931, 17445412932997959742, 48033258554112463])),
-    Fr::new(BigInteger256::new([16314769355260462117, 327129018270864341, 11408471150400527423, 2297888125986573548])),
-    Fr::new(BigInteger256::new([3374525873845327982, 8842951786222469347, 14628822357859034252, 2329128191974466333])),
-    Fr::new(BigInteger256::new([18120511978754371573, 206215742733117120, 9749843034257160914, 3297229344299070194])),
-    Fr::new(BigInteger256::new([16524436797946508368, 5663459082060437627, 4786453218948112063, 1780966499111310984])),
+/// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes
+pub const EMPTY_TREE: [Fr; MT_HEIGHT as usize + 1] = [
     Fr::new(BigInteger256::new([3162363550698150530, 9486080942857866267, 15374008727889305678, 621823773387469172])),
-    Fr::new(BigInteger256::new([0, 0, 0, 0])),
+    Fr::new(BigInteger256::new([16524436797946508368, 5663459082060437627, 4786453218948112063, 1780966499111310984])),
+    Fr::new(BigInteger256::new([18120511978754371573, 206215742733117120, 9749843034257160914, 3297229344299070194])),
+    Fr::new(BigInteger256::new([3374525873845327982, 8842951786222469347, 14628822357859034252, 2329128191974466333])),
+    Fr::new(BigInteger256::new([16314769355260462117, 327129018270864341, 11408471150400527423, 2297888125986573548])),
+    Fr::new(BigInteger256::new([17311028596387249094, 10845365150759738931, 17445412932997959742, 48033258554112463])),
+    Fr::new(BigInteger256::new([5817658827105621581, 11059894328710668944, 9229044364542587538, 2062834750464334044])),
+    Fr::new(BigInteger256::new([16529257223091242829, 15078715808286425477, 14973738173337342358, 1311755140402558240])),
+    Fr::new(BigInteger256::new([13017598453810020150, 5751567870812522253, 14128703922746499357, 1640897934100003677])),
+    Fr::new(BigInteger256::new([11638450640257199038, 7595865483997155469, 13070293587080331272, 1693899333659075201])),
+    Fr::new(BigInteger256::new([7568814144423326948, 7756902877083136468, 2643112947961160356, 2381594894185361981])),
+    Fr::new(BigInteger256::new([5490509226410727857, 11094896903217897359, 12299135231088992513, 424172748035087377])),
+    Fr::new(BigInteger256::new([15545935430856831981, 6995399324906788259, 7975302095956667197, 278329136157021172])),
+    Fr::new(BigInteger256::new([3756085570044973516, 9536957579284113805, 2409437860359384358, 1444172494927843072])),
+    Fr::new(BigInteger256::new([13328230243323890297, 11128679064958937924, 9357000335258360483, 2104290745598804102])),
+    Fr::new(BigInteger256::new([15436988243663142679, 3814774368829636446, 13365591614313630306, 1576186299059485553])),
+    Fr::new(BigInteger256::new([2920096157871139096, 13060020165704901188, 12943162699953729247, 2234479897611199809])),
+    Fr::new(BigInteger256::new([4698931903603764972, 15338172196201026259, 845461366581210430, 2490130590646071464])),
+    Fr::new(BigInteger256::new([1468893897005136691, 4638128118315565334, 13680790228231065622, 1299508272559288457])),
+    Fr::new(BigInteger256::new([5691611937644566852, 17620820813181493991, 11578659137028816515, 2914824457222516369])),
+    Fr::new(BigInteger256::new([9148453604387573975, 1305394973545476317, 5622541637850933077, 679291737183423090])),
 ];
 
 const ZERO: Fr = Fr::new(BigInteger256::new([0, 0, 0, 0]));
@@ -63,7 +68,7 @@ pub struct StorageAccount {
     finished_setup: bool,
 
     // Points to the next commitment in the active MT
-    next_commitment_ptr: u64,
+    next_commitment_ptr: u32,
 
     // The amount of already finished MTs
     trees_count: u64,
@@ -93,38 +98,43 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         }
     }
 
-    /// Inserts commitment and the above hashes
-    pub fn insert_commitment(&mut self, values: [U256; MT_HEIGHT + 1]) {
+    pub fn is_full(&self) -> bool {
         let ptr = self.get_next_commitment_ptr() as usize;
-        self.set_next_commitment_ptr(&(ptr as u64 + 1));
+        ptr < MT_COMMITMENT_COUNT
+    }
+
+    /// Inserts commitment and the above hashes
+    pub fn insert_commitment(&mut self, values: [U256; MT_HEIGHT as usize + 1]) {
+        let ptr = self.get_next_commitment_ptr();
+        self.set_next_commitment_ptr(&(ptr + 1));
 
         // Save last root
-        self.set_active_mt_root_history(ptr % HISTORY_ARRAY_COUNT, &self.get_root());
+        self.set_active_mt_root_history(ptr as usize % HISTORY_ARRAY_COUNT, &self.get_root());
 
         // Insert values into the tree
         for (i, &value) in values.iter().enumerate() {
-            let level = MT_HEIGHT - i;
+            let level = MT_HEIGHT as usize - i;
             let index = ptr >> i;
-            self.set_node(&value, index, level);
+            self.set_node(&value, index as usize, level);
         }
     }
 
     /// `level`: 0 is the root level, `MT_HEIGHT` the commitment level
     pub fn get_node(&self, index: usize, level: usize) -> Fr {
-        assert!(level <= MT_HEIGHT);
+        assert!(level <= MT_HEIGHT as usize);
 
         let ptr = self.get_next_commitment_ptr() as usize;
 
-        // Accessing a node, that is non-existent (yet) -> use const
+        // Accessing a node, that is non-existent (yet) -> we use the default value 
         if (index >> level) >= (ptr >> level) {
-            DEFAULT_VALUES[level]
+            EMPTY_TREE[MT_HEIGHT as usize - level]
         } else {
             u256_to_fr(&self.get(mt_array_index(index, level)))
         }
     }
 
     fn set_node(&mut self, value: &U256, index: usize, level: usize) {
-        assert!(level <= MT_HEIGHT);
+        assert!(level <= MT_HEIGHT as usize);
 
         self.set(mt_array_index(index, level), *value);
     }
@@ -138,12 +148,12 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         root == self.get_root() || contains(root, self.active_mt_root_history)
     }
 
-    pub fn get_mt_opening(&self, index: usize) -> [Fr; MT_HEIGHT] {
-        let mut opening = [ZERO; MT_HEIGHT];
+    pub fn get_mt_opening(&self, index: usize) -> [Fr; MT_HEIGHT as usize] {
+        let mut opening = [ZERO; MT_HEIGHT as usize];
         let mut index = index;
 
-        for i in 0..MT_HEIGHT {
-            let level = MT_HEIGHT - i;
+        for i in 0..MT_HEIGHT as usize {
+            let level = MT_HEIGHT as usize - i;
             let n_index = if index % 2 == 0 { index + 1 } else { index - 1};
             opening[i] = self.get_node(n_index, level);
             index = index >> 1;
@@ -154,7 +164,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 }
 
 pub fn mt_array_index(index: usize, level: usize) -> usize {
-    2usize.pow(level as u32) - 1 + index
+    two_pow!(level as u32) - 1 + index
 }
 
 #[cfg(test)]
@@ -182,11 +192,10 @@ mod tests {
     fn test_get_default_mt_values() {
         storage_account!(storage_account);
 
-        // Get default values for empty tree
-        assert_eq!(storage_account.get_node(0, MT_HEIGHT), Fr::from_str("0").unwrap());
-        assert_eq!(storage_account.get_node(0, 0), Fr::from_str("15019797232609675441998260052101280400536945603062888308240081994073687793470").unwrap());
-        assert_eq!(storage_account.get_node(0, 1), Fr::from_str("10941962436777715901943463195175331263348098796018438960955633645115732864202").unwrap());
-        assert_eq!(storage_account.get_node(0, MT_HEIGHT - 1), Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap());
-        assert_eq!(storage_account.get_node(0, MT_HEIGHT - 2), Fr::from_str("7423237065226347324353380772367382631490014989348495481811164164159255474657").unwrap());
+        // Commitment
+        assert_eq!(storage_account.get_node(0, MT_HEIGHT as usize), Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap());
+
+        // root
+        assert_eq!(storage_account.get_node(0, 0), Fr::from_str("11702828337982203149177882813338547876343922920234831094975924378932809409969").unwrap());
     }
 }
