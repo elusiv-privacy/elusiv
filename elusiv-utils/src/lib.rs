@@ -10,6 +10,10 @@ use solana_sdk::{
     signature::Signer,
     signer::keypair::Keypair,
 };
+use elusiv::state::{
+    StorageAccount,
+    program_account::{MultiAccountAccount, MultiAccountAccountFields},
+};
 
 /// Creates a new data account with `account_size` data
 /// - `amount` needs to be at least the amount required for rent-exemption
@@ -32,5 +36,14 @@ pub fn create_account(
     Ok((create_account_ix, new_account_keypair))
 }
 
-/// Tuple of main PDA and sub-accounts
-pub type MultiAccountAccountKeys = (Pubkey, Vec<Pubkey>);
+/// Returns the `StorageAccount::COUNT` storage account sub-accounts
+pub fn get_storage_account_sub_accounts(
+    storage_account_data: &[u8]
+) -> Result<Vec<Pubkey>, UtilsError> {
+    let acc = match MultiAccountAccountFields::<{StorageAccount::COUNT}>::new(storage_account_data) {
+        Ok(v) => v,
+        Err(_) => return Err(UtilsError::InvalidAccount)
+    };
+    let pks = acc.pubkeys;
+    Ok(pks.iter().map(|x| Pubkey::new(x)).collect())
+}

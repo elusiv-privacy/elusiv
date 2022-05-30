@@ -1,6 +1,8 @@
 //! Tests the account setup process
 
+#[cfg(not(tarpaulin_include))]
 mod common;
+
 use elusiv::state::StorageAccount;
 use common::program_setup::*;
 use common::{

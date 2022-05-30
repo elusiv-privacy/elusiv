@@ -59,14 +59,16 @@ pub enum ElusivError {
     ComputationIsAlreadyFinished,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl From<ElusivError> for ProgramError {
     fn from(e: ElusivError) -> Self {
         ProgramError::Custom(e as u32)
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl fmt::Display for ElusivError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &format!("{:?}", self))
+        write!(f, "{}", *self as u32)
     }
 }

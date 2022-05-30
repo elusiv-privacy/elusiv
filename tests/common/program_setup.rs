@@ -14,7 +14,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 use elusiv::instruction::*;
 use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount};
 use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount};
-use elusiv::processor::{MultiInstancePDAAccountKind, SingleInstancePDAAccountKind};
+use elusiv::processor::{SingleInstancePDAAccountKind};
 
 use crate::common::get_data;
 
@@ -149,18 +149,6 @@ pub async fn setup_storage_account<'a>(
     result
 }
 
-pub async fn setup_all_accounts(
-    banks_client: &mut BanksClient,
-    payer: &Keypair,
-    recent_blockhash: Hash,
-) {
-    // Create PDA accounts
-    setup_pda_accounts(banks_client, &payer, recent_blockhash).await;
-
-    // Create queue accounts
-    setup_queue_accounts(banks_client, payer, recent_blockhash).await;
-}
-
 pub async fn create_account_rent_exepmt(
     banks_client: &mut BanksClient,
     payer: &Keypair,
@@ -169,7 +157,7 @@ pub async fn create_account_rent_exepmt(
 ) -> Keypair {
     let amount = banks_client.get_rent().await.unwrap().minimum_balance(account_size);
 
-    let (ix, keypair) = elusiv_setup::create_account(payer, &elusiv::id(), account_size, amount).unwrap();
+    let (ix, keypair) = elusiv_utils::create_account(payer, &elusiv::id(), account_size, amount).unwrap();
     let transaction = Transaction::new_signed_with_payer(
         &[ix],
         Some(&payer.pubkey()),

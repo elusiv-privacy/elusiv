@@ -3,6 +3,7 @@ use std::fmt;
 #[derive(Copy, Clone, Debug)]
 pub enum UtilsError {
     AmountTooLowForRentExemption,
+    InvalidAccount,
 }
 
 impl fmt::Display for UtilsError {

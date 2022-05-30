@@ -1,9 +1,10 @@
 //! Tests the base commitment and commitment hashing
 
+#[cfg(not(tarpaulin_include))]
 mod common;
+
 use elusiv::fields::{fr_to_u256_le, u256_to_fr};
 use elusiv::state::{MT_HEIGHT, EMPTY_TREE};
-use elusiv::state::program_account::MultiAccountAccount;
 use elusiv::types::U256;
 use common::program_setup::*;
 use common::{ get_data, };
@@ -16,7 +17,6 @@ use solana_program_test::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use assert_matches::assert_matches;
 use elusiv::state::{
-    StorageAccount,
     queue::{
         BaseCommitmentQueueAccount, BaseCommitmentHashRequest, BaseCommitmentQueue,
         CommitmentQueueAccount, CommitmentQueue,
@@ -25,7 +25,6 @@ use elusiv::state::{
     },
     program_account::{
         PDAAccount,
-        MultiAccountAccountFields,
     },
 };
 use std::str::FromStr;
