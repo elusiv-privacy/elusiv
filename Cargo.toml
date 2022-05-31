@@ -16,6 +16,8 @@ members = [
 [features]
 # Adds the functions `instruction_name(..) -> solana_program::instruction::Instruction` to `ElusivInstruction`
 instruction-abi = []
+elusiv-computation = []
+extended-logging = []
 
 [dependencies]
 elusiv-interpreter = { path = "./elusiv-interpreter" }

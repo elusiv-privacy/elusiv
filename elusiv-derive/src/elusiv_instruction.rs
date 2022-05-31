@@ -4,12 +4,13 @@ use proc_macro2::TokenStream;
 
 pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
     let mut matches = quote!{};
+    let mut len = quote!{};
     let mut functions = quote!{};
 
     match &ast.data {
         syn::Data::Enum(e) => {
-            for var in e.variants.clone() {
-                let ident = var.ident;
+            for (i, var) in e.variants.clone().iter().enumerate() {
+                let ident = &var.ident;
                 let fn_name: TokenStream = upper_camel_to_upper_snake(&ident.to_string()).to_lowercase().parse().unwrap();
 
                 // Processor calls
@@ -22,13 +23,25 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let mut user_accounts = quote!{};
                 let mut instruction_accounts = quote!{};
 
-                for field in var.fields {
+                let mut var_size = quote!{};
+                for field in &var.fields {
                     let field_name = field.ident.clone().unwrap();
-                    let ty = field.ty;
+                    let ty = field.ty.clone();
 
                     fields.extend(quote! { #field_name, });
                     fields_with_type.extend(quote! { #field_name: #ty, });
+
+                    if var_size.is_empty() {
+                        var_size.extend(quote!{ <#ty>::SIZE })
+                    } else {
+                        var_size.extend(quote!{ + <#ty>::SIZE })
+                    }
                 }
+                if var_size.is_empty() { var_size = quote!{ 0 } };
+                let i = i as u8;
+                len.extend(quote! {
+                    #i => { #var_size },
+                });
 
                 // Account attributes
                 for (i, attr) in var.attrs.iter().enumerate() {
@@ -287,7 +300,16 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 #matches
                 _ => { Err(InvalidInstructionData) }
             }
-        }        
+        }
+
+        impl ElusivInstruction {
+            pub fn len(variant_index: u8) -> usize {
+                match variant_index {
+                    #len
+                    _ => { 0 }
+                }
+            }
+        }
 
         #[cfg(feature = "instruction-abi")]
         impl ElusivInstruction {

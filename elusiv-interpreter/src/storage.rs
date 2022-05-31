@@ -102,7 +102,6 @@ impl StorageMappings {
             m.deallocate(&w.id);
             m.allocate(&w.id);
             quote!{
-                #name.free(#index);
                 #name.write(#id, #first);
             }
         } else {

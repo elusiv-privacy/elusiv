@@ -3,7 +3,7 @@ use solana_program::entrypoint::ProgramResult;
 use crate::types::U256;
 use crate::bytes::*;
 use crate::error::ElusivError::{NullifierAlreadyExists};
-use super::program_account::{SizedAccount, MultiAccountAccount};
+use super::program_account::{SizedAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// The count of nullifiers is the count of leafes in the MT

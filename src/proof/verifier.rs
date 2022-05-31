@@ -12,7 +12,6 @@ use std::ops::Neg;
 use super::*;
 use crate::error::ElusivError::{CouldNotProcessProof, ComputationIsAlreadyFinished, PartialComputationError};
 use crate::macros::guard;
-use crate::types::U256;
 
 pub fn verify_partial<VKey: VerificationKey>(
     round: usize,
@@ -24,7 +23,7 @@ pub fn verify_partial<VKey: VerificationKey>(
         let result = prepare_public_inputs_partial::<VKey>(
             round,
             verifier_account,
-            [0; 32],//verifier_account.account.get_public_input(input_index),
+            BigInteger256::from(0),// [0; 32],//verifier_account.account.get_public_input(input_index),
             input_index,
         );
         match result {
@@ -98,7 +97,7 @@ macro_rules! read_g1_projective {
     ($ram: expr, $o: literal) => { G1Projective::new($ram.read($o), $ram.read($o + 1), $ram.read($o + 2)) };
 }
 
-pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 255;
+pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 257;
 
 /// Public input preparation
 /// - reference implementation: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L22
@@ -108,36 +107,38 @@ pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 255;
 fn prepare_public_inputs_partial<VKey: VerificationKey>(
     round: usize,
     storage: &mut VerificationAccount,
-    input: U256,
+    input: BigInteger256,
     input_index: usize,
 ) -> Option<G1Affine> {
-    let mul_round = round % PREPARE_PUBLIC_INPUTS_ROUNDS;
+    // Reset g_ic
+    if round == 0 { write_g1_projective(&mut storage.ram_fq, VKey::gamma_abc_g1_0(), 0); }
 
-    if round == 0 {
-        write_g1_projective(&mut storage.ram_fq, G1Projective::zero(), 3);
-    }
+    let round = round % PREPARE_PUBLIC_INPUTS_ROUNDS;
 
+    // Rest mul acc
+    if round == 0 { write_g1_projective(&mut storage.ram_fq, G1Projective::zero(), 3); }
     let mut acc: G1Projective = read_g1_projective!(storage.ram_fq, 3);
 
-    if mul_round < PREPARE_PUBLIC_INPUTS_ROUNDS - 1 { // Standard ec scalar multiplication
+    if round < PREPARE_PUBLIC_INPUTS_ROUNDS - 1 { // Standard ec scalar multiplication
         // Skip leading zeros
-        if mul_round < find_first_non_zero(&input) { return None }
+        if round < find_first_non_zero(&input) { return None }
 
+        // Multiplication core
         acc.double_in_place();
-        if get_bit(&input, mul_round) {
+        if get_bit(&input, round) {
             acc.add_assign_mixed(&VKey::gamma_abc_g1(input_index + 1));
         }
 
         write_g1_projective(&mut storage.ram_fq, acc, 3);
     } else { // Adding
-        let mut g_ic = if input_index == 0 { VKey::gamma_abc_g1_0() } else { read_g1_projective!(storage.ram_fq, 0) };
+        let mut g_ic = read_g1_projective!(storage.ram_fq, 0);
 
         g_ic += acc;
 
         if input_index < VKey::PUBLIC_INPUTS_COUNT - 1 {
             write_g1_projective(&mut storage.ram_fq, g_ic, 0);
         } else {
-            return Some(g_ic.into())
+            return Some(g_ic.into_affine())
         }
     }
     None
@@ -149,17 +150,24 @@ fn write_g1_projective(ram: &mut RAMFq, g1p: G1Projective, offset: usize) {
     ram.write(g1p.z, offset + 2);
 }
 
-/// Returns the bit, indexed in bit-endian from `v` in little-endian format
-fn get_bit(v: &U256, index: usize) -> bool {
-    let byte = index / 8;
-    v[31 - byte] >> (7 - (index % 8)) == 1
+/// Returns the bit, indexed in bit-endian from `bytes_le` in little-endian format
+fn get_bit(repr_num: &BigInteger256, bit: usize) -> bool {
+    let limb = bit / 64;
+    let local_bit = bit % 64;
+    let bytes = u64::to_be_bytes(repr_num.0[3 - limb]);
+    (bytes[local_bit / 8] >> (7 - (local_bit % 8))) & 1 == 1
 }
 
-/// Returns the first non-zero bit in big-endian for a value  `v` in little-endian
-fn find_first_non_zero(v: &U256) -> usize {
-    for byte in 0..32 {
-        for bit in 0..8 {
-            if (v[byte] >> (7 - bit) & 1) == 1 { return 31 - byte * 8 - bit }
+/// Returns the first non-zero bit in big-endian for a value `bytes_le` in little-endian
+fn find_first_non_zero(repr_num: &BigInteger256) -> usize {
+    for limb in 0..4 {
+        let bytes = u64::to_be_bytes(repr_num.0[3 - limb]);
+        for byte in 0..8 {
+            for bit in 0..8 {
+                if (bytes[byte] >> (7 - bit)) & 1 == 1 {
+                    return limb * 64 + byte * 8 + bit;
+                }
+            }
         }
     }
     256
@@ -557,12 +565,11 @@ fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
 mod tests {
     use super::*;
     use std::str::FromStr;
-    use ark_bn254::{ Fr, Bn254 };
-    use ark_ec::{AffineCurve, PairingEngine};
+    use ark_bn254::{Fr, Bn254};
+    use ark_ec::PairingEngine;
     use ark_ec::models::bn::BnParameters;
     use ark_ff::PrimeField;
-    use borsh::BorshSerialize;
-    use crate::fields::{Wrap, fr_to_u256_le};
+    use ark_groth16::{VerifyingKey, prepare_inputs, prepare_verifying_key};
 
     type VK = super::super::vkey::SendVerificationKey;
 
@@ -598,7 +605,7 @@ mod tests {
         //panic!()
     //}
 
-    /*#[test]
+    #[test]
     fn test_prepare_public_inputs() {
         let public_inputs = vec![
             Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
@@ -613,25 +620,37 @@ mod tests {
         let mut value: Option<G1Affine> = None;
         for round in 0..VK::PREPARE_PUBLIC_INPUTS_ROUNDS {
             let input_index = round / PREPARE_PUBLIC_INPUTS_ROUNDS;
-            let input = <Wrap<Fr>>::try_to_vec(&Wrap(public_inputs[input_index])).unwrap();
-            let input: U256 = input.try_into().unwrap();
+            let input = public_inputs[input_index].into_repr();
             value = prepare_public_inputs_partial::<VK>(round, &mut storage, input, input_index);
         }
 
-        assert_eq!(value.unwrap(), reference_prepare_inputs::<VK>(&public_inputs));
+        let mut gamma_abc_g1 = Vec::new();
+        for i in 0..=VK::PUBLIC_INPUTS_COUNT {
+            gamma_abc_g1.push(VK::gamma_abc_g1(i));
+        }
+
+        let vk = VerifyingKey::<Bn254> {
+            alpha_g1: VK::alpha_g1(),
+            beta_g2: VK::beta_g2(),
+            gamma_g2: VK::gamma_g2(),
+            delta_g2: VK::delta_g2(),
+            gamma_abc_g1,
+        };
+        let pvk = prepare_verifying_key(&vk);
+        let expected = prepare_inputs(&pvk, &public_inputs).unwrap().into_affine();
+
+        assert_eq!(value.unwrap(), expected);
     }
 
     #[test]
     fn test_find_first_non_zero() {
-        let f = Fr::from_str("1").unwrap();
-        assert_eq!(find_first_non_zero(&fr_to_u256_le(&f)), 255);
+        assert_eq!(find_first_non_zero(&BigInteger256::from(1)), 255);
     }
 
     #[test]
     fn test_get_bit() {
-        let f = Fr::from_str("1").unwrap();
-        assert_eq!(get_bit(&fr_to_u256_le(&f), 0), 1);
-    }*/
+        assert_eq!(get_bit(&BigInteger256::from(1), 255), true);
+    }
 
     #[test]
     fn test_mul_by_characteristics() {
@@ -644,7 +663,7 @@ mod tests {
         assert_eq!(value.unwrap(), reference_mul_by_char(g2_affine()));
     }
 
-    #[test]
+    //#[test]
     //fn test_ell() {
         //panic!()
     //}
@@ -680,20 +699,6 @@ mod tests {
         }
 
         assert_eq!(value.unwrap(), Bn254::final_exponentiation(&f()).unwrap());
-    }
-
-    // Adaption of: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L22
-    fn reference_prepare_inputs<VKey: VerificationKey>(public_inputs: &[Fr]) -> G1Projective {
-        assert!(public_inputs.len() == VKey::PUBLIC_INPUTS_COUNT);
-
-        let mut g_ic = VKey::gamma_abc_g1_0();
-        for i in 0..VKey::PUBLIC_INPUTS_COUNT {
-            let b = VKey::gamma_abc_g1(i + 1);
-            let v = &b.mul(public_inputs[i].into_repr());
-            g_ic += v;
-        }
-
-        g_ic
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59

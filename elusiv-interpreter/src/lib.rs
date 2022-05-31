@@ -14,7 +14,6 @@ use std::iter::IntoIterator;
 /// - for each type that needs to be used in multiple steps, a object `ram_type: RAM<Type>` is required with the following interface:
 ///     - `write(value: Type, index: usize)`
 ///     - `read(index: usize) -> Type`
-///     - `free(index: usize)`
 ///     - `inc_frame(offset: usize)` and `inc_frame(offset: usize)` (required for function calls)
 /// 
 /// # Macro output

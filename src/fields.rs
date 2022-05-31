@@ -67,8 +67,28 @@ fn write_base_montgomery<W: std::io::Write>(v: Fq, writer: &mut W) -> std::io::R
     writer.write_all(&u64::to_le_bytes(v.0.0[3])[..])
 }
 
+/// Wraps foreign types into the local scope
 #[derive(Debug, PartialEq)]
 pub struct Wrap<N>(pub N);
+
+// BigInteger256
+impl BorshSerDeSized for Wrap<BigInteger256> { const SIZE: usize = 32; }
+impl BorshSerialize for Wrap<BigInteger256> {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_all(&u64::to_le_bytes(self.0.0[0])[..])?;
+        writer.write_all(&u64::to_le_bytes(self.0.0[1])[..])?;
+        writer.write_all(&u64::to_le_bytes(self.0.0[2])[..])?;
+        writer.write_all(&u64::to_le_bytes(self.0.0[3])[..])
+    }
+}
+impl BorshDeserialize for Wrap<BigInteger256> {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        assert!(buf.len() >= 32);
+        let res = Wrap(le_u256!(buf));
+        *buf = &buf[32..];
+        Ok(res)
+    }
+}
 
 // Fr
 impl BorshSerDeSized for Wrap<Fr> { const SIZE: usize = 32; }
@@ -263,6 +283,14 @@ mod tests {
             assert_eq!(v, result);
             assert_eq!(buf.len(), 0);
         };
+    }
+
+    #[test]
+    fn test_ser_de_big_integer_256() {
+        test_ser_de!(
+            Wrap<BigInteger256>,
+            Wrap(BigInteger256::from(123456789))
+        );
     }
 
     #[test]

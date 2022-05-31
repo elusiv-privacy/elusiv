@@ -2,10 +2,10 @@ pub mod vkey;
 pub mod verifier;
 
 use borsh::{BorshSerialize, BorshDeserialize};
-use crate::fields::Wrap;
+use crate::fields::{Wrap, u256_to_fr};
 pub use verifier::*;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12, G1Affine};
-use ark_ff::Zero;
+use ark_ff::{Zero, BigInteger256, PrimeField};
 use vkey::VerificationKey;
 use crate::error::ElusivError;
 use crate::macros::elusiv_account;
@@ -54,7 +54,7 @@ pub struct VerificationAccount {
     c: G1A,
 
     // Public inputs
-    public_input: [U256; MAX_PUBLIC_INPUTS_COUNT],
+    public_input: [Wrap<BigInteger256>; MAX_PUBLIC_INPUTS_COUNT],
     prepared_inputs: G1A,
 
     // Request
@@ -83,7 +83,7 @@ impl<'a> VerificationAccount<'a> {
 
         let public_inputs = proof_request.public_inputs();
         for i in 0..VKey::PUBLIC_INPUTS_COUNT {
-            self.set_public_input(i, &public_inputs[i]);
+            self.set_public_input(i, &Wrap(u256_to_fr(&public_inputs[i]).into_repr()));
         }
 
         self.set_prepared_inputs(&G1A(G1Affine::zero()));
@@ -141,10 +141,6 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
         }
     }
 
-    pub fn free(&mut self, _index: usize) {
-        // we don't need to give free any functionality, since it's the caller responsibility, to only read correct values
-    }
-
     /// Call this before calling a function
     /// - we don't do any checked arithmethic here since we in any case require the calls and parameters to be correct (data is never dependent on user input)
     pub fn inc_frame(&mut self, frame: usize) {
@@ -178,5 +174,10 @@ mod tests {
     fn test_verification_account_setup() {
         let mut data = vec![0; VerificationAccount::SIZE];
         VerificationAccount::new(&mut data).unwrap();
+    }
+
+    #[test]
+    fn test_reset_verification_account() {
+
     }
 }

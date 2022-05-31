@@ -64,6 +64,7 @@ macro_rules! generate_storage_accounts {
     };
 }
 
+#[cfg(extended_logging)]
 macro_rules! capture_compute_units_a {
     () => {
         solana_program::msg!("Capture A:");
@@ -71,6 +72,7 @@ macro_rules! capture_compute_units_a {
     };
 }
 
+#[cfg(extended_logging)]
 macro_rules! capture_compute_units_b {
     () => {
         solana_program::msg!("Capture B:");
@@ -96,12 +98,10 @@ macro_rules! generate_storage_accounts_valid_size {
 pub(crate) use guard;
 pub(crate) use multi_instance_account;
 pub(crate) use two_pow;
-pub(crate) use capture_compute_units_a;
-pub(crate) use capture_compute_units_b;
 
-#[cfg(test)]
-pub(crate) use account;
-#[cfg(test)]
-pub(crate) use generate_storage_accounts;
-#[cfg(test)]
-pub(crate) use generate_storage_accounts_valid_size;
+#[cfg(extended_logging)] pub(crate) use capture_compute_units_a;
+#[cfg(extended_logging)] pub(crate) use capture_compute_units_b;
+
+#[cfg(test)] pub(crate) use account;
+#[cfg(test)] pub(crate) use generate_storage_accounts;
+#[cfg(test)] pub(crate) use generate_storage_accounts_valid_size;
