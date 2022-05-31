@@ -7,7 +7,7 @@ use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
 use crate::types::{U256, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, RawProof, PublicInputs};
-use super::program_account::SizedAccount;
+use super::program_account::{SizedAccount, ProgramAccount};
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
@@ -27,8 +27,9 @@ macro_rules! queue_account {
             account: &'b mut $account<'a>,
         }
 
-        impl<'a, 'b> $name<'a, 'b> {
-            pub fn new(account: &'b mut $account<'a>) -> Self { $name { account } }
+        impl<'a, 'b> Queue<'a, 'b, $account<'a>> for $name<'a, 'b> {
+            type T = $name<'a, 'b>;
+            fn new(account: &'b mut $account<'a>) -> Self::T { $name { account } }
         }
         
         impl<'a, 'b> RingQueue for $name<'a, 'b> {
@@ -43,6 +44,11 @@ macro_rules! queue_account {
             fn set_data(&mut self, index: usize, value: &RequestWrap<Self::N>) { self.account.set_data(index, value) }
         }
     };
+}
+
+pub trait Queue<'a, 'b, Account: ProgramAccount<'a>> {
+    type T;
+    fn new(account: &'b mut Account) -> Self::T;
 }
 
 /// The `RequestWrap` allows for adding flags to requests

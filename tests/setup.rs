@@ -14,7 +14,7 @@ use elusiv::instruction::{ElusivInstruction, SignerAccount, WritableUserAccount}
 use elusiv::processor::SingleInstancePDAAccountKind;
 use elusiv::proof::VerificationAccount;
 use elusiv::state::pool::PoolAccount;
-use elusiv::state::program_account::{PDAAccount, SizedAccount, MultiAccountAccount};
+use elusiv::state::program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount};
 use elusiv::state::queue::QueueManagementAccount;
 use solana_program_test::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};

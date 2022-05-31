@@ -6,11 +6,12 @@ use solana_program::{
     sysvar::Sysvar,
 };
 use crate::macros::guard;
-use crate::state::{NullifierAccount, StorageAccount};
+use crate::state::{NullifierAccount, StorageAccount, program_account::ProgramAccount};
 use crate::types::{JoinSplitPublicInputs, JoinSplitProofData};
 use super::utils::{send_with_system_program, send_from_pool};
 use crate::state::queue::{
     RingQueue,
+    Queue,
     BaseCommitmentQueue,BaseCommitmentQueueAccount,BaseCommitmentHashRequest,
     SendProofQueue,SendProofQueueAccount,
     MergeProofQueue,MergeProofQueueAccount,

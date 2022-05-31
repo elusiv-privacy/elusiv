@@ -116,6 +116,7 @@ impl<'a> CommitmentHashingAccount<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::program_account::ProgramAccount;
 
     #[test]
     fn test_base_commitment_hashing_account_setup() {

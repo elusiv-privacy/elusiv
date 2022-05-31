@@ -563,6 +563,9 @@ fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
 
 #[cfg(test)]
 mod tests {
+    use crate::{state::queue::SendProofRequest, types::SendPublicInputs};
+    use crate::state::program_account::ProgramAccount;
+
     use super::*;
     use std::str::FromStr;
     use ark_bn254::{Fr, Bn254};
@@ -600,10 +603,59 @@ mod tests {
         };
     }
 
-    //#[test]
-    //fn test_verify_partial() {
-        //panic!()
-    //}
+    #[test]
+    fn test_verify_partial() {
+        storage!(storage);
+        let proof = Proof {
+            a: G1A(G1Affine::new(
+                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
+                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
+                false
+            )),
+            b: G2A(G2Affine::new(
+                Fq2::new(
+                    Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
+                    Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
+                ),
+                Fq2::new(
+                    Fq::from_str("8337064132573119120838379738103457054645361649757131991036638108422638197362").unwrap(),
+                    Fq::from_str("21186803555845400161937398579081414146527572885637089779856221229551142844794").unwrap(),
+                ),
+                false
+            )),
+            c: G1A(G1Affine::new(
+                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
+                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
+                false
+            )),
+        };
+        let request = ProofRequest::Send {
+            request: SendProofRequest {
+                proof_data: crate::types::JoinSplitProofData {
+                    proof: proof.try_to_vec().unwrap().try_into().unwrap(),
+                    tree_indices: [0, 0],
+                },
+                public_inputs: SendPublicInputs {
+                    join_split: crate::types::JoinSplitPublicInputs {
+                        nullifier_hashes: [
+                            [0; 32],
+                            [0; 32],
+                        ],
+                        roots: [
+                            [0; 32],
+                            [0; 32],
+                        ],
+                        commitment: [0; 32]
+                    },
+                    recipient: [0; 32],
+                    amount: 0,
+                    timestamp: 0,
+                },
+                fee_payer: [0; 32],
+            }
+        };
+        storage.reset::<VK>(request).unwrap();
+    }
 
     #[test]
     fn test_prepare_public_inputs() {

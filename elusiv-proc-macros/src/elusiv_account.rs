@@ -24,7 +24,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let mut total_size = quote! {};
     let mut impls = quote! {};
     let mut init = quote! {};
-    //let mut init_after = quote! {};
+    let mut account_trait = quote! { crate::state::program_account::ProgramAccount<'a> }; // either ProgramAccount or MultiAccountAccount
     let mut fields = quote! {};
     let mut signature = quote! {};
     let mut lifetimes = quote!{ 'a };
@@ -40,6 +40,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         match attr_ident {
             "multi_account" => {
                 lifetimes.extend(quote! { , 'b, 't });
+                account_trait = quote! { crate::state::program_account::MultiAccountProgramAccount<'a, 'b, 't> };
             },
             _ => {}
         }
@@ -111,19 +112,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 signature.extend(quote! {
                     accounts: &'b [solana_program::account_info::AccountInfo<'t>],
                 });
-
-                // Adds check that the supplied accounts are the correct ones (failed when the account has not been setup yet)
-                // - INFO: not needed since we do this with ElusivInstruction
-                /*init_after.extend(quote!{
-                    // Check that account has been setup
-                    crate::macros::guard!(r.get_finished_setup(), crate::error::ElusivError::InvalidAccount);
-
-                    // Check for pubkey match
-                    assert_eq!(accounts.len(), Self::COUNT);
-                    for i in 0..Self::COUNT {
-                        assert_eq!(r.get_pubkeys(i), accounts[i].key.to_bytes());
-                    }
-                });*/
             },
             "partial_computation" => {
                 assert_field!(first_field, fields_iter, "is_active : bool");
@@ -242,24 +230,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             const SIZE: usize =  0 #total_size;
         }
 
-        impl<#lifetimes> #name<#lifetimes> {
-            pub fn new(d: &'a mut [u8], #signature) -> Result<Self, solana_program::program_error::ProgramError> {
-                // Check for correct size
-                crate::macros::guard!(
-                    d.len() == Self::SIZE,
-                    crate::error::ElusivError::InvalidAccountSize
-                );
+        impl<#lifetimes> #account_trait for #name<#lifetimes> {
+            type T = #name<#lifetimes>;
 
-                // All value initializations 
+            fn new(d: &'a mut [u8], #signature) -> Result<Self, solana_program::program_error::ProgramError> {
+                crate::macros::guard!(d.len() == Self::SIZE, crate::error::ElusivError::InvalidAccountSize);
                 #init
-
                 Ok(#name { #fields })
-                //let r = #name { #fields };
-                // Additional checks
-                //#init_after
-                //Ok(r)
             }
+        }
 
+        impl<#lifetimes> #name<#lifetimes> {
             // Access functions
             #functions
         }

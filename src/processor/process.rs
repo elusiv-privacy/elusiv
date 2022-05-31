@@ -4,9 +4,14 @@ use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::commitment::poseidon_hash::TOTAL_POSEIDON_ROUNDS;
 use crate::macros::guard;
 use crate::state::MT_HEIGHT;
-use crate::state::{NullifierAccount, StorageAccount, program_account::MultiInstanceAccount};
+use crate::state::{
+    NullifierAccount,
+    StorageAccount,
+    program_account::{MultiInstanceAccount, ProgramAccount, MultiAccountProgramAccount},
+};
 use crate::state::queue::{
     RingQueue,
+    Queue,
     QueueManagementAccount,
     ProofRequest,FinalizeSendRequest,
     MergeProofQueue,MergeProofQueueAccount,

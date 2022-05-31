@@ -12,9 +12,12 @@ use super::state::{
         PDAAccount,
         MultiAccountAccount,
         MultiAccountAccountFields,
+        ProgramAccount,
+        MultiAccountProgramAccount,
     },
     pool::PoolAccount,
     StorageAccount,
+    queue::Queue,
 };
 use crate::proof::VerificationAccount;
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};

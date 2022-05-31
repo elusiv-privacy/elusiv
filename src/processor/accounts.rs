@@ -245,6 +245,7 @@ fn create_pda_account<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::program_account::MultiAccountProgramAccount;
 
     #[test]
     fn test_storage_account_valid() {

@@ -13,7 +13,6 @@ pub mod entrypoint;
 
 pub use entrypoint::*;
 
-#[cfg(elusiv_computation)]
 pub use elusiv_computation;
 
 #[macro_use]

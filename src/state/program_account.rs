@@ -9,6 +9,22 @@ use crate::macros::BorshSerDeSized;
 use crate::bytes::BorshSerDeSized;
 use crate::types::U256;
 
+pub trait SizedAccount {
+    const SIZE: usize;
+}
+
+pub trait ProgramAccount<'a>: SizedAccount {
+    type T: SizedAccount;
+
+    fn new(d: &'a mut [u8]) -> Result<Self::T, ProgramError>;
+}
+
+pub trait MultiAccountProgramAccount<'a, 'b, 't>: SizedAccount {
+    type T: SizedAccount;
+
+    fn new(d: &'a mut [u8], accounts: &'b [AccountInfo<'t>]) -> Result<Self::T, ProgramError>;
+}
+
 /// This trait is used by the elusiv_instruction macro
 pub trait PDAAccount {
     const SEED: &'static [u8];
@@ -72,10 +88,6 @@ impl<const COUNT: usize> MultiAccountAccountFields<COUNT> {
     pub fn new(data: &[u8]) -> Result<Self, std::io::Error> {
         MultiAccountAccountFields::try_from_slice(&data[..Self::SIZE])
     }
-}
-
-pub trait SizedAccount {
-    const SIZE: usize;
 }
 
 /// Certain accounts, like the `VerificationAccount` can be instantiated multiple times.

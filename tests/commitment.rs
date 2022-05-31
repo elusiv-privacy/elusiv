@@ -21,10 +21,11 @@ use elusiv::state::{
         BaseCommitmentQueueAccount, BaseCommitmentHashRequest, BaseCommitmentQueue,
         CommitmentQueueAccount, CommitmentQueue,
         RingQueue,
-
+        Queue,
     },
     program_account::{
         PDAAccount,
+        ProgramAccount,
     },
 };
 use std::str::FromStr;

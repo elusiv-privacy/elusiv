@@ -13,7 +13,7 @@ use assert_matches::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use elusiv::instruction::*;
 use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount};
-use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount};
+use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount, MultiAccountProgramAccount};
 use elusiv::processor::{SingleInstancePDAAccountKind};
 
 use crate::common::get_data;

@@ -169,6 +169,7 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::program_account::ProgramAccount;
 
     #[test]
     fn test_verification_account_setup() {
