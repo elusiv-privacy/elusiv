@@ -219,7 +219,7 @@ async fn test_single_commitment() {
     }).await;
 
     // Compute hashes
-    for i in 0..CommitmentHashComputation::INSTRUCTIONS.len() {
+    /*for i in 0..CommitmentHashComputation::INSTRUCTIONS.len() {
         let nonce: u64 = rand::random();
 
         tx_should_succeed(
@@ -259,5 +259,5 @@ async fn test_single_commitment() {
 
         assert_eq!(storage_account.get_next_commitment_ptr(), 1);
         assert_eq!(storage_account.get_active_mt_root_history(0), fr_to_u256_le(&EMPTY_TREE[MT_HEIGHT as usize]));
-    }).await;
+    }).await;*/
 }
