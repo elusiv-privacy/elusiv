@@ -34,11 +34,12 @@ ark-ff = "0.3.0"
 ark-ec = "0.3.0"
 
 [dev-dependencies]
-elusiv = { path = ".", features = ["instruction-abi"] }
+elusiv = { path = ".", features = ["instruction-abi", "extended-logging"] }
 elusiv-utils = { path = "./elusiv-utils" }
 
 solana-program-test = "1.9.5"
 solana-sdk = "1.9.5"
+base64 = "0.13.0"
 
 log = "0.4.17"
 log4rs = "1.1.1"

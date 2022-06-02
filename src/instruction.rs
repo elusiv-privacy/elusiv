@@ -17,7 +17,6 @@ use super::state::{
     },
     pool::PoolAccount,
     StorageAccount,
-    queue::Queue,
 };
 use crate::proof::VerificationAccount;
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
@@ -128,13 +127,12 @@ pub enum ElusivInstruction {
     FinalizeCommitmentHash,
 
     // Funds are transferred to the recipient
-    // IMPORTANT: only STUB implementation
-    #[usr(recipient, { writable })]
+    /*#[usr(recipient, { writable })]
     #[pda(pool, Pool, { writable, account_info })]
-    //#[pda(queue, FinalizeSendQueue, ( writable ))]
+    #[pda(queue, FinalizeSendQueue, ( writable ))]
     FinalizeSend {
         amount: u64,
-    },
+    },*/
 
     /*
     CreateNewTree,

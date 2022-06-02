@@ -68,14 +68,19 @@ async fn execute_on_commitment_queue<F>(banks_client: &mut BanksClient, key: &Pu
     f(&queue)
 }
 
-#[tokio::test]
-async fn test_base_commitment_to_mt() {
-    let first_request = BaseCommitmentHashRequest {
-        base_commitment: u256_from_str("8337064132573119120838379738103457054645361649757131991036638108422638197362"),
-        amount: LAMPORTS_PER_SOL,
-        commitment: u256_from_str("139214303935475888711984321184227760578793579443975701453971046059378311483")
+macro_rules! first_request_test {
+    () => {
+        BaseCommitmentHashRequest {
+            base_commitment: u256_from_str("8337064132573119120838379738103457054645361649757131991036638108422638197362"),
+            amount: LAMPORTS_PER_SOL,
+            commitment: u256_from_str("139214303935475888711984321184227760578793579443975701453971046059378311483")
+        }
     };
+}
 
+#[tokio::test]
+async fn test_base_commitment() {
+    let first_request = first_request_test!();
     let second_request = BaseCommitmentHashRequest {
         base_commitment: u256_from_str("8337064132573119120838379738103457054645361649757131991036638108422638197362"),
         amount: 20 * LAMPORTS_PER_SOL,
@@ -176,6 +181,23 @@ async fn test_base_commitment_to_mt() {
         assert_eq!(first.is_being_processed, false);
         assert_eq!(first.request, first_request.commitment);
     }).await;
+
+}
+
+#[tokio::test]
+async fn test_commitment() {
+    let first_request = first_request_test!();
+
+    let (mut banks_client, payer, recent_blockhash, keys, storage) = start_program_solana_program_test_with_accounts_setup(
+        |_| {},
+        |commitment_queue| {
+            commitment_queue.enqueue(first_request.commitment).unwrap();
+        },
+        |_| {},
+        |_| {},
+        |_| {},
+        |_| {},
+    ).await;
 
     // Get storage account
     let user_storage = storage.iter().map(|&x| UserAccount(x)).collect::<Vec<UserAccount>>().try_into().unwrap();

@@ -197,6 +197,7 @@ pub fn setup_storage_account(
 fn verify_storage_sub_accounts(storage_account: &StorageAccount) -> ProgramResult {
     for i in 0..StorageAccount::COUNT {
         if i < StorageAccount::COUNT - 1 { 
+            // note: we do not zero-check these accounts, since we will never access data that has not been set by the program
             verify_data_account!(storage_account.get_account(i), IntermediaryStorageSubAccount, false);
         } else { 
             verify_data_account!(storage_account.get_account(i), LastStorageSubAccount, false);

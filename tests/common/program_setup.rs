@@ -1,5 +1,10 @@
+use borsh::BorshSerialize;
+use elusiv::commitment::{CommitmentHashingAccount, BaseCommitmentHashingAccount, self};
+use elusiv::proof::VerificationAccount;
 use elusiv::state::StorageAccount;
+use elusiv::state::pool::PoolAccount;
 use solana_program::account_info::AccountInfo;
+use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program::{
     instruction::Instruction,
@@ -12,17 +17,142 @@ use solana_sdk::compute_budget::ComputeBudgetInstruction;
 use assert_matches::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use elusiv::instruction::*;
-use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount};
-use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount, MultiAccountProgramAccount};
+use elusiv::state::queue::{SendProofQueueAccount, MigrateProofQueueAccount, MergeProofQueueAccount, FinalizeSendQueueAccount, BaseCommitmentQueueAccount, CommitmentQueueAccount, QueueManagementAccount, CommitmentQueue, Queue, BaseCommitmentQueue, SendProofQueue, MergeProofQueue, MigrateProofQueue, FinalizeSendQueue};
+use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount, MultiAccountProgramAccount, ProgramAccount, MultiInstanceAccount, MultiAccountAccountFields};
 use elusiv::processor::{SingleInstancePDAAccountKind};
 
 use crate::common::get_data;
 
+/// Starts a test program without any account setup
 pub async fn start_program_solana_program_test() -> (BanksClient, Keypair, Hash) {
     let mut test = ProgramTest::default();
     let program_id = elusiv::id();
     test.add_program("elusiv", program_id, processor!(process_instruction));
     test.start().await
+}
+
+macro_rules! setup_queue_account_with_data {
+    ($pk: ident, $clousure: ident, $tya: ty, $ty: ty, $test: ident) => {
+        let mut data = vec![0; <$tya>::SIZE];
+        let mut account = <$tya>::new(&mut data).unwrap();
+        let mut queue = <$ty>::new(&mut account);
+        $clousure(&mut queue);
+
+        let $pk = Pubkey::new_unique();
+        $test.add_account_with_base64_data(
+            $pk,
+            LAMPORTS_PER_SOL,
+            elusiv::id(),
+            &base64::encode(data),
+        )
+    };
+}
+
+macro_rules! setup_pda_account {
+    ($ty: ty, $offset: expr, $test: ident) => {
+        let mut data = vec![0; <$ty>::SIZE];
+        let mut acc = <$ty>::new(&mut data).unwrap();
+        let (pk, bump) = <$ty>::find($offset);
+        acc.set_bump_seed(&bump);
+        acc.set_initialized(&true);
+
+        $test.add_account_with_base64_data(pk, LAMPORTS_PER_SOL, elusiv::id(), &base64::encode(data))
+    };
+}
+
+/// Starts a test program with all program accounts being setup
+/// - use the individual closures to assign specific values to those accounts
+pub async fn start_program_solana_program_test_with_accounts_setup<B, C, S, M, N, F>(
+    base_commitment_queue_setup: B,
+    commitment_queue_setup: C,
+    send_proof_queue_setup: S,
+    merge_proof_queue_setup: M,
+    migrate_proof_queue_setup: N,
+    finalize_send_queue_setup: F,
+) -> (BanksClient, Keypair, Hash, QueueKeys, Vec<Pubkey>)
+where
+    B: Fn(&mut BaseCommitmentQueue),
+    C: Fn(&mut CommitmentQueue),
+    S: Fn(&mut SendProofQueue),
+    M: Fn(&mut MergeProofQueue),
+    N: Fn(&mut MigrateProofQueue),
+    F: Fn(&mut FinalizeSendQueue),
+{
+    let mut test = ProgramTest::default();
+
+    // Setup the queues
+    setup_queue_account_with_data!(base_commitment, base_commitment_queue_setup, BaseCommitmentQueueAccount, BaseCommitmentQueue, test);
+    setup_queue_account_with_data!(commitment, commitment_queue_setup, CommitmentQueueAccount, CommitmentQueue, test);
+    setup_queue_account_with_data!(send_proof, send_proof_queue_setup, SendProofQueueAccount, SendProofQueue, test);
+    setup_queue_account_with_data!(merge_proof, merge_proof_queue_setup, MergeProofQueueAccount, MergeProofQueue, test);
+    setup_queue_account_with_data!(migrate_proof, migrate_proof_queue_setup, MigrateProofQueueAccount, MigrateProofQueue, test);
+    setup_queue_account_with_data!(finalize_send, finalize_send_queue_setup, FinalizeSendQueueAccount, FinalizeSendQueue, test);
+
+    let mut queue_management_account_data = vec![0; QueueManagementAccount::SIZE];
+    {
+        let mut queue_management_account = QueueManagementAccount::new(&mut queue_management_account_data).unwrap();
+        queue_management_account.set_bump_seed(&QueueManagementAccount::find(None).1);
+        queue_management_account.set_initialized(&true);
+        queue_management_account.set_finished_setup(&true);
+
+        queue_management_account.set_base_commitment_queue(&base_commitment.to_bytes());
+        queue_management_account.set_commitment_queue(&commitment.to_bytes());
+        queue_management_account.set_send_proof_queue(&send_proof.to_bytes());
+        queue_management_account.set_merge_proof_queue(&merge_proof.to_bytes());
+        queue_management_account.set_migrate_proof_queue(&migrate_proof.to_bytes());
+        queue_management_account.set_finalize_send_queue(&finalize_send.to_bytes());
+    }
+
+    test.add_account_with_base64_data(
+        QueueManagementAccount::find(None).0,
+        LAMPORTS_PER_SOL,
+        elusiv::id(),
+        &base64::encode(queue_management_account_data),
+    );
+
+    // Other PDA accounts
+    // Single instance
+    setup_pda_account!(PoolAccount, None, test);
+    setup_pda_account!(CommitmentHashingAccount, None, test);
+
+    // Multi instance
+    for i in 0..BaseCommitmentHashingAccount::MAX_INSTANCES { setup_pda_account!(BaseCommitmentHashingAccount, Some(i), test); }
+    for i in 0..VerificationAccount::MAX_INSTANCES { setup_pda_account!(VerificationAccount, Some(i), test); }
+
+    // Setup Storage account
+    let mut storage_accounts = Vec::new();
+    for i in 0..elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT {
+        let account_size = if i < elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT - 1 {
+            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE
+        } else {
+            StorageAccount::LAST_ACCOUNT_SIZE
+        };
+
+        let pk = Pubkey::new_unique();
+        storage_accounts.push(pk);
+        test.add_account_with_base64_data(pk, 100 * LAMPORTS_PER_SOL, elusiv::id(), &base64::encode(vec![0u8; account_size]));
+    }
+
+    let mut storage_account_data = vec![0; StorageAccount::SIZE];
+    let (pk, bump) = StorageAccount::find(None);
+    let mut storage_account = MultiAccountAccountFields::<{elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT}>::new(&mut storage_account_data).unwrap();
+    storage_account.bump_seed = bump;
+    storage_account.initialized = true;
+    for i in 0..storage_account.pubkeys.len() {
+        storage_account.pubkeys[i] = storage_accounts[i].to_bytes();
+    }
+    let serialized = storage_account.try_to_vec().unwrap();
+    for i in 0..serialized.len() {
+        storage_account_data[i] = serialized[i];
+    }
+    test.add_account_with_base64_data(pk, LAMPORTS_PER_SOL, elusiv::id(), &base64::encode(storage_account_data));
+
+    // Start test validator
+    let program_id = elusiv::id();
+    test.add_program("elusiv", program_id, processor!(process_instruction));
+    let (b, k, h) = test.start().await;
+
+    (b, k, h, QueueKeys { base_commitment, commitment, send_proof, merge_proof, migrate_proof, finalize_send }, storage_accounts)
 }
 
 pub async fn setup_pda_accounts(

@@ -811,6 +811,7 @@ dependencies = [
  "ark-ff",
  "ark-groth16",
  "assert_matches",
+ "base64 0.13.0",
  "borsh",
  "elusiv",
  "elusiv-computation",

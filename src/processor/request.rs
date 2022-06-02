@@ -84,6 +84,8 @@ pub fn request_proof_verification<'a, 'b, 'c, 'd>(
 ) -> ProgramResult {
     let mut queue_data = &mut queue.data.borrow_mut()[..];
 
+    // TODO: we have to look for duplicates in the queues, simply because without it bad users could drain the balances of benevolent relayers
+
     match request {
         ProofRequest::Send { request } => {
             let mut queue = SendProofQueueAccount::new(&mut queue_data)?;
@@ -163,13 +165,13 @@ pub fn request_proof_verification<'a, 'b, 'c, 'd>(
 pub fn finalize_send<'a>(
     recipient: &AccountInfo<'a>,
     pool: &AccountInfo<'a>,
-    //queue: &mut FinalizeSendQueueAccount,
+    queue: &mut FinalizeSendQueueAccount,
     amount: u64,
 ) -> ProgramResult {
-    //let mut queue = FinalizeSendQueue::new(queue);
-    //let request = queue.dequeue_first()?;
+    let mut queue = FinalizeSendQueue::new(queue);
+    let request = queue.dequeue_first()?;
 
-    //guard!(recipient.key.to_bytes() == request.request.recipient, InvalidRecipient);
+    guard!(recipient.key.to_bytes() == request.request.recipient, InvalidRecipient);
 
     send_from_pool(pool, recipient, amount)
 }

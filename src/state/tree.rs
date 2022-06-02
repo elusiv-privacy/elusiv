@@ -57,13 +57,13 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
 
 #[cfg(test)]
 mod tests {
-    /*#[test]
+    #[test]
     fn test_insert_nullifier() {
-        panic!()
+        
     }
 
     #[test]
     fn test_insert_duplicate_nullifier() {
-        panic!()
-    }*/
+
+    }
 }

@@ -189,3 +189,18 @@ async fn test_setup_storage_account_duplicate() {
     // Should panic because of initialization flag
     setup_storage_account(&mut banks_client, &payer, recent_blockhash).await;
 }
+
+#[tokio::test]
+#[should_panic]
+async fn test_setup_accounts_already_setup() {
+    let (mut banks_client, payer, recent_blockhash, _, _) = start_program_solana_program_test_with_accounts_setup(
+        |_| {},
+        |_| {},
+        |_| {},
+        |_| {},
+        |_| {},
+        |_| {},
+    ).await;
+
+    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+}
