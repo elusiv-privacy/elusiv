@@ -1,4 +1,6 @@
+#[cfg(not(tarpaulin_include))]
 pub mod vkey;
+
 pub mod verifier;
 
 use borsh::{BorshSerialize, BorshDeserialize};

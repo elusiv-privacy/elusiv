@@ -90,7 +90,6 @@ async fn test_base_commitment() {
     let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
     setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
     let keys = setup_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
-    let storage = setup_storage_account(&mut banks_client, &payer, recent_blockhash).await;
 
     // Enqueue first and second
     tx_should_succeed(
@@ -185,7 +184,7 @@ async fn test_base_commitment() {
 }
 
 #[tokio::test]
-async fn test_commitment() {
+async fn test_single_commitment() {
     let first_request = first_request_test!();
 
     let (mut banks_client, payer, recent_blockhash, keys, storage) = start_program_solana_program_test_with_accounts_setup(

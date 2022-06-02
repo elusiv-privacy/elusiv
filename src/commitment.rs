@@ -1,4 +1,6 @@
 pub mod poseidon_hash;
+
+#[cfg(not(tarpaulin_include))]
 mod poseidon_constants;
 
 use crate::error::ElusivError;

@@ -349,13 +349,12 @@ fn frobenius_map_fq2_one(f: Fq2) -> Fq2 {
 // - inside the miller loop we do evaluations on three elements
 // - multi_ell combines those three calls in one function
 // - normal ell implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
-// - (also in this file's test mod there is an elusiv_computation!-implementation for the single ell to compare)
 elusiv_computation!(
     combined_ell<VKey: VerificationKey>(
         storage: &mut VerificationAccount,
         a: &G1Affine, prepared_inputs: &G1Affine, c: &G1Affine, c0: &Fq2, c1: &Fq2, c2: &Fq2, coeff_index: usize, f: Fq12,
     ) -> Fq12 {
-        {
+        { // ell on A with c0, c1, c2
             let r: Fq12 = f;
 
             let a0: Fq2 = mul_by_fp(c0, a.y);
@@ -367,15 +366,17 @@ elusiv_computation!(
             }
         }
 
-        {
+        { // ell on prepared_inputs with gamma_g2_neg_pc
             let b0: Fq2 = mul_by_fp(&(VKey::gamma_g2_neg_pc_0(coeff_index)), prepared_inputs.y);
             let b1: Fq2 = mul_by_fp(&(VKey::gamma_g2_neg_pc_1(coeff_index)), prepared_inputs.x);
         }
         {
             if (!(prepared_inputs.is_zero())) {
-                partial v = mul_by_034(storage, &b0, &b1, &(VKey::gamma_g2_neg_pc_2(coeff_index)), r) { r = v } }
+                partial v = mul_by_034(storage, &b0, &b1, &(VKey::gamma_g2_neg_pc_2(coeff_index)), r) { r = v }
             }
-        {
+        }
+
+        { // ell on C with delta_g2_neg_pc
             let d0: Fq2 = mul_by_fp(&(VKey::delta_g2_neg_pc_0(coeff_index)), c.y);
             let d1: Fq2 = mul_by_fp(&(VKey::delta_g2_neg_pc_1(coeff_index)), c.x);
         }
@@ -624,8 +625,8 @@ mod tests {
                 false
             )),
             c: G1A(G1Affine::new(
-                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
+                Fq::from_str("21186803555845400161937398579081414146527572885637089779856221229551142844794").unwrap(),
+                Fq::from_str("85960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
                 false
             )),
         };
@@ -715,10 +716,39 @@ mod tests {
         assert_eq!(value.unwrap(), reference_mul_by_char(g2_affine()));
     }
 
-    //#[test]
-    //fn test_ell() {
-        //panic!()
-    //}
+    #[test]
+    fn test_combined_ell() {
+        storage!(storage);
+        let mut value: Option<Fq12> = None;
+        let a = G1Affine::new(
+            Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
+            Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
+            false
+        );
+        let prepared_inputs = G1Affine::new(
+            Fq::from_str("6859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
+            Fq::from_str("310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
+            false
+        );
+        let c = G1Affine::new(
+            Fq::from_str("21186803555845400161937398579081414146527572885637089779856221229551142844794").unwrap(),
+            Fq::from_str("85960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
+            false
+        );
+        let c0 = f().c0.c0.clone();
+        let c1 = f().c0.c1.clone();
+        let c2 = f().c0.c2.clone();
+        for round in 0..COMBINED_ELL_ROUNDS_COUNT {
+            value = combined_ell_partial::<VK>(round, &mut storage, &a, &prepared_inputs, &c, &c0, &c1, &c2, 0, f()).unwrap();
+        }
+
+        let mut expected = f();
+        expected = reference_ell(expected, (c0, c1, c2), a);
+        expected = reference_ell(expected, (VK::gamma_g2_neg_pc_0(0), VK::gamma_g2_neg_pc_1(0), VK::gamma_g2_neg_pc_2(0)), prepared_inputs);
+        expected = reference_ell(expected, (VK::delta_g2_neg_pc_0(0), VK::delta_g2_neg_pc_1(0), VK::delta_g2_neg_pc_2(0)), c);
+
+        assert_eq!(expected, value.unwrap());
+    }
 
     #[test]
     fn test_inverse_fq12() {
@@ -754,7 +784,7 @@ mod tests {
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
-    /*fn reference_ell(f: Fq12, coeffs: (Fq2, Fq2, Fq2), p: G1Affine) -> Fq12 {
+    fn reference_ell(f: Fq12, coeffs: (Fq2, Fq2, Fq2), p: G1Affine) -> Fq12 {
         let mut c0: Fq2 = coeffs.0;
         let mut c1: Fq2 = coeffs.1;
         let c2: Fq2 = coeffs.2;
@@ -765,7 +795,7 @@ mod tests {
         let mut f = f;
         f.mul_by_034(&c0, &c1, &c2);
         f
-    }*/
+    }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L127
     fn reference_mul_by_char(r: G2Affine) -> G2Affine {
