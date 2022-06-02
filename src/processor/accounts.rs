@@ -189,7 +189,7 @@ pub fn setup_storage_account(
 
     storage_account.set_finished_setup(&true);
 
-    Ok(())   
+    Ok(())
 }
 
 /// Verify the storage account sub-accounts

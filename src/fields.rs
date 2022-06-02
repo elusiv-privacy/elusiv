@@ -6,6 +6,7 @@ use ark_ff::{BigInteger256, PrimeField};
 use borsh::{BorshSerialize, BorshDeserialize};
 use crate::{types::{U256, u256_to_le_limbs}, bytes::BorshSerDeSized};
 use crate::bytes::slice_to_array;
+use crate::macros::BorshSerDeSized;
 
 /// From &[u8] to [u8; 8]
 #[macro_export]
@@ -70,6 +71,12 @@ fn write_base_montgomery<W: std::io::Write>(v: Fq, writer: &mut W) -> std::io::R
 /// Wraps foreign types into the local scope
 #[derive(Debug, PartialEq)]
 pub struct Wrap<N>(pub N);
+
+impl<T: Clone> Clone for Wrap<T> {
+    fn clone(&self) -> Self {
+        Wrap(self.0.clone())
+    }
+}
 
 // BigInteger256
 impl BorshSerDeSized for Wrap<BigInteger256> { const SIZE: usize = 32; }
@@ -249,6 +256,37 @@ impl BorshSerialize for Wrap<G2A> {
 }
 impl BorshDeserialize for Wrap<G2A> {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> { Ok(Wrap(G2A::deserialize(buf)?)) }
+}
+
+// Homogenous projective coordinates form
+#[derive(Debug, Clone)]
+pub struct G2HomProjective {
+    pub x: Fq2,
+    pub y: Fq2,
+    pub z: Fq2,
+}
+impl BorshSerDeSized for G2HomProjective { const SIZE: usize = 192; }
+impl BorshSerialize for G2HomProjective {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        write_base_montgomery(self.x.c0, writer)?;
+        write_base_montgomery(self.x.c1, writer)?;
+        write_base_montgomery(self.y.c0, writer)?;
+        write_base_montgomery(self.y.c1, writer)?;
+        write_base_montgomery(self.z.c0, writer)?;
+        write_base_montgomery(self.z.c1, writer)
+    }
+}
+impl BorshDeserialize for G2HomProjective {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        assert!(buf.len() >= 192);
+        let res = G2HomProjective {
+            x: Fq2::new(fq_montgomery!(buf), fq_montgomery!(&buf[32..])),
+            y: Fq2::new(fq_montgomery!(&buf[64..]), fq_montgomery!(&buf[96..])),
+            z: Fq2::new(fq_montgomery!(&buf[128..]), fq_montgomery!(&buf[160..])),
+        };
+        *buf = &buf[192..];
+        Ok(res)
+    }
 }
 
 pub fn u256_to_fr(v: &U256) -> Fr {

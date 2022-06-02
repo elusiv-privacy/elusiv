@@ -34,9 +34,9 @@ use crate::proof::{
     VerificationAccount,
     verifier::verify_partial,
     vkey::{
-        SendVerificationKey,
-        MergeVerificationKey,
-        MigrateVerificationKey
+        SendBinaryVKey,
+        MergeBinaryVKey,
+        MigrateUnaryVKey,
     },
 };
 use crate::commitment::{
@@ -86,13 +86,13 @@ pub fn init_proof(
 
     match kind {
         ProofKind::Send => {
-            init_proof!(MergeProofQueueAccount, MergeProofQueue, queue, verification_account, Merge, MergeVerificationKey)
+            init_proof!(MergeProofQueueAccount, MergeProofQueue, queue, verification_account, Merge, SendBinaryVKey)
         },
         ProofKind::Merge => {
-            init_proof!(MergeProofQueueAccount, MergeProofQueue, queue, verification_account, Merge, MergeVerificationKey)
+            init_proof!(MergeProofQueueAccount, MergeProofQueue, queue, verification_account, Merge, MergeBinaryVKey)
         },
         ProofKind::Migrate => {
-            init_proof!(MigrateProofQueueAccount, MigrateProofQueue, queue, verification_account, Migrate, MigrateVerificationKey)
+            init_proof!(MigrateProofQueueAccount, MigrateProofQueue, queue, verification_account, Migrate, MigrateUnaryVKey)
         }
     }.or(Err(InvalidInstructionData.into()))
 }

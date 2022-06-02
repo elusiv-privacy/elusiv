@@ -4,7 +4,6 @@ pub mod vkey;
 pub mod verifier;
 
 use borsh::{BorshSerialize, BorshDeserialize};
-use crate::fields::{Wrap, u256_to_fr};
 pub use verifier::*;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12, G1Affine};
 use ark_ff::{Zero, BigInteger256, PrimeField};
@@ -12,18 +11,18 @@ use vkey::VerificationKey;
 use crate::error::ElusivError;
 use crate::macros::elusiv_account;
 use crate::state::queue::ProofRequest;
-use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof};
-use crate::fields::{G1A, G2A};
+use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof, Lazy};
+use crate::fields::{Wrap, u256_to_fr, G1A, G2A, G2HomProjective};
 use crate::macros::{guard, multi_instance_account};
 use crate::error::ElusivError::AccountCannotBeReset;
 use crate::state::program_account::SizedAccount;
 use crate::bytes::BorshSerDeSized;
 
-pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
-pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
-pub type RAMFq6<'a> = LazyRAM<'a, Fq6, 10>;
-pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 10>;
-pub type RAMG2A<'a> = LazyRAM<'a, G2A, 4>;
+pub type RAMFq<'a> = LazyRAM<'a, Fq, 20>;
+pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 20>;
+pub type RAMFq6<'a> = LazyRAM<'a, Fq6, 20>;
+pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 20>;
+pub type RAMG2A<'a> = LazyRAM<'a, G2A, 20>;
 
 /// Account used for verifying all kinds of Groth16 proofs over the span of multiple transactions
 #[elusiv_account(pda_seed = b"proof", partial_computation)]
@@ -39,25 +38,24 @@ pub struct VerificationAccount {
     is_verified: bool,
 
     // RAMs for storing computation values (they manage serialization on their own -> ram.serialize needs to be explicitly called)
-    #[pub_non_lazy]
-    ram_fq: RAMFq<'a>,
-    #[pub_non_lazy]
-    ram_fq2: RAMFq2<'a>,
-    #[pub_non_lazy]
-    ram_fq6: RAMFq6<'a>,
-    #[pub_non_lazy]
-    ram_fq12: RAMFq12<'a>,
-    #[pub_non_lazy]
-    ram_g2a: RAMG2A<'a>,
+    #[pub_non_lazy] ram_fq: RAMFq<'a>,
+    #[pub_non_lazy] ram_fq2: RAMFq2<'a>,
+    #[pub_non_lazy] ram_fq6: RAMFq6<'a>,
+    #[pub_non_lazy] ram_fq12: RAMFq12<'a>,
+    #[pub_non_lazy] ram_g2a: RAMG2A<'a>,
 
     // Proof
-    a: G1A,
-    b: G2A,
-    c: G1A,
+    #[pub_non_lazy] a: Lazy<'a, G1A>,
+    #[pub_non_lazy] b: Lazy<'a, G2A>,
+    #[pub_non_lazy] c: Lazy<'a, G1A>,
 
     // Public inputs
     public_input: [Wrap<BigInteger256>; MAX_PUBLIC_INPUTS_COUNT],
-    prepared_inputs: G1A,
+
+    // Computation values
+    #[pub_non_lazy] prepared_inputs: Lazy<'a, G1A>,
+    #[pub_non_lazy] r: Lazy<'a, G2HomProjective>,
+    #[pub_non_lazy] f: Lazy<'a, Wrap<Fq12>>,
 
     // Request
     request: ProofRequest,
@@ -79,27 +77,35 @@ impl<'a> VerificationAccount<'a> {
         self.set_instruction(&0);
 
         let proof: Proof = proof_request.raw_proof().into();
-        self.set_a(&proof.a);
-        self.set_b(&proof.b);
-        self.set_c(&proof.c);
+        self.a.set(&proof.a);
+        self.b.set(&proof.b);
+        self.c.set(&proof.c);
 
         let public_inputs = proof_request.public_inputs();
         for i in 0..VKey::PUBLIC_INPUTS_COUNT {
             self.set_public_input(i, &Wrap(u256_to_fr(&public_inputs[i]).into_repr()));
         }
 
-        self.set_prepared_inputs(&G1A(G1Affine::zero()));
+        self.prepared_inputs.set(&G1A(G1Affine::zero()));
 
         self.set_request(&proof_request);
 
         Ok(())
     }
 
-    pub fn serialize_rams(&mut self) {
+    pub fn serialize_lazy_fields(&mut self) {
         self.ram_fq.serialize();
         self.ram_fq2.serialize();
         self.ram_fq12.serialize();
         self.ram_g2a.serialize();
+
+        self.a.serialize();
+        self.b.serialize();
+        self.c.serialize();
+
+        self.prepared_inputs.serialize();
+        self.r.serialize();
+        self.f.serialize();
     }
 }
 

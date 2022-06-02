@@ -12,6 +12,7 @@ use std::ops::Neg;
 use super::*;
 use crate::error::ElusivError::{CouldNotProcessProof, ComputationIsAlreadyFinished, PartialComputationError};
 use crate::macros::guard;
+use crate::fields::G2HomProjective;
 
 pub fn verify_partial<VKey: VerificationKey>(
     round: usize,
@@ -23,29 +24,26 @@ pub fn verify_partial<VKey: VerificationKey>(
         let result = prepare_public_inputs_partial::<VKey>(
             round,
             verifier_account,
-            BigInteger256::from(0),// [0; 32],//verifier_account.account.get_public_input(input_index),
+            verifier_account.get_public_input(input_index).0,
             input_index,
         );
         match result {
             None => guard!(round != VKey::PREPARE_PUBLIC_INPUTS_ROUNDS - 1, CouldNotProcessProof),
             Some(prepared_inputs) => {
-                verifier_account.set_prepared_inputs(&G1A(prepared_inputs));
-
-                // Add `r` for the miller loop to the `ram_fq2`
-                verifier_account.ram_fq2.write(Fq2::zero(), 0);
-                verifier_account.ram_fq2.write(Fq2::zero(), 1);
-                verifier_account.ram_fq2.write(Fq2::zero(), 2);
+                verifier_account.prepared_inputs.set(&G1A(prepared_inputs));
+                let b = verifier_account.b.get().0;
+                verifier_account.r.set(&G2HomProjective { x: b.x, y: b.y, z: Fq2::one() });
             }
         }
     }
 
     // Combined miller loop
     else if round < VKey::COMBINED_MILLER_LOOP_ROUNDS {
-        let a = G1Affine::zero();
-        let b = G2Affine::zero();
-        let c = G1Affine::zero();
-        let prepared_inputs = G1Affine::zero();
-        let mut r = G2HomProjective { x: Fq2::zero(), y: Fq2::zero(), z: Fq2::zero() };
+        let mut r = verifier_account.r.get();
+        let a = verifier_account.a.get().0;
+        let b = verifier_account.b.get().0;
+        let c = verifier_account.c.get().0;
+        let prepared_inputs = verifier_account.prepared_inputs.get().0;
 
         let result = combined_miller_loop_partial::<VKey>(
             round - VKey::PREPARE_PUBLIC_INPUTS_ROUNDS,
@@ -54,21 +52,24 @@ pub fn verify_partial<VKey: VerificationKey>(
             &b,
             &c,
             &prepared_inputs,
-            &mut r//verifier_account.get_r(),
+            &mut r,
         )?;
 
+        verifier_account.r.set(&r);
+
         match result {
-            None => {},//guard!(round != VKey::COMBINED_MILLER_LOOP_ROUNDS - 1, CouldNotProcessProof),
+            None => guard!(round != VKey::COMBINED_MILLER_LOOP_ROUNDS - 1, CouldNotProcessProof),
             Some(f) => {
-                // Add `f` for the final exponentiation to the `ram_fq12`
-                verifier_account.ram_fq12.write(f, 0);
+                // Add `f` for the final exponentiation
+                verifier_account.f.set(&Wrap(f));
             }
         }
     }
     
     // Final exponentiation
     else if round < VKey::FINAL_EXPONENTIATION_ROUNDS {
-        let f = Fq12::zero();
+        let f = verifier_account.f.get().0;
+
         let result = final_exponentiation_partial(
             round - VKey::COMBINED_MILLER_LOOP_ROUNDS,
             verifier_account,
@@ -76,9 +77,10 @@ pub fn verify_partial<VKey: VerificationKey>(
         )?;
 
         match result {
-            None => {},//guard!(round != VKey::FINAL_EXPONENTIATION_ROUNDS - 1, CouldNotProcessProof),
+            None => guard!(round != VKey::FINAL_EXPONENTIATION_ROUNDS - 1, CouldNotProcessProof),
             Some(v) => {
-                // Final verification, we check that: https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
+                // Final verification, we check:
+                // https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
                 // https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L60
                 return Ok(Some(VKey::alpha_g1_beta_g2() == v))
             }
@@ -239,14 +241,6 @@ elusiv_computation!(
 );
 
 const fn max(a: usize, b: usize) -> usize { if a > b { a } else { b } }
-
-// Homogenous projective coordinates form
-#[derive(Debug)]
-pub struct G2HomProjective {
-    pub x: Fq2,
-    pub y: Fq2,
-    pub z: Fq2,
-}
 
 /// Inverse of 2 (in q)
 /// - Calculated using: Fq::one().double().inverse().unwrap()
@@ -564,6 +558,7 @@ fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
 
 #[cfg(test)]
 mod tests {
+    use crate::fields::fr_to_u256_le;
     use crate::{state::queue::SendProofRequest, types::SendPublicInputs};
     use crate::state::program_account::ProgramAccount;
 
@@ -575,7 +570,7 @@ mod tests {
     use ark_ff::PrimeField;
     use ark_groth16::{VerifyingKey, prepare_inputs, prepare_verifying_key};
 
-    type VK = super::super::vkey::SendVerificationKey;
+    type VK = super::super::vkey::SendBinaryVKey;
 
     fn f() -> Fq12 {
         let f = Fq6::new(
@@ -597,6 +592,52 @@ mod tests {
 
     fn g2_affine() -> G2Affine { G2Affine::new(f().c0.c0, f().c0.c1, false) }
 
+    fn proof(ax: &str, ay: &str, ainf: bool, b0x: &str, b0y: &str, b1x: &str, b1y: &str, binf: bool, cx: &str, cy: &str, cinf: bool) -> Proof {
+        Proof {
+            a: G1A(G1Affine::new(Fq::from_str(ax).unwrap(), Fq::from_str(ay).unwrap(), ainf)),
+            b: G2A(G2Affine::new(
+                Fq2::new(Fq::from_str(b0x).unwrap(), Fq::from_str(b0y).unwrap()),
+                Fq2::new(Fq::from_str(b1x).unwrap(), Fq::from_str(b1y).unwrap()),
+                false
+            )),
+            c: G1A(G1Affine::new(Fq::from_str(cx).unwrap(), Fq::from_str(cy).unwrap(), cinf)),
+        }
+    }
+
+    fn send2_public_inputs(
+        proof: Proof,
+        nullifier_hashes: [&str; 2],
+        roots: [&str; 2],
+        commitment: &str,
+        recipient: U256,
+        amount: u64,
+        timestamp: u64,
+    ) -> SendProofRequest {
+        SendProofRequest {
+            proof_data: crate::types::JoinSplitProofData {
+                proof: proof.try_to_vec().unwrap().try_into().unwrap(),
+                tree_indices: [0, 0],
+            },
+            public_inputs: SendPublicInputs {
+                join_split: crate::types::JoinSplitPublicInputs {
+                    nullifier_hashes: [
+                        fr_to_u256_le(&Fr::from_str(nullifier_hashes[0]).unwrap()),
+                        fr_to_u256_le(&Fr::from_str(nullifier_hashes[1]).unwrap()),
+                    ],
+                    roots: [
+                        fr_to_u256_le(&Fr::from_str(roots[0]).unwrap()),
+                        fr_to_u256_le(&Fr::from_str(roots[1]).unwrap()),
+                    ],
+                    commitment: fr_to_u256_le(&Fr::from_str(commitment).unwrap()),
+                },
+                recipient,
+                amount,
+                timestamp,
+            },
+            fee_payer: [0; 32],
+        }
+    }
+
     macro_rules! storage {
         ($id: ident) => {
             let mut data = vec![0; VerificationAccount::SIZE];
@@ -606,56 +647,47 @@ mod tests {
 
     #[test]
     fn test_verify_partial() {
-        storage!(storage);
-        let proof = Proof {
-            a: G1A(G1Affine::new(
-                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-                false
-            )),
-            b: G2A(G2Affine::new(
-                Fq2::new(
-                    Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
-                    Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-                ),
-                Fq2::new(
-                    Fq::from_str("8337064132573119120838379738103457054645361649757131991036638108422638197362").unwrap(),
-                    Fq::from_str("21186803555845400161937398579081414146527572885637089779856221229551142844794").unwrap(),
-                ),
-                false
-            )),
-            c: G1A(G1Affine::new(
-                Fq::from_str("21186803555845400161937398579081414146527572885637089779856221229551142844794").unwrap(),
-                Fq::from_str("85960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-                false
-            )),
-        };
+        storage!(verifier_account);
+
+        // Invalid proof
+        let proof = proof(
+            "10026859857882131638516328056627849627085232677511724829502598764489185541935",
+            "19685960310506634721912121951341598678325833230508240750559904196809564625591",
+            false,
+            "857882131638516328056627849627085232677511724829502598764489185541935",
+            "685960310506634721912121951341598678325833230508240750559904196809564625591",
+            "837064132573119120838379738103457054645361649757131991036638108422638197362",
+            "86803555845400161937398579081414146527572885637089779856221229551142844794",
+            false,
+            "21186803555845400161937398579081414146527572885637089779856221229551142844794",
+            "85960310506634721912121951341598678325833230508240750559904196809564625591",
+            false,
+        );
         let request = ProofRequest::Send {
-            request: SendProofRequest {
-                proof_data: crate::types::JoinSplitProofData {
-                    proof: proof.try_to_vec().unwrap().try_into().unwrap(),
-                    tree_indices: [0, 0],
-                },
-                public_inputs: SendPublicInputs {
-                    join_split: crate::types::JoinSplitPublicInputs {
-                        nullifier_hashes: [
-                            [0; 32],
-                            [0; 32],
-                        ],
-                        roots: [
-                            [0; 32],
-                            [0; 32],
-                        ],
-                        commitment: [0; 32]
-                    },
-                    recipient: [0; 32],
-                    amount: 0,
-                    timestamp: 0,
-                },
-                fee_payer: [0; 32],
-            }
+            request: send2_public_inputs(
+                proof,
+                [
+                    "1937398579081414146527572885637089779856221229551142844794",
+                    "16193739857908141146527572885637089779856221229551142844794"
+                ],
+                [
+                    "937398579081414146527572885637089779856221229551142844794",
+                    "3985791414146527572885637089779856221229551142844794"
+                ],
+                "4001619373985790814141465275728856370897",
+                [0; 32],
+                100000,
+                12345678,
+            )
         };
-        storage.reset::<VK>(request).unwrap();
+        verifier_account.reset::<VK>(request).unwrap();
+
+        let mut result = None;
+        for round in 0..VK::ROUNDS {
+            result = verify_partial::<VK>(round, &mut verifier_account).unwrap();
+        }
+
+        assert_eq!(result.unwrap(), false);
     }
 
     #[test]

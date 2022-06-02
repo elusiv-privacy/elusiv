@@ -8,16 +8,42 @@ use crate::macros::BorshSerDeSized;
 
 /// Unsigned 256 bit integer ordered in LE ([32] is the first byte)
 pub type U256 = [u8; 32];
+pub type U256Limbed = [u64; 4];
 
-pub type RawProof = [u8; 259];
+pub struct Lazy<'a, N: BorshSerDeSized + Clone> {
+    modified: bool,
+    value: Option<N>,
+    data: &'a mut [u8],
+}
 
-impl From<RawProof> for Proof {
-    fn from(raw: RawProof) -> Proof {
-        let mut buf = &raw[..];
-        Proof {
-            a: G1A::deserialize(&mut buf).unwrap(),
-            b: G2A::deserialize(&mut buf).unwrap(),
-            c: G1A::deserialize(&mut buf).unwrap(),
+impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
+    pub const SIZE: usize = N::SIZE;
+
+    pub fn new(data: &'a mut [u8]) -> Self {
+        Lazy { modified: false, value: None, data }
+    }
+
+    pub fn get(&mut self) -> N {
+        match &self.value {
+            Some(v) => v.clone(),
+            None => {
+                self.value = Some(N::try_from_slice(&self.data).unwrap());
+                self.value.clone().unwrap()
+            }
+        }
+    }
+
+    pub fn set(&mut self, value: &N) {
+        self.value = Some(value.clone());
+        self.modified = true;
+    }
+
+    pub fn serialize(&mut self) {
+        if !self.modified { return }
+        let v = self.value.clone().unwrap().try_to_vec().unwrap();
+        assert!(self.data.len() >= v.len());
+        for i in 0..v.len() {
+            self.data[i] = v[i];
         }
     }
 }
@@ -28,6 +54,18 @@ pub struct Proof {
     pub a: G1A,
     pub b: G2A,
     pub c: G1A,
+}
+
+pub type RawProof = [u8; 259];
+impl From<RawProof> for Proof {
+    fn from(raw: RawProof) -> Proof {
+        let mut buf = &raw[..];
+        Proof {
+            a: G1A::deserialize(&mut buf).unwrap(),
+            b: G2A::deserialize(&mut buf).unwrap(),
+            c: G1A::deserialize(&mut buf).unwrap(),
+        }
+    }
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]

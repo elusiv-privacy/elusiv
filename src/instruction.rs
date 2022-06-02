@@ -135,9 +135,18 @@ pub enum ElusivInstruction {
     },*/
 
     /*
+    // Create a new `NullifierAccount` that stores all nullifiers of a new tree
     CreateNewTree,
+
+    // Saves the root of the full, active tree in it's nullifier account and resets the storage account values
     ActivateTree,
-    ArchiveTree,
+
+    // Starts the tree archivation (generation of N-SMT)
+    InitTreeArchivation,
+
+    ComputeTreeArchivation,
+
+    FinalizeTreeArchivation,
     */
 
     // Can be called once per `SingleInstancePDAAccountKind`

@@ -102,7 +102,7 @@ pub trait MultiInstanceAccount: PDAAccount {
 }
 
 // https://github.com/solana-labs/solana/blob/3608801a54600431720b37b53d7dbf88de4ead24/sdk/program/src/system_instruction.rs#L142
-pub const MAX_PERMITTED_DATA_LENGTH: usize = 10 * 1024 * 1024; // 10 MiB
+pub use solana_program::system_instruction::MAX_PERMITTED_DATA_LENGTH; // 10 MiB
 
 /// Allows for storing data across multiple accounts (needed for data sized >10 MiB)
 /// - these accounts can be PDAs, but are just normal accounts
@@ -138,7 +138,7 @@ pub trait BigArrayAccount<'a>: MultiAccountAccount<'a> {
     type T: BorshSerDeSized;
 
     const VALUES_COUNT: usize;
-    const MAX_VALUES_PER_ACCOUNT: usize = MAX_PERMITTED_DATA_LENGTH / Self::T::SIZE;
+    const MAX_VALUES_PER_ACCOUNT: usize = MAX_PERMITTED_DATA_LENGTH as usize / Self::T::SIZE;
     const LAST_ACCOUNT_SIZE: usize = (Self::VALUES_COUNT - (Self::COUNT - 1) * Self::MAX_VALUES_PER_ACCOUNT) * Self::T::SIZE;
 
     // indices in this implementation are always the external array indices and not byte-indices!
@@ -160,12 +160,17 @@ pub trait BigArrayAccount<'a>: MultiAccountAccount<'a> {
 }
 
 pub const fn max_account_size(element_size: usize) -> usize {
-    (MAX_PERMITTED_DATA_LENGTH / element_size) * element_size
+    (MAX_PERMITTED_DATA_LENGTH as usize / element_size) * element_size
 }
 
 pub const fn big_array_accounts_count(len: usize, element_size: usize) -> usize {
-    let max = MAX_PERMITTED_DATA_LENGTH / element_size;
+    let max = MAX_PERMITTED_DATA_LENGTH as usize / element_size;
     len / max + (if len % max == 0 { 0 } else { 1 })
+}
+
+pub const fn get_multi_accounts_count(max_elements_per_account: usize, elements_count: usize) -> usize {
+    let count = elements_count / max_elements_per_account;
+    count + (if elements_count % max_elements_per_account == 0 { 0 } else { 1 })
 }
 
 #[cfg(test)]
@@ -308,15 +313,20 @@ mod tests {
 
     #[test]
     fn test_max_account_size() {
-        assert_eq!(max_account_size(1), MAX_PERMITTED_DATA_LENGTH);
-        assert_eq!(max_account_size(2), MAX_PERMITTED_DATA_LENGTH);
-        assert_eq!(max_account_size(3), MAX_PERMITTED_DATA_LENGTH - 1);
+        assert_eq!(max_account_size(1) as u64, MAX_PERMITTED_DATA_LENGTH);
+        assert_eq!(max_account_size(2) as u64, MAX_PERMITTED_DATA_LENGTH);
+        assert_eq!(max_account_size(3) as u64, MAX_PERMITTED_DATA_LENGTH - 1);
     }
 
     #[test]
     fn test_big_array_accounts_count() {
-        assert_eq!(big_array_accounts_count(MAX_PERMITTED_DATA_LENGTH, 1), 1);
-        assert_eq!(big_array_accounts_count(MAX_PERMITTED_DATA_LENGTH, 32), 32);
-        assert_eq!(big_array_accounts_count(MAX_PERMITTED_DATA_LENGTH + 1, 32), 33);
+        assert_eq!(big_array_accounts_count(MAX_PERMITTED_DATA_LENGTH as usize, 1), 1);
+        assert_eq!(big_array_accounts_count(MAX_PERMITTED_DATA_LENGTH as usize, 32), 32);
+        assert_eq!(big_array_accounts_count(MAX_PERMITTED_DATA_LENGTH as usize + 1, 32), 33);
+    }
+
+    #[test]
+    fn test_get_multi_accounts_count() {
+        assert_eq!(get_multi_accounts_count(32, 100), 4);
     }
 }

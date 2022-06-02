@@ -184,7 +184,7 @@ async fn test_base_commitment() {
 }
 
 #[tokio::test]
-async fn test_single_commitment() {
+async fn test_init_commitment() {
     let first_request = first_request_test!();
 
     let (mut banks_client, payer, recent_blockhash, keys, storage) = start_program_solana_program_test_with_accounts_setup(
@@ -217,6 +217,26 @@ async fn test_single_commitment() {
         assert_eq!(first.is_being_processed, true);
         assert_eq!(first.request, first_request.commitment);
     }).await;
+}
+
+#[tokio::test]
+async fn test_single_commitment() {
+    /*let first_request = first_request_test!();
+
+    let (mut banks_client, payer, recent_blockhash, keys, storage) = start_program_solana_program_test_with_accounts_setup(
+        |_| {},
+        |commitment_queue| {
+            commitment_queue.enqueue(first_request.commitment).unwrap();
+            commitment_queue.process_first().unwrap();
+        },
+        |_| {},
+        |_| {},
+        |_| {},
+        |_| {},
+    ).await;
+
+    // Get storage account
+    let user_storage = storage.iter().map(|&x| UserAccount(x)).collect::<Vec<UserAccount>>().try_into().unwrap();*/
 
     // Compute hashes
     /*for i in 0..CommitmentHashComputation::INSTRUCTIONS.len() {
