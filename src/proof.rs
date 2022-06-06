@@ -18,11 +18,11 @@ use crate::error::ElusivError::AccountCannotBeReset;
 use crate::state::program_account::SizedAccount;
 use crate::bytes::BorshSerDeSized;
 
-pub type RAMFq<'a> = LazyRAM<'a, Fq, 20>;
-pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 20>;
-pub type RAMFq6<'a> = LazyRAM<'a, Fq6, 20>;
-pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 20>;
-pub type RAMG2A<'a> = LazyRAM<'a, G2A, 20>;
+pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
+pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
+pub type RAMFq6<'a> = LazyRAM<'a, Fq6, 3>;
+pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 7>;
+pub type RAMG2A<'a> = LazyRAM<'a, G2A, 1>;
 
 /// Account used for verifying all kinds of Groth16 proofs over the span of multiple transactions
 #[elusiv_account(pda_seed = b"proof", partial_computation)]
