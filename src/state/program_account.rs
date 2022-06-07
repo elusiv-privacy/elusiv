@@ -22,7 +22,7 @@ pub trait ProgramAccount<'a>: SizedAccount {
 pub trait MultiAccountProgramAccount<'a, 'b, 't>: SizedAccount {
     type T: SizedAccount;
 
-    fn new(d: &'a mut [u8], accounts: &'b [AccountInfo<'t>]) -> Result<Self::T, ProgramError>;
+    fn new(d: &'a mut [u8], accounts: Vec<&'b AccountInfo<'t>>) -> Result<Self::T, ProgramError>;
 }
 
 /// This trait is used by the elusiv_instruction macro

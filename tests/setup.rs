@@ -10,7 +10,7 @@ use common::{
     get_data,
 };
 use elusiv::commitment::{CommitmentHashingAccount, BaseCommitmentHashingAccount};
-use elusiv::instruction::{ElusivInstruction, SignerAccount, WritableUserAccount};
+use elusiv::instruction::*;
 use elusiv::processor::SingleInstancePDAAccountKind;
 use elusiv::proof::VerificationAccount;
 use elusiv::state::pool::PoolAccount;
@@ -154,7 +154,7 @@ async fn test_setup_pda_accounts_invalid() {
     // Wrong PDA
     tx_should_fail!(
         banks_client, payer, recent_blockhash, vec![
-            ElusivInstruction::open_single_instance_account(
+            ElusivInstruction::open_single_instance_account_instruction(
                 SingleInstancePDAAccountKind::Pool, 0,
                 SignerAccount(payer.pubkey()),
                 WritableUserAccount(QueueManagementAccount::find(None).0)

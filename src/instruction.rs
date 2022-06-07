@@ -1,6 +1,7 @@
 use crate::macros::*;
 use crate::bytes::BorshSerDeSized;
-use super::processor::*;
+use super::processor;
+use super::processor::{MultiInstancePDAAccountKind, SingleInstancePDAAccountKind};
 use super::state::queue::{
     QueueManagementAccount,
     BaseCommitmentQueueAccount,
@@ -22,7 +23,7 @@ use crate::proof::VerificationAccount;
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use solana_program::{
     system_program,
-    account_info::{next_account_info, next_account_infos, AccountInfo},
+    account_info::{next_account_info, AccountInfo},
     pubkey::Pubkey,
     entrypoint::ProgramResult,
     program_error::ProgramError::{InvalidArgument, InvalidInstructionData},
@@ -43,46 +44,6 @@ pub enum ElusivInstruction {
     Store {
         base_commitment_request: BaseCommitmentHashRequest,
     },
-
-    // Proof request (Send, Merge, Migrate (since Migrate is unary, only first nullifier is used))
-    /*#[usr(fee_payer, ( writable, signer ))]
-    #[pda(pool, Pool, ( writable, account_info ))]
-    #[sys(system_program, key = system_program::ID)]
-    #[pda(storage_account, Storage, ( multi_accounts ))]
-    #[pda(nullifier_account0, Nullifier, pda_offset = tree_indices[0], ( multi_accounts ))]
-    #[pda(nullifier_account1, Nullifier, pda_offset = tree_indices[1], ( multi_accounts ))]
-    #[prg(queue, ( writable, account_info ))] // Parsing of the queue happens in the processor
-    RequestProofVerification {
-        proof_request: ProofRequest,
-        tree_indices: [u64; 2],
-    },
-
-    // Proof verification initialization
-    #[prg(queue, ( writable, account_info ))]
-    #[pda(verification_account, Verification, pda_offset = verification_account_index, ( writable ))]
-    InitProof {
-        kind: ProofKind,
-        verification_account_index: u64
-    },
-
-    // Proof verification computation
-    #[pda(verification_account, Verification, pda_offset = verification_account_index, ( writable ))]
-    ComputeProof {
-        verification_account_index: u64
-    },
-
-    // Finalizing successfully verified proofs
-    #[usr(original_fee_payer, ( writable ))]
-    #[pda(pool, Pool, ( writable, account_info ))]
-    #[pda(verification_account, Verification, pda_offset = verification_account_index, ( writable ))]
-    #[pda(commitment_hash_queue, CommitmentQueue, ( writable ))]
-    #[pda(finalize_send_queue, FinalizeSendQueue, ( writable ))]
-    #[pda(nullifier_account0, Nullifier, pda_offset = tree_indices[0], ( writable, multi_accounts ))]
-    #[pda(nullifier_account1, Nullifier, pda_offset = tree_indices[1], ( writable, multi_accounts ))]
-    FinalizeProof {
-        verification_account_index: u64,
-        tree_indices: [u64; 2],
-    },*/
 
     // Base-commitment hashing
     #[usr(fee_payer, { signer, writable })]
@@ -126,28 +87,8 @@ pub enum ElusivInstruction {
     #[pda(storage_account, Storage, { multi_accounts, writable })]
     FinalizeCommitmentHash,
 
-    // Funds are transferred to the recipient
-    /*#[usr(recipient, { writable })]
-    #[pda(pool, Pool, { writable, account_info })]
-    #[pda(queue, FinalizeSendQueue, ( writable ))]
-    FinalizeSend {
-        amount: u64,
-    },*/
-
-    /*
-    // Create a new `NullifierAccount` that stores all nullifiers of a new tree
-    CreateNewTree,
-
-    // Saves the root of the full, active tree in it's nullifier account and resets the storage account values
-    ActivateTree,
-
-    // Starts the tree archivation (generation of N-SMT)
-    InitTreeArchivation,
-
-    ComputeTreeArchivation,
-
-    FinalizeTreeArchivation,
-    */
+    #[pda(verification_account, Verification, pda_offset = Some(0), { writable })]
+    VerifyProof,
 
     // Can be called once per `SingleInstancePDAAccountKind`
     #[usr(payer, { writable, signer })]
@@ -186,27 +127,25 @@ pub enum ElusivInstruction {
 
 #[cfg(feature = "instruction-abi")]
 pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8) -> Vec<solana_program::instruction::Instruction> {
-    use ElusivInstruction as EI;
-
     let mut ixs = Vec::new();
 
     // Single instance PDAs
     // Pool
-    ixs.push(EI::open_single_instance_account(
+    ixs.push(ElusivInstruction::open_single_instance_account_instruction(
         SingleInstancePDAAccountKind::Pool,
         nonce,
         SignerAccount(payer),
         WritableUserAccount(PoolAccount::find(None).0)
     ));
     // QueueManager
-    ixs.push(EI::open_single_instance_account(
+    ixs.push(ElusivInstruction::open_single_instance_account_instruction(
         SingleInstancePDAAccountKind::QueueManagement,
         nonce,
         SignerAccount(payer),
         WritableUserAccount(QueueManagementAccount::find(None).0)
     ));
     // CommitmentHashing
-    ixs.push(EI::open_single_instance_account(
+    ixs.push(ElusivInstruction::open_single_instance_account_instruction(
         SingleInstancePDAAccountKind::CommitmentHashing,
         nonce,
         SignerAccount(payer),
@@ -215,7 +154,7 @@ pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8) -> Vec<solana_program
 
     // Multi instance PDAs
     // BaseCommitmentHashingAccount
-    ixs.push(EI::open_multi_instance_account(
+    ixs.push(ElusivInstruction::open_multi_instance_account_instruction(
         0,
         MultiInstancePDAAccountKind::BaseCommitmentHashing,
         nonce,
@@ -223,7 +162,7 @@ pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8) -> Vec<solana_program
         WritableUserAccount(BaseCommitmentHashingAccount::find(Some(0)).0)
     ));
     // VerificationAccount
-    ixs.push(EI::open_multi_instance_account(
+    ixs.push(ElusivInstruction::open_multi_instance_account_instruction(
         0,
         MultiInstancePDAAccountKind::Verification,
         nonce,
@@ -232,4 +171,37 @@ pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8) -> Vec<solana_program
     ));
 
     ixs
+}
+
+#[cfg(feature = "instruction-abi")]
+#[derive(Debug)]
+pub struct UserAccount(pub solana_program::pubkey::Pubkey);
+
+#[cfg(feature = "instruction-abi")]
+#[derive(Debug)]
+pub struct WritableUserAccount(pub solana_program::pubkey::Pubkey);
+
+#[cfg(feature = "instruction-abi")]
+#[derive(Debug)]
+pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
+
+#[cfg(feature = "instruction-abi")]
+#[derive(Debug)]
+pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! get_variant_tag {
+        ($v: expr) => {
+            $v.try_to_vec().unwrap()[0]
+        };
+    }
+
+    #[test]
+    fn test_instruction_tag() {
+        assert_eq!(get_variant_tag!(ElusivInstruction::InitBaseCommitmentHash { hash_account_index: 123 }), 1);
+        assert_eq!(get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 456 }), 2);
+    }
 }

@@ -74,6 +74,12 @@ macro_rules! partial_computation_is_finished {
     };
 }
 
+pub fn verify_proof(
+    verification_account: &mut VerificationAccount,
+) -> ProgramResult {
+    Ok(()) 
+}
+
 pub fn init_proof(
     queue: &AccountInfo,
     verification_account: &mut VerificationAccount,
@@ -223,6 +229,7 @@ pub fn init_base_commitment_hash(
     q_manager: &QueueManagementAccount,
     queue: &mut BaseCommitmentQueueAccount,
     hashing_account: &mut BaseCommitmentHashingAccount,
+
     base_commitment_hash_account_index: u64,
 ) -> ProgramResult {
     // TODO: queue is implemented wrong, we need to split `is_being_processed` elements somehow
@@ -238,6 +245,7 @@ pub fn init_base_commitment_hash(
 
 pub fn compute_base_commitment_hash(
     hashing_account: &mut BaseCommitmentHashingAccount,
+
     base_commitment_hash_account_index: u64,
     _nonce: u64,
 ) -> ProgramResult {
@@ -276,6 +284,7 @@ pub fn finalize_base_commitment_hash(
     base_commitment_hash_queue: &mut BaseCommitmentQueueAccount,
     commitment_hash_queue: &mut CommitmentQueueAccount,
     hashing_account: &mut BaseCommitmentHashingAccount,
+
     base_commitment_hash_account_index: u64,
 ) -> ProgramResult {
     guard!(q_manager.get_finished_setup(), InvalidAccount);
@@ -324,6 +333,7 @@ pub fn init_commitment_hash(
 
 pub fn compute_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
+
     _nonce: u64,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);

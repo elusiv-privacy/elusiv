@@ -107,10 +107,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 // Add accounts field (IMPORTANT: no verification happens here, caller needs to make sure that the accounts match the pubkeys)
                 fields.extend(quote! { accounts, });
                 definition.extend(quote! {
-                    accounts: &'b [solana_program::account_info::AccountInfo<'t>],
+                    accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>,
                 });
                 signature.extend(quote! {
-                    accounts: &'b [solana_program::account_info::AccountInfo<'t>],
+                    accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>,
                 });
             },
             "partial_computation" => {

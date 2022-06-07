@@ -17,7 +17,7 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], instru
     // We parse the ix length based on the first byte -> this allows our transactions to contain extra data, that the program can ignore but the client requires
     let len = instruction::ElusivInstruction::len(instruction_data[0]);
     match instruction::ElusivInstruction::try_from_slice(&instruction_data[..len + 1]) {
-        Ok(instruction) => instruction::process_instruction(program_id, accounts, instruction),
+        Ok(instruction) => instruction::ElusivInstruction::process(program_id, accounts, instruction),
         Err(_) => Err(ProgramError::InvalidInstructionData)
     }
 }

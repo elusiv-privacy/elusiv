@@ -208,7 +208,7 @@ pub fn setup_queue_accounts_ix(
 ) -> Vec<Instruction> {
     vec![
         request_compute_units(600_000),
-        ElusivInstruction::setup_queue_accounts(
+        ElusivInstruction::setup_queue_accounts_instruction(
             UserAccount(keys.base_commitment),
             UserAccount(keys.commitment),
             UserAccount(keys.send_proof),
@@ -260,13 +260,13 @@ pub async fn setup_storage_account<'a>(
 
     let mut transaction = Transaction::new_with_payer(
         &[
-            ElusivInstruction::open_single_instance_account(
+            ElusivInstruction::open_single_instance_account_instruction(
                 SingleInstancePDAAccountKind::Storage,
                 nonce,
                 SignerAccount(payer.pubkey()),
                 WritableUserAccount(StorageAccount::find(None).0)
             ),
-            ElusivInstruction::setup_storage_account(
+            ElusivInstruction::setup_storage_account_instruction(
                 accounts.try_into().unwrap()
             ),
         ],
@@ -328,10 +328,10 @@ pub async fn execute_on_storage_account<F>(
     account!(acc5, &keys[5], &mut get_data(banks_client, keys[5]).await);
     account!(acc6, &keys[6], &mut get_data(banks_client, keys[6]).await);
 
-    let sub_accounts = vec![acc0, acc1, acc2, acc3, acc4, acc5, acc6];
+    let sub_accounts = vec![&acc0, &acc1, &acc2, &acc3, &acc4, &acc5, &acc6];
 
     let mut storage_account = super::get_data(banks_client, StorageAccount::find(None).0).await;
-    let storage_account = StorageAccount::new(&mut storage_account[..], &sub_accounts[..]).unwrap();
+    let storage_account = StorageAccount::new(&mut storage_account[..], sub_accounts).unwrap();
 
     clousure(&storage_account)
 }

@@ -252,7 +252,7 @@ mod tests {
     fn test_storage_account_valid() {
         let mut data = vec![0; StorageAccount::SIZE];
         generate_storage_accounts_valid_size!(accounts);
-        let mut storage_account = StorageAccount::new(&mut data, &accounts[..]).unwrap();
+        let mut storage_account = StorageAccount::new(&mut data, accounts).unwrap();
         verify_storage_sub_accounts(&mut storage_account).unwrap();
     }
 
@@ -271,7 +271,7 @@ mod tests {
             StorageAccount::LAST_ACCOUNT_SIZE - 1,
         ]);
 
-        let mut storage_account = StorageAccount::new(&mut data, &accounts[..]).unwrap();
+        let mut storage_account = StorageAccount::new(&mut data, accounts).unwrap();
         verify_storage_sub_accounts(&mut storage_account).unwrap();
     }
 }

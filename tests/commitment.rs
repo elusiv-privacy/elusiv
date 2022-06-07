@@ -8,7 +8,7 @@ use elusiv::state::{MT_HEIGHT, EMPTY_TREE};
 use elusiv::types::U256;
 use common::program_setup::*;
 use common::{ get_data, };
-use elusiv::instruction::{ElusivInstruction, SignerAccount, WritableUserAccount, UserAccount};
+use elusiv::instruction::*;
 use solana_program::hash::Hash;
 use solana_program::instruction::Instruction;
 use solana_program::native_token::LAMPORTS_PER_SOL;
@@ -94,8 +94,8 @@ async fn test_base_commitment() {
     // Enqueue first and second
     tx_should_succeed(
         &[
-            ElusivInstruction::store(first_request.clone(), SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment)),
-            ElusivInstruction::store(second_request.clone(), SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment)),
+            ElusivInstruction::store_instruction(first_request.clone(), SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment)),
+            ElusivInstruction::store_instruction(second_request.clone(), SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment)),
         ],
         &mut banks_client, &payer, recent_blockhash
     ).await;
@@ -116,7 +116,7 @@ async fn test_base_commitment() {
     // Init bas commitment hash computation
     tx_should_succeed(
         &[
-            ElusivInstruction::init_base_commitment_hash(0, SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment))
+            ElusivInstruction::init_base_commitment_hash_instruction(0, SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment))
         ],
         &mut banks_client, &payer, recent_blockhash
     ).await;
@@ -137,7 +137,7 @@ async fn test_base_commitment() {
     // Compute hash (should fail since not enough compute units)
     tx_should_fail(
         &[
-            ElusivInstruction::compute_base_commitment_hash(0, 0)
+            ElusivInstruction::compute_base_commitment_hash_instruction(0, 0)
         ],
         &mut banks_client, &payer, recent_blockhash
     ).await;
@@ -149,7 +149,7 @@ async fn test_base_commitment() {
         tx_should_succeed(
             &[
                 request_compute_units(BaseCommitmentHashComputation::INSTRUCTIONS[i].compute_units),
-                ElusivInstruction::compute_base_commitment_hash(0, nonce)
+                ElusivInstruction::compute_base_commitment_hash_instruction(0, nonce)
             ],
             &mut banks_client, &payer, recent_blockhash
         ).await;
@@ -158,7 +158,7 @@ async fn test_base_commitment() {
     // Finalize base commitment hash
     tx_should_succeed(
         &[
-            ElusivInstruction::finalize_base_commitment_hash(0, WritableUserAccount(keys.base_commitment), WritableUserAccount(keys.commitment))
+            ElusivInstruction::finalize_base_commitment_hash_instruction(0, WritableUserAccount(keys.base_commitment), WritableUserAccount(keys.commitment))
         ],
         &mut banks_client, &payer, recent_blockhash
     ).await;
@@ -204,7 +204,7 @@ async fn test_init_commitment() {
     // Init commitment hash computation
     tx_should_succeed(
         &[
-            ElusivInstruction::init_commitment_hash(SignerAccount(payer.pubkey()), WritableUserAccount(keys.commitment), user_storage)
+            ElusivInstruction::init_commitment_hash_instruction(SignerAccount(payer.pubkey()), WritableUserAccount(keys.commitment), user_storage)
         ],
         &mut banks_client, &payer, recent_blockhash
     ).await;

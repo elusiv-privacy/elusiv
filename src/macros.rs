@@ -60,7 +60,7 @@ macro_rules! generate_storage_accounts {
         account!(a5, pks[5], vec![0; $s[5]]);
         account!(a6, pks[6], vec![0; $s[6]]);
 
-        let $arr = [a0, a1, a2, a3, a4, a5, a6];
+        let $arr = vec![&a0, &a1, &a2, &a3, &a4, &a5, &a6];
     };
 }
 

@@ -188,7 +188,7 @@ mod tests {
         ($id: ident) => {
             let mut data = vec![0; StorageAccount::SIZE];
             generate_storage_accounts_valid_size!(accounts);
-            let $id = StorageAccount::new(&mut data, &accounts[..]).unwrap();
+            let $id = StorageAccount::new(&mut data, accounts).unwrap();
         };
     }
 
