@@ -22,3 +22,60 @@ pub const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 /// Security padding to never exceed the computation budget
 pub const COMPUTE_UNIT_PADDING: u32 = 100_000;
+
+pub const MAX_CUS: u32 = MAX_COMPUTE_UNIT_LIMIT - COMPUTE_UNIT_PADDING;
+
+#[cfg(feature = "compute-unit-optimization")]
+pub struct PartialComputationResult {
+    pub instructions: Vec<PartialComputationInstruction>,
+    pub total_rounds: u32,
+    pub total_compute_units: u32,
+}
+
+#[cfg(feature = "compute-unit-optimization")]
+/// Generates instructions (batching of multiple computation rounds) to fit a partial computation in the MAX_COMPUTE_UNIT_LIMIT
+pub fn compute_unit_optimization(round_costs: Vec<u32>) -> PartialComputationResult {
+    let mut instructions = Vec::new();
+
+    let mut rounds = 0;
+    let mut start_round = 0;
+    let mut compute_units = 0;
+    let mut total_compute_units = 0;
+
+    for r in round_costs {
+        if compute_units + r > MAX_CUS {
+            instructions.push(
+                PartialComputationInstruction {
+                    start_round,
+                    rounds,
+                    compute_units: compute_units + COMPUTE_UNIT_PADDING
+                }
+            );
+
+            start_round += rounds;
+            rounds = 1;
+            compute_units = r;
+        } else {
+            rounds += 1;
+            compute_units += r;
+        }
+
+        total_compute_units += r;
+    }
+
+    if rounds > 0 {
+        instructions.push(
+            PartialComputationInstruction {
+                start_round,
+                rounds,
+                compute_units: compute_units + COMPUTE_UNIT_PADDING
+            }
+        );
+    }
+
+    PartialComputationResult {
+        instructions,
+        total_compute_units,
+        total_rounds: start_round + rounds
+    }
+}

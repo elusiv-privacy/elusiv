@@ -1,4 +1,5 @@
 use std::string::ToString;
+use std::collections::HashMap;
 use quote::quote;
 use proc_macro2::TokenStream;
 use super::storage::*;
@@ -21,6 +22,9 @@ pub struct ComputationScope {
     pub read: Vec<MemoryRead>,
     pub free: Vec<MemoryId>,
     pub write: Vec<MemoryId>,
+
+    // Compute units
+    pub scope_wide_compute_units: Option<CUs>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,9 +37,15 @@ pub enum Stmt {
     // Terminal stmts
     Let(SingleId, bool, Type, Expr),    // Let.1 is the mutability
     Assign(Id, Expr),
-    // `partial v = fn<generics>(params) { <<Stmt>> }`
+    // `partial v = fn<generics>(params) { <<Stmt+>> }`
     Partial(SingleId, Expr, Box<Stmt>),
     Return(Expr),
+
+    // Stmt with explicitly known compute units
+    ComputeUnitStmt(CUs, Box<Stmt>),
+
+    // Invalid stmt
+    Invalid,
 }
 
 #[derive(Debug, Clone)]
@@ -89,15 +99,86 @@ pub enum UnOp {
     Not,
 }
 
+#[derive(Debug, Clone)]
+pub enum CUs {
+    Single(usize),
+    Multiple(String), // ident of the array containing the CUs
+
+    Collection(Vec<CUs>),
+
+    // Maps a certain value of a variable to a CUs (the value none is the any-case)
+    Mapping {
+        ident: String,
+        mapping: Vec<ComputeUnitMapping>,
+    }
+}
+
+impl CUs {
+    pub fn apply_mapping(&self, iter_id: &str, var_id: &str, iter: usize, var: usize) -> CUs {
+        match self {
+            CUs::Mapping { ident, mapping } => {
+                if iter_id == ident {
+                    for m in mapping {
+                        if let Some(p) = m.pattern {
+                            if p == iter { return m.value.clone() }
+                        } else { return m.value.clone() }
+                    }
+                } else if var_id == ident {
+                    for m in mapping {
+                        if let Some(p) = m.pattern {
+                            if p == var { return m.value.clone() }
+                        } else { return m.value.clone() }
+                    }
+                }
+                panic!("Invalid compute units mapping ({}, {:?}) with ({}, {})", ident, mapping, iter_id, var_id);
+            },
+            CUs::Collection(c) => {
+                let mut cus = Vec::new();
+                for c in c {
+                    cus.push(c.apply_mapping(iter_id, var_id, iter, var))
+                }
+                CUs::Collection(cus)
+            }
+            c => c.clone()
+        }
+    }
+
+    pub fn reduce(&self) -> CUs {
+        match self {
+            CUs::Collection(c) => {
+                let mut cus = Vec::new();
+                for c in c {
+                    match c.reduce() {
+                        CUs::Collection(c) => cus.extend(c),
+                        c => cus.push(c)
+                    }
+                }
+                CUs::Collection(cus)
+            },
+            c => c.clone()
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ComputeUnitMapping {
+    pub pattern: Option<usize>,
+    pub value: CUs,
+}
+
 /// - `rounds` == None means that the Stmt uses the same round as the scope or other stmts surrounding it
 /// - on the scope level, if all rounds are None, the rounds-count is incremented by one
 pub struct StmtResult {
     pub stream: TokenStream,
-    pub rounds: Option<TokenStream>,
+    pub rounds: usize,
 }
 
 impl Stmt {
-    pub fn to_stream(&self, start_round: TokenStream) -> StmtResult {
+    pub fn to_stream(
+        &self,
+        start_round: usize,
+        previous_computation_rounds: &HashMap<String, usize>,
+    ) -> StmtResult {
         match self {
             Stmt::Collection(stmts) => {
                 let mut start_round = start_round;
@@ -106,52 +187,51 @@ impl Stmt {
                 // - this means we group stmts that should to be computed in the same round
                 // - e.g.: two adjacent stmts are computed in the same round but a partial stmt requires multiple rounds and is not grouped together with those two assignments
                 let mut sub_scopes: Vec<StmtResult> = vec![];
+                let mut last_stmt: Option<&Stmt> = None;
                 for stmt in stmts {
-                    let result = stmt.to_stream(start_round.clone());
+                    let result = stmt.to_stream(start_round.clone(), previous_computation_rounds);
 
-                    match result.rounds.clone() {
-                        // If a child has `None` rounds, we can compute this stmt with adjacent `None` rounds stmts
-                        None => {
-                            match sub_scopes.last_mut() {
-                                Some(last) => {
-                                    match last.rounds {
-                                        None => last.stream.extend(result.stream),
-                                        Some(_) => sub_scopes.push(result),
-                                    };
-                                },
-                                None => { sub_scopes.push(result) },
-                            }
-                        },
-
-                        // If a child consumes multiple rounds on it's own, we need a new sub-scope
-                        Some(r) => {
-                            sub_scopes.push(result);
-                            start_round.extend(quote!{ + #r });
+                    if result.rounds == 0 { // If a child has `0` round, we can compute this stmt with adjacent `0` round stmts
+                        match sub_scopes.last_mut() {
+                            Some(last) => {
+                                if let Some(last_stmt) = last_stmt {
+                                    if last.rounds == 0 && !matches!(last_stmt, Stmt::ComputeUnitStmt(_, _)) {
+                                        last.stream.extend(result.stream);
+                                    } else {
+                                        sub_scopes.push(result);
+                                    }
+                                } else {
+                                    sub_scopes.push(result);
+                                }
+                            },
+                            None => { sub_scopes.push(result) },
                         }
+                    } else { // If a child consumes multiple rounds on it's own, we need a new sub-scope
+                        start_round += result.rounds;
+                        sub_scopes.push(result);
                     }
+
+                    last_stmt = Some(stmt);
                 }
 
                 // If there are multiple groups, we match each scope to the rounds
                 let stream;
-                let mut rounds: Option<TokenStream> = None;
-                if sub_scopes.len() == 1 && matches!(sub_scopes.first().unwrap().rounds, None) {
+                let rounds;
+                if sub_scopes.len() == 1 && sub_scopes.first().unwrap().rounds == 0 {
                     stream = sub_scopes.first().unwrap().stream.clone();
+                    rounds = 0;
                 } else {
                     let mut m = quote!{};
-                    let mut lower = quote!{};
-                    let mut upper = quote!{};
+                    let mut lower = 0;
+                    let mut upper = 0;
 
                     for scope in sub_scopes {
-                        match scope.rounds {
-                            None => upper.extend(if upper.is_empty() { quote!{ 1 } } else { quote!{ + 1 } }),
-                            Some(r) => upper.extend(if upper.is_empty() { quote!{ #r } } else { quote!{ + #r } }),
-                        }
+                        upper += if scope.rounds == 0 { 1 } else { scope.rounds };
 
                         let s = scope.stream;
-                        let l = if lower.is_empty() { quote!{ 0 } } else { lower.clone() };
                         m.extend(quote!{
-                            round if round >= #l && round < #upper => {
-                                let round = round - (#l);
+                            round if round >= #lower && round < #upper => {
+                                let round = round - (#lower);
                                 #s
                             },
                         });
@@ -165,7 +245,7 @@ impl Stmt {
                             _ => {}
                         }
                     };
-                    rounds = if upper.is_empty() { None } else { Some(upper) };
+                    rounds = upper;
                 }
 
                 StmtResult { stream, rounds }
@@ -177,27 +257,19 @@ impl Stmt {
             Stmt::IfElse(cond, t, f) => {
                 let cond: TokenStream = cond.into();
 
-                let result_true = t.to_stream(start_round.clone());
+                let result_true = t.to_stream(start_round.clone(), previous_computation_rounds);
                 let mut body_true = result_true.stream;
 
-                let result_false = f.to_stream(start_round.clone());
+                let result_false = f.to_stream(start_round.clone(), previous_computation_rounds);
                 let mut body_false = result_false.stream;
 
-                let rounds = match result_true.rounds.clone() {
-                    Some(t) => {
-                        match result_false.rounds.clone() {
-                            Some(f) => Some(quote!{ max(#t, #f) }),
-                            None => Some(t)
-                        }
-                    },
-                    None => result_false.rounds.clone()
-                };
+                let rounds = std::cmp::max(result_true.rounds, result_false.rounds);
 
                 // We adapt the bodies so that having too many rounds supplied to a branch, will not affect any computation
-                let true_rounds = result_true.rounds.unwrap_or(quote!{ 1 });
+                let true_rounds = if result_true.rounds == 0 { 1 } else { result_true.rounds };
                 body_true = quote!{ if round < #true_rounds { #body_true } };
 
-                let false_rounds = result_false.rounds.unwrap_or(quote!{ 1 });
+                let false_rounds = if result_false.rounds == 0 { 1 } else { result_false.rounds };
                 body_false = quote!{ if round < #false_rounds { #body_false } };
 
                 StmtResult { stream: quote!{
@@ -218,19 +290,31 @@ impl Stmt {
                 let arr: TokenStream = Expr::Array(arr.clone()).into();
                 assert!(iterations > 0, "For loop arrays need to contain at least one element");
 
-                let child_result = child.to_stream(start_round.clone());
+                let child_result = child.to_stream(start_round.clone(), previous_computation_rounds);
                 let child_body = child_result.stream;
-                let child_rounds = child_result.rounds.unwrap_or(quote!{ 1 });
+                let child_rounds = if child_result.rounds == 0 { 1 } else { child_result.rounds };
 
-                StmtResult { stream: quote!{
-                    {
-                        let #iter_id = round / (#child_rounds);
-                        let #var_id = vec!#arr[#iter_id];
-                        let round = round % (#child_rounds);
-
-                        #child_body
-                    }
-                }, rounds: Some(quote!{ (#iterations * (#child_rounds)) }) }
+                if child_result.rounds == 0 {
+                    StmtResult { stream: quote!{
+                        {
+                            let #iter_id = round;
+                            let #var_id = vec!#arr[#iter_id];
+                            let round = 0;
+    
+                            #child_body
+                        }
+                    }, rounds: iterations }
+                } else {
+                    StmtResult { stream: quote!{
+                        {
+                            let #iter_id = round / (#child_rounds);
+                            let #var_id = vec!#arr[#iter_id];
+                            let round = round % (#child_rounds);
+    
+                            #child_body
+                        }
+                    }, rounds: iterations * child_rounds }
+                }
             },
 
             // The partial assignment calls another method generated using the same partial computation macro
@@ -240,11 +324,12 @@ impl Stmt {
                 let mut args = fn_args.clone();
                 args.insert(0, Expr::Id(Id::Single(SingleId(String::from("round")))));
                 let fn_call: TokenStream = Expr::Fn(Id::Single(SingleId(format!("{}_partial", fn_id))), generics.clone(), args.clone()).into();
-                let size: TokenStream = format!("{}_ROUNDS_COUNT", fn_id.to_uppercase()).parse().unwrap();
 
-                let child_result = child.to_stream(start_round);
+                if !previous_computation_rounds.contains_key(fn_id) { panic!("{} const value required", fn_id) }
+                let size = previous_computation_rounds[fn_id];
+
+                let child_result = child.to_stream(start_round, previous_computation_rounds);
                 let child_body = child_result.stream;
-                let child_rounds = child_result.rounds.unwrap_or(quote!{ });                
 
                 StmtResult { stream: quote!{
                     if round < #size - 1 {
@@ -259,7 +344,7 @@ impl Stmt {
                         };
                         #child_body
                     }
-                }, rounds: Some(quote!{ (#size #child_rounds) }) }
+                }, rounds: size + child_result.rounds }
             },
 
             Stmt::Let(SingleId(id), mutable, Type(ty), expr) => {
@@ -268,9 +353,9 @@ impl Stmt {
                 let value: TokenStream = expr.into();
 
                 if *mutable {
-                    StmtResult { stream: quote!{ let mut #ident: #ty = #value; }, rounds: None }
+                    StmtResult { stream: quote!{ let mut #ident: #ty = #value; }, rounds: 0 }
                 } else {
-                    StmtResult { stream: quote!{ let #ident: #ty = #value; }, rounds: None }
+                    StmtResult { stream: quote!{ let #ident: #ty = #value; }, rounds: 0 }
                 }
             },
 
@@ -278,16 +363,52 @@ impl Stmt {
                 let ident: TokenStream = id.to_string().parse().unwrap();
                 let value: TokenStream = expr.into();
 
-                StmtResult { stream: quote!{ #ident = #value; }, rounds: None }
+                StmtResult { stream: quote!{ #ident = #value; }, rounds: 0 }
             },
 
             Stmt::Return(expr) => {
                 let value: TokenStream = expr.into();
 
-                StmtResult { stream: quote!{ return Ok(Some(#value)); }, rounds: None }
+                StmtResult { stream: quote!{ return Ok(Some(#value)); }, rounds: 0 }
             },
 
+            Stmt::ComputeUnitStmt(_cus, stmt) => stmt.to_stream(start_round, previous_computation_rounds),
+
             _ => { panic!("Invalid stmt: {:?}", self) }
+        }
+    }
+
+    pub fn get_compute_units(&self) -> CUs {
+        match self {
+            Stmt::ComputeUnitStmt(compute_units, _) => compute_units.clone(),
+            Stmt::For(SingleId(iter_id), SingleId(var_id), Expr::Array(arr), child) => {
+                let compute_units = child.get_compute_units();
+                let mut cus = Vec::new();
+
+                for (i, value) in arr.iter().enumerate() {
+                    if let Expr::Literal(u) = value {
+                        cus.push(compute_units.apply_mapping(&iter_id, &var_id, i, u.parse().unwrap()));
+                    } else { panic!("Array elements need to be literals") }
+                }
+
+                CUs::Collection(cus)
+            },
+            Stmt::Collection(c) => {
+                let mut cus = Vec::new();
+                for c in c {
+                    cus.push(c.get_compute_units())
+                }
+                CUs::Collection(cus)
+            },
+            Stmt::Partial(_, Expr::Fn(Id::Single(SingleId(id)), _, _), stmt) => {
+                CUs::Multiple(id.clone())
+            },
+
+            Stmt::IfElse(_, _, _) => panic!("Compute units not allowed for if statement"),
+            Stmt::Let(_, _, _, _) => panic!("Compute units not allowed for let statement"),
+            Stmt::Assign(_, _) => panic!("Compute units not allowed for assign statement"),
+            Stmt::Return(_) => panic!("Compute units not allowed for return statement"),
+            _ => panic!("Could not find compute units")
         }
     }
 }
@@ -407,6 +528,7 @@ impl Stmt {
             Stmt::IfElse(_, t, f) => merge(t.all_terminal_stmts(), f.all_terminal_stmts()),
             Stmt::For(_, _, _, s) => s.all_terminal_stmts(),
             Stmt::Partial(_, _, s) =>  s.all_terminal_stmts(),
+            Stmt::ComputeUnitStmt(_, s) =>  s.all_terminal_stmts(),
             _ => { vec![self.clone()] }
         }
     }
@@ -421,6 +543,9 @@ impl Stmt {
             Stmt::Let(_, _, _, e) => vec![e.clone()],
             Stmt::Assign(_, e) => vec![e.clone()],
             Stmt::Return(e) => vec![e.clone()],
+            Stmt::ComputeUnitStmt(_, s) => s.all_exprs(),
+
+            Stmt::Invalid => panic!("Invalid statement"),
         }
     }
 }

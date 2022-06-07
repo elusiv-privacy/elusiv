@@ -2,14 +2,17 @@ use super::grammar::*;
 use super::storage::*;
 use proc_macro2::{ TokenStream, Group, TokenTree };
 use quote::quote;
+use std::collections::HashMap;
 
 pub fn interpret(
     computation: Vec<TokenTree>,
     name: &str,
     generics: TokenStream,
     parameters: TokenStream,
-    ty: TokenStream
-) -> TokenStream {
+    ty: TokenStream,
+    previous_computation_rounds: &HashMap<String, usize>,
+    previous_compute_units: &HashMap<String, Vec<usize>>,
+) -> (usize, Vec<usize>, TokenStream) {
     let groups: Vec<Group> = computation.iter().map(|t| {
         if let TokenTree::Group(g) = t.clone() { g } else { panic!("Only scopes allowed at top level") }
     }).collect();
@@ -79,18 +82,17 @@ pub fn interpret(
 
     // Construct the match arms by iterating over all scopes
     let mut m = quote!{};
-    let mut single_rounds: usize = 0;
-    let mut multi_rounds = quote!{};
+    let mut rounds: usize = 0;
     let mut storage = StorageMappings { store: vec![] };
-    for scope in computation.scopes { 
-        let start_rounds = quote!{ #single_rounds #multi_rounds };
-        let result = scope.stmt.to_stream(start_rounds.clone());
+    for scope in &computation.scopes { 
+        let start_rounds = rounds;
+        let result = scope.stmt.to_stream(start_rounds, &previous_computation_rounds);
         let body = result.stream;
 
         let mut read = quote!{};
         let mut write = quote!{};
 
-        for r in scope.read { read.extend(storage.read(r)); }
+        for r in &scope.read { read.extend(storage.read(r.clone())); }
         for w in scope.write.clone() { write.extend(storage.write(w)); }
 
         let mut ram_in = quote!{};
@@ -109,28 +111,32 @@ pub fn interpret(
         if !scope.free.is_empty() {
             let mut write_after_free = quote!{};
             for f in scope.free.clone() { storage.free(f); }
-            for w in scope.write {
+            for w in &scope.write {
                 // Reallocate vars that have not been freed
                 if let Some(_) = scope.free.iter().find(|x| x.id == w.id) { continue; }
-                write_after_free.extend(storage.write(w));
+                write_after_free.extend(storage.write(w.clone()));
             }
 
-            if let Some(r) = result.rounds.clone() {
+            if result.rounds == 0 {
+                write = write_after_free;
+            } else {
+                let r = result.rounds - 1;
                 write = quote!{
-                    if round < #r - 1 {
+                    if round < #r {
                         #write
                     } else {
                         #write_after_free
                     }
                 };
-            } else {
-                write = write_after_free;
             }
         }
 
-        match result.rounds {
-            Some(r) => multi_rounds.extend(quote!{ + #r }),
-            None => single_rounds += 1,
+        let mut pattern = quote!{ round if round == #start_rounds };
+        if result.rounds == 0 {
+            rounds += 1;
+        } else {
+            rounds += result.rounds;
+            pattern = quote!{ round if round < #rounds };
         }
 
         let round = if body.to_string().contains("round") {
@@ -138,7 +144,7 @@ pub fn interpret(
         } else { quote!{} };
 
         m.extend(quote!{
-            round if round >= #start_rounds && round < #single_rounds #multi_rounds => {
+            #pattern => {
                 #round
                 #read
 
@@ -149,6 +155,28 @@ pub fn interpret(
         });
     }
 
+    // Generate compute units
+    let mut compute_units = Vec::new();
+    for scope in computation.scopes {
+        let cus = if let Some(cus) = scope.scope_wide_compute_units { cus } else { scope.stmt.get_compute_units() };
+        let cus = cus.reduce();
+
+        match cus {
+            CUs::Collection(c) => {
+                for c in c {
+                    match c {
+                        CUs::Single(c) => compute_units.push(c),
+                        CUs::Multiple(c) => compute_units.extend(previous_compute_units[&c].clone()),
+                        _ => panic!()
+                    }
+                }
+            },
+            CUs::Single(c) => compute_units.push(c),
+            CUs::Multiple(c) => compute_units.extend(previous_compute_units[&c].clone()),
+            _ => panic!()
+        }
+    }
+
     let fn_name: TokenStream = format!("{}_partial", name).parse().unwrap();
     let rounds_count_name: TokenStream = format!("{}_ROUNDS_COUNT", name.to_uppercase()).parse().unwrap();
 
@@ -157,14 +185,21 @@ pub fn interpret(
         assert_eq!(m.height(), 0, "Storage {} {:?} is not cleared before program exit!", m.ty, m.mapping.iter().filter_map(|x| x.clone()).collect::<Vec<String>>());
     }
 
-    quote!{
-        pub const #rounds_count_name: usize = #single_rounds #multi_rounds;
-        fn #fn_name #generics (round: usize, #parameters) -> Result<Option<#ty>, ElusivError> {
-            match round {
-                #m
-                _ => { }
+    assert_eq!(rounds, compute_units.len());
+
+    (
+        rounds,
+        compute_units,
+        quote!{
+            pub const #rounds_count_name: usize = #rounds;
+
+            fn #fn_name #generics (round: usize, #parameters) -> Result<Option<#ty>, ElusivError> {
+                match round {
+                    #m
+                    _ => { }
+                }
+                Ok(None)
             }
-            Ok(None)
         }
-    }
+    )
 }

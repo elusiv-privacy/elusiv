@@ -8,7 +8,32 @@ use crate::macros::BorshSerDeSized;
 
 /// Unsigned 256 bit integer ordered in LE ([32] is the first byte)
 pub type U256 = [u8; 32];
-pub type U256Limbed = [u64; 4];
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Copy, Clone, PartialEq, PartialOrd)]
+pub struct U256Limbed4(pub [u64; 4]);
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Copy, Clone, PartialEq, PartialOrd, std::hash::Hash, Eq, Ord)]
+pub struct U256Limbed2(pub [u128; 2]);
+
+impl From<U256> for U256Limbed4 {
+    fn from(v: U256) -> Self {
+        U256Limbed4([
+            u64::from_le_bytes((&v[..8]).try_into().unwrap()),
+            u64::from_le_bytes((&v[8..16]).try_into().unwrap()),
+            u64::from_le_bytes((&v[16..24]).try_into().unwrap()),
+            u64::from_le_bytes((&v[24..]).try_into().unwrap()),
+        ])
+    }
+}
+
+impl From<U256> for U256Limbed2 {
+    fn from(v: U256) -> Self {
+        U256Limbed2([
+            u128::from_le_bytes((&v[..16]).try_into().unwrap()),
+            u128::from_le_bytes((&v[16..]).try_into().unwrap()),
+        ])
+    }
+}
 
 pub struct Lazy<'a, N: BorshSerDeSized + Clone> {
     modified: bool,
@@ -164,7 +189,11 @@ impl PublicInputs for MigratePublicInputs {
 
 /// Packing sending details (with convention: https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/send.circom#L76)
 /// [[0, self.timestamp, self.amount, recipient[3]], [0, recipient[0], recipient[1], recipient[2]]]
-fn pack_inputs(recipient: U256, timestamp: u64, amount: u64) -> Result<[U256; 2], std::io::Error> {
+fn pack_inputs(
+    recipient: U256,
+    timestamp: u64,
+    amount: u64
+) -> Result<[U256; 2], std::io::Error> {
     let recipient = u256_to_le_limbs(recipient);
 
     let mut a = Vec::new();
@@ -185,6 +214,12 @@ fn pack_inputs(recipient: U256, timestamp: u64, amount: u64) -> Result<[U256; 2]
             slice_to_array::<u8, 32>(&b[..]),
         ]
     )
+}
+
+#[cfg(test)]
+pub fn generate_transaction_identifier(identifier: Fr, salt: Fr) -> Fr {
+    use crate::commitment::poseidon_hash::full_poseidon2_hash;
+    full_poseidon2_hash(identifier, salt)
 }
 
 pub fn u256_to_le_limbs(v: U256) -> [u64; 4] {

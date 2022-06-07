@@ -4,8 +4,11 @@ mod parser;
 mod storage;
 
 use proc_macro::TokenStream;
-use proc_macro2::{ TokenTree, Delimiter };
+use proc_macro2::{ TokenTree, Delimiter, TokenTree::* };
 use std::iter::IntoIterator;
+use std::collections::HashMap;
+use quote::quote;
+use elusiv_computation::compute_unit_optimization;
 
 /// For computations that are so costly, that they cannot be performed in a single step
 /// - this macro splits the computation you describe into `n` separate steps
@@ -50,35 +53,85 @@ use std::iter::IntoIterator;
 ///     - a safe unwrap expr: `unwrap <<Expr>>` will cause the function to return `Err(_)` if the expr matches `None`
 /// - `Id`s can either be single idents or idents intersected by dots (:: accessors not allowed atm)
 #[proc_macro]
-pub fn elusiv_computation(attrs: TokenStream) -> TokenStream {
-    impl_multi_step_computation(attrs.into()).into()
+pub fn elusiv_computations(attrs: TokenStream) -> TokenStream {
+    impl_mult_step_computations(attrs.into()).into()
 }
 
-fn impl_multi_step_computation(input: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
-    let tree: Vec<TokenTree> = input.into_iter().collect();
-    match &tree[..] {
-        // matches: `name<generics>(params) -> ty, {computation}` (generics are optional)
+fn impl_mult_step_computations(stream: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    let input: Vec<TokenTree> = stream.into_iter().collect();
+
+    match &input[..] {
         [
-            TokenTree::Ident(name),
-            generics @ ..,
-            TokenTree::Group(p),
-            TokenTree::Punct(arrow0),
-            TokenTree::Punct(arrow1),
-            TokenTree::Ident(ty),
-            TokenTree::Group(c)
+            TokenTree::Ident(fn_name),
+            TokenTree::Punct(_),
+            TokenTree::Ident(computation_name),
+            TokenTree::Punct(_),
+            tail @ ..
         ] => {
+            let mut rounds_map = HashMap::new();
+            let mut compute_units_map = HashMap::new();
+            let stream = multi_step_computation(tail, &mut rounds_map, &mut compute_units_map);
+
+            // Create compute unit stream for last partial computation
+            let cus = compute_units_map[&fn_name.to_string()].clone();
+            let optimization = compute_unit_optimization(cus.iter().map(|&x| x as u32).collect());
+            let size = optimization.instructions.len();
+            let total_rounds = optimization.total_rounds;
+            let total_compute_units = optimization.total_compute_units;
+            let computation_name: proc_macro2::TokenStream = computation_name.to_string().parse().unwrap();
+            let instructions = optimization.instructions.iter().fold(quote!{}, |acc, x| {
+                let start_round = x.start_round;
+                let rounds = x.rounds;
+                let compute_units = x.compute_units;
+
+                quote! {
+                    #acc
+                    elusiv_computation::PartialComputationInstruction {
+                        start_round: #start_round,
+                        rounds: #rounds,
+                        compute_units: #compute_units,
+                    },
+                }
+            });
+
+            quote! {
+                pub struct #computation_name { }
+
+                impl elusiv_computation::PartialComputation<#size> for #computation_name {
+                    const INSTRUCTIONS: [elusiv_computation::PartialComputationInstruction; #size] = [
+                        #instructions
+                    ];
+                    const TOTAL_ROUNDS: u32 = #total_rounds;
+                    const TOTAL_COMPUTE_UNITS: u32 = #total_compute_units;
+                }
+
+                #stream
+            }
+        },
+        _ => panic!("Invalid syntax")
+    }
+}
+
+fn multi_step_computation(
+    input: &[TokenTree],
+    previous_computation_rounds: &mut HashMap<String, usize>,
+    previous_compute_units: &mut HashMap<String, Vec<usize>>,
+) -> proc_macro2::TokenStream {
+    match &input[..] {
+        // matches: `name{<generics>}(params) -> ty, {computation}`
+        [ Ident(id), Group(generics), Group(p), Punct(arrow0), Punct(arrow1), Ident(ty), Group(c), tail @ ..  ] => {
             assert_eq!(p.delimiter(), Delimiter::Parenthesis);
             assert_eq!(c.delimiter(), Delimiter::Brace);
             assert_eq!(arrow0.to_string(), "-");
             assert_eq!(arrow1.to_string(), ">");
 
             let computation = c.stream().into_iter().collect();
-            let name = &name.to_string();
+            let id = &id.to_string();
             let params = p.stream();
             let ty = (&ty.to_string()).parse().unwrap();
 
             // Optional generics
-            let generics: proc_macro2::TokenStream = match generics {
+            let generics: proc_macro2::TokenStream = match &generics.stream().into_iter().collect::<Vec<TokenTree>>()[..] {
                 gen @ [ TokenTree::Punct(open), .., TokenTree::Punct(close) ] => {
                     assert_eq!(open.to_string(), "<");
                     assert_eq!(close.to_string(), ">");
@@ -90,8 +143,49 @@ fn impl_multi_step_computation(input: proc_macro2::TokenStream) -> proc_macro2::
                 _ => quote::quote!{}
             };
 
-            interpreter::interpret(computation, name, generics, params, ty).into()
-        },
+            let (rounds, compute_units, stream) = interpreter::interpret(computation, id, generics, params, ty, &previous_computation_rounds, &previous_compute_units);
+            previous_computation_rounds.insert(id.clone(), rounds);
+            previous_compute_units.insert(format!("{}_zero", id.clone()), vec![0; compute_units.len()]);
+            previous_compute_units.insert(id.clone(), compute_units);
+            let tail = multi_step_computation(tail, previous_computation_rounds, previous_compute_units);
+
+            quote!{
+                #stream
+                #tail
+            }
+        }
+
+        // matches: `name(params) -> ty, {computation}`
+        [ Ident(id), Group(p), Punct(arrow0), Punct(arrow1), Ident(ty), Group(c), tail @ ..  ] => {
+            assert_eq!(p.delimiter(), Delimiter::Parenthesis);
+            assert_eq!(c.delimiter(), Delimiter::Brace);
+            assert_eq!(arrow0.to_string(), "-");
+            assert_eq!(arrow1.to_string(), ">");
+
+            let computation = c.stream().into_iter().collect();
+            let id = &id.to_string();
+            let params = p.stream();
+            let ty = (&ty.to_string()).parse().unwrap();
+
+            let (rounds, compute_units, stream) = interpreter::interpret(computation, id, quote!{}, params, ty, &previous_computation_rounds, &previous_compute_units);
+            previous_computation_rounds.insert(id.clone(), rounds);
+            previous_compute_units.insert(format!("{}_zero", id.clone()), vec![0; compute_units.len()]);
+            previous_compute_units.insert(id.clone(), compute_units);
+            let tail = multi_step_computation(tail, previous_computation_rounds, previous_compute_units);
+
+            quote!{
+                #stream
+                #tail
+            }
+        }
+
+        [] => { quote!{} }
+        [ Punct(comma), tail @ .. ] => {
+            assert_eq!(comma.to_string(), ",");
+
+            multi_step_computation(tail, previous_computation_rounds, previous_compute_units)
+        }
+
         tree => panic!("Invalid macro input {:?}", tree) 
     }
 }
@@ -99,151 +193,84 @@ fn impl_multi_step_computation(input: proc_macro2::TokenStream) -> proc_macro2::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quote::quote;
 
     macro_rules! assert_eq_stream {
         ($a: expr, $b: expr) => { assert_eq!($a.to_string(), $b.to_string()) };
     }
 
     #[test]
-    fn test_complex_computation() {
+    fn test_simple_computation() {
         // This is the macro input
         let input = quote!{
-            fn_name <GENERIC: Ty<N>, N: Copy> (ram_isize: &mut RAM<isize>) -> isize {
-                {
+            fn_two, FnTwoComputation,
+
+            fn_name() -> isize {
+                {   /// 10000
                     let a: isize = 8;
                     let b: isize = 10;
                 }
-                {
-                    for i, value in [1,2,3] {
-                        a = (a + b) * value;
-                        partial r = compute() {
-                            b = a * r;
-                        };
-                        a = &a * 2;
-                    }
+                {   /// 10000
+                    b = a + b * 3;
                 }
-                {
-                    if (a = b) {
-                        partial r = compute() {
-                            b = *a * *r;
-                        };
-                    } else {
-                        b.field = CONST::field.0.tuple_field + fun::<GENERIC>();
-                    }
+                {   /// 10000
+                    return alpha_beta.child.call(b);
                 }
-                { return alpha_beta.child.call(b); }
+            },
+
+            fn_two() -> isize {
+                {   /// 10000
+                    let c: isize = 12 + 2;
+                }
+                {   /// 10000
+                    return c;
+                }
             }
         };
 
         // And it should "compile" to this code:
         let expected = quote!{
-            const FN_NAME_ROUNDS_COUNT: usize = 2usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT); 
+            pub const FN_NAME_ROUNDS_COUNT: usize = 3usize; 
 
-            pub fn fn_name_partial<GENERIC: Ty<N>, N: Copy>(round: usize, ram_isize: &mut RAM<isize>) -> Result<Option<isize>, &'static str> {
+            fn fn_name_partial(round: usize, ) -> Result<Option<isize>, ElusivError> {
                 match round {
-                    round if round >= 0usize && round < 1usize => {
+                    round if round == 0usize => {
                         let a: isize = 8;
                         let b: isize = 10;
 
-                        ram_isize.write(a, 0usize);
-                        ram_isize.write(b, 1usize);
+                        storage.ram_isize.write(a, 0usize);
+                        storage.ram_isize.write(b, 1usize);
                     },
-                    round if round >= 1usize && round < 1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) => {
-                        let round = round - (1usize);
+                    round if round == 1usize => {
+                        let a = storage.ram_isize.read(0usize);
+                        let mut b = storage.ram_isize.read(1usize);
 
-                        let mut a = ram_isize.read(0usize);
-                        let mut b = ram_isize.read(1usize);
+                        b = (a + (b * 3));
 
-                        ram_isize.inc_frame(2usize);
-
-                        {
-                            let i = round / (1 + (COMPUTE_ROUNDS_COUNT) + 1);
-                            let value = vec![1,2,3,][i];
-                            let round = round % (1 + (COMPUTE_ROUNDS_COUNT) + 1);
-
-                            match round {
-                                round if round >= 0 && round < 1 => {
-                                    let round = round - (0);
-
-                                    a = ((a + b) * value);
-                                },
-                                round if round >= 1 && round < 1 + (COMPUTE_ROUNDS_COUNT) => {
-                                    let round = round - (1);
-
-                                    if round < COMPUTE_ROUNDS_COUNT - 1 {
-                                        match compute_partial(round,) {
-                                            Ok(_) => {},
-                                            Err(_) => { return Err("Partial computation error") }
-                                        }
-                                    } else if round == COMPUTE_ROUNDS_COUNT - 1 {
-                                        let r = match compute_partial(round,) {
-                                            Ok(Some(v)) => v,
-                                            _ => { return Err("Partial computation error") }
-                                        };
-
-                                        b = (a * r);
-                                    }
-                                },
-                                round if round >= 1 + (COMPUTE_ROUNDS_COUNT) && round < 1 + (COMPUTE_ROUNDS_COUNT) + 1 => {
-                                    let round = round - (1 + (COMPUTE_ROUNDS_COUNT));
-
-                                    a = ((&a) * 2);
-                                },
-                                _ => {}
-                            }
-                        }
-
-                        ram_isize.dec_frame(2usize);
-
-                        ram_isize.write(a, 0usize);
-                        ram_isize.write(b, 1usize);
+                        storage.ram_isize.write(b, 0usize);
                     },
-                    round if round >= 1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) &&
-                        round < 1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) =>
-                    {
-                        let round = round - (1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)));
+                    round if round == 2usize => {
+                        let b = storage.ram_isize.read(0usize);
 
-                        let a = ram_isize.read(0usize);
-                        let mut b = ram_isize.read(1usize);
-
-                        ram_isize.inc_frame(2usize);
-
-                        if ((a == b)) {
-                            if round < (COMPUTE_ROUNDS_COUNT) {
-                                if round < COMPUTE_ROUNDS_COUNT - 1 {
-                                    match compute_partial(round,) {
-                                        Ok(_) => {},
-                                        Err(_) => { return Err("Partial computation error") }
-                                    }
-                                } else if round == COMPUTE_ROUNDS_COUNT - 1 {
-                                    let r = match compute_partial(round,) {
-                                        Ok(Some(v)) => v,
-                                        _ => { return Err("Partial computation error") }
-                                    };
-
-                                    b = ((*a) * (*r));
-                                }
-                            }
-                        } else {
-                            if round < 1 {
-                                b.field = (CONST::field.0.tuple_field + fun::<GENERIC>());
-                            }
-                        }
-
-                        ram_isize.dec_frame(2usize);
-
-                        if round < (COMPUTE_ROUNDS_COUNT) - 1 {
-                            ram_isize.write(b, 1usize);
-                        } else {
-                            ram_isize.write(b, 0usize);
-                        }
-                    },
-                    round if round >= 1usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) &&
-                        round < 2usize + (3usize * (1 + (COMPUTE_ROUNDS_COUNT) + 1)) + (COMPUTE_ROUNDS_COUNT) =>
-                    {
-                        let b = ram_isize.read(0usize);
                         return Ok(Some(alpha_beta.child.call(b,)));
+                    },
+                    _ => {}
+                }
+                Ok(None)
+            }
+
+            pub const FN_TWO_ROUNDS_COUNT: usize = 2usize; 
+
+            fn fn_two_partial(round: usize, ) -> Result<Option<isize>, ElusivError> {
+                match round {
+                    round if round == 0usize => {
+                        let c: isize = (12 + 2);
+
+                        storage.ram_isize.write(c, 0usize);
+                    },
+                    round if round == 1usize => {
+                        let c = storage.ram_isize.read(0usize);
+
+                        return Ok(Some(c));
                     },
                     _ => {}
                 }
@@ -251,7 +278,7 @@ mod tests {
             }
         };
 
-        let res = impl_multi_step_computation(input);
+        let res = impl_mult_step_computations(input);
         assert_eq_stream!(res, expected);
     }
 }

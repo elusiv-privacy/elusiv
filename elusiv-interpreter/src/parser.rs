@@ -32,9 +32,22 @@ impl From<&Group> for ComputationScope {
         let trees: Vec<TokenTree> = group.stream().into_iter().collect();
         let tokens: Vec<Token> = trees.iter().map(|t| t.into()).collect();
 
+        let token_slice;
+        let compute_units;
+
+        // Check for scope wide compute units
+        if let (Some(cus), tail) = match_compute_units_head(&tokens[..]) {
+            token_slice = tail;
+            compute_units = Some(cus);
+        } else {
+            token_slice = &tokens[..];
+            compute_units = None;
+        }
+
         ComputationScope {
-            stmt: (&tokens[..]).into(),
+            stmt: token_slice.into(),
             read: vec![], free: vec![], write: vec![],
+            scope_wide_compute_units: compute_units,
         }
     }
 }
@@ -55,39 +68,138 @@ impl From<&[Token]> for Stmt {
         match tree {
             [ LET, Ident(id), COLON, Ident(ty), EQUALS, tail @ .. ] => {
                 Stmt::Let(SingleId(id.clone()), false, Type(ty.clone()), tail.into())
-            },
+            }
             [ LET, MUT, Ident(id), COLON, Ident(ty), EQUALS, tail @ .. ] => {
                 Stmt::Let(SingleId(id.clone()), true, Type(ty.clone()), tail.into())
-            },
+            }
             [ PARTIAL, Ident(id), EQUALS, Ident(fn_id), generics @ .., Group(args, Delimiter::Parenthesis), Group(g, Delimiter::Brace) ] => {
                 let args = merge(vec![Ident(fn_id.clone())], merge(generics.to_vec(), vec![Group(args.clone(), Delimiter::Parenthesis)]));
-                Stmt::Partial(SingleId(id.clone()), args.into(), Box::new(g.into()))
-            },
+
+                // We wrap each partial stmt in a computation scope stmt
+                Stmt::ComputeUnitStmt(CUs::Multiple(fn_id.clone()), Box::new(Stmt::Partial(SingleId(id.clone()), args.into(), Box::new(g.into()))))
+            }
             [ RETURN, tail @ .. ] => {
                 Stmt::Return(tail.into())
-            },
+            }
 
             // We just hard-code two cases for assignments for simplicitys-sake: one ident and one field
             [ Ident(id), EQUALS, tail @ .. ] => {
                 Stmt::Assign(Id::Single(SingleId(id.clone())), tail.into())
-            },
+            }
             [ Ident(a), DOT, Ident(b), EQUALS, tail @ .. ] => {
                 Stmt::Assign(Id::Path(PathId(vec![a.clone() + ".", b.clone()])), tail.into())
-            },
+            }
 
             // For loop
             [ FOR, Ident(iter_id), COMMA, Ident(var_id), IN, arr, Group(g, Delimiter::Brace) ] => {
                 Stmt::For(SingleId(iter_id.clone()), SingleId(var_id.clone()), vec![arr.clone()].into(), Box::new(g.into()))
-            },
+            }
 
             // If-else and if stmts
-            [ IF, Group(c, Delimiter::Parenthesis), Group(t, Delimiter::Brace), ELSE, Group(f, Delimiter::Brace) ] => {
-                Stmt::IfElse(c.into(), Box::new(t.into()), Box::new(f.into()))
-            },
-            [ IF, Group(c, Delimiter::Parenthesis), Group(t, Delimiter::Brace) ] => {
-                Stmt::IfElse(c.into(), Box::new(t.into()), Box::new(Stmt::Collection(vec![])))
-            },
-            _ => { panic!("Invalid stmt stream {:#?}", tree) }
+            [ IF, Group(c, Delimiter::Parenthesis), Group(t, Delimiter::Brace), ELSE, Group(f, Delimiter::Brace), tail @ .. ] => {
+                try_stmt_tail(
+                    Stmt::IfElse(c.into(), Box::new(t.into()), Box::new(f.into())),
+                    tail
+                )
+            }
+            [ IF, Group(c, Delimiter::Parenthesis), Group(t, Delimiter::Brace), tail @ .. ] => {
+                try_stmt_tail(
+                    Stmt::IfElse(c.into(), Box::new(t.into()), Box::new(Stmt::Collection(vec![]))),
+                    tail
+                )
+            }
+
+            // Grouping
+            [ Group(c, Delimiter::Brace), tail @ .. ] => {
+                try_stmt_tail(
+                    if let (Some(compute_units), stmt) = match_compute_units_head(c) {
+                        Stmt::ComputeUnitStmt(compute_units, Box::new(stmt.into()))
+                    } else {
+                        (&c[..]).into()
+                    },
+                    tail
+                )
+                
+            }
+            _ => Stmt::Invalid
+        }
+    }
+}
+
+/// Matches a leading compute units documentation comment
+/// - returns the compute units (if existent) and the remaining tail
+/// - allowed syntax:
+///     - Single Compute units: <usize>
+///     - Compute units mapping: <ident> in { (<pattern> : <usize> , )+ }
+///         - dependent on the variable <ident> (which has to be known at compile time => any of the for-loop variables at the moment)
+///         - patterns are mapped to values
+///         - '_' matches the remaining patterns
+fn match_compute_units_head(tokens: &[Token]) -> (Option<CUs>, &[Token]) {
+    if let [ HASH, Group(g, Delimiter::Bracket), c_tail @ .. ] = tokens {
+        if let [ DOC, EQUALS, Literal(compute_units) ] = &g[..] {
+            let cutoff = if compute_units.starts_with("r") { 3 } else { 2 }; // raw string literal
+            let cus = String::from(&compute_units[cutoff..&compute_units.len() - 1]);
+
+            if let Some(compute_units) = try_parse_usize(&cus) { // Single static compute units
+                return (Some(CUs::Single(compute_units)), c_tail)
+            } else { // Mappings of (at compile time known) values of variables to compute units
+                let token: Vec<&str> = cus.split(" ").collect();
+
+                if let [ ident, "in", "{", mapping @ .., "}" ] = &token[..] {
+
+                    /// Recursively finds mappings
+                    fn get_mapping(m: &[&str]) -> Vec<ComputeUnitMapping> {
+                        match m {
+                            [] => vec![],
+                            [ pattern, ":", value, ",", tail @ .. ] |
+                            [ pattern, ":", value, tail @ .. ] => {
+                                let mut tail = get_mapping(tail);
+                                tail.insert(0,
+                                    ComputeUnitMapping {
+                                        pattern: if *pattern == "_" { None } else { Some(try_parse_usize(pattern).unwrap()) },
+                                        value: if let Some(compute_units) = try_parse_usize(value) {
+                                            CUs::Single(compute_units)
+                                        } else {
+                                            CUs::Multiple(String::from(*value))
+                                        }
+                                    }
+                                );
+                                tail
+                            },
+                            _ => panic!("Invalid compute unit mapping syntax")
+                        }
+                    }
+
+                    return (Some(CUs::Mapping { ident: String::from(*ident), mapping: get_mapping(mapping) }), c_tail)
+                } else {
+                    return (Some(CUs::Multiple(cus)), c_tail)
+                }
+            }
+        }
+    }
+    return (None, tokens)
+}
+
+/// Attempts to parse a String into a usize, ignoring any '_' character
+fn try_parse_usize(source: &str) -> Option<usize> {
+    let mut source = String::from(source);
+    source.retain(|x| x != '_');
+    match source.parse::<usize>() {
+        Ok(u) => Some(u),
+        Err(_) => None
+    }
+}
+
+fn try_stmt_tail(head: Stmt, tail: &[Token]) -> Stmt {
+    match tail.into() {
+        Stmt::Invalid => head,
+        Stmt::Collection(c) => {
+            let mut c = c;
+            c.insert(0, head);
+            Stmt::Collection(c)
+        }
+        t => {
+            Stmt::Collection(vec![head, t])
         }
     }
 }
@@ -154,7 +266,7 @@ impl From<&[Token]> for Expr {
                 let trees = split_at(COMMA, group.clone());
                 let exprs: Vec<Expr> = trees.iter().map(|t| t.into()).collect();
                 Expr::Fn(Id::Single(SingleId(id.clone())), vec![], exprs)
-            },
+            }
 
             // Generics Function call
             [ Ident(id), COLON, COLON, LESS, generics @ .., LARGER, Group(group, Delimiter::Parenthesis) ] => {
@@ -172,17 +284,17 @@ impl From<&[Token]> for Expr {
                 let trees = split_at(COMMA, group.clone());
                 let exprs: Vec<Expr> = trees.iter().map(|t| t.into()).collect();
                 Expr::Fn(Id::Single(SingleId(id.clone())), generics, exprs)
-            },
+            }
 
             // Array
             [ Group(group, Delimiter::Bracket) ] => {
                 let trees = split_at(COMMA, group.clone());
                 let exprs: Vec<Expr> = trees.iter().map(|t| t.into()).collect();
                 Expr::Array(exprs)
-            },
+            }
 
-            [ Literal(lit) ] => { Expr::Literal(lit.clone()) },
-            [ Ident(id) ] => { Expr::Id(Id::Single(SingleId(id.clone()))) },
+            [ Literal(lit) ] => { Expr::Literal(lit.clone()) }
+            [ Ident(id) ] => { Expr::Id(Id::Single(SingleId(id.clone()))) }
 
             // Dot separated idents
             // - we recursively match the tail and merge with the tail in order to construct all valid exprs
@@ -210,7 +322,7 @@ impl From<&[Token]> for Expr {
                     }
                     _ => Expr::Invalid
                 }
-            },
+            }
             // Double colon separated idents
             [ Ident(a), COLON, COLON, tail @ .. ] => {
                 let tail: Expr = tail.into();
@@ -234,7 +346,7 @@ impl From<&[Token]> for Expr {
                     }
                     _ => Expr::Invalid
                 }
-            },
+            }
 
             // Parenthesized group
             [ Group(group, Delimiter::Parenthesis) ] => group.into(),
@@ -262,6 +374,7 @@ const IF: Token = Token::Keyword(Keyword::If);
 const ELSE: Token = Token::Keyword(Keyword::Else);
 const FOR: Token = Token::Keyword(Keyword::For);
 const IN: Token = Token::Keyword(Keyword::In);
+const DOC: Token = Token::Keyword(Keyword::Doc);
 
 const EQUALS: Token = Token::Punct(Punct::Equals);
 const SEMICOLON: Token = Token::Punct(Punct::Semicolon);
@@ -293,6 +406,7 @@ enum Keyword {
     Else,
     For,
     In,
+    Doc,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -351,6 +465,7 @@ impl From<&TokenTree> for Token {
                     "else" => { ELSE },
                     "for" => { FOR },
                     "in" => { IN },
+                    "doc" => { DOC },
                     "round" => { panic!("Reserved ident `round` used") },
                     _ => { Token::Ident(s) }
                 }
@@ -384,5 +499,15 @@ impl From<&TokenTree> for Token {
                 Token::Group(tokens, group.delimiter())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_try_parse_usize() {
+        assert_eq!(try_parse_usize("10_000").unwrap(), 10_000);
     }
 }
