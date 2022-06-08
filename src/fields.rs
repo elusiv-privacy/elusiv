@@ -37,27 +37,29 @@ pub fn try_scalar_montgomery(e: BigInteger256) -> Option<Fr> {
 
 /// BigInteger256 efficiently from LE buffer
 /// - to increase efficiency callers should always assert that $v.len() >= $o + 32 (https://www.reddit.com/r/rust/comments/6anp0d/suggestion_for_a_new_rustc_optimization/dhfzp93/)
-macro_rules! le_u256 {
-    ($v: expr) => {
-        BigInteger256([
-            u64::from_le_bytes(u64_array!($v, 0)),
-            u64::from_le_bytes(u64_array!($v, 8)),
-            u64::from_le_bytes(u64_array!($v, 16)),
-            u64::from_le_bytes(u64_array!($v, 24)),
-        ])
-    };
+fn le_u256(slice: &[u8]) -> BigInteger256 {
+    let l0 = u64_limb(slice, 0);
+    let l1 = u64_limb(slice, 8);
+    let l2 = u64_limb(slice, 16);
+    let l3 = u64_limb(slice, 24);
+
+    BigInteger256([ l0, l1, l2, l3 ])
+}
+
+pub fn u64_limb(slice: &[u8], offset: usize) -> u64 {
+    u64::from_le_bytes(u64_array!(slice, offset))
 }
 
 /// Deserializes 32 bytes into a base field element
 /// - panics if the serialized value is larger than the field modulus
 macro_rules! fq_montgomery {
-    ($v: expr) => { safe_base_montgomery(le_u256!($v)) };
+    ($v: expr) => { safe_base_montgomery(le_u256($v)) };
 }
 
 /// Deserializes 32 bytes into a scalar field element
 /// - panics if the serialized value is larger than the field modulus
 macro_rules! fr_montgomery {
-    ($v: expr) => { safe_scalar_montgomery(le_u256!($v)) };
+    ($v: expr) => { safe_scalar_montgomery(le_u256($v)) };
 }
 
 /// Little-endian montgomery-form writing of a base field element
@@ -91,7 +93,8 @@ impl BorshSerialize for Wrap<BigInteger256> {
 impl BorshDeserialize for Wrap<BigInteger256> {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
         assert!(buf.len() >= 32);
-        let res = Wrap(le_u256!(buf));
+        let v = le_u256(buf);
+        let res = Wrap(v);
         *buf = &buf[32..];
         Ok(res)
     }

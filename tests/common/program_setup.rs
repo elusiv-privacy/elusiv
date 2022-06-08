@@ -341,6 +341,6 @@ pub const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 // Fee for CUs: https://github.com/solana-labs/solana/blob/3d9874b95a4bda9bb99cb067f168811296d208cc/sdk/src/fee.rs
 pub fn request_compute_units(count: u32) -> Instruction {
-    assert!(count <= MAX_COMPUTE_UNIT_LIMIT);
+    //assert!(count <= MAX_COMPUTE_UNIT_LIMIT);
     ComputeBudgetInstruction::request_units(count, 0)
 }

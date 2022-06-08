@@ -1,4 +1,4 @@
-use ark_bn254::Fr;
+use ark_bn254::{Fr, Fq12};
 use ark_ff::Zero;
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::commitment::poseidon_hash::TOTAL_POSEIDON_ROUNDS;
@@ -18,7 +18,7 @@ use crate::state::queue::{
     MigrateProofQueue,MigrateProofQueueAccount,
     FinalizeSendQueue,FinalizeSendQueueAccount,
     CommitmentQueue,CommitmentQueueAccount,
-    BaseCommitmentQueue,BaseCommitmentQueueAccount,
+    BaseCommitmentQueue,BaseCommitmentQueueAccount, SendProofQueueAccount, SendProofQueue,
 };
 use crate::error::ElusivError::{
     InvalidAccount,
@@ -34,6 +34,7 @@ use crate::proof::{
     VerificationAccount,
     verifier::verify_partial,
     vkey::{
+        VerificationKey,
         SendBinaryVKey,
         MergeBinaryVKey,
         MigrateUnaryVKey,
@@ -48,7 +49,7 @@ use crate::commitment::{
 };
 use crate::types::ProofKind;
 use super::utils::send_from_pool;
-use crate::fields::{u256_to_fr, fr_to_u256_le};
+use crate::fields::{u256_to_fr, fr_to_u256_le, Wrap, G2HomProjective};
 use elusiv_computation::{PartialComputation, PartialComputationInstruction};
 
 /// Dequeues a proof request and places it into a `VerificationAccount`
@@ -74,12 +75,6 @@ macro_rules! partial_computation_is_finished {
     };
 }
 
-pub fn verify_proof(
-    verification_account: &mut VerificationAccount,
-) -> ProgramResult {
-    Ok(()) 
-}
-
 pub fn init_proof(
     queue: &AccountInfo,
     verification_account: &mut VerificationAccount,
@@ -92,7 +87,7 @@ pub fn init_proof(
 
     match kind {
         ProofKind::Send => {
-            init_proof!(MergeProofQueueAccount, MergeProofQueue, queue, verification_account, Merge, SendBinaryVKey)
+            init_proof!(SendProofQueueAccount, SendProofQueue, queue, verification_account, Send, SendBinaryVKey)
         },
         ProofKind::Merge => {
             init_proof!(MergeProofQueueAccount, MergeProofQueue, queue, verification_account, Merge, MergeBinaryVKey)

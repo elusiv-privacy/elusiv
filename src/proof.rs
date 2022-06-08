@@ -96,6 +96,7 @@ impl<'a> VerificationAccount<'a> {
     pub fn serialize_lazy_fields(&mut self) {
         self.ram_fq.serialize();
         self.ram_fq2.serialize();
+        self.ram_fq6.serialize();
         self.ram_fq12.serialize();
         self.ram_g2a.serialize();
 
@@ -110,6 +111,8 @@ impl<'a> VerificationAccount<'a> {
 }
 
 /// Stores data lazily on the heap, read requests will trigger deserialization
+/// 
+/// Note: heap allocation happens jit
 pub struct LazyRAM<'a, N: Clone + Copy, const SIZE: usize> where Wrap<N>: BorshSerDeSized {
     /// Stores all serialized values
     /// - if an element has value None, it has not been initialized yet
@@ -126,18 +129,30 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
 
     pub fn new(source: &'a mut [u8]) -> Self {
         assert!(source.len() == Self::SIZE);
-        let mut data = Vec::new();
-        for _ in 0..SIZE { data.push(None); }
 
-        LazyRAM { data, frame: 0, source, changes: vec![false; SIZE] }
+        LazyRAM { data: vec![], frame: 0, source, changes: vec![] }
+    }
+
+    /// `check_vector_size` has to be called before every `data` access
+    /// - this allows us to do jit heap allocation
+    fn check_vector_size(&mut self, index: usize) {
+        assert!(index < SIZE);
+        if self.data.len() <= index {
+            let extension = index + 1 - self.data.len();
+            self.data.extend(vec![None; extension]);
+            self.changes.extend(vec![false; extension]);
+        }
     }
 
     pub fn write(&mut self, value: N, index: usize) {
+        self.check_vector_size(self.frame + index);
         self.data[self.frame + index] = Some(value);
     }
 
     pub fn read(&mut self, index: usize) -> N {
         let i = self.frame + index;
+        self.check_vector_size(i);
+
         match &self.data[i] {
             Some(v) => v.clone(),
             None => {
@@ -188,5 +203,27 @@ mod tests {
     #[test]
     fn test_reset_verification_account() {
 
+    }
+
+    #[test]
+    fn test_check_vector_size() {
+        let mut data = vec![0; VerificationAccount::SIZE];
+        let account = VerificationAccount::new(&mut data).unwrap();
+        let mut ram = account.ram_fq12; 
+
+        assert_eq!(ram.data.len(), 0);
+        assert_eq!(ram.changes.len(), 0);
+
+        ram.check_vector_size(0);
+        assert_eq!(ram.data.len(), 1);
+        assert_eq!(ram.changes.len(), 1);
+
+        ram.check_vector_size(0);
+        assert_eq!(ram.data.len(), 1);
+        assert_eq!(ram.changes.len(), 1);
+
+        ram.check_vector_size(2);
+        assert_eq!(ram.data.len(), 3);
+        assert_eq!(ram.changes.len(), 3);
     }
 }

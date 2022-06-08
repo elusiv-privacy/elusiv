@@ -87,9 +87,6 @@ pub enum ElusivInstruction {
     #[pda(storage_account, Storage, { multi_accounts, writable })]
     FinalizeCommitmentHash,
 
-    #[pda(verification_account, Verification, pda_offset = Some(0), { writable })]
-    VerifyProof,
-
     // Can be called once per `SingleInstancePDAAccountKind`
     #[usr(payer, { writable, signer })]
     #[usr(pda_account, { writable })]
