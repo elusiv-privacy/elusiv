@@ -149,6 +149,10 @@ pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: 
 
     for i in 0..VKey::PUBLIC_INPUTS_COUNT {
         let skip = find_first_non_zero(&public_inputs[i]);
+        for _ in 0..skip {
+            rounds.push(0);
+        }
+
         for b in skip..256 {
             if get_bit(&public_inputs[i], b) {
                 rounds.push(DOUBLE_IN_PLACE_COST + ADD_ASSIGN_MIXED_COST);
@@ -156,6 +160,8 @@ pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: 
                 rounds.push(DOUBLE_IN_PLACE_COST);
             }
         }
+
+        rounds.push(0);
     }
 
     compute_unit_instructions(rounds)
@@ -909,6 +915,14 @@ mod tests {
         }
 
         assert_eq!(value.unwrap(), Bn254::final_exponentiation(&f()).unwrap());
+    }
+
+    #[test]
+    fn test_prepare_public_inputs_instructions() {
+        assert_eq!(
+            prepare_public_inputs_instructions::<VK>(&vec![BigInteger256::new([0,0,0,0]); VK::PUBLIC_INPUTS_COUNT]),
+            vec![VK::PREPARE_PUBLIC_INPUTS_ROUNDS as u32]
+        )
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
