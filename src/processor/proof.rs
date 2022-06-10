@@ -120,13 +120,13 @@ const TIMESTAMP_BITS_PRUNING: usize = 5;
 pub fn init_proof<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'c>,
     fee: &FeeAccount,
-    fee_collector: &AccountInfo<'c>,
     pool: &AccountInfo<'c>,
-    system_program: &AccountInfo<'c>,
+    fee_collector: &AccountInfo<'c>,
     verification_account: &AccountInfo<'c>,
     storage_account: &StorageAccount,
     nullifier_account0: &NullifierAccount<'a, 'b, 'd>,
     nullifier_account1: &NullifierAccount<'a, 'b, 'd>,
+    system_program: &AccountInfo<'c>,
 
     verification_account_index: u64,
     fee_version: u64,
@@ -135,6 +135,9 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
     tree_indices: [u64; 2],
 ) -> ProgramResult {
     guard!(*verification_account.key == VerificationAccount::find(Some(verification_account_index)).0, InvalidAccount);
+
+    guard!(fee_version == CURRENT_FEE_VERSION as u64, InvalidFeeVersion);
+    guard!(request.fee_version() as u64 == fee_version, InvalidFeeVersion);
 
     let clock = Clock::get()?;
     let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();
@@ -183,6 +186,8 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
     // - but every request receives a short time-frame in which it can be completed with a guarantee of no duplicates
     todo!();
 
+    todo!("Only storage account PDA required here");
+
     // fee_payer rents verification_account
     open_pda_account_with_offset::<VerificationAccount>(
         fee_payer,
@@ -191,9 +196,6 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
     );
 
     let public_inputs = request.public_inputs();
-
-    guard!(fee_version == CURRENT_FEE_VERSION as u64, InvalidFeeVersion);
-    guard!(request.fee_version() as u64 == fee_version, InvalidFeeVersion);
 
     let compensation_fee = execute_with_vkey!(request, VKey, {
         fee.proof_fee_payer_fee::<VKey>(&public_inputs)
@@ -280,8 +282,8 @@ pub fn finalize_proof<'a>(
     original_fee_payer: &AccountInfo<'a>,
     recipient: &AccountInfo<'a>, // can be any account for non-send-proofs
     fee: &FeeAccount,
-    fee_collector: &AccountInfo<'a>,
     pool: &AccountInfo<'a>,
+    fee_collector: &AccountInfo<'a>,
     verification_account_info: &AccountInfo<'a>,
     commitment_hash_queue: &mut CommitmentQueueAccount,
     nullifier_account0: &mut NullifierAccount,

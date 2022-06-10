@@ -2,7 +2,7 @@ use crate::macros::*;
 use crate::bytes::BorshSerDeSized;
 use super::processor;
 use super::processor::{BaseCommitmentHashRequest};
-use crate::processor::SingleInstancePDAAccountKind;
+use crate::processor::{SingleInstancePDAAccountKind, ProofRequest};
 use crate::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount};
 use crate::state::{
     program_account::{
@@ -94,54 +94,52 @@ pub enum ElusivInstruction {
     FinalizeCommitmentHash,
 
     // Proof verification initialization for Send/Merge
-    /*#[usr(fee_payer, { writable, signer })]
-    #[pda(pool, Pool, { writable, account_info })]
-    #[sys(system_program, key = system_program::ID)]
+    #[acc(fee_payer, { writable, signer })]
+    #[pda(fee, Fee, pda_offset = Some(fee_version))]
+    #[pda(pool, Pool, { ignore })]
+    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
+    #[prg(fee_collector, key = pool.get_fee_collector(), { writable, account_info })]
+    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable, account_info, find_pda })]
     #[pda(storage_account, Storage, { multi_accounts })]
-    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
     #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { multi_accounts })]
     #[pda(nullifier_account1, Nullifier, pda_offset = Some(tree_indices[1]), { multi_accounts })]
-    InitProofBinary {
+    #[sys(system_program, key = system_program::ID)]
+    InitProof {
         verification_account_index: u64,
+        fee_version: u64,
         proof_request: ProofRequest,
+        ignore_duplicate_verifications: bool,
         tree_indices: [u64; 2],
     },
 
-    // Proof verification initialization for Migrate
-    #[usr(fee_payer, { writable, signer })]
-    #[pda(pool, Pool, { writable, account_info })]
-    #[sys(system_program, key = system_program::ID)]
-    #[pda(storage_account, Storage, { multi_accounts })]
-    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
-    #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_index), { multi_accounts })]
-    InitProofUnary {
-        verification_account_index: u64,
-        proof_request: ProofRequest,
-        tree_index: u64,
-    },
-
     // Proof verification computation
+    #[acc(fee_payer, { writable, signer })]
+    #[pda(fee, Fee, pda_offset = Some(fee_version))]
+    #[pda(pool, Pool, { ignore })]
+    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
     ComputeProof {
         verification_account_index: u64,
+        fee_version: u64,
         nonce: u64,
     },
 
     // Finalizing successfully verified proofs
-    #[usr(original_fee_payer, { writable })]
-    #[usr(recipient, { writable })]
-    #[pda(pool, Pool, { writable, account_info })]
-    #[pda(q_manager, QueueManagement)]
-    #[prg(queue, CommitmentQueue, key = q_manager.get_commitment_queue(), { writable })]
-    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
+    #[acc(original_fee_payer, { writable })]
+    #[acc(recipient, { writable })]
+    #[pda(fee, Fee, pda_offset = Some(fee_version))]
+    #[pda(pool, Pool, { ignore })]
+    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
+    #[prg(fee_collector, key = pool.get_fee_collector(), { writable, account_info })]
+    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable, account_info })]
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { writable, multi_accounts })]
     #[pda(nullifier_account1, Nullifier, pda_offset = Some(tree_indices[1]), { writable, multi_accounts })]
     FinalizeProof {
         verification_account_index: u64,
+        fee_version: u64,
         tree_indices: [u64; 2],
     },
-
-    */
 
     // Can be called once per `SingleInstancePDAAccountKind`
     #[acc(payer, { writable, signer })]
