@@ -4,8 +4,8 @@ pub mod poseidon_hash;
 mod poseidon_constants;
 
 use crate::error::ElusivError;
-use crate::macros::{elusiv_account, elusiv_hash_compute_units, guard, multi_instance_account};
-use crate::state::queue::BaseCommitmentHashRequest;
+use crate::macros::{elusiv_account, elusiv_hash_compute_units, guard};
+use crate::processor::BaseCommitmentHashRequest;
 use crate::types::U256;
 use crate::bytes::BorshSerDeSized;
 use crate::state::{program_account::SizedAccount, MT_HEIGHT};
@@ -31,12 +31,10 @@ pub struct BaseCommitmentHashingAccount {
     is_active: bool,
     instruction: u32,
     fee_payer: U256,
+    fee_version: u16,
 
     state: [U256; 3],
 }
-
-// We allow multiple instances, since base_commitments can be computed in parallel
-multi_instance_account!(BaseCommitmentHashingAccount<'a>, 1);
 
 impl<'a> BaseCommitmentHashingAccount<'a> {
     pub fn reset(
@@ -49,6 +47,7 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
         self.set_is_active(&true);
         self.set_instruction(&0);
         self.set_fee_payer(&fee_payer);
+        self.set_fee_version(&request.fee_version);
 
         // Reset hashing state
         self.set_state(0, &fr_to_u256_le(&Fr::zero()));
@@ -74,6 +73,7 @@ pub struct CommitmentHashingAccount {
     is_active: bool,
     instruction: u32,
     fee_payer: U256,
+    fee_version: u16,
 
     commitment: U256,
     state: [U256; 3],
@@ -88,13 +88,15 @@ impl<'a> CommitmentHashingAccount<'a> {
         commitment: U256,
         ordering: u32,
         siblings: [Fr; MT_HEIGHT as usize],
-        fee_payer: U256,
+        //fee_payer: U256,
+        fee_version: u16,
     ) -> Result<(), ProgramError> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
 
         self.set_is_active(&true);
         self.set_instruction(&0);
-        self.set_fee_payer(&fee_payer);
+        //self.set_fee_payer(&fee_payer);
+        self.set_fee_version(&fee_version);
 
         // Reset hashing state
         self.set_state(0, &fr_to_u256_le(&Fr::zero()));
@@ -147,13 +149,19 @@ mod tests {
 
         let fee_payer = [9; 32];
 
-        account.reset(BaseCommitmentHashRequest { base_commitment, amount, commitment }, fee_payer).unwrap();
+        account.reset(BaseCommitmentHashRequest {
+            base_commitment,
+            amount,
+            commitment,
+            fee_version: 0,
+        }, fee_payer).unwrap();
 
         assert_eq!(account.get_state(0), [0; 32]);
         assert_eq!(account.get_state(1), base_commitment);
         assert_eq!(account.get_state(2), fr_to_u256_le(&u64_to_scalar(amount)));
 
         assert_eq!(fee_payer, account.get_fee_payer());
+        assert_eq!(0, account.get_fee_version());
 
         assert_eq!(account.get_instruction(), 0);
     }
@@ -175,7 +183,7 @@ mod tests {
 
         let fee_payer = [9; 32];
 
-        account.reset(commitment, ordering, siblings, fee_payer).unwrap();
+        account.reset(commitment, ordering, siblings, 0).unwrap();
 
         assert_eq!(account.get_state(0), [0; 32]);
         assert_eq!(account.get_state(1), fr_to_u256_le(&siblings[0]));
@@ -185,7 +193,8 @@ mod tests {
 
         assert_eq!(commitment, account.get_commitment());
         assert_eq!(ordering, account.get_ordering());
-        assert_eq!(fee_payer, account.get_fee_payer());
+        //assert_eq!(fee_payer, account.get_fee_payer());
+        assert_eq!(0, account.get_fee_version());
         for i in 0..MT_HEIGHT as usize {
             assert_eq!(siblings[i], account.get_siblings(i).0);
         }

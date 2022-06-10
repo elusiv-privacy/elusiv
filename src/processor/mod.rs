@@ -1,8 +1,8 @@
-mod request;
-mod process;
+mod proof;
+mod commitment;
 mod accounts;
 mod utils;
 
-pub use request::*;
-pub use process::*;
+pub use commitment::*;
+pub use proof::*;
 pub use accounts::*;

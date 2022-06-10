@@ -6,41 +6,36 @@ use solana_program::{
     system_instruction,
     program::invoke_signed,
     sysvar::Sysvar,
-    rent::Rent, pubkey::Pubkey,
+    rent::Rent,
 };
-use crate::state::{
+use crate::{state::{
     pool::PoolAccount,
-    program_account::{PDAAccount, SizedAccount, MultiInstanceAccount, MultiAccountAccount, BigArrayAccount},
-    queue::{FinalizeSendQueueAccount, QueueManagementAccount, CommitmentQueueAccount, BaseCommitmentQueueAccount, SendProofQueueAccount, MergeProofQueueAccount, MigrateProofQueueAccount},
+    program_account::{PDAAccount, SizedAccount, MultiAccountAccount, BigArrayAccount, ProgramAccount},
     StorageAccount,
-};
-use crate::proof::{VerificationAccount};
-use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
-use crate::error::ElusivError::{InvalidAccountBalance, InvalidInstructionData};
+    queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
+}, fee::{CURRENT_FEE_VERSION, FeeAccount}};
+use crate::commitment::{CommitmentHashingAccount};
+use crate::error::ElusivError::{InvalidAccountBalance, InvalidInstructionData, InvalidFeeVersion};
 use crate::macros::*;
 use crate::bytes::{BorshSerDeSized, is_zero};
 use crate::types::U256;
 
-#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
-pub enum SingleInstancePDAAccountKind {
-    Pool,
-    QueueManagement,
-    CommitmentHashing,
-    Storage,
-}
+use super::utils::send_from_pool;
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
-pub enum MultiInstancePDAAccountKind {
-    Verification,
-    BaseCommitmentHashing,
+pub enum SingleInstancePDAAccountKind {
+    CommitmentHashing,
+    CommitmentQueue,
+    BaseCommitmentQueue,
+    Storage,
 }
 
 macro_rules! single_instance_account {
     ($v: ident, $e: ident) => {
         match $v {
-            SingleInstancePDAAccountKind::Pool => PoolAccount::$e,
-            SingleInstancePDAAccountKind::QueueManagement => QueueManagementAccount::$e,
             SingleInstancePDAAccountKind::CommitmentHashing => CommitmentHashingAccount::$e,
+            SingleInstancePDAAccountKind::CommitmentQueue => CommitmentQueueAccount::$e,
+            SingleInstancePDAAccountKind::BaseCommitmentQueue => BaseCommitmentQueueAccount::$e,
             SingleInstancePDAAccountKind::Storage => StorageAccount::$e,
         }
     };
@@ -63,31 +58,32 @@ pub fn open_single_instance_account<'a>(
     create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
 }
 
-macro_rules! multi_instance_account {
-    ($v: ident, $e: ident) => {
-        match $v {
-            MultiInstancePDAAccountKind::Verification => VerificationAccount::$e,
-            MultiInstancePDAAccountKind::BaseCommitmentHashing => BaseCommitmentHashingAccount::$e,
-        }
-    };
-}
-
-/// Used to open the PDA accounts, of which types there can exist multipe (that satisfy the trait: MultiInstanceAccount)
-pub fn open_multi_instance_account<'a>(
+pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
-
     pda_offset: u64,
-    kind: MultiInstancePDAAccountKind,
-    _nonce: u8,
 ) -> ProgramResult {
-    guard!(pda_offset < multi_instance_account!(kind, MAX_INSTANCES), InvalidInstructionData);
-
-    let account_size = multi_instance_account!(kind, SIZE);
-    let (pk, bump) = multi_instance_account!(kind, find)(Some(pda_offset));
+    let account_size = T::SIZE;
+    let (pk, bump) = T::find(Some(pda_offset));
     let seed = vec![
-        multi_instance_account!(kind, SEED).to_vec(),
+        T::SEED.to_vec(),
         u64::to_le_bytes(pda_offset).to_vec(),
+        vec![bump]
+    ];
+    let signers_seeds: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
+    guard!(pk == *pda_account.key, InvalidInstructionData);
+
+    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
+}
+
+pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+) -> ProgramResult {
+    let account_size = T::SIZE;
+    let (pk, bump) = T::find(None);
+    let seed = vec![
+        T::SEED.to_vec(),
         vec![bump]
     ];
     let signers_seeds: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
@@ -116,48 +112,12 @@ macro_rules! verify_data_account {
     };
 }
 
-/// Setup all queue accounts (they have exactly one instance each)
-pub fn setup_queue_accounts(
-    base_commitment_queue: &AccountInfo,
-    commitment_queue: &AccountInfo,
-    send_proof_queue: &AccountInfo,
-    merge_proof_queue: &AccountInfo,
-    migrate_proof_queue: &AccountInfo,
-    finalize_send_queue: &AccountInfo,
-    queue_manager: &mut QueueManagementAccount,
+pub fn close_account<'a>(
+    payer: &AccountInfo<'a>,
+    account: &AccountInfo<'a>,
 ) -> ProgramResult {
-    guard!(!queue_manager.get_finished_setup(), InvalidInstructionData);
-
-    // Check for account non-ownership, size, zero-ness, rent-exemption and assign queue
-    verify_data_account!(base_commitment_queue, BaseCommitmentQueueAccount, true);
-    verify_data_account!(commitment_queue, CommitmentQueueAccount, true);
-    verify_data_account!(send_proof_queue, SendProofQueueAccount, true);
-    verify_data_account!(merge_proof_queue, MergeProofQueueAccount, true);
-    verify_data_account!(migrate_proof_queue, MigrateProofQueueAccount, true);
-    verify_data_account!(finalize_send_queue, FinalizeSendQueueAccount, true);
-
-    // Check for duplicates
-    let keys = vec![
-        *base_commitment_queue.key,
-        *commitment_queue.key,
-        *send_proof_queue.key,
-        *merge_proof_queue.key,
-        *migrate_proof_queue.key,
-        *finalize_send_queue.key,
-    ];
-    let set: HashSet<Pubkey> = keys.clone().drain(..).collect();
-    assert!(set.len() == keys.len());
-
-    queue_manager.set_base_commitment_queue(&keys[0].to_bytes());
-    queue_manager.set_commitment_queue(&keys[1].to_bytes());
-    queue_manager.set_send_proof_queue(&keys[2].to_bytes());
-    queue_manager.set_merge_proof_queue(&keys[3].to_bytes());
-    queue_manager.set_migrate_proof_queue(&keys[4].to_bytes());
-    queue_manager.set_finalize_send_queue(&keys[5].to_bytes());
-
-    queue_manager.set_finished_setup(&true);
-
-    Ok(())
+    let lamports = account.lamports();
+    send_from_pool(account, payer, lamports)
 }
 
 pub struct IntermediaryStorageSubAccount { }
@@ -190,6 +150,47 @@ pub fn setup_storage_account(
     storage_account.set_finished_setup(&true);
 
     Ok(())
+}
+
+pub fn setup_pool_accounts<'a>(
+    payer: &AccountInfo<'a>,
+    pool_account: &AccountInfo<'a>,
+
+    sol_pool: &AccountInfo<'a>,
+    fee_collector: &AccountInfo<'a>,
+) -> ProgramResult {
+    open_pda_account_without_offset::<PoolAccount>(payer, pool_account)?;
+
+    let mut data = &mut pool_account.data.borrow_mut()[..];
+    let mut pool = PoolAccount::new(&mut data)?;
+
+    pool.set_sol_pool(&sol_pool.key.to_bytes());
+    pool.set_fee_collector(&fee_collector.key.to_bytes());
+
+    guard!(*sol_pool.owner == crate::id(), InvalidInstructionData);
+    guard!(*fee_collector.owner == crate::id(), InvalidInstructionData);
+
+    Ok(())
+}
+
+pub fn init_new_fee_version<'a>(
+    payer: &AccountInfo<'a>,
+    fee: &AccountInfo<'a>,
+
+    fee_version: u64,
+
+    lamports_per_tx: u64,
+    base_commitment_fee: u64,
+    proof_fee: u64,
+    relayer_hash_tx_fee: u64,
+    relayer_proof_tx_fee: u64,
+    relayer_proof_reward: u64,
+) -> ProgramResult {
+    guard!(fee_version == CURRENT_FEE_VERSION as u64, InvalidFeeVersion);
+    open_pda_account_with_offset::<FeeAccount>(payer, fee, fee_version)?;
+    let mut data = &mut fee.data.borrow_mut()[..];
+    let mut fee = FeeAccount::new(&mut data)?;
+    fee.setup(lamports_per_tx, base_commitment_fee, proof_fee, relayer_hash_tx_fee, relayer_proof_tx_fee, relayer_proof_reward)
 }
 
 /// Verify the storage account sub-accounts

@@ -2,25 +2,24 @@
 
 use borsh::{BorshSerialize, BorshDeserialize};
 use solana_program::program_error::ProgramError;
-use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty, ElementIsAlreadyBeingProcessed, ElementIsNotBeingProcessed};
+use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty};
 use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
-use crate::types::{U256, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, RawProof, PublicInputs};
+use crate::processor::{BaseCommitmentHashRequest, CommitmentHashRequest};
 use super::program_account::{SizedAccount, ProgramAccount};
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
-    ($name: ident, $account: ident, $size: literal, $ty: ty, $max_count: literal) => {
-        #[elusiv_account]
+    ($name: ident, $account: ident, $seed: literal, $size: literal, $ty: ty) => {
+        #[elusiv_account(pda_seed = $seed)]
         pub struct $account {
+            bump_seed: u8,
+            initialized: bool,
+
             head: u64,
             tail: u64,
-            data: [RequestWrap<$ty>; $size],
-        }
-
-        impl<'a> $account<'a> {
-            pub const MAX_QUEUES_COUNT: u64 = $max_count;
+            data: [$ty; $size],
         }
 
         pub struct $name<'a, 'b> {
@@ -40,8 +39,8 @@ macro_rules! queue_account {
             fn set_head(&mut self, value: &u64) { self.account.set_head(value) }
             fn get_tail(&self) -> u64 { self.account.get_tail() }
             fn set_tail(&mut self, value: &u64) { self.account.set_tail(value) }
-            fn get_data(&self, index: usize) -> RequestWrap<Self::N> { self.account.get_data(index) }
-            fn set_data(&mut self, index: usize, value: &RequestWrap<Self::N>) { self.account.set_data(index, value) }
+            fn get_data(&self, index: usize) -> Self::N { self.account.get_data(index) }
+            fn set_data(&mut self, index: usize, value: &Self::N) { self.account.set_data(index, value) }
         }
     };
 }
@@ -51,104 +50,11 @@ pub trait Queue<'a, 'b, Account: ProgramAccount<'a>> {
     fn new(account: &'b mut Account) -> Self::T;
 }
 
-/// The `RequestWrap` allows for adding flags to requests
-#[derive(Copy, Clone, BorshDeserialize, BorshSerialize, BorshSerDeSized)]
-pub struct RequestWrap<N: BorshSerDeSized> {
-    pub is_being_processed: bool,
-    pub request: N,
-}
-
-#[elusiv_account(pda_seed = b"queue_account")]
-pub struct QueueManagementAccount {
-    bump_seed: u8,
-    initialized: bool,
-
-    finished_setup: bool,
-
-    base_commitment_queue: U256,
-    commitment_queue: U256,
-
-    send_proof_queue: U256,
-    merge_proof_queue: U256,
-    migrate_proof_queue: U256,
-
-    finalize_send_queue: U256,
-}
-
-// Queue used for storing the base_commitments and amounts that should be hashed into commitments
-queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, 256, BaseCommitmentHashRequest, 1);
+// Base commitment queue
+queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, b"base_commitment_queue", 128, BaseCommitmentHashRequest);
 
 // Queue used for storing commitments that should sequentially inserted into the active Merkle tree
-queue_account!(CommitmentQueue, CommitmentQueueAccount, 256, U256, 1);
-
-// Queues for proof requests
-queue_account!(SendProofQueue, SendProofQueueAccount, 256, SendProofRequest, 1);
-queue_account!(MergeProofQueue, MergeProofQueueAccount, 10, MergeProofRequest, 1);
-queue_account!(MigrateProofQueue, MigrateProofQueueAccount, 10, MigrateProofRequest, 1);
-
-// Queue storing the money transfer requests derived from verified Send proofs
-queue_account!(FinalizeSendQueue, FinalizeSendQueueAccount, 256, FinalizeSendRequest, 1);
-
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
-/// Request for computing `commitment = h(base_commitment, amount)`
-pub struct BaseCommitmentHashRequest {
-    pub base_commitment: U256,
-    pub amount: u64,
-    pub commitment: U256,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
-pub enum ProofRequest {
-    Send { request: SendProofRequest },
-    Merge { request: MergeProofRequest },
-    Migrate{ request: MigrateProofRequest }
-}
-
-impl ProofRequest {
-    pub fn raw_proof(&self) -> RawProof {
-        match self {
-            Self::Send { request } => request.proof_data.proof,
-            Self::Merge { request } => request.proof_data.proof,
-            Self::Migrate { request } => request.proof_data.proof,
-        }
-    }
-
-    pub fn public_inputs(&self) -> Vec<U256> {
-        match self {
-            Self::Send { request } => request.public_inputs.public_inputs_raw(),
-            Self::Merge { request } => request.public_inputs.public_inputs_raw(),
-            Self::Migrate { request } => request.public_inputs.public_inputs_raw(),
-        }
-    }
-}
-
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
-pub struct SendProofRequest {
-    pub proof_data: JoinSplitProofData<2>,
-    pub public_inputs: SendPublicInputs,
-    pub fee_payer: U256,
-}
-
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
-pub struct MergeProofRequest {
-    pub proof_data: JoinSplitProofData<2>,
-    pub public_inputs: MergePublicInputs,
-    pub fee_payer: U256,
-}
-
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
-pub struct MigrateProofRequest {
-    pub proof_data: JoinSplitProofData<1>,
-    pub public_inputs: MigratePublicInputs,
-    pub fee_payer: U256,
-}
-
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
-/// Request for transferring `amount` funds to a `recipient`
-pub struct FinalizeSendRequest {
-    pub amount: u64,
-    pub recipient: U256,
-}
+queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest);
 
 /// Ring queue with a capacity of `SIZE - 1` elements
 /// - works by having two pointers, `head` and `tail` and a some data storage with getter, setter
@@ -166,8 +72,8 @@ pub trait RingQueue {
     fn get_tail(&self) -> u64;
     fn set_tail(&mut self, value: &u64);
 
-    fn get_data(&self, index: usize) -> RequestWrap<Self::N>;
-    fn set_data(&mut self, index: usize, value: &RequestWrap<Self::N>);
+    fn get_data(&self, index: usize) -> Self::N;
+    fn set_data(&mut self, index: usize, value: &Self::N);
 
     /// Try to enqueue a new element in the queue
     fn enqueue(&mut self, value: Self::N) -> Result<(), ProgramError> {
@@ -177,18 +83,18 @@ pub trait RingQueue {
         let next_tail = (tail + 1) % Self::SIZE;
         guard!(next_tail != head, QueueIsFull);
 
-        self.set_data(tail as usize, &RequestWrap { is_being_processed: false, request: value });
+        self.set_data(tail as usize, &value);
         self.set_tail(&next_tail);
 
         Ok(())
     }
 
     /// Try to read the first element in the queue without removing it
-    fn view_first(&self) -> Result<RequestWrap<Self::N>, ProgramError> {
+    fn view_first(&self) -> Result<Self::N, ProgramError> {
         self.view(0)
     }
 
-    fn view(&self, offset: usize) -> Result<RequestWrap<Self::N>, ProgramError> {
+    fn view(&self, offset: usize) -> Result<Self::N, ProgramError> {
         let head = self.get_head();
         let tail = self.get_tail();
         guard!(head != tail, QueueIsEmpty);
@@ -197,31 +103,16 @@ pub trait RingQueue {
     }
 
     /// Try to remove the first element from the queue
-    /// - will only suceed if the first element has `is_being_processed == true`
-    fn dequeue_first(&mut self) -> Result<RequestWrap<Self::N>, ProgramError> {
+    fn dequeue_first(&mut self) -> Result<Self::N, ProgramError> {
         let head = self.get_head();
         let tail = self.get_tail();
 
         guard!(head != tail, QueueIsEmpty);
 
         let value = self.get_data(head as usize);
-        guard!(value.is_being_processed, ElementIsNotBeingProcessed);
         self.set_head(&((head + 1) % Self::SIZE));
 
         Ok(value)
-    }
-
-    /// Try to set `is_being_processed = true` for the first non-processed element in the queue
-    fn process_first(&mut self) -> Result<Self::N, ProgramError> {
-        let head = self.get_head();
-        let tail = self.get_tail();
-        guard!(head != tail, QueueIsEmpty);
-
-        let value = self.get_data(head as usize);
-        guard!(!value.is_being_processed, ElementIsAlreadyBeingProcessed);
-        self.set_data(head as usize, &RequestWrap { is_being_processed: true, request: value.request.clone() });
-
-        Ok(value.request)
     }
 
     fn contains(&self, value: &Self::N) -> bool {
@@ -229,7 +120,7 @@ pub trait RingQueue {
         let tail = self.get_tail();
 
         while ptr != tail {
-            if self.get_data(ptr as usize).request == *value { return true; }
+            if self.get_data(ptr as usize) == *value { return true; }
             ptr = (ptr + 1) % Self::SIZE;
         }
 
@@ -257,7 +148,7 @@ mod tests {
     struct TestQueue {
         head: u64,
         tail: u64,
-        data: [RequestWrap<u32>; SIZE],
+        data: [u32; SIZE],
     }
 
     impl RingQueue for TestQueue {
@@ -270,13 +161,13 @@ mod tests {
         fn get_tail(&self) -> u64 { self.tail }
         fn set_tail(&mut self, value: &u64) { self.tail = *value; }
 
-        fn get_data(&self, index: usize) -> RequestWrap<u32> { self.data[index] }
-        fn set_data(&mut self, index: usize, value: &RequestWrap<u32>) { self.data[index] = *value; }
+        fn get_data(&self, index: usize) -> u32 { self.data[index] }
+        fn set_data(&mut self, index: usize, value: &u32) { self.data[index] = *value; }
     }
 
     macro_rules! test_queue {
         ($id: ident, $head: literal, $tail: literal) => {
-            let mut $id = TestQueue { head: $head, tail: $tail, data: [RequestWrap { is_being_processed: false, request: 0 }; SIZE] };
+            let mut $id = TestQueue { head: $head, tail: $tail, data: [0; SIZE] };
         };
     }
 
@@ -286,7 +177,7 @@ mod tests {
 
         for i in 1..SIZE {
             queue.enqueue(i as u32).unwrap();
-            assert_eq!(1, queue.view_first().unwrap().request); // first element does not change
+            assert_eq!(1, queue.view_first().unwrap()); // first element does not change
             assert_eq!(queue.len(), i as u64);
         }
     }
@@ -298,16 +189,6 @@ mod tests {
     }
 
     #[test]
-    fn test_process_before_dequeue() {
-        test_queue!(queue, 0, 0);
-
-        queue.enqueue(1).unwrap();
-        assert!(matches!(queue.dequeue_first(), Err(_)));
-        queue.process_first().unwrap();
-        assert!(matches!(queue.dequeue_first(), Ok(_)));
-    }
-
-    #[test]
     fn test_ordering() {
         test_queue!(queue, 0, 0);
 
@@ -316,16 +197,9 @@ mod tests {
         }
 
         for i in 1..SIZE {
-            assert_eq!(i as u32, queue.view_first().unwrap().request);
-            queue.process_first().unwrap();
+            assert_eq!(i as u32, queue.view_first().unwrap());
             queue.dequeue_first().unwrap();
         }
         assert!(matches!(queue.dequeue_first(), Err(_)));
-    }
-
-    #[test]
-    fn test_queue_accounts_setup() {
-        let mut data = vec![0; QueueManagementAccount::SIZE];
-        QueueManagementAccount::new(&mut data).unwrap();
     }
 }

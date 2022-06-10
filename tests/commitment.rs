@@ -2,23 +2,20 @@
 
 #[cfg(not(tarpaulin_include))]
 mod common;
-
-use elusiv::fields::{fr_to_u256_le, u256_to_fr};
-use elusiv::state::{MT_HEIGHT, EMPTY_TREE};
-use elusiv::types::U256;
+use common::*;
 use common::program_setup::*;
-use common::{ get_data, };
+
+use elusiv::fee::FeeAccount;
+use elusiv::state::pool::PoolAccount;
+use elusiv::state::program_account::SizedAccount;
+use elusiv::state::queue::{BaseCommitmentQueue, BaseCommitmentQueueAccount};
 use elusiv::instruction::*;
-use solana_program::hash::Hash;
-use solana_program::instruction::Instruction;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
-use solana_sdk::{signature::Signer, transaction::Transaction};
-use assert_matches::assert_matches;
+use solana_sdk::signature::Signer;
 use elusiv::state::{
     queue::{
-        BaseCommitmentQueueAccount, BaseCommitmentHashRequest, BaseCommitmentQueue,
         CommitmentQueueAccount, CommitmentQueue,
         RingQueue,
         Queue,
@@ -28,256 +25,246 @@ use elusiv::state::{
         ProgramAccount,
     },
 };
-use std::str::FromStr;
-use ark_bn254::Fr;
-use elusiv::commitment::{BaseCommitmentHashComputation, CommitmentHashComputation, CommitmentHashingAccount};
+use elusiv::commitment::{BaseCommitmentHashComputation, BaseCommitmentHashingAccount};
 use elusiv_computation::PartialComputation;
-
-fn u256_from_str(str: &str) -> U256 {
-    fr_to_u256_le(&Fr::from_str(str).unwrap())
-}
-
-async fn tx_should_succeed(ixs: &[Instruction], banks_client: &mut BanksClient, payer: &solana_sdk::signature::Keypair, recent_blockhash: Hash) {
-    let mut tx = Transaction::new_with_payer(ixs, Some(&payer.pubkey()));
-    tx.sign(&[payer], recent_blockhash);
-    assert_matches!(banks_client.process_transaction(tx).await, Ok(()));
-}
-
-async fn tx_should_fail(ixs: &[Instruction], banks_client: &mut BanksClient, payer: &solana_sdk::signature::Keypair, recent_blockhash: Hash) {
-    let mut tx = Transaction::new_with_payer(ixs, Some(&payer.pubkey()));
-    tx.sign(&[payer], recent_blockhash);
-    assert_matches!(banks_client.process_transaction(tx).await, Err(_));
-}
-
-macro_rules! queue {
-    ($id: ident, $ty: ty, $ty_account: ty) => {
-        let mut queue = <$ty_account>::new(&mut $id[..]).unwrap();
-        let $id = <$ty>::new(&mut queue);
-    };
-}
-
-async fn execute_on_base_queue<F>(banks_client: &mut BanksClient, key: &Pubkey, f: F) where F: Fn(&BaseCommitmentQueue) {
-    let mut queue = get_data(banks_client, *key).await;
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount);
-    f(&queue)
-}
-
-async fn execute_on_commitment_queue<F>(banks_client: &mut BanksClient, key: &Pubkey, f: F) where F: Fn(&CommitmentQueue) {
-    let mut queue = get_data(banks_client, *key).await;
-    queue!(queue, CommitmentQueue, CommitmentQueueAccount);
-    f(&queue)
-}
-
-macro_rules! first_request_test {
-    () => {
-        BaseCommitmentHashRequest {
-            base_commitment: u256_from_str("8337064132573119120838379738103457054645361649757131991036638108422638197362"),
-            amount: LAMPORTS_PER_SOL,
-            commitment: u256_from_str("139214303935475888711984321184227760578793579443975701453971046059378311483")
-        }
-    };
-}
 
 #[tokio::test]
 async fn test_base_commitment() {
-    let first_request = first_request_test!();
-    let second_request = BaseCommitmentHashRequest {
-        base_commitment: u256_from_str("8337064132573119120838379738103457054645361649757131991036638108422638197362"),
-        amount: 20 * LAMPORTS_PER_SOL,
-        commitment: u256_from_str("21186803555845400161937398579081414146527572885637089779856221229551142844794")
-    };
+    let mut test_program = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut test_program).await;
+    setup_pool_accounts(&mut test_program).await;
 
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
-    let keys = setup_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
+    let lamports_per_tx = lamports_per_signature(&mut test_program).await;
 
-    // Enqueue first and second
-    tx_should_succeed(
-        &[
-            ElusivInstruction::store_instruction(first_request.clone(), SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment)),
-            ElusivInstruction::store_instruction(second_request.clone(), SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment)),
-        ],
-        &mut banks_client, &payer, recent_blockhash
+    pda_account!(fee, FeeAccount, Some(0), test_program);
+    pda_account!(pool, PoolAccount, None, test_program);
+
+    let sol_pool = Pubkey::new(&pool.get_sol_pool());
+    let sol_pool_start_balance = get_balance(sol_pool, &mut test_program).await;
+
+    let fee_collector = Pubkey::new(&pool.get_fee_collector());
+    let fee_collector_start_balance = get_balance(fee_collector, &mut test_program).await;
+
+    let requests = vec![
+        base_commitment_request(
+            "8337064132573119120838379738103457054645361649757131991036638108422638197362",
+            "139214303935475888711984321184227760578793579443975701453971046059378311483",
+            LAMPORTS_PER_SOL, 0,
+        ),
+        base_commitment_request(
+            "8337064132573119120838379738103457054645361649757131991036638108422638197362",
+            "21186803555845400161937398579081414146527572885637089779856221229551142844794",
+            20 * LAMPORTS_PER_SOL, 0,
+        ),
+    ];
+
+    let client_keypair = create_account(&mut test_program).await;
+    let client = client_keypair.pubkey();
+
+    // Due to InvalidRentPayingAccount error, we need to give our client a starting balance
+    let start_balance = LAMPORTS_PER_SOL;
+    airdrop(&client, start_balance, &mut test_program).await;
+
+    let relayer_a = create_account(&mut test_program).await;
+    airdrop(&relayer_a.pubkey(), start_balance, &mut test_program).await;
+    let mut a_failed_tx_cost = 0;
+
+    let relayer_b = create_account(&mut test_program).await;
+    airdrop(&relayer_b.pubkey(), start_balance, &mut test_program).await;
+
+    // Request should fail: client has not enough funds
+    let store_ix = ElusivInstruction::store_base_commitment_instruction(
+        0,
+        requests[0].clone(),
+        SignerAccount(client),
+        WritableUserAccount(sol_pool),
+        WritableUserAccount(fee_collector),
+    );
+    ix_should_fail(store_ix.clone(), &client, vec![&client_keypair], &mut test_program).await;
+    assert_eq!(
+        start_balance - lamports_per_tx,
+        get_balance(client, &mut test_program).await
+    );
+
+    // Client has enough funds
+    let base_commitment_hash_fee = fee.base_commitment_hash_fee();
+    let network_fee = fee.get_base_commitment_network_fee();
+    let amount = requests[0].amount + base_commitment_hash_fee + 2 * lamports_per_tx;
+    airdrop(&client, amount, &mut test_program).await;
+    assert_eq!(
+        amount + start_balance - lamports_per_tx,
+        get_balance(client, &mut test_program).await
+    );
+
+    ix_should_succeed(store_ix, &client, vec![&client_keypair], &mut test_program).await;
+
+    // Client now has start_balance, the pool requests[0].amount + base_commitment_hash_fee - network_fee, the fee_collector network_fee
+    assert_eq!(start_balance, get_balance(client, &mut test_program).await);
+    assert_eq!(
+        network_fee + fee_collector_start_balance,
+        get_balance(fee_collector, &mut test_program).await
+    );
+    assert_eq!(
+        requests[0].amount + base_commitment_hash_fee - network_fee + sol_pool_start_balance,
+        get_balance(sol_pool, &mut test_program).await
+    );
+
+    // Check the queue for the first request
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, test_program);
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue.view_first().unwrap(), requests[0]);
+
+    // Client stores the second request
+    let amount = requests[1].amount + base_commitment_hash_fee + lamports_per_tx;
+    airdrop(&client, amount, &mut test_program).await;
+    ix_should_succeed(ElusivInstruction::store_base_commitment_instruction(
+        0,
+        requests[1].clone(),
+        SignerAccount(client),
+        WritableUserAccount(sol_pool),
+        WritableUserAccount(fee_collector),
+    ), &client, vec![&client_keypair], &mut test_program).await;
+
+    assert_eq!(start_balance, get_balance(client, &mut test_program).await);
+    assert_eq!(
+        2 * network_fee + fee_collector_start_balance,
+        get_balance(fee_collector, &mut test_program).await
+    );
+    assert_eq!(
+        requests[0].amount + requests[1].amount + 2 * (base_commitment_hash_fee - network_fee) + sol_pool_start_balance,
+        get_balance(sol_pool, &mut test_program).await
+    );
+
+    // Check the queue for the second request
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, test_program);
+    assert_eq!(queue.len(), 2);
+    assert_eq!(queue.view_first().unwrap(), requests[0]);
+    assert_eq!(queue.view(1).unwrap(), requests[1]);
+
+    // Init through relayer_a with hash_account at 0
+    ix_should_succeed(
+        ElusivInstruction::init_base_commitment_hash_instruction(0, SignerAccount(relayer_a.pubkey())),
+        &relayer_a.pubkey(), vec![&relayer_a], &mut test_program,
     ).await;
 
-    // Check for requests in queue
-    execute_on_base_queue(&mut banks_client, &keys.base_commitment, |queue| {
-        assert_eq!(queue.len(), 2);
+    // Relayer should now have lost the cost of renting
+    let rent = get_account_cost(&mut test_program, BaseCommitmentHashingAccount::SIZE).await;
+    assert_eq!(
+        start_balance - lamports_per_tx - rent,
+        get_balance(relayer_a.pubkey(), &mut test_program).await
+    );
 
-        let first = queue.view(0).unwrap();
-        assert_eq!(first.is_being_processed, false);
-        assert_eq!(first.request, first_request);
+    // First request has been dequeued
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, test_program);
+    assert_eq!(queue.len(), 1);
 
-        let second = queue.view(1).unwrap();
-        assert_eq!(second.is_being_processed, false);
-        assert_eq!(second.request, second_request);
-    }).await;
-
-    // Init bas commitment hash computation
-    tx_should_succeed(
-        &[
-            ElusivInstruction::init_base_commitment_hash_instruction(0, SignerAccount(payer.pubkey()), WritableUserAccount(keys.base_commitment))
-        ],
-        &mut banks_client, &payer, recent_blockhash
+    // Second init through relayer_b will fail, since the hash_account at 0 already exists
+    ix_should_fail(
+        ElusivInstruction::init_base_commitment_hash_instruction(0, SignerAccount(relayer_b.pubkey())),
+        &relayer_b.pubkey(), vec![&relayer_b], &mut test_program,
     ).await;
 
-    // Check that first request has been set to `is_being_processed` (and nothing else has changed)
-    execute_on_base_queue(&mut banks_client, &keys.base_commitment, |queue| {
-        assert_eq!(queue.len(), 2);
-
-        let first = queue.view(0).unwrap();
-        assert_eq!(first.is_being_processed, true);
-        assert_eq!(first.request, first_request);
-
-        let second = queue.view(1).unwrap();
-        assert_eq!(second.is_being_processed, false);
-        assert_eq!(second.request, second_request);
-    }).await;
-
-    // Compute hash (should fail since not enough compute units)
-    tx_should_fail(
-        &[
-            ElusivInstruction::compute_base_commitment_hash_instruction(0, 0)
-        ],
-        &mut banks_client, &payer, recent_blockhash
+    // But init through relayer_b will succeed for the hash_account with offset 1
+    ix_should_succeed(
+        ElusivInstruction::init_base_commitment_hash_instruction(1, SignerAccount(relayer_b.pubkey())),
+        &relayer_b.pubkey(), vec![&relayer_b], &mut test_program,
     ).await;
 
-    // Compute hashes
+    // Queue should now be empty
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, test_program);
+    assert_eq!(queue.len(), 0);
+
+    // New hash_account with the request
+    assert!(account_does_exist(BaseCommitmentHashingAccount::find(Some(0)).0, &mut test_program).await);
+    pda_account!(hash_account, BaseCommitmentHashingAccount, Some(0), test_program);
+    assert_eq!(hash_account.get_fee_version(), 0);
+    assert_eq!(hash_account.get_fee_payer(), relayer_a.pubkey().to_bytes());
+    assert_eq!(hash_account.get_instruction(), 0);
+
+    let compute_ix = ElusivInstruction::compute_base_commitment_hash_instruction(
+        0,
+        0,
+        0,
+        SignerAccount(relayer_a.pubkey()),
+        WritableUserAccount(sol_pool)
+    );
+    let finalize_ix = ElusivInstruction::finalize_base_commitment_hash_instruction(
+        0,
+        SignerAccount(relayer_a.pubkey())
+    );
+
+    // Compute each base_commitment_hash
+    let hash_reward = fee.get_relayer_hash_tx_fee();
     for i in 0..BaseCommitmentHashComputation::INSTRUCTIONS.len() {
-        let nonce: u64 = rand::random();
+        // Finalization will always fail before completion
+        ix_should_fail(finalize_ix.clone(), &relayer_a.pubkey(), vec![&relayer_a], &mut test_program).await;
+        a_failed_tx_cost += lamports_per_tx;
 
-        tx_should_succeed(
-            &[
-                request_compute_units(BaseCommitmentHashComputation::INSTRUCTIONS[i].compute_units),
-                ElusivInstruction::compute_base_commitment_hash_instruction(0, nonce)
-            ],
-            &mut banks_client, &payer, recent_blockhash
-        ).await;
+        // Fail due to too low compute budget
+        ix_should_fail(compute_ix.clone(), &relayer_a.pubkey(), vec![&relayer_a], &mut test_program).await;
+        a_failed_tx_cost += lamports_per_tx;
+
+        // Success for correct compute budget
+        tx_should_succeed(&[
+            request_compute_units(BaseCommitmentHashComputation::INSTRUCTIONS[i].compute_units),
+            compute_ix.clone(),
+        ], &relayer_a.pubkey(), vec![&relayer_a], &mut test_program).await;
+
+        // Check for:
+        // - rewards of the last computation
+        // - compensation of the signature costs (only failed_tx will cost relayer)
+        assert_eq!(
+            start_balance - lamports_per_tx - rent - a_failed_tx_cost + ((i as u64 + 1) * hash_reward),
+            get_balance(relayer_a.pubkey(), &mut test_program).await
+        );
     }
 
-    // Finalize base commitment hash
-    tx_should_succeed(
-        &[
-            ElusivInstruction::finalize_base_commitment_hash_instruction(0, WritableUserAccount(keys.base_commitment), WritableUserAccount(keys.commitment))
-        ],
-        &mut banks_client, &payer, recent_blockhash
-    ).await;
+    // Additional computation will fail
+    tx_should_fail(&[
+        request_compute_units(1_400_000),
+        compute_ix.clone(),
+    ], &relayer_a.pubkey(), vec![&relayer_a], &mut test_program).await;
+    a_failed_tx_cost += lamports_per_tx;
 
-    // Check base_commitment_queue (first element should be gone, second now at the top)
-    execute_on_base_queue(&mut banks_client, &keys.base_commitment, |queue| {
-        assert_eq!(queue.len(), 1);
+    // Finalize succeeds after computation
+    ix_should_succeed(finalize_ix.clone(), &relayer_a.pubkey(), vec![&relayer_a], &mut test_program).await;
 
-        let first = queue.view(0).unwrap();
-        assert_eq!(first.is_being_processed, false);
-        assert_eq!(first.request, second_request);
-    }).await;
+    // Check that hash_account has been closed
+    assert!(account_does_not_exist(BaseCommitmentHashingAccount::find(Some(0)).0, &mut test_program).await);
 
-    // Check commitment queue
-    execute_on_commitment_queue(&mut banks_client, &keys.commitment, |queue| {
-        assert_eq!(queue.len(), 1);
+    // Second finalize will fail
+    ix_should_fail(compute_ix.clone(), &relayer_a.pubkey(), vec![&relayer_a], &mut test_program).await;
+    a_failed_tx_cost += lamports_per_tx;
 
-        let first = queue.view(0).unwrap();
-        assert_eq!(first.is_being_processed, false);
-        assert_eq!(first.request, first_request.commitment);
-    }).await;
+    // Check commitment queue for the correct hash
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, test_program);
+    let commitment = queue.view_first().unwrap();
+    assert_eq!(queue.len(), 1);
+    assert_eq!(commitment.commitment, requests[0].commitment);
+    assert_eq!(commitment.fee_version, 0);
 
-}
+    // Resulting balance for the relayer
+    // - in the real world the relayer will combine the finalize tx with some other ix (like init commitment + hash)
+    // - here the relayer will just loose 2x signature costs
+    let hash_rewards_a = hash_reward * BaseCommitmentHashComputation::INSTRUCTIONS.len() as u64;
+    assert_eq!(
+        start_balance - 2 * lamports_per_tx - a_failed_tx_cost + hash_rewards_a,
+        get_balance(relayer_a.pubkey(), &mut test_program).await
+    );
 
-#[tokio::test]
-async fn test_init_commitment() {
-    let first_request = first_request_test!();
+    // SOL pool contains:
+    // - amounts of the two requests
+    // - for the first request the cost for hashing the commitment
+    // - for the second request the cost for hashing base commitment + commitment
+    let commitment_hash_fee = fee.commitment_hash_fee();
+    assert_eq!(
+        requests[0].amount + requests[1].amount + commitment_hash_fee + base_commitment_hash_fee - network_fee + sol_pool_start_balance,
+        get_balance(sol_pool, &mut test_program).await
+    );
 
-    let (mut banks_client, payer, recent_blockhash, keys, storage) = start_program_solana_program_test_with_accounts_setup(
-        |_| {},
-        |commitment_queue| {
-            commitment_queue.enqueue(first_request.commitment).unwrap();
-        },
-        |_| {},
-        |_| {},
-        |_| {},
-        |_| {},
-    ).await;
-
-    // Get storage account
-    let user_storage = storage.iter().map(|&x| UserAccount(x)).collect::<Vec<UserAccount>>().try_into().unwrap();
-
-    // Init commitment hash computation
-    tx_should_succeed(
-        &[
-            ElusivInstruction::init_commitment_hash_instruction(SignerAccount(payer.pubkey()), WritableUserAccount(keys.commitment), user_storage)
-        ],
-        &mut banks_client, &payer, recent_blockhash
-    ).await;
-
-    // Check commitment queue
-    execute_on_commitment_queue(&mut banks_client, &keys.commitment, |queue| {
-        assert_eq!(queue.len(), 1);
-
-        let first = queue.view(0).unwrap();
-        assert_eq!(first.is_being_processed, true);
-        assert_eq!(first.request, first_request.commitment);
-    }).await;
-}
-
-#[tokio::test]
-async fn test_single_commitment() {
-    /*let first_request = first_request_test!();
-
-    let (mut banks_client, payer, recent_blockhash, keys, storage) = start_program_solana_program_test_with_accounts_setup(
-        |_| {},
-        |commitment_queue| {
-            commitment_queue.enqueue(first_request.commitment).unwrap();
-            commitment_queue.process_first().unwrap();
-        },
-        |_| {},
-        |_| {},
-        |_| {},
-        |_| {},
-    ).await;
-
-    // Get storage account
-    let user_storage = storage.iter().map(|&x| UserAccount(x)).collect::<Vec<UserAccount>>().try_into().unwrap();*/
-
-    // Compute hashes
-    /*for i in 0..CommitmentHashComputation::INSTRUCTIONS.len() {
-        let nonce: u64 = rand::random();
-
-        tx_should_succeed(
-            &[
-                request_compute_units(CommitmentHashComputation::INSTRUCTIONS[i].compute_units),
-                ElusivInstruction::compute_commitment_hash(nonce),
-            ],
-            &mut banks_client, &payer, recent_blockhash
-        ).await;
-    }
-
-    // Check finished hashes
-    let mut hashing_account = get_data(&mut banks_client, CommitmentHashingAccount::find(None).0).await;
-    let hashing_account = CommitmentHashingAccount::new(&mut hashing_account).unwrap();
-
-    assert_eq!(hashing_account.get_is_active(), true);
-    assert_eq!(hashing_account.get_finished_hashes(MT_HEIGHT as usize - 1), u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575"));
-
-    // Get storage account
-    let writable_storage = storage.iter().map(|&x| WritableUserAccount(x)).collect::<Vec<WritableUserAccount>>().try_into().unwrap();
-
-    // Finalize commitment hash
-    tx_should_succeed(
-        &[
-            ElusivInstruction::finalize_commitment_hash(WritableUserAccount(keys.commitment), writable_storage)
-        ],
-        &mut banks_client, &payer, recent_blockhash
-    ).await;
-
-    // Check that merkle tree is updated
-    execute_on_storage_account(&mut banks_client, &storage, |storage_account| {
-        let root = storage_account.get_root();
-        assert_eq!(root, u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575"));
-
-        let commitment = storage_account.get_node(0, MT_HEIGHT as usize);
-        assert_eq!(commitment, u256_to_fr(&first_request.commitment));
-
-        assert_eq!(storage_account.get_next_commitment_ptr(), 1);
-        assert_eq!(storage_account.get_active_mt_root_history(0), fr_to_u256_le(&EMPTY_TREE[MT_HEIGHT as usize]));
-    }).await;*/
+    // Fee collector unchanged
+    assert_eq!(
+        2 * network_fee + fee_collector_start_balance,
+        get_balance(fee_collector, &mut test_program).await
+    );
 }

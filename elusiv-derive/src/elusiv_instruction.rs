@@ -103,8 +103,8 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 };
 
                 match attr_name.as_str() {
-                    // User `AccountInfo` (usage: <name>)
-                    "usr" => {
+                    // `AccountInfo` (usage: <name>)
+                    "acc" => {
                         user_accounts.extend(quote!{ #account: #user_account_type, });
                         account_init.push(quote!{
                             accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
@@ -113,8 +113,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                     // Program owned accounts that satisfy a pubkey constraint
                     "prg" => {
-                        let ty = program_account_type(sub_attrs[1]);
-                        let key: TokenStream = named_sub_attribute("key", sub_attrs[2]).parse().unwrap();
 
                         user_accounts.extend(quote!{ #account: #user_account_type, });
                         account_init.push(quote!{
@@ -127,14 +125,20 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             });
                         }
 
-                        accounts.extend(quote!{
-                            if #account.key.to_bytes() != #key { return Err(InvalidArgument) }
-                        });
-
                         if as_account_info {
+                            let key: TokenStream = named_sub_attribute("key", sub_attrs[1]).parse().unwrap();
+
+                            accounts.extend(quote!{
+                                if #account.key.to_bytes() != #key { return Err(InvalidArgument) }
+                            });
+
                             account = quote!{ &#account };
                         } else {
+                            let ty = program_account_type(sub_attrs[1]);
+                            let key: TokenStream = named_sub_attribute("key", sub_attrs[2]).parse().unwrap();
+
                             accounts.extend(quote!{
+                                if #account.key.to_bytes() != #key { return Err(InvalidArgument) }
                                 let acc_data = &mut #account.data.borrow_mut()[..];
                                 let #mut_token #account = <#ty>::new(acc_data)?;
                             });
@@ -187,9 +191,16 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         let no_subaccount_check = sub_attrs.contains(&"no_subaccount_check");
 
                         // PDA verification
-                        accounts.extend(quote!{
-                            if !<#ty>::is_valid_pubkey(&#account, #pda_offset, #account.key)? { return Err(InvalidArgument) }
-                        });
+                        let find_pda = sub_attrs.contains(&"find_pda"); // does not read the bump byte from the account data
+                        if find_pda {
+                            accounts.extend(quote!{
+                                if <#ty>::find(#pda_offset).0 != *#account.key { return Err(InvalidArgument) }
+                            });
+                        } else {
+                            accounts.extend(quote!{
+                                if !<#ty>::is_valid_pubkey(&#account, #pda_offset, #account.key)? { return Err(InvalidArgument) }
+                            });
+                        }
 
                         account_init.push(quote!{
                             accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#pda_offset).0, #is_signer));

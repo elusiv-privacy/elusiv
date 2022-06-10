@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::io::Write;
 use log::LevelFilter;
 use log4rs::append::file::FileAppender;
@@ -32,9 +31,9 @@ pub fn get_compute_unit_pairs_from_log() {
     let lines = io::BufReader::new(file).lines();
     let re = Regex::new(r"(?x) (.*) (Program) \s (consumption.) \s (?P<compute_units>\d*) \s (units) \s (remaining) (.*) ").unwrap();
 
-    let mut cus: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut v = None;
-    let mut ident = String::new();
+    let mut cus = Vec::new();
+    let mut v = 0;
+    let mut a = true;
 
     for line in lines {
         match line {
@@ -43,40 +42,27 @@ pub fn get_compute_unit_pairs_from_log() {
                     let caps = re.captures(&line).unwrap();
                     let cu: usize = (&caps["compute_units"]).parse().unwrap();
 
-                    match v {
-                        None => {
-                            v = Some(cu);
-                        },
-                        Some(vv) => {
-                            match cus.get(&ident) {
-                                Some(c) => {
-                                    let mut c = c.clone();
-                                    c.push(vv - cu);
-                                    cus.insert(ident.clone(), c);
-                                }
-                                None => {
-                                    cus.insert(ident.clone(), vec![vv - cu]);
-                                }
-                            }
-                            v = None;
-                        }
+                    if a {
+                        v = cu;
+                    } else {
+                        cus.push(v - cu);
+                        v = 0;
                     }
-                }
 
-                if matches!(v, None) {
-                    ident = format!("{}", line);
+                    a = !a;
                 }
             },
             Err(_) => return,
         }
     }
 
-    let mut out = String::new();
-    for (_, cus) in cus.iter() {
-        let max = cus.iter().fold(0, |a, b| std::cmp::max(a, *b));
-        let min = cus.iter().fold(0, |a, b| std::cmp::min(a, *b));
-        let avg = if cus.len() > 0 { cus.iter().fold(0, |acc, x| acc + x) / cus.len() } else { 0 };
-        out.push_str(&format!("Compute Units: Max: {}, Min: {}, Avg: {} \n", max, min, avg));
+    let max = cus.iter().fold(0, |a, b| std::cmp::max(a, *b));
+    let min = cus.iter().fold(usize::MAX, |a, b| std::cmp::min(a, *b));
+    let avg = if cus.len() > 0 { cus.iter().fold(0, |acc, x| acc + x) / cus.len() } else { 0 };
+    let mut out = format!("(CUs: max: {}, min: {}, avg: {})", max, min, avg);
+
+    for c in cus {
+        out.push_str(&format!("\n{}", c));
     }
 
     let mut output = File::create("log/compute_units.log").unwrap();

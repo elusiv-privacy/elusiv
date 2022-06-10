@@ -2,32 +2,30 @@
 
 #[cfg(not(tarpaulin_include))]
 mod common;
-
-use elusiv::state::StorageAccount;
+use common::*;
 use common::program_setup::*;
-use common::{
-    get_balance,
-    get_data,
-};
-use elusiv::commitment::{CommitmentHashingAccount, BaseCommitmentHashingAccount};
+
+use elusiv::fee::FeeAccount;
+use elusiv::state::StorageAccount;
+use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
 use elusiv::processor::SingleInstancePDAAccountKind;
-use elusiv::proof::VerificationAccount;
 use elusiv::state::pool::PoolAccount;
 use elusiv::state::program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount};
-use elusiv::state::queue::QueueManagementAccount;
+use solana_program::native_token::LAMPORTS_PER_SOL;
+use solana_program::account_info::Account;
 use solana_program_test::*;
-use solana_sdk::{signature::Signer, transaction::Transaction};
-use assert_matches::assert_matches;
-use elusiv::state::queue::CommitmentQueueAccount;
+use solana_sdk::signature::Keypair;
+use solana_sdk::signature::Signer;
+use elusiv::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount};
 
 macro_rules! assert_account {
-    ($ty: ty, $banks_client: ident, $offset: expr) => {
+    ($ty: ty, $test_program: expr, $offset: expr) => {
         {
-            let mut data = get_data(&mut $banks_client, <$ty>::find($offset).0).await;
+            let mut data = get_data(&mut $test_program, <$ty>::find($offset).0).await;
 
             // Check balance and data size
-            assert!(get_balance(&mut $banks_client, <$ty>::find($offset).0).await > 0);
+            assert!(get_balance(<$ty>::find($offset).0, &mut $test_program).await > 0);
             assert_eq!(data.len(), <$ty>::SIZE);
 
             // Check bump and initialized flag
@@ -40,167 +38,117 @@ macro_rules! assert_account {
 
 #[tokio::test]
 async fn test_setup_pda_accounts() {
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+    let mut test_program = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut test_program).await;
 
-    // Single instance PDAs
-    assert_account!(PoolAccount, banks_client, None);
-    assert_account!(QueueManagementAccount, banks_client, None);
-    assert_account!(CommitmentHashingAccount, banks_client, None);
-
-    // Multi instance PDAs
-    assert_account!(BaseCommitmentHashingAccount, banks_client, Some(0));
-    assert_account!(VerificationAccount, banks_client, Some(0));
-}
-
-#[tokio::test]
-async fn test_setup_all_accounts() {
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
-
-    // Create queue accounts
-    let queues = setup_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
-
-    let mut queue_manager = get_data(&mut banks_client, QueueManagementAccount::find(None).0).await;
-    let queue_manager = QueueManagementAccount::new(&mut queue_manager[..]).unwrap();
-
-    // Check queue pubkeys
-    assert_eq!(queue_manager.get_base_commitment_queue(), queues.base_commitment.to_bytes());
-    assert_eq!(queue_manager.get_commitment_queue(), queues.commitment.to_bytes());
-    assert_eq!(queue_manager.get_send_proof_queue(), queues.send_proof.to_bytes());
-    assert_eq!(queue_manager.get_merge_proof_queue(), queues.merge_proof.to_bytes());
-    assert_eq!(queue_manager.get_migrate_proof_queue(), queues.migrate_proof.to_bytes());
-    assert_eq!(queue_manager.get_finalize_send_queue(), queues.finalize_send.to_bytes());
-
-    // Finished setup flag
-    assert!(queue_manager.get_finished_setup());
+    assert_account!(CommitmentHashingAccount, test_program, None);
+    assert_account!(CommitmentQueueAccount, test_program, None);
+    assert_account!(BaseCommitmentQueueAccount, test_program, None);
+    assert_account!(FeeAccount, test_program, Some(0));
 }
 
 #[tokio::test]
 #[should_panic]
 async fn test_setup_pda_accounts_duplicate() {
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+    let mut test_program = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut test_program).await;
+    setup_pda_accounts(&mut test_program).await;
+}
 
-    // Should fail because of PDAs already existing
-    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+#[tokio::test]
+async fn test_setup_pool_accounts() {
+    let mut test_program = start_program_solana_program_test().await;
+    let (sol_pool, fee_collector) = setup_pool_accounts(&mut test_program).await;
+    
+    pda_account!(pool, PoolAccount, None, test_program);
+    assert_eq!(pool.get_sol_pool(), sol_pool.to_bytes());
+    assert_eq!(pool.get_fee_collector(), fee_collector.to_bytes());
 }
 
 #[tokio::test]
 #[should_panic]
-async fn test_setup_queue_accounts_duplicate() {
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
-    setup_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
-
-    // Should fail because of initialization flag
-    setup_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
-}
-
-macro_rules! tx_should_fail {
-    ($banks_client: ident, $payer: ident, $recent_blockhash: ident, $ixs: expr) => {
-        {
-            let mut transaction = Transaction::new_with_payer(
-                &$ixs,
-                Some(&$payer.pubkey()),
-            );
-            transaction.sign(&[&$payer], $recent_blockhash);
-
-            assert_matches!($banks_client.process_transaction(transaction).await, Err(_));
-        }
-    };
-}
-
-macro_rules! queue_accounts_tx_should_fail {
-    ($banks_client: ident, $payer: ident, $recent_blockhash: ident, $keys: ident, $acc: expr) => {
-        let mut keys = $keys.clone();
-        keys.commitment = $acc.pubkey();
-
-        tx_should_fail!(
-            $banks_client, $payer, $recent_blockhash,
-            setup_queue_accounts_ix(&keys)
-        );
-    };
+async fn test_setup_pool_accounts_duplicate() {
+    let mut test_program = start_program_solana_program_test().await;
+    setup_pool_accounts(&mut test_program).await;
+    setup_pool_accounts(&mut test_program).await;
 }
 
 #[tokio::test]
-#[should_panic]
-/// Test function for the test macro `queue_accounts_tx_should_fail`
-async fn test_setup_queue_accounts_should_fail() {
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
-    let keys = create_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
+async fn test_setup_fee_account() {
+    let mut test_program = start_program_solana_program_test().await;
+    let payer = Keypair::new();
+    airdrop(&payer.pubkey(), LAMPORTS_PER_SOL, &mut test_program).await;
 
-    // We set the correct commitment_queue_account so that `queue_accounts_tx_should_fail` panics
-    let acc = create_account_rent_exepmt(&mut banks_client, &payer, recent_blockhash, CommitmentQueueAccount::SIZE).await;
-    queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
-}
-
-#[tokio::test]
-async fn test_setup_queue_accounts_invalid() {
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
-    let keys = create_queue_accounts(&mut banks_client, &payer, recent_blockhash).await;
-
-    // Wrong queue account size
-    let acc = create_account_rent_exepmt(&mut banks_client, &payer, recent_blockhash, 100).await;
-    queue_accounts_tx_should_fail!(banks_client, payer, recent_blockhash, keys, acc);
-}
-
-#[tokio::test]
-async fn test_setup_pda_accounts_invalid() {
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-
-    // Wrong PDA
-    tx_should_fail!(
-        banks_client, payer, recent_blockhash, vec![
-            ElusivInstruction::open_single_instance_account_instruction(
-                SingleInstancePDAAccountKind::Pool, 0,
-                SignerAccount(payer.pubkey()),
-                WritableUserAccount(QueueManagementAccount::find(None).0)
-            )
-        ]
+    let ix = ElusivInstruction::init_new_fee_version_instruction(
+        0,
+        9999,
+        111,
+        222,
+        1,
+        2,
+        333,
+        SignerAccount(payer.pubkey()),
     );
+
+    ix_should_succeed(ix.clone(), &payer.pubkey(), vec![&payer], &mut test_program).await;
+
+    // Second time will fail
+    ix_should_fail(ix.clone(), &payer.pubkey(), vec![&payer], &mut test_program).await;
+    
+    pda_account!(fee, FeeAccount, Some(0), test_program);
+    assert_eq!(fee.get_lamports_per_tx(), 9999);
+    assert_eq!(fee.get_base_commitment_network_fee(), 111);
+    assert_eq!(fee.get_proof_network_fee(), 222);
+    assert_eq!(fee.get_relayer_hash_tx_fee(), 1);
+    assert_eq!(fee.get_relayer_proof_tx_fee(), 2);
+    assert_eq!(fee.get_relayer_proof_reward(), 333);
+
+    // Attempting to set a version higher than genesis (0) will fail
+    let ix = ElusivInstruction::init_new_fee_version_instruction(
+        1,
+        9999,
+        111,
+        222,
+        1,
+        2,
+        333,
+        SignerAccount(payer.pubkey()),
+    );
+    ix_should_fail(ix.clone(), &payer.pubkey(), vec![&payer], &mut test_program).await;
+}
+
+#[tokio::test]
+async fn test_setup_pda_accounts_invalid_pda() {
+    let mut test_program = start_program_solana_program_test().await;
+    let payer = Keypair::new();
+    airdrop(&payer.pubkey(), LAMPORTS_PER_SOL, &mut test_program).await;
+
+    ix_should_fail(
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::CommitmentQueue, 0,
+            SignerAccount(payer.pubkey()),
+            WritableUserAccount(BaseCommitmentQueueAccount::find(None).0)
+        ),
+        &payer.pubkey(), vec![&payer], &mut test_program
+    ).await;
 }
 
 #[tokio::test]
 async fn test_setup_storage_account() {
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
+    let mut test_program = start_program_solana_program_test().await;
+    let keys = setup_storage_account(&mut test_program).await;
 
-    let keys = setup_storage_account(&mut banks_client, &payer, recent_blockhash).await;
-
-    execute_on_storage_account(&mut banks_client, &keys, |storage_account| {
-        // Finished setup flag
-        assert!(storage_account.get_finished_setup());
-
-        // Check pubkeys
-        for i in 0..StorageAccount::COUNT {
-            assert_eq!(storage_account.get_pubkeys(i), keys[i].to_bytes());
-        }
-    }).await;
+    storage_account!(storage_account, test_program);
+    assert!(storage_account.get_finished_setup());
+    for i in 0..StorageAccount::COUNT {
+        assert_eq!(storage_account.get_pubkeys(i), keys[i].to_bytes());
+    }
 }
 
 #[tokio::test]
 #[should_panic]
 async fn test_setup_storage_account_duplicate() {
-    let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-    setup_storage_account(&mut banks_client, &payer, recent_blockhash).await;
-    
-    // Should panic because of initialization flag
-    setup_storage_account(&mut banks_client, &payer, recent_blockhash).await;
-}
-
-#[tokio::test]
-#[should_panic]
-async fn test_setup_accounts_already_setup() {
-    let (mut banks_client, payer, recent_blockhash, _, _) = start_program_solana_program_test_with_accounts_setup(
-        |_| {},
-        |_| {},
-        |_| {},
-        |_| {},
-        |_| {},
-        |_| {},
-    ).await;
-
-    setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+    let mut test_program = start_program_solana_program_test().await;
+    setup_storage_account(&mut test_program).await;
+    setup_storage_account(&mut test_program).await;
 }

@@ -16,7 +16,7 @@ use borsh_serde_sized::*;
 /// `#[type(name, Type, pda_offset = .., key = .., [ signer, writable, multi_accounts, account_info, no_subaccount_check ])]`
 /// - with:
 ///     - type:
-///         - `usr`: user accounts or any `AccountInfo` that has no basic checks
+///         - `acc`: user accounts or any `AccountInfo` that has no basic checks
 ///         - `prg`
 ///         - `sys`: a different program (most likely system program) (requires the key = .. field)
 ///         - `pda`
@@ -42,7 +42,7 @@ use borsh_serde_sized::*;
 ///     }
 /// }
 /// ```
-#[proc_macro_derive(ElusivInstruction, attributes(usr, sys, pda, prg))]
+#[proc_macro_derive(ElusivInstruction, attributes(acc, sys, pda, prg))]
 pub fn elusiv_instruction(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     impl_elusiv_instruction(&ast).into()

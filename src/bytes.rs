@@ -28,6 +28,7 @@ impl<E: BorshSerDeSized + Default + Copy, const N: usize> BorshSerDeSized for [E
 pub(crate) use impl_borsh_sized;
 
 impl_borsh_sized!(u8, 1);
+impl_borsh_sized!(u16, 2);
 impl_borsh_sized!(u32, 4);
 impl_borsh_sized!(u64, 8);
 impl_borsh_sized!(u128, 16);

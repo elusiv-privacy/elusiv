@@ -11,14 +11,6 @@ macro_rules! guard {
     };
 }
 
-macro_rules! multi_instance_account {
-    ($ty: ty, $max_instances: literal) => {
-        impl<'a> crate::state::program_account::MultiInstanceAccount for $ty {
-            const MAX_INSTANCES: u64 = $max_instances;
-        }
-    };
-}
-
 macro_rules! two_pow {
     ($exp: expr) => {
         match 2usize.checked_pow($exp) {
@@ -47,10 +39,18 @@ macro_rules! account {
 }
 
 #[cfg(test)]
+macro_rules! test_account_info {
+    ($id: ident, $data_size: expr) => {
+        let pk = solana_program::pubkey::Pubkey::new_unique();
+        account!($id, pk, vec![0; $data_size]) 
+    };
+}
+
+#[cfg(test)]
 macro_rules! generate_storage_accounts {
     ($arr: ident, $s: expr) => {
         let mut pks = Vec::new();
-        for _ in 0..StorageAccount::COUNT { pks.push(Pubkey::new_unique()); }
+        for _ in 0..StorageAccount::COUNT { pks.push(solana_program::pubkey::Pubkey::new_unique()); }
 
         account!(a0, pks[0], vec![0; $s[0]]);
         account!(a1, pks[1], vec![0; $s[1]]);
@@ -79,10 +79,19 @@ macro_rules! generate_storage_accounts_valid_size {
     };
 }
 
+#[cfg(test)]
+macro_rules! zero_account {
+    ($id: ident, $ty: ty) => {
+        let mut data = vec![0; <$ty>::SIZE];
+        let mut $id = <$ty>::new(&mut data).unwrap();
+    }
+}
+
 pub(crate) use guard;
-pub(crate) use multi_instance_account;
 pub(crate) use two_pow;
 
 #[cfg(test)] pub(crate) use account;
+#[cfg(test)] pub(crate) use test_account_info;
+#[cfg(test)] pub(crate) use zero_account;
 #[cfg(test)] pub(crate) use generate_storage_accounts;
 #[cfg(test)] pub(crate) use generate_storage_accounts_valid_size;

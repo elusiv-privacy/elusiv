@@ -331,13 +331,15 @@ impl Stmt {
                 let child_result = child.to_stream(start_round, previous_computation_rounds);
                 let child_body = child_result.stream;
 
+                let bound = size - 1;
+
                 StmtResult { stream: quote!{
-                    if round < #size - 1 {
+                    if round < #bound {
                         match #fn_call {
                             Ok(_) => {},
                             Err(_) => { return Err(PartialComputationError) }
                         }
-                    } else if round == #size - 1 {
+                    } else if round == #bound {
                         let #ident = match #fn_call {
                             Ok(Some(v)) => v,
                             _ => { return Err(PartialComputationError) }
