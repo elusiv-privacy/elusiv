@@ -14,7 +14,8 @@ solana_program::entrypoint!(process_instruction);
 pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], instruction_data: &[u8]) -> ProgramResult {
     if instruction_data.len() == 0 { return Err(ProgramError::InvalidInstructionData) }
 
-    // We parse the ix length based on the first byte -> this allows our transactions to contain extra data, that the program can ignore but the client requires
+    // We parse the ix length based on the first byte
+    // - this allows our transactions to contain extra data (like nonces or encrypted client relevant information)
     let len = instruction::ElusivInstruction::len(instruction_data[0]);
     match instruction::ElusivInstruction::try_from_slice(&instruction_data[..len + 1]) {
         Ok(instruction) => instruction::ElusivInstruction::process(program_id, accounts, instruction),

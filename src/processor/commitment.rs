@@ -17,6 +17,7 @@ use crate::state::queue::{
 };
 use crate::error::ElusivError::{
     InvalidAmount,
+    InvalidAccount,
     ComputationIsNotYetFinished,
     ComputationIsAlreadyFinished,
     NonScalarValue,
@@ -164,7 +165,7 @@ pub fn compute_base_commitment_hash<'a>(
 }
 
 pub fn finalize_base_commitment_hash<'a>(
-    fee_payer: &AccountInfo<'a>,
+    original_fee_payer: &AccountInfo<'a>,
     commitment_hash_queue: &mut CommitmentQueueAccount,
     hashing_account_info: &AccountInfo<'a>,
 
@@ -173,6 +174,7 @@ pub fn finalize_base_commitment_hash<'a>(
     let mut data = &mut hashing_account_info.data.borrow_mut()[..];
     let hashing_account = BaseCommitmentHashingAccount::new(&mut data)?;
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
+    guard!(hashing_account.get_fee_payer() == original_fee_payer.key.to_bytes(), InvalidAccount);
     partial_computation_is_finished!(BaseCommitmentHashComputation, hashing_account);
 
     //guard!(first.request.commitment == result, ComputationIsNotYetFinished); we skip duplicate checks for now
@@ -186,7 +188,7 @@ pub fn finalize_base_commitment_hash<'a>(
     )?;
     
     // Close hashing account
-    close_account(fee_payer, hashing_account_info)
+    close_account(original_fee_payer, hashing_account_info)
 }
 
 /// Reads a commitment hashing request and places it in the `CommitmentHashingAccount`

@@ -76,8 +76,7 @@ async fn test_setup_pool_accounts_duplicate() {
 #[tokio::test]
 async fn test_setup_fee_account() {
     let mut test_program = start_program_solana_program_test().await;
-    let payer = Keypair::new();
-    airdrop(&payer.pubkey(), LAMPORTS_PER_SOL, &mut test_program).await;
+    let mut payer = Actor::new(&mut test_program).await;
 
     let ix = ElusivInstruction::init_new_fee_version_instruction(
         0,
@@ -87,13 +86,13 @@ async fn test_setup_fee_account() {
         1,
         2,
         333,
-        SignerAccount(payer.pubkey()),
+        SignerAccount(payer.pubkey),
     );
 
-    ix_should_succeed(ix.clone(), &payer.pubkey(), vec![&payer], &mut test_program).await;
+    ix_should_succeed(ix.clone(), &mut payer, &mut test_program).await;
 
     // Second time will fail
-    ix_should_fail(ix.clone(), &payer.pubkey(), vec![&payer], &mut test_program).await;
+    ix_should_fail(ix.clone(), &mut payer, &mut test_program).await;
     
     pda_account!(fee, FeeAccount, Some(0), test_program);
     assert_eq!(fee.get_lamports_per_tx(), 9999);
@@ -112,24 +111,23 @@ async fn test_setup_fee_account() {
         1,
         2,
         333,
-        SignerAccount(payer.pubkey()),
+        SignerAccount(payer.pubkey),
     );
-    ix_should_fail(ix.clone(), &payer.pubkey(), vec![&payer], &mut test_program).await;
+    ix_should_fail(ix.clone(), &mut payer, &mut test_program).await;
 }
 
 #[tokio::test]
 async fn test_setup_pda_accounts_invalid_pda() {
     let mut test_program = start_program_solana_program_test().await;
-    let payer = Keypair::new();
-    airdrop(&payer.pubkey(), LAMPORTS_PER_SOL, &mut test_program).await;
+    let mut payer = Actor::new(&mut test_program).await;
 
     ix_should_fail(
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::CommitmentQueue, 0,
-            SignerAccount(payer.pubkey()),
+            SignerAccount(payer.pubkey),
             WritableUserAccount(BaseCommitmentQueueAccount::find(None).0)
         ),
-        &payer.pubkey(), vec![&payer], &mut test_program
+        &mut payer, &mut test_program
     ).await;
 }
 

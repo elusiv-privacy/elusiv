@@ -65,7 +65,7 @@ pub enum ElusivInstruction {
         nonce: u64,
     },
 
-    #[acc(fee_payer, { writable, signer })]
+    #[acc(original_fee_payer, { writable })]
     #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable, account_info })]
     FinalizeBaseCommitmentHash {
