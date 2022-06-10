@@ -32,7 +32,6 @@ pub fn get_compute_unit_pairs_from_log() {
     let re = Regex::new(r"(?x) (.*) (Program) \s (consumption.) \s (?P<compute_units>\d*) \s (units) \s (remaining) (.*) ").unwrap();
 
     let mut cus = Vec::new();
-    let mut prev_line = String::new();
     let mut v = 0;
     let mut a = true;
 

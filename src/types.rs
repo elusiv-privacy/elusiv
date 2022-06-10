@@ -1,6 +1,6 @@
 use crate::u64_array;
 use crate::fields::{G1A, G2A, u256_to_fr};
-use ark_bn254::Fr;
+use ark_ff::{BigInteger256, PrimeField};
 use crate::bytes::{BorshSerDeSized, slice_to_array};
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
@@ -93,13 +93,6 @@ impl From<RawProof> for Proof {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq)]
-pub enum ProofKind {
-    Send,
-    Merge,
-    Migrate,
-}
-
 /// Minimum data (without public inputs) required for our n-ary join-split based proofs
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 pub struct JoinSplitProofData<const N: usize> {
@@ -112,13 +105,21 @@ pub struct JoinSplitPublicInputs<const N: usize> {
     pub nullifier_hashes: [U256; N],
     pub roots: [U256; N],
     pub commitment: U256,
+    pub lamports_per_tx: u32,
+    pub fee_version: u16,
+}
+
+impl<const N: usize> JoinSplitPublicInputs<N> {
+    pub fn fee_version(&self) -> u16 {
+        self.fee_version
+    }
 }
 
 pub trait PublicInputs {
     fn public_inputs_raw(&self) -> Vec<U256>;
 
-    fn public_inputs_fr(&self) -> Vec<Fr> {
-        self.public_inputs_raw().iter().map(u256_to_fr).collect()
+    fn public_inputs_big_integer(&self) -> Vec<BigInteger256> {
+        self.public_inputs_raw().iter().map(|x| u256_to_fr(&x).into_repr()).collect()
     }
 }
 
@@ -131,6 +132,8 @@ pub struct SendPublicInputs {
     pub recipient: U256,
     pub amount: u64,
     pub timestamp: u64,
+    pub identifier: u64,
+    pub salt: u32,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
@@ -217,7 +220,7 @@ fn pack_inputs(
 }
 
 #[cfg(test)]
-pub fn generate_transaction_identifier(identifier: Fr, salt: Fr) -> Fr {
+pub fn generate_transaction_identifier(identifier: ark_bn254::Fr, salt: ark_bn254::Fr) -> ark_bn254::Fr {
     use crate::commitment::poseidon_hash::full_poseidon2_hash;
     full_poseidon2_hash(identifier, salt)
 }
@@ -277,22 +280,24 @@ mod test {
     fn test_max_public_inputs_count() {
         assert!(
             SendPublicInputs {
-                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO, ZERO ], roots: [ ZERO, ZERO ], commitment: ZERO },
+                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO, ZERO ], roots: [ ZERO, ZERO ], commitment: ZERO, lamports_per_tx: 0, fee_version: 0 },
                 recipient: ZERO,
                 amount: 0,
                 timestamp: 0,
+                identifier: 0,
+                salt: 0,
             }.public_inputs_raw().len() <= MAX_PUBLIC_INPUTS_COUNT
         );
 
         assert!(
             MergePublicInputs {
-                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO, ZERO ], roots: [ ZERO, ZERO ], commitment: ZERO },
+                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO, ZERO ], roots: [ ZERO, ZERO ], commitment: ZERO, lamports_per_tx: 0, fee_version: 0 },
             }.public_inputs_raw().len() <= MAX_PUBLIC_INPUTS_COUNT
         );
 
         assert!(
             MigratePublicInputs {
-                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO ], roots: [ ZERO ], commitment: ZERO },
+                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO ], roots: [ ZERO ], commitment: ZERO, lamports_per_tx: 0, fee_version: 0 },
                 current_nsmt_root: ZERO,
                 next_nsmt_root: ZERO,
             }.public_inputs_raw().len() <= MAX_PUBLIC_INPUTS_COUNT

@@ -79,3 +79,28 @@ pub fn compute_unit_optimization(round_costs: Vec<u32>) -> PartialComputationRes
         total_rounds: start_round + rounds
     }
 }
+
+pub fn compute_unit_instructions(round_costs: Vec<u32>) -> Vec<u32> {
+    let mut instructions = Vec::new();
+
+    let mut rounds = 0;
+    let mut compute_units = 0;
+
+    for r in round_costs {
+        if compute_units + r > MAX_CUS {
+            instructions.push(rounds);
+
+            rounds = 1;
+            compute_units = r;
+        } else {
+            rounds += 1;
+            compute_units += r;
+        }
+    }
+
+    if rounds > 0 {
+        instructions.push(rounds);
+    }
+
+    instructions
+}

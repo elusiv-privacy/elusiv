@@ -6,7 +6,6 @@ use ark_ff::{BigInteger256, PrimeField};
 use borsh::{BorshSerialize, BorshDeserialize};
 use crate::{types::{U256, u256_to_le_limbs}, bytes::BorshSerDeSized};
 use crate::bytes::slice_to_array;
-use crate::macros::BorshSerDeSized;
 
 /// From &[u8] to [u8; 8]
 #[macro_export]

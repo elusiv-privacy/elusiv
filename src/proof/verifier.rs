@@ -11,10 +11,11 @@ use ark_bn254::{Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Param
 use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper};
 use ark_ff::{Field, CubicExtParameters, One, Zero, biginteger::BigInteger256, field_new};
 use ark_ec::models::bn::BnParameters;
-use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError};
+use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError, CouldNotProcessProof};
 use crate::fields::G2HomProjective;
 use super::*;
 
+// Note: we assume that input preparation, combined miller loop, final exponentiation all require at least 1 tx
 pub fn verify_partial<VKey: VerificationKey>(
     round: usize,
     rounds: usize,
@@ -25,7 +26,7 @@ pub fn verify_partial<VKey: VerificationKey>(
         let max_rounds = min(rounds, VKey::PREPARE_PUBLIC_INPUTS_ROUNDS);
 
         match prepare_public_inputs_partial::<VKey>(round, max_rounds, verifier_account) {
-            None => {}//guard!(round != VKey::PREPARE_PUBLIC_INPUTS_ROUNDS - 1, CouldNotProcessProof),
+            None => guard!(round != VKey::PREPARE_PUBLIC_INPUTS_ROUNDS - 1, CouldNotProcessProof),
             Some(prepared_inputs) => {
                 verifier_account.prepared_inputs.set(&G1A(prepared_inputs));
                 let b = verifier_account.b.get().0;
@@ -46,7 +47,7 @@ pub fn verify_partial<VKey: VerificationKey>(
         let round = round - VKey::PREPARE_PUBLIC_INPUTS_ROUNDS;
         for round in round..upper_bound {
             match combined_miller_loop_partial::<VKey>(round, verifier_account, &a, &b, &c, &prepared_inputs, &mut r)? {
-                None => {}//guard!(round != VKey::COMBINED_MILLER_LOOP_ROUNDS - 1, CouldNotProcessProof),
+                None => guard!(round != VKey::COMBINED_MILLER_LOOP_ROUNDS - 1, CouldNotProcessProof),
                 Some(f) => {
                     // Add `f` for the final exponentiation
                     verifier_account.f.set(&Wrap(f));
@@ -65,7 +66,7 @@ pub fn verify_partial<VKey: VerificationKey>(
         let round = round - VKey::COMBINED_MILLER_LOOP_ROUNDS;
         for round in round..upper_bound {
             match final_exponentiation_partial(round, verifier_account, &f)? {
-                None => {}//guard!(round != VKey::FINAL_EXPONENTIATION_ROUNDS - 1, CouldNotProcessProof),
+                None => guard!(round != VKey::FINAL_EXPONENTIATION_ROUNDS - 1, CouldNotProcessProof),
                 Some(v) => {
                     // Final verification, we check:
                     // https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
@@ -100,7 +101,7 @@ fn prepare_public_inputs_partial<VKey: VerificationKey>(
     rounds: usize,
     storage: &mut VerificationAccount,
 ) -> Option<G1Affine> {
-    let mut acc: G1Projective = read_g1_p!(storage.ram_fq, 3); // (CUs: max: 813, min: 181, avg: 193) -> sum: 345856
+    let mut acc: G1Projective = read_g1_p!(storage.ram_fq, 3);
 
     let mut input_index = round / PREPARE_PUBLIC_INPUTS_ROUNDS;
     let mut public_input = storage.get_public_input(input_index).0;
@@ -135,7 +136,7 @@ fn prepare_public_inputs_partial<VKey: VerificationKey>(
         }
     }
 
-    write_g1_projective(&mut storage.ram_fq, &acc, 3);  // (CUs: max: 150, min: 150, avg: 150) -> in sum: 268800
+    write_g1_projective(&mut storage.ram_fq, &acc, 3);
 
     None
 }
@@ -166,39 +167,6 @@ pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: 
 
     compute_unit_instructions(rounds)
 }
-
-fn write_g1_projective(ram: &mut RAMFq, g1p: &G1Projective, offset: usize) {
-    ram.write(g1p.x, offset);
-    ram.write(g1p.y, offset + 1);
-    ram.write(g1p.z, offset + 2);
-}
-
-/// Returns the bit, indexed in bit-endian from `bytes_le` in little-endian format
-fn get_bit(repr_num: &BigInteger256, bit: usize) -> bool {
-    let limb = bit / 64;
-    let local_bit = bit % 64;
-    let bytes = u64::to_be_bytes(repr_num.0[3 - limb]);
-    (bytes[local_bit / 8] >> (7 - (local_bit % 8))) & 1 == 1
-}
-
-/// Returns the first non-zero bit in big-endian for a value `bytes_le` in little-endian
-fn find_first_non_zero(repr_num: &BigInteger256) -> usize {
-    for limb in 0..4 {
-        let bytes = u64::to_be_bytes(repr_num.0[3 - limb]);
-        for byte in 0..8 {
-            for bit in 0..8 {
-                if (bytes[byte] >> (7 - bit)) & 1 == 1 {
-                    return limb * 64 + byte * 8 + bit;
-                }
-            }
-        }
-    }
-    256
-}
-
-/// Inverse of 2 (in q)
-/// - Calculated using: Fq::one().double().inverse().unwrap()
-const TWO_INV: Fq = Fq::new(BigInteger256::new([9781510331150239090, 15059239858463337189, 10331104244869713732, 2249375503248834476]));
 
 const_assert_eq!(ADDITION_STEP_ROUNDS_COUNT, 2);
 const_assert_eq!(DOUBLING_STEP_ROUNDS_COUNT, 3);
@@ -577,6 +545,39 @@ elusiv_computations!(
     }
 );
 
+fn write_g1_projective(ram: &mut RAMFq, g1p: &G1Projective, offset: usize) {
+    ram.write(g1p.x, offset);
+    ram.write(g1p.y, offset + 1);
+    ram.write(g1p.z, offset + 2);
+}
+
+/// Returns the bit, indexed in bit-endian from `bytes_le` in little-endian format
+fn get_bit(repr_num: &BigInteger256, bit: usize) -> bool {
+    let limb = bit / 64;
+    let local_bit = bit % 64;
+    let bytes = u64::to_be_bytes(repr_num.0[3 - limb]);
+    (bytes[local_bit / 8] >> (7 - (local_bit % 8))) & 1 == 1
+}
+
+/// Returns the first non-zero bit in big-endian for a value `bytes_le` in little-endian
+fn find_first_non_zero(repr_num: &BigInteger256) -> usize {
+    for limb in 0..4 {
+        let bytes = u64::to_be_bytes(repr_num.0[3 - limb]);
+        for byte in 0..8 {
+            for bit in 0..8 {
+                if (bytes[byte] >> (7 - bit)) & 1 == 1 {
+                    return limb * 64 + byte * 8 + bit;
+                }
+            }
+        }
+    }
+    256
+}
+
+/// Inverse of 2 (in q)
+/// - Calculated using: Fq::one().double().inverse().unwrap()
+const TWO_INV: Fq = Fq::new(BigInteger256::new([9781510331150239090, 15059239858463337189, 10331104244869713732, 2249375503248834476]));
+
 /// https://docs.rs/ark-bn254/0.3.0/src/ark_bn254/curves/g2.rs.html#19
 /// COEFF_B = 3/(u+9) = (19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)
 const COEFF_B: Fq2 = field_new!(Fq2,
@@ -646,7 +647,8 @@ fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
 #[cfg(test)]
 mod tests {
     use crate::fields::fr_to_u256_le;
-    use crate::{state::queue::SendProofRequest, types::SendPublicInputs};
+    use crate::processor::SendProofRequest;
+    use crate::{types::SendPublicInputs};
     use crate::state::program_account::ProgramAccount;
 
     use super::*;
@@ -716,12 +718,15 @@ mod tests {
                         fr_to_u256_le(&Fr::from_str(roots[1]).unwrap()),
                     ],
                     commitment: fr_to_u256_le(&Fr::from_str(commitment).unwrap()),
+                    lamports_per_tx: 0,
+                    fee_version: 0,
                 },
                 recipient,
                 amount,
                 timestamp,
+                identifier: 0,
+                salt: 0,
             },
-            fee_payer: [0; 32],
         }
     }
 
@@ -787,7 +792,7 @@ mod tests {
                 12345678,
             )
         };
-        verifier_account.reset::<VK>(request).unwrap();
+        verifier_account.reset(&request.public_inputs(), request, [0; 32]).unwrap();
 
         let result = verify_full::<VK>(&mut verifier_account);
         assert_eq!(result.unwrap(), false);

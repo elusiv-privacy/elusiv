@@ -1,14 +1,10 @@
 use crate::macros::*;
 use crate::bytes::BorshSerDeSized;
 use super::processor;
-use super::processor::{MultiInstancePDAAccountKind, SingleInstancePDAAccountKind};
-use super::state::queue::{
-    QueueManagementAccount,
-    BaseCommitmentQueueAccount,
-    CommitmentQueueAccount,
-    BaseCommitmentHashRequest,
-};
-use super::state::{
+use super::processor::{BaseCommitmentHashRequest};
+use crate::processor::SingleInstancePDAAccountKind;
+use crate::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount};
+use crate::state::{
     program_account::{
         PDAAccount,
         MultiAccountAccount,
@@ -18,7 +14,9 @@ use super::state::{
     },
     pool::PoolAccount,
     StorageAccount,
+    NullifierAccount,
 };
+use crate::fee::{FeeAccount};
 use crate::proof::VerificationAccount;
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use solana_program::{
@@ -35,139 +33,204 @@ use solana_program::instruction::AccountMeta;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
 pub enum ElusivInstruction {
-    // Client sends base commitment and amount to be stored in the Elusiv program
-    #[usr(sender, { writable, signer })]
-    #[pda(pool, Pool, { writable, account_info })]
+    // Client sends base_commitment and amount to be stored in the Elusiv program
+    #[acc(sender, { writable, signer })]
+    #[pda(fee, Fee, pda_offset = Some(fee_version))]
+    #[pda(pool, Pool, { ignore })]
+    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
+    #[prg(fee_collector, key = pool.get_fee_collector(), { writable, account_info })]
     #[sys(system_program, key = system_program::ID)]
-    #[pda(q_manager, QueueManagement)]
-    #[prg(queue, BaseCommitmentQueue, key = q_manager.get_base_commitment_queue(), { writable })]
-    Store {
+    #[pda(base_commitment_queue, BaseCommitmentQueue, { writable })]
+    StoreBaseCommitment {
+        fee_version: u64,
         base_commitment_request: BaseCommitmentHashRequest,
     },
 
-    // Base-commitment hashing
-    #[usr(fee_payer, { signer, writable })]
-    #[pda(q_manager, QueueManagement)]
-    #[prg(queue, BaseCommitmentQueue, key = q_manager.get_base_commitment_queue(), { writable })]
-    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable })]
+    #[acc(fee_payer, { writable, signer })]
+    #[pda(base_commitment_queue, BaseCommitmentQueue, { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable, account_info, find_pda })]
     InitBaseCommitmentHash {
         hash_account_index: u64,
     },
-    
+
+    #[acc(fee_payer, { writable, signer })]
+    #[pda(fee, Fee, pda_offset = Some(fee_version))]
+    #[pda(pool, Pool, { ignore })]
+    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
     #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable })]
     ComputeBaseCommitmentHash {
         hash_account_index: u64,
+        fee_version: u64,
         nonce: u64,
     },
 
-    #[pda(q_manager, QueueManagement)]
-    #[prg(base_queue, BaseCommitmentQueue, key = q_manager.get_base_commitment_queue(), { writable })]
-    #[prg(queue, CommitmentQueue, key = q_manager.get_commitment_queue(), { writable })]
-    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable })]
+    #[acc(fee_payer, { writable, signer })]
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
+    #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable, account_info })]
     FinalizeBaseCommitmentHash {
         hash_account_index: u64,
     },
 
     // Commitment (MT-root) hashing
-    #[usr(fee_payer, { signer, writable })]
-    #[pda(q_manager, QueueManagement)]
-    #[prg(queue, CommitmentQueue, key = q_manager.get_commitment_queue(), { writable })]
-    #[pda(hashing_account, CommitmentHashing, { writable })]
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
+    #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     #[pda(storage_account, Storage, { multi_accounts })]
     InitCommitmentHash,
-    
-    #[pda(hashing_account, CommitmentHashing, { writable })]
+
+    #[acc(fee_payer, { writable, signer })]
+    #[pda(fee, Fee, pda_offset = Some(fee_version))]
+    #[pda(pool, Pool, { ignore })]
+    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
+    #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     ComputeCommitmentHash {
+        fee_version: u64,
         nonce: u64,
     },
 
-    #[pda(q_manager, QueueManagement)]
-    #[prg(queue, CommitmentQueue, key = q_manager.get_commitment_queue(), { writable })]
-    #[pda(hashing_account, CommitmentHashing, { writable })]
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
+    #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     #[pda(storage_account, Storage, { multi_accounts, writable })]
     FinalizeCommitmentHash,
 
+    // Proof verification initialization for Send/Merge
+    /*#[usr(fee_payer, { writable, signer })]
+    #[pda(pool, Pool, { writable, account_info })]
+    #[sys(system_program, key = system_program::ID)]
+    #[pda(storage_account, Storage, { multi_accounts })]
+    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
+    #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { multi_accounts })]
+    #[pda(nullifier_account1, Nullifier, pda_offset = Some(tree_indices[1]), { multi_accounts })]
+    InitProofBinary {
+        verification_account_index: u64,
+        proof_request: ProofRequest,
+        tree_indices: [u64; 2],
+    },
+
+    // Proof verification initialization for Migrate
+    #[usr(fee_payer, { writable, signer })]
+    #[pda(pool, Pool, { writable, account_info })]
+    #[sys(system_program, key = system_program::ID)]
+    #[pda(storage_account, Storage, { multi_accounts })]
+    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
+    #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_index), { multi_accounts })]
+    InitProofUnary {
+        verification_account_index: u64,
+        proof_request: ProofRequest,
+        tree_index: u64,
+    },
+
+    // Proof verification computation
+    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
+    ComputeProof {
+        verification_account_index: u64,
+        nonce: u64,
+    },
+
+    // Finalizing successfully verified proofs
+    #[usr(original_fee_payer, { writable })]
+    #[usr(recipient, { writable })]
+    #[pda(pool, Pool, { writable, account_info })]
+    #[pda(q_manager, QueueManagement)]
+    #[prg(queue, CommitmentQueue, key = q_manager.get_commitment_queue(), { writable })]
+    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
+    #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { writable, multi_accounts })]
+    #[pda(nullifier_account1, Nullifier, pda_offset = Some(tree_indices[1]), { writable, multi_accounts })]
+    FinalizeProof {
+        verification_account_index: u64,
+        tree_indices: [u64; 2],
+    },
+
+    */
+
     // Can be called once per `SingleInstancePDAAccountKind`
-    #[usr(payer, { writable, signer })]
-    #[usr(pda_account, { writable })]
+    #[acc(payer, { writable, signer })]
+    #[acc(pda_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     OpenSingleInstanceAccount {
         kind: SingleInstancePDAAccountKind,
         nonce: u8,  // nonce used for not-having duplicate transactions rejected (only important for this ix for test cases)
     },
 
-    // Can be called `MAX_ACCOUNTS_COUNT` times per `MultiInstancePDAAccountKind`
-    #[usr(payer, { writable, signer })]
-    #[usr(pda_account, { writable })]
-    #[sys(system_program, key = system_program::ID, { ignore })]
-    OpenMultiInstanceAccount {
-        pda_offset: u64,
-        kind: MultiInstancePDAAccountKind,
-        nonce: u8,
-    },
-
-    // Setup all queue accounts and store the pubkeys in the `QueueManagementAccount`
-    #[usr(base_commitment_q, { owned })]
-    #[usr(commitment_q, { owned })]
-    #[usr(send_proof_q, { owned })]
-    #[usr(merge_proof_q, { owned })]
-    #[usr(migrate_proof_q, { owned })]
-    #[usr(finalize_send_q, { owned })]
-    #[pda(q_manager, QueueManagement, { writable })]
-    SetupQueueAccounts,
-
     // Can be called once, setups all sub-accounts for the storage account
-    // - `OpenMultiInstanceAccount` with `SingleInstancePDAAccountKind::Storage` has to be called before
     #[pda(storage_account, Storage, { multi_accounts, no_subaccount_check, writable })]
     SetupStorageAccount,
+
+    #[acc(payer, { writable, signer })]
+    #[pda(pool, Pool, { writable, account_info, find_pda })]
+    #[acc(sol_pool, { owned })]
+    #[acc(fee_collector, { owned })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    SetupPoolAccounts,
+
+    #[acc(payer, { writable, signer })]
+    #[pda(fee, Fee, pda_offset = Some(fee_version), { writable, account_info, find_pda })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    InitNewFeeVersion {
+        fee_version: u64,
+        lamports_per_tx: u64,
+        base_commitment_fee: u64,
+        proof_fee: u64,
+        relayer_hash_tx_fee: u64,
+        relayer_proof_tx_fee: u64,
+        relayer_proof_reward: u64,
+    },
 }
 
 #[cfg(feature = "instruction-abi")]
-pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8) -> Vec<solana_program::instruction::Instruction> {
+pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8, lamports_per_tx: u64) -> Vec<solana_program::instruction::Instruction> {
     let mut ixs = Vec::new();
 
-    // Single instance PDAs
-    // Pool
-    ixs.push(ElusivInstruction::open_single_instance_account_instruction(
-        SingleInstancePDAAccountKind::Pool,
-        nonce,
-        SignerAccount(payer),
-        WritableUserAccount(PoolAccount::find(None).0)
-    ));
-    // QueueManager
-    ixs.push(ElusivInstruction::open_single_instance_account_instruction(
-        SingleInstancePDAAccountKind::QueueManagement,
-        nonce,
-        SignerAccount(payer),
-        WritableUserAccount(QueueManagementAccount::find(None).0)
-    ));
-    // CommitmentHashing
-    ixs.push(ElusivInstruction::open_single_instance_account_instruction(
-        SingleInstancePDAAccountKind::CommitmentHashing,
-        nonce,
-        SignerAccount(payer),
-        WritableUserAccount(CommitmentHashingAccount::find(None).0)
-    ));
+    // Genesis Fee
+    ixs.push(init_genesis_fee_account(payer, lamports_per_tx));
 
-    // Multi instance PDAs
-    // BaseCommitmentHashingAccount
-    ixs.push(ElusivInstruction::open_multi_instance_account_instruction(
-        0,
-        MultiInstancePDAAccountKind::BaseCommitmentHashing,
-        nonce,
-        SignerAccount(payer),
-        WritableUserAccount(BaseCommitmentHashingAccount::find(Some(0)).0)
-    ));
-    // VerificationAccount
-    ixs.push(ElusivInstruction::open_multi_instance_account_instruction(
-        0,
-        MultiInstancePDAAccountKind::Verification,
-        nonce,
-        SignerAccount(payer),
-        WritableUserAccount(VerificationAccount::find(Some(0)).0)
-    ));
+    // Commitment hashing
+    ixs.push(
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::CommitmentHashing,
+            nonce,
+            SignerAccount(payer),
+            WritableUserAccount(CommitmentHashingAccount::find(None).0)
+        )
+    );
+
+    // Commitment queue
+    ixs.push(
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::CommitmentQueue,
+            nonce,
+            SignerAccount(payer),
+            WritableUserAccount(CommitmentQueueAccount::find(None).0)
+        )
+    );
+
+    // Base commitment queue
+    ixs.push(
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::BaseCommitmentQueue,
+            nonce,
+            SignerAccount(payer),
+            WritableUserAccount(BaseCommitmentQueueAccount::find(None).0)
+        )
+    );
 
     ixs
+}
+
+#[cfg(feature = "instruction-abi")]
+pub fn init_genesis_fee_account(payer: Pubkey, lamports_per_tx: u64) -> solana_program::instruction::Instruction {
+    use crate::fee::{MAX_BASE_COMMITMENT_NETWORK_FEE, MAX_PROOF_NETWORK_FEE, MAX_RELAYER_HASH_TX_FEE, MAX_RELAYER_PROOF_TX_FEE, MAX_RELAYER_PROOF_REWARD};
+
+    ElusivInstruction::init_new_fee_version_instruction(
+        0,
+        lamports_per_tx,
+        MAX_BASE_COMMITMENT_NETWORK_FEE,
+        MAX_PROOF_NETWORK_FEE,
+        MAX_RELAYER_HASH_TX_FEE,
+        MAX_RELAYER_PROOF_TX_FEE,
+        MAX_RELAYER_PROOF_REWARD,
+        SignerAccount(payer),
+    )
 }
 
 #[cfg(feature = "instruction-abi")]
@@ -198,7 +261,6 @@ mod tests {
 
     #[test]
     fn test_instruction_tag() {
-        assert_eq!(get_variant_tag!(ElusivInstruction::InitBaseCommitmentHash { hash_account_index: 123 }), 1);
-        assert_eq!(get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 456 }), 2);
+        //assert_eq!(1, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 0, fee_version: 0 }));
     }
 }

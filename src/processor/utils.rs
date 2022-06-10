@@ -25,7 +25,7 @@ pub fn send_with_system_program<'a>(
         lamports 
     );
     
-    let (_, bump_seed) = Pubkey::find_program_address(&[b"elusiv"], &super::super::id());
+    //let (_, bump_seed) = Pubkey::find_program_address(&[b"elusiv"], &super::super::id());
     solana_program::program::invoke_signed(
         &instruction,
         &[
@@ -33,7 +33,7 @@ pub fn send_with_system_program<'a>(
             recipient.clone(),
             system_program.clone(),
         ],
-        &[&[&b"elusiv"[..], &[bump_seed]]],
+        &[],
     )    
 }
 

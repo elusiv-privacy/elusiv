@@ -57,6 +57,10 @@ pub enum ElusivError {
     AccountCannotBeReset,
     ComputationIsNotYetFinished,
     ComputationIsAlreadyFinished,
+
+    // Fee
+    InvalidFee,
+    InvalidFeeVersion,
 }
 
 #[cfg(not(tarpaulin_include))]

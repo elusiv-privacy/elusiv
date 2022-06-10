@@ -4,18 +4,17 @@ pub mod vkey;
 pub mod verifier;
 
 use borsh::{BorshSerialize, BorshDeserialize};
+use solana_program::program_error::ProgramError;
 pub use verifier::*;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12, G1Affine};
-use ark_ff::{Zero, BigInteger256, PrimeField};
+use ark_ff::{Zero, BigInteger256};
 use vkey::VerificationKey;
 use crate::error::ElusivError;
-use crate::macros::elusiv_account;
-use crate::state::queue::ProofRequest;
-use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof, Lazy};
-use crate::fields::{Wrap, u256_to_fr, G1A, G2A, G2HomProjective};
-use crate::macros::{guard, multi_instance_account};
-use crate::error::ElusivError::AccountCannotBeReset;
+use crate::processor::ProofRequest;
 use crate::state::program_account::SizedAccount;
+use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof, Lazy};
+use crate::fields::{Wrap, G1A, G2A, G2HomProjective};
+use crate::macros::{elusiv_account, guard};
 use crate::bytes::BorshSerDeSized;
 
 pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
@@ -25,6 +24,7 @@ pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 7>;
 pub type RAMG2A<'a> = LazyRAM<'a, G2A, 1>;
 
 /// Account used for verifying all kinds of Groth16 proofs over the span of multiple transactions
+/// - alive only for verifying a single proof, closed afterwards
 #[elusiv_account(pda_seed = b"proof", partial_computation)]
 pub struct VerificationAccount {
     bump_seed: u8,
@@ -33,6 +33,7 @@ pub struct VerificationAccount {
     is_active: bool,
     instruction: u32,
     fee_payer: U256,
+    fee_version: u16,
 
     // if true, the proof request can be finalized
     is_verified: bool,
@@ -61,29 +62,29 @@ pub struct VerificationAccount {
     request: ProofRequest,
 }
 
-// We can allow multiple parallel proof verifications
-multi_instance_account!(VerificationAccount<'a>, 1);
-
 impl<'a> VerificationAccount<'a> {
     /// A VerificationAccount can be reset after a computation has been succesfully finished or has failed
-    pub fn reset<VKey: VerificationKey>(
+    pub fn reset(
         &mut self,
+        public_inputs: &[BigInteger256],
         proof_request: ProofRequest,
-    ) -> Result<(), ElusivError> {
-        guard!(!self.get_is_active(), AccountCannotBeReset);
+        fee_payer: U256,
+    ) -> Result<(), ProgramError> {
+        guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
 
         self.set_is_verified(&false);
         self.set_is_active(&true);
         self.set_instruction(&0);
+        self.set_fee_payer(&fee_payer);
+        self.set_fee_version(&proof_request.fee_version());
 
         let proof: Proof = proof_request.raw_proof().into();
         self.a.set(&proof.a);
         self.b.set(&proof.b);
         self.c.set(&proof.c);
 
-        let public_inputs = proof_request.public_inputs();
-        for i in 0..VKey::PUBLIC_INPUTS_COUNT {
-            self.set_public_input(i, &Wrap(u256_to_fr(&public_inputs[i]).into_repr()));
+        for i in 0..public_inputs.len() {
+            self.set_public_input(i, &Wrap(public_inputs[i]));
         }
 
         self.prepared_inputs.set(&G1A(G1Affine::zero()));
@@ -147,6 +148,7 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
     pub fn write(&mut self, value: N, index: usize) {
         self.check_vector_size(self.frame + index);
         self.data[self.frame + index] = Some(value);
+        self.changes[self.frame + index] = true;
     }
 
     pub fn read(&mut self, index: usize) -> N {
@@ -203,6 +205,37 @@ mod tests {
     #[test]
     fn test_reset_verification_account() {
 
+    }
+
+    impl BorshDeserialize for Wrap<u64> {
+        fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> { Ok(Wrap(u64::deserialize(buf)?)) }
+    }
+    impl BorshSerialize for Wrap<u64> {
+        fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> { self.0.serialize(writer) }
+    }
+    impl BorshSerDeSized for Wrap<u64> {
+        const SIZE: usize = u64::SIZE;
+    }
+
+    #[test]
+    fn test_lazy_ram() {
+        let mut data = vec![0; u64::SIZE * 2];
+        let mut ram = LazyRAM::<'_, _, 2>::new(&mut data);
+
+        ram.write(123456789u64, 0);
+        assert_eq!(ram.read(0), 123456789);
+
+        ram.inc_frame(1);
+        ram.write(u64::MAX, 0);
+        ram.dec_frame(1);
+
+        assert_eq!(ram.read(0), 123456789);
+        assert_eq!(ram.read(1), u64::MAX);
+
+        ram.serialize();
+
+        assert_eq!(&data[..8], &u64::to_le_bytes(123456789)[..]);
+        assert_eq!(&data[8..], &u64::to_le_bytes(u64::MAX)[..]);
     }
 
     #[test]
