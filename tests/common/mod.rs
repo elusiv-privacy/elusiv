@@ -6,11 +6,11 @@ pub mod log;
 
 use solana_program::{
     pubkey::Pubkey,
-    instruction::Instruction, system_instruction, native_token::LAMPORTS_PER_SOL,
+    instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL,
 };
+use solana_program_test::ProgramTestContext;
 use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer};
 use assert_matches::assert_matches;
-use program_setup::TestProgram;
 use std::{str::FromStr};
 use ark_bn254::Fr;
 use elusiv::types::U256;
@@ -29,12 +29,12 @@ pub struct Actor {
 
 impl Actor {
     pub async fn new(
-        test_program: &mut TestProgram,
+        context: &mut ProgramTestContext,
     ) -> Self {
         let keypair = Keypair::new();
         let pubkey = keypair.pubkey();
 
-        airdrop(&pubkey, DEFAULT_START_BALANCE, test_program).await;
+        airdrop(&pubkey, DEFAULT_START_BALANCE, context).await;
 
         Actor {
             keypair,
@@ -44,59 +44,71 @@ impl Actor {
     }
 
     /// Returns the account's balance - start_balance - failed_signatures * lamports_per_signature
-    pub async fn balance(&self, test_program: &mut TestProgram) -> u64 {
-        get_balance(self.pubkey, test_program).await - self.start_balance
+    pub async fn balance(&self, context: &mut ProgramTestContext) -> u64 {
+        get_balance(self.pubkey, context).await - self.start_balance
     }
 
-    pub async fn airdrop(&self, lamports: u64, test_program: &mut TestProgram) {
-        airdrop(&self.pubkey, lamports, test_program).await
+    pub async fn airdrop(&self, lamports: u64, context: &mut ProgramTestContext) {
+        airdrop(&self.pubkey, lamports, context).await
     }
 }
 
-pub async fn get_balance(pubkey: Pubkey, test_program: &mut TestProgram) -> u64 {
-    test_program.banks_client.get_account(pubkey).await.unwrap().unwrap().lamports
+pub async fn get_balance(pubkey: Pubkey, context: &mut ProgramTestContext) -> u64 {
+    context.banks_client.get_account(pubkey).await.unwrap().unwrap().lamports
 }
 
-pub async fn account_does_exist(pubkey: Pubkey, test_program: &mut TestProgram) -> bool {
-    matches!(test_program.banks_client.get_account(pubkey).await.unwrap(), Some(_))
+pub async fn account_does_exist(pubkey: Pubkey, context: &mut ProgramTestContext) -> bool {
+    matches!(context.banks_client.get_account(pubkey).await.unwrap(), Some(_))
 }
 
-pub async fn account_does_not_exist(pubkey: Pubkey, test_program: &mut TestProgram) -> bool {
-    !account_does_exist(pubkey, test_program).await
+pub async fn account_does_not_exist(pubkey: Pubkey, context: &mut ProgramTestContext) -> bool {
+    !account_does_exist(pubkey, context).await
 }
 
-pub async fn get_data(test_program: &mut TestProgram, id: Pubkey) -> Vec<u8> {
-    test_program.banks_client.get_account(id).await.unwrap().unwrap().data
+pub async fn get_data(context: &mut ProgramTestContext, id: Pubkey) -> Vec<u8> {
+    context.banks_client.get_account(id).await.unwrap().unwrap().data
 }
 
-pub async fn get_account_cost(test_program: &mut TestProgram, size: usize) -> u64 {
-    let rent = test_program.banks_client.get_rent().await.unwrap();
+pub async fn get_account_cost(context: &mut ProgramTestContext, size: usize) -> u64 {
+    let rent = context.banks_client.get_rent().await.unwrap();
     rent.minimum_balance(size)
 }
 
-pub async fn airdrop(account: &Pubkey, lamports: u64, test_program: &mut TestProgram) {
+pub async fn airdrop(account: &Pubkey, lamports: u64, context: &mut ProgramTestContext) {
     let mut tx = Transaction::new_with_payer(
         &[
             nonce_instruction(
-                system_instruction::transfer(&test_program.keypair.pubkey(), account, lamports)
+                system_instruction::transfer(&context.payer.pubkey(), account, lamports)
             )
         ],
-        Some(&test_program.keypair.pubkey())
+        Some(&context.payer.pubkey())
     );
-    tx.sign(&[&test_program.keypair], test_program.blockhash);
-    assert_matches!(test_program.banks_client.process_transaction(tx).await, Ok(()));
+    tx.sign(&[&context.payer], context.last_blockhash);
+    assert_matches!(context.banks_client.process_transaction(tx).await, Ok(()));
 }
 
-pub async fn lamports_per_signature(test_program: &mut TestProgram) -> u64 {
-    test_program.banks_client.get_fees().await.unwrap().0.lamports_per_signature
+pub async fn lamports_per_signature(context: &mut ProgramTestContext) -> u64 {
+    context.banks_client.get_fees().await.unwrap().0.lamports_per_signature
 }
 
 // Account getters
+macro_rules! queue_inner {
+    ($id: ident, $ty: ty, $ty_account: ty, $data: expr) => {
+        let mut queue = <$ty_account>::new($data).unwrap();
+        let mut $id = <$ty>::new(&mut queue);
+    };
+}
+
 macro_rules! queue {
     ($id: ident, $ty: ty, $ty_account: ty, $prg: ident) => {
         let mut queue = get_data(&mut $prg, <$ty_account>::find(None).0).await;
-        let mut queue = <$ty_account>::new(&mut queue[..]).unwrap();
-        let $id = <$ty>::new(&mut queue);
+        queue_inner!($id, $ty, $ty_account, &mut queue[..]);
+    };
+}
+
+macro_rules! sized_account {
+    ($id: ident, $ty: ty, $offset: expr, $data: ident) => {
+        let $id = <$ty>::new(&mut $data).unwrap();
     };
 }
 
@@ -151,9 +163,13 @@ macro_rules! storage_account {
 }
 
 pub(crate) use queue;
+pub(crate) use queue_inner;
 pub(crate) use pda_account;
+pub(crate) use sized_account;
 pub(crate) use account_info;
 pub(crate) use storage_account;
+
+use self::program_setup::set_account;
 
 /// Adds random nonce bytes at the end of the ix data
 /// - prevents rejection of previously failed ix times without repeated execution
@@ -165,10 +181,35 @@ pub fn nonce_instruction(ix: Instruction) -> Instruction {
     ix
 }
 
+/// Replaces all accounts through invalid accounts with valid data and lamports (except the signer accounts)
+pub async fn invalid_accounts_fuzzing(ix: &Instruction, context: &mut ProgramTestContext) -> Vec<Instruction> {
+    let mut ixs = Vec::new();
+    for (i, acc) in ix.accounts.iter().enumerate() {
+        if acc.is_signer { continue }
+        let mut ix = ix.clone();
+
+        // Clone data and lamports
+        let id = acc.pubkey;
+        let data = get_data(context, id).await;
+        let lamports = get_balance(id, context).await;
+        let new_pubkey = Pubkey::new_unique();
+        set_account(context, &new_pubkey, data, lamports).await;
+
+        if acc.is_writable {
+            ix.accounts[i] = AccountMeta::new(new_pubkey, false);
+        } else {
+            ix.accounts[i] = AccountMeta::new_readonly(new_pubkey, false);
+        }
+
+        ixs.push(ix);
+    }
+    ixs
+}
+
 async fn generate_and_sign_tx(
     ixs: &[Instruction],
     signer: &mut Actor,
-    test_program: &mut TestProgram,
+    context: &mut ProgramTestContext,
 ) -> Transaction {
     let ixs: Vec<Instruction> = ixs.iter()
         .map(|ix| nonce_instruction(ix.clone()))
@@ -179,7 +220,7 @@ async fn generate_and_sign_tx(
     );
     tx.sign(
         &[&signer.keypair],
-        test_program.banks_client.get_latest_blockhash().await.unwrap()
+        context.banks_client.get_latest_blockhash().await.unwrap()
     );
     tx
 }
@@ -188,39 +229,39 @@ async fn generate_and_sign_tx(
 pub async fn tx_should_succeed(
     ixs: &[Instruction],
     signer: &mut Actor,
-    test_program: &mut TestProgram,
+    context: &mut ProgramTestContext,
 ) {
-    let tx = generate_and_sign_tx(ixs, signer, test_program).await;
-    assert_matches!(test_program.banks_client.process_transaction(tx).await, Ok(()));
+    let tx = generate_and_sign_tx(ixs, signer, context).await;
+    assert_matches!(context.banks_client.process_transaction(tx).await, Ok(()));
 }
 
 pub async fn ix_should_succeed(
     ix: Instruction,
     signer: &mut Actor,
-    test_program: &mut TestProgram,
+    context: &mut ProgramTestContext,
 ) {
-    tx_should_succeed(&[ix], signer, test_program).await
+    tx_should_succeed(&[ix], signer, context).await
 }
 
 // Failing transactions
 pub async fn tx_should_fail(
     ixs: &[Instruction],
     signer: &mut Actor,
-    test_program: &mut TestProgram,
+    context: &mut ProgramTestContext,
 ) {
-    let tx = generate_and_sign_tx(ixs, signer, test_program).await;
-    assert_matches!(test_program.banks_client.process_transaction(tx).await, Err(_));
+    let tx = generate_and_sign_tx(ixs, signer, context).await;
+    assert_matches!(context.banks_client.process_transaction(tx).await, Err(_));
 
     // To compensate for failure, we airdrop
-    airdrop(&signer.pubkey, lamports_per_signature(test_program).await, test_program).await;
+    airdrop(&signer.pubkey, lamports_per_signature(context).await, context).await;
 }
 
 pub async fn ix_should_fail(
     ix: Instruction,
     signer: &mut Actor,
-    test_program: &mut TestProgram,
+    context: &mut ProgramTestContext,
 ) {
-    tx_should_fail(&[ix], signer, test_program).await
+    tx_should_fail(&[ix], signer, context).await
 }
 
 pub fn u256_from_str(str: &str) -> U256 {

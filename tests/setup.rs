@@ -12,11 +12,8 @@ use elusiv::instruction::*;
 use elusiv::processor::SingleInstancePDAAccountKind;
 use elusiv::state::pool::PoolAccount;
 use elusiv::state::program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount};
-use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::account_info::Account;
 use solana_program_test::*;
-use solana_sdk::signature::Keypair;
-use solana_sdk::signature::Signer;
 use elusiv::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount};
 
 macro_rules! assert_account {

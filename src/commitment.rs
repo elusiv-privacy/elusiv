@@ -72,7 +72,7 @@ pub struct CommitmentHashingAccount {
 
     is_active: bool,
     instruction: u32,
-    fee_payer: U256,
+    fee_payer: U256, // fee_payer is null and has no meaning for commitment hashing
     fee_version: u16,
 
     commitment: U256,
@@ -88,14 +88,12 @@ impl<'a> CommitmentHashingAccount<'a> {
         commitment: U256,
         ordering: u32,
         siblings: [Fr; MT_HEIGHT as usize],
-        //fee_payer: U256,
         fee_version: u16,
     ) -> Result<(), ProgramError> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
 
         self.set_is_active(&true);
         self.set_instruction(&0);
-        //self.set_fee_payer(&fee_payer);
         self.set_fee_version(&fee_version);
 
         // Reset hashing state

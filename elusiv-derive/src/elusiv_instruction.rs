@@ -230,7 +230,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             });
 
                             let arr_name: TokenStream = format!("multi_accounts_{}", i).parse().unwrap();
-                            user_accounts.extend(quote!{ #arr_name: [#user_account_type; <#ty>::COUNT], });
+                            user_accounts.extend(quote!{ #arr_name: &[#user_account_type; <#ty>::COUNT], });
                             account_init.push(quote!{
                                 for i in 0..<#ty>::COUNT {
                                     accounts.push(AccountMeta::#account_init_fn(#arr_name[i].0, #is_signer));

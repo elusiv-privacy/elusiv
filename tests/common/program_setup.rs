@@ -13,7 +13,11 @@ use solana_sdk::signature::Keypair;
 use elusiv::entrypoint::process_instruction;
 use solana_sdk::compute_budget::ComputeBudgetInstruction;
 use assert_matches::*;
-use solana_sdk::{signature::Signer, transaction::Transaction};
+use solana_sdk::{
+    signature::Signer,
+    transaction::Transaction,
+    account::AccountSharedData,
+};
 use elusiv::instruction::*;
 use elusiv::state::queue::{CommitmentQueueAccount, CommitmentQueue, Queue};
 use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount, ProgramAccount, MultiAccountAccountFields};
@@ -21,19 +25,14 @@ use elusiv::processor::SingleInstancePDAAccountKind;
 
 use crate::common::lamports_per_signature;
 
-pub struct TestProgram {
-    pub banks_client: BanksClient,
-    pub keypair: Keypair,
-    pub blockhash: Hash,
-}
+use super::{get_account_cost, get_data};
 
 /// Starts a test program without any account setup
-pub async fn start_program_solana_program_test() -> TestProgram {
+pub async fn start_program_solana_program_test() -> ProgramTestContext {
     let mut test = ProgramTest::default();
     let program_id = elusiv::id();
     test.add_program("elusiv", program_id, processor!(process_instruction));
-    let (banks_client, keypair, blockhash) = test.start().await;
-    TestProgram { banks_client, keypair, blockhash }
+    test.start_with_context().await
 }
 
 macro_rules! setup_pda_account {
@@ -57,82 +56,20 @@ macro_rules! setup_pda_account_with_closure {
     };
 }
 
-/// Starts a test program with all program accounts being setup
-/// - use the individual closures to assign specific values to those accounts
-pub async fn start_program_solana_program_test_with_accounts_setup<Q, C>(
-    commitment_queue_setup: Q,
-    commitment_hashing_account_setup: C,
-) -> (BanksClient, Keypair, Hash, Vec<Pubkey>)
-where
-    Q: Fn(&mut CommitmentQueue),
-    C: Fn(&mut CommitmentHashingAccount),
-{
-    let mut test = ProgramTest::default();
-
-    let setup_commitment_queue = |acc: &mut CommitmentQueueAccount| {
-        let mut queue = CommitmentQueue::new(acc);
-        commitment_queue_setup(&mut queue)
-    };
-    setup_pda_account_with_closure!(CommitmentQueueAccount, None, test, setup_commitment_queue);
-    setup_pda_account_with_closure!(CommitmentHashingAccount, None, test, commitment_hashing_account_setup);
-    setup_pda_account!(PoolAccount, None, test, None);
-
-    // Setup Storage account
-    let mut storage_accounts = Vec::new();
-    for i in 0..elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT {
-        let account_size = if i < elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT - 1 {
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE
-        } else {
-            StorageAccount::LAST_ACCOUNT_SIZE
-        };
-
-        let pk = Pubkey::new_unique();
-        storage_accounts.push(pk);
-        test.add_account_with_base64_data(pk, 100 * LAMPORTS_PER_SOL, elusiv::id(), &base64::encode(vec![0u8; account_size]));
-    }
-
-    let mut storage_account_data = vec![0; StorageAccount::SIZE];
-    let (pk, bump) = StorageAccount::find(None);
-    let mut storage_account = MultiAccountAccountFields::<{elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT}>::new(&mut storage_account_data).unwrap();
-    storage_account.bump_seed = bump;
-    storage_account.initialized = true;
-    for i in 0..storage_account.pubkeys.len() {
-        storage_account.pubkeys[i] = storage_accounts[i].to_bytes();
-    }
-    let serialized = storage_account.try_to_vec().unwrap();
-    for i in 0..serialized.len() {
-        storage_account_data[i] = serialized[i];
-    }
-    test.add_account_with_base64_data(pk, LAMPORTS_PER_SOL, elusiv::id(), &base64::encode(storage_account_data));
-
-    // Start test validator
-    let program_id = elusiv::id();
-    test.add_program("elusiv", program_id, processor!(process_instruction));
-    let (mut b, k, h) = test.start().await;
-
-    // Genesis fee account
-    let lamports_per_tx = panic!();//lamports_per_signature(test_program).await;
-    let mut transaction = Transaction::new_with_payer(&[init_genesis_fee_account(k.pubkey(), lamports_per_tx)], Some(&k.pubkey()));
-    transaction.sign(&[&k], h);
-    assert_matches!(b.process_transaction(transaction).await, Ok(()));
-
-    (b, k, h, storage_accounts)
-}
-
-pub async fn setup_pda_accounts(test_program: &mut TestProgram) {
+pub async fn setup_pda_accounts(context: &mut ProgramTestContext) {
     let nonce: u8 = rand::random();
-    let lamports_per_tx = lamports_per_signature(test_program).await;
+    let lamports_per_tx = lamports_per_signature(context).await;
 
     let mut transaction = Transaction::new_with_payer(
-        &open_all_initial_accounts(test_program.keypair.pubkey(), nonce, lamports_per_tx),
-        Some(&test_program.keypair.pubkey()),
+        &open_all_initial_accounts(context.payer.pubkey(), nonce, lamports_per_tx),
+        Some(&context.payer.pubkey()),
     );
-    transaction.sign(&[&test_program.keypair], test_program.blockhash);
+    transaction.sign(&[&context.payer], context.last_blockhash);
 
-    assert_matches!(test_program.banks_client.process_transaction(transaction).await, Ok(()));
+    assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
 }
 
-pub async fn setup_storage_account<'a>(test_program: &mut TestProgram) -> Vec<Pubkey> {
+pub async fn setup_storage_account<'a>(context: &mut ProgramTestContext) -> Vec<Pubkey> {
     let nonce: u8 = rand::random();
 
     let mut accounts = Vec::new();
@@ -145,9 +82,9 @@ pub async fn setup_storage_account<'a>(test_program: &mut TestProgram) -> Vec<Pu
         };
 
         let pk = create_account_rent_exepmt(
-            &mut test_program.banks_client,
-            &test_program.keypair,
-            test_program.blockhash,
+            &mut context.banks_client,
+            &context.payer,
+            context.last_blockhash,
             account_size
         ).await.pubkey();
         result.push(pk);
@@ -159,41 +96,45 @@ pub async fn setup_storage_account<'a>(test_program: &mut TestProgram) -> Vec<Pu
             ElusivInstruction::open_single_instance_account_instruction(
                 SingleInstancePDAAccountKind::Storage,
                 nonce,
-                SignerAccount(test_program.keypair.pubkey()),
+                SignerAccount(context.payer.pubkey()),
                 WritableUserAccount(StorageAccount::find(None).0)
             ),
             ElusivInstruction::setup_storage_account_instruction(
-                accounts.try_into().unwrap()
+                &accounts.try_into().unwrap()
             ),
         ],
-        Some(&test_program.keypair.pubkey()),
+        Some(&context.payer.pubkey()),
     );
-    transaction.sign(&[&test_program.keypair], test_program.blockhash);
+    transaction.sign(&[&context.payer], context.last_blockhash);
 
-    assert_matches!(test_program.banks_client.process_transaction(transaction).await, Ok(()));
+    assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
 
     result
 }
 
 pub async fn setup_pool_accounts<'a>(
-    test_program: &mut TestProgram,
+    context: &mut ProgramTestContext,
 ) -> (Pubkey, Pubkey) {
-    let sol_pool = create_account_rent_exepmt(&mut test_program.banks_client, &test_program.keypair, test_program.blockhash, 0).await;
-    let fee_collector = create_account_rent_exepmt(&mut test_program.banks_client, &test_program.keypair, test_program.blockhash, 0).await;
+    let sol_pool = create_account_rent_exepmt(
+        &mut context.banks_client, &context.payer, context.last_blockhash, 0
+    ).await;
+    let fee_collector = create_account_rent_exepmt(
+        &mut context.banks_client, &context.payer, context.last_blockhash, 0
+    ).await;
 
     let mut transaction = Transaction::new_with_payer(
         &[
             ElusivInstruction::setup_pool_accounts_instruction(
-                SignerAccount(test_program.keypair.pubkey()),
+                SignerAccount(context.payer.pubkey()),
                 UserAccount(sol_pool.pubkey()),
                 UserAccount(fee_collector.pubkey()),
             ),
         ],
-        Some(&test_program.keypair.pubkey()),
+        Some(&context.payer.pubkey()),
     );
-    transaction.sign(&[&test_program.keypair], test_program.blockhash);
+    transaction.sign(&[&context.payer], context.last_blockhash);
 
-    assert_matches!(test_program.banks_client.process_transaction(transaction).await, Ok(()));
+    assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
 
     (
         sol_pool.pubkey(),
@@ -222,11 +163,11 @@ pub async fn create_account_rent_exepmt(
 }
 
 pub async fn create_account(
-    test_program: &mut TestProgram,
+    context: &mut ProgramTestContext,
 ) -> Keypair {
     let new_account_keypair = Keypair::new();
     let ix = solana_program::system_instruction::create_account(
-        &test_program.keypair.pubkey(),
+        &context.payer.pubkey(),
         &new_account_keypair.pubkey(),
         0,
         0,
@@ -235,13 +176,49 @@ pub async fn create_account(
 
     let transaction = Transaction::new_signed_with_payer(
         &[ix],
-        Some(&test_program.keypair.pubkey()),
-        &[&test_program.keypair, &new_account_keypair],
-        test_program.blockhash,
+        Some(&context.payer.pubkey()),
+        &[&context.payer, &new_account_keypair],
+        context.last_blockhash,
     );
-    assert_matches!(test_program.banks_client.process_transaction(transaction).await, Ok(()));
+    assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
 
     new_account_keypair
+}
+
+pub async fn set_pda_account<A: SizedAccount + PDAAccount, F>(
+    context: &mut ProgramTestContext,
+    offset: Option<u64>,
+    setup: F,
+)
+where F: Fn(&mut [u8])
+{
+    let len = A::SIZE;
+    let id = A::find(offset).0;
+    let mut data = get_data(context, id).await;
+
+    setup(&mut data);
+
+    let rent_exemption = get_account_cost(context, len).await;
+    set_account(context, &A::find(offset).0, data, rent_exemption).await;
+}
+
+pub async fn set_account(
+    context: &mut ProgramTestContext,
+    pubkey: &Pubkey,
+    data: Vec<u8>,
+    lamports: u64,
+) {
+    let mut account_shared_data = AccountSharedData::new(
+        lamports,
+        data.len(),
+        &elusiv::id()
+    );
+
+    account_shared_data.set_data(data);
+    context.set_account(
+        pubkey,
+        &account_shared_data
+    );
 }
 
 // https://github.com/solana-labs/solana/blob/a1522d00242c2888a057c3d4238d902f063af9be/program-runtime/src/compute_budget.rs#L14

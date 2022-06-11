@@ -36,9 +36,11 @@ pub enum ElusivInstruction {
     // Client sends base_commitment and amount to be stored in the Elusiv program
     #[acc(sender, { writable, signer })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
+
     #[pda(pool, Pool, { ignore })]
     #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
     #[prg(fee_collector, key = pool.get_fee_collector(), { writable, account_info })]
+
     #[sys(system_program, key = system_program::ID)]
     #[pda(base_commitment_queue, BaseCommitmentQueue, { writable })]
     StoreBaseCommitment {
@@ -56,8 +58,10 @@ pub enum ElusivInstruction {
 
     #[acc(fee_payer, { writable, signer })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
+
     #[pda(pool, Pool, { ignore })]
     #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
+
     #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable })]
     ComputeBaseCommitmentHash {
         hash_account_index: u64,
@@ -80,8 +84,10 @@ pub enum ElusivInstruction {
 
     #[acc(fee_payer, { writable, signer })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
+
     #[pda(pool, Pool, { ignore })]
     #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
+
     #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     ComputeCommitmentHash {
         fee_version: u64,
@@ -96,9 +102,11 @@ pub enum ElusivInstruction {
     // Proof verification initialization for Send/Merge
     #[acc(fee_payer, { writable, signer })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
+
     #[pda(pool, Pool, { ignore })]
     #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
     #[prg(fee_collector, key = pool.get_fee_collector(), { writable, account_info })]
+
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable, account_info, find_pda })]
     #[pda(storage_account, Storage, { multi_accounts })]
     #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { multi_accounts })]
@@ -115,8 +123,10 @@ pub enum ElusivInstruction {
     // Proof verification computation
     #[acc(fee_payer, { writable, signer })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
+
     #[pda(pool, Pool, { ignore })]
     #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
+
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
     ComputeProof {
         verification_account_index: u64,
@@ -128,9 +138,11 @@ pub enum ElusivInstruction {
     #[acc(original_fee_payer, { writable })]
     #[acc(recipient, { writable })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
+
     #[pda(pool, Pool, { ignore })]
     #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
     #[prg(fee_collector, key = pool.get_fee_collector(), { writable, account_info })]
+
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable, account_info })]
     #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { writable, multi_accounts })]
@@ -155,9 +167,11 @@ pub enum ElusivInstruction {
     SetupStorageAccount,
 
     #[acc(payer, { writable, signer })]
+
     #[pda(pool, Pool, { writable, account_info, find_pda })]
     #[acc(sol_pool, { owned })]
     #[acc(fee_collector, { owned })]
+
     #[sys(system_program, key = system_program::ID, { ignore })]
     SetupPoolAccounts,
 
@@ -259,6 +273,6 @@ mod tests {
 
     #[test]
     fn test_instruction_tag() {
-        //assert_eq!(1, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 0, fee_version: 0 }));
+        assert_eq!(2, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 0, fee_version: 0 }));
     }
 }

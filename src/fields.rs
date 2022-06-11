@@ -16,7 +16,7 @@ macro_rules! u64_array {
 }
 
 const BASE_MODULUS: BigInteger256 = BigInteger256([0x3c208c16d87cfd47, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]);
-const SCALAR_MODULUS: BigInteger256 = BigInteger256([4891460686036598785u64, 2896914383306846353u64, 13281191951274694749u64, 3486998266802970665u64]);
+pub const SCALAR_MODULUS: BigInteger256 = BigInteger256([4891460686036598785u64, 2896914383306846353u64, 13281191951274694749u64, 3486998266802970665u64]);
 
 /// Constructs a base field element from an element in montgomery form
 /// - panics if the supplied element is >= the base field modulus `q`
@@ -302,6 +302,11 @@ pub fn fr_to_u256_le(fr: &Fr) -> U256 {
 
 pub fn u256_to_big_uint(v: &U256) -> BigInteger256 {
     BigInteger256(u256_to_le_limbs(*v))
+}
+
+pub fn big_uint_to_u256(v: &BigInteger256) -> U256 {
+    let s = <Wrap<BigInteger256>>::try_to_vec(&Wrap(*v)).unwrap();
+    slice_to_array::<u8, 32>(&s)
 }
 
 pub fn u64_to_scalar(v: u64) -> Fr {

@@ -50,8 +50,17 @@ macro_rules! partial_computation_is_finished {
     };
 }
 
-pub const MINIMUM_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
-pub const MAXIMUM_STORE_AMOUNT: u64 = u64::MAX;
+macro_rules! partial_computation_is_not_finished {
+    ($computation: ty, $account: ident) => {
+        guard!(
+            ($account.get_instruction() as usize) < (<$computation>::INSTRUCTIONS.len()),
+            ComputationIsAlreadyFinished
+        );
+    };
+}
+
+pub const MIN_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
+pub const MAX_STORE_AMOUNT: u64 = u64::MAX / 100;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 pub struct BaseCommitmentHashRequest {
@@ -80,10 +89,11 @@ pub fn store_base_commitment<'a>(
     fee_version: u64,
     request: BaseCommitmentHashRequest,
 ) -> ProgramResult {
-    guard!(request.amount >= MINIMUM_STORE_AMOUNT, InvalidAmount);
-    guard!(request.amount <= MAXIMUM_STORE_AMOUNT, InvalidAmount);
+    guard!(request.amount >= MIN_STORE_AMOUNT, InvalidAmount);
+    guard!(request.amount <= MAX_STORE_AMOUNT, InvalidAmount);
     guard!(matches!(try_scalar_montgomery(u256_to_big_uint(&request.base_commitment)), Some(_)), NonScalarValue);
     guard!(matches!(try_scalar_montgomery(u256_to_big_uint(&request.commitment)), Some(_)), NonScalarValue);
+    guard!(fee_version == request.fee_version as u64, InvalidFeeVersion);
     guard!(fee_version == CURRENT_FEE_VERSION as u64, InvalidFeeVersion);
 
     // Take amount + fee from sender
@@ -139,6 +149,7 @@ pub fn compute_base_commitment_hash<'a>(
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(hashing_account.get_fee_version() as u64 == fee_version, InvalidFeeVersion);
+    partial_computation_is_not_finished!(BaseCommitmentHashComputation, hashing_account);
 
     let instruction = hashing_account.get_instruction();
     let start_round = BaseCommitmentHashComputation::INSTRUCTIONS[instruction as usize].start_round;
@@ -226,6 +237,7 @@ pub fn compute_commitment_hash<'a>(
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(hashing_account.get_fee_version() as u64 == fee_version, InvalidFeeVersion);
+    partial_computation_is_not_finished!(CommitmentHashComputation, hashing_account);
 
     let instruction = hashing_account.get_instruction();
     let start_round = CommitmentHashComputation::INSTRUCTIONS[instruction as usize].start_round;

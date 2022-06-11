@@ -5,15 +5,18 @@ mod common;
 use common::*;
 use common::program_setup::*;
 
-use elusiv::fee::FeeAccount;
-use elusiv::processor::BaseCommitmentHashRequest;
+use elusiv::fee::{FeeAccount, CURRENT_FEE_VERSION};
+use elusiv::fields::{SCALAR_MODULUS, big_uint_to_u256, u256_to_fr};
+use elusiv::processor::{BaseCommitmentHashRequest, MIN_STORE_AMOUNT, MAX_STORE_AMOUNT, CommitmentHashRequest};
+use elusiv::state::{StorageAccount, MT_HEIGHT};
 use elusiv::state::pool::PoolAccount;
-use elusiv::state::program_account::SizedAccount;
+use elusiv::state::program_account::{SizedAccount, MultiAccountAccountFields, MultiAccountAccount};
 use elusiv::state::queue::{BaseCommitmentQueue, BaseCommitmentQueueAccount};
 use elusiv::instruction::*;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
+use solana_program::account_info::Account;
 use elusiv::state::{
     queue::{
         CommitmentQueueAccount, CommitmentQueue,
@@ -25,7 +28,7 @@ use elusiv::state::{
         ProgramAccount,
     },
 };
-use elusiv::commitment::{BaseCommitmentHashComputation, BaseCommitmentHashingAccount};
+use elusiv::commitment::{BaseCommitmentHashComputation, BaseCommitmentHashingAccount, CommitmentHashingAccount, CommitmentHashComputation};
 use elusiv_computation::PartialComputation;
 
 fn requests() -> Vec<BaseCommitmentHashRequest> {
@@ -43,28 +46,32 @@ fn requests() -> Vec<BaseCommitmentHashRequest> {
     ]
 }
 
+async fn setup_commitment_tests() -> (ProgramTestContext, Actor) {
+    let mut context = start_program_solana_program_test().await;
+    setup_pda_accounts(&mut context).await;
+    setup_pool_accounts(&mut context).await;
+    let client = Actor::new(&mut context).await;
+
+    (context, client)
+}
+
 #[tokio::test]
 async fn test_base_commitment() {
-    let mut test_program = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut test_program).await;
-    setup_pool_accounts(&mut test_program).await;
+    let (mut context, mut client) = setup_commitment_tests().await;
+    let requests = requests();
+    let lamports_per_tx = lamports_per_signature(&mut context).await;
 
-    let lamports_per_tx = lamports_per_signature(&mut test_program).await;
-
-    pda_account!(fee, FeeAccount, Some(0), test_program);
-    pda_account!(pool, PoolAccount, None, test_program);
+    pda_account!(fee, FeeAccount, Some(0), context);
+    pda_account!(pool, PoolAccount, None, context);
 
     let sol_pool = Pubkey::new(&pool.get_sol_pool());
-    let sol_pool_start_balance = get_balance(sol_pool, &mut test_program).await;
+    let sol_pool_start_balance = get_balance(sol_pool, &mut context).await;
 
     let fee_collector = Pubkey::new(&pool.get_fee_collector());
-    let fee_collector_start_balance = get_balance(fee_collector, &mut test_program).await;
+    let fee_collector_start_balance = get_balance(fee_collector, &mut context).await;
 
-    let requests = requests();
-
-    let mut client = Actor::new(&mut test_program).await; 
-    let mut relayer_a = Actor::new(&mut test_program).await; 
-    let mut relayer_b = Actor::new(&mut test_program).await; 
+    let mut relayer_a = Actor::new(&mut context).await; 
+    let mut relayer_b = Actor::new(&mut context).await; 
 
     // Request should fail: client has not enough funds
     let store_ix = ElusivInstruction::store_base_commitment_instruction(
@@ -74,91 +81,91 @@ async fn test_base_commitment() {
         WritableUserAccount(sol_pool),
         WritableUserAccount(fee_collector),
     );
-    ix_should_fail(store_ix.clone(), &mut client, &mut test_program).await;
-    assert_eq!(0, client.balance(&mut test_program).await);
+    ix_should_fail(store_ix.clone(), &mut client, &mut context).await;
+    assert_eq!(0, client.balance(&mut context).await);
 
     // Client has enough funds
     let base_commitment_hash_fee = fee.base_commitment_hash_fee();
     let network_fee = fee.get_base_commitment_network_fee();
     let amount = requests[0].amount + base_commitment_hash_fee + lamports_per_tx;
-    client.airdrop(amount, &mut test_program).await;
-    assert_eq!(amount, client.balance(&mut test_program).await);
+    client.airdrop(amount, &mut context).await;
+    assert_eq!(amount, client.balance(&mut context).await);
 
-    ix_should_succeed(store_ix, &mut client, &mut test_program).await;
+    ix_should_succeed(store_ix, &mut client, &mut context).await;
 
     // client has: zero-balance
-    assert_eq!(0, client.balance(&mut test_program).await);
+    assert_eq!(0, client.balance(&mut context).await);
 
     // pool has: requests[0].amount + base_commitment_hash_fee - network_fee
     assert_eq!(
         network_fee + fee_collector_start_balance,
-        get_balance(fee_collector, &mut test_program).await
+        get_balance(fee_collector, &mut context).await
     );
 
     // fee_collector has: network_fee
     assert_eq!(
         requests[0].amount + base_commitment_hash_fee - network_fee + sol_pool_start_balance,
-        get_balance(sol_pool, &mut test_program).await
+        get_balance(sol_pool, &mut context).await
     );
 
     // Check the queue for the first request
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, test_program);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, context);
     assert_eq!(queue.len(), 1);
     assert_eq!(queue.view_first().unwrap(), requests[0]);
 
     // Client stores the second request
     let amount = requests[1].amount + base_commitment_hash_fee + lamports_per_tx;
-    client.airdrop(amount, &mut test_program).await;
+    client.airdrop(amount, &mut context).await;
     ix_should_succeed(ElusivInstruction::store_base_commitment_instruction(
         0,
         requests[1].clone(),
         SignerAccount(client.pubkey),
         WritableUserAccount(sol_pool),
         WritableUserAccount(fee_collector),
-    ), &mut client, &mut test_program).await;
+    ), &mut client, &mut context).await;
 
-    assert_eq!(0, client.balance(&mut test_program).await);
+    assert_eq!(0, client.balance(&mut context).await);
     assert_eq!(
         2 * network_fee + fee_collector_start_balance,
-        get_balance(fee_collector, &mut test_program).await
+        get_balance(fee_collector, &mut context).await
     );
     assert_eq!(
         requests[0].amount + requests[1].amount + 2 * (base_commitment_hash_fee - network_fee) + sol_pool_start_balance,
-        get_balance(sol_pool, &mut test_program).await
+        get_balance(sol_pool, &mut context).await
     );
 
     // Check the queue for the second request
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, test_program);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, context);
     assert_eq!(queue.len(), 2);
     assert_eq!(queue.view_first().unwrap(), requests[0]);
     assert_eq!(queue.view(1).unwrap(), requests[1]);
 
     // Init through A with hash_account at 0
-    let rent = get_account_cost(&mut test_program, BaseCommitmentHashingAccount::SIZE).await;
-    relayer_a.airdrop(lamports_per_tx + rent, &mut test_program).await;
+    let rent = get_account_cost(&mut context, BaseCommitmentHashingAccount::SIZE).await;
+    relayer_a.airdrop(lamports_per_tx + rent, &mut context).await;
     ix_should_succeed(
         ElusivInstruction::init_base_commitment_hash_instruction(
             0,
             SignerAccount(relayer_a.pubkey)
         ),
-        &mut relayer_a, &mut test_program,
+        &mut relayer_a, &mut context,
     ).await;
 
     // A should now have lost the cost of renting
-    assert_eq!(0, relayer_a.balance(&mut test_program).await);
+    assert_eq!(0, relayer_a.balance(&mut context).await);
 
     // First request has been dequeued
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, test_program);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, context);
     assert_eq!(queue.len(), 1);
 
     // Second init through B will fail, since the hash_account at 0 already exists
-    relayer_b.airdrop(lamports_per_tx + rent, &mut test_program).await;
+    relayer_b.airdrop(lamports_per_tx + rent, &mut context).await;
     ix_should_fail(
         ElusivInstruction::init_base_commitment_hash_instruction(
             0,
             SignerAccount(relayer_b.pubkey)
         ),
-        &mut relayer_b, &mut test_program,
+        &mut relayer_b, &mut context,
     ).await;
 
     // But init through B will succeed for the hash_account with offset 1
@@ -167,17 +174,17 @@ async fn test_base_commitment() {
             1,
             SignerAccount(relayer_b.pubkey)
         ),
-        &mut relayer_b, &mut test_program,
+        &mut relayer_b, &mut context,
     ).await;
-    assert_eq!(0, relayer_b.balance(&mut test_program).await);
+    assert_eq!(0, relayer_b.balance(&mut context).await);
 
     // Queue should now be empty
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, test_program);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, context);
     assert_eq!(queue.len(), 0);
 
     // New hash_account with the request
-    assert!(account_does_exist(BaseCommitmentHashingAccount::find(Some(0)).0, &mut test_program).await);
-    pda_account!(hash_account, BaseCommitmentHashingAccount, Some(0), test_program);
+    assert!(account_does_exist(BaseCommitmentHashingAccount::find(Some(0)).0, &mut context).await);
+    pda_account!(hash_account, BaseCommitmentHashingAccount, Some(0), context);
     assert_eq!(hash_account.get_fee_version(), 0);
     assert_eq!(hash_account.get_fee_payer(), relayer_a.pubkey.to_bytes());
     assert_eq!(hash_account.get_instruction(), 0);
@@ -198,23 +205,26 @@ async fn test_base_commitment() {
     let hash_reward = fee.get_relayer_hash_tx_fee();
     for i in 0..BaseCommitmentHashComputation::INSTRUCTIONS.len() {
         // Finalization will always fail before completion
-        ix_should_fail(finalize_ix.clone(), &mut relayer_a, &mut test_program).await;
+        ix_should_fail(finalize_ix.clone(), &mut relayer_a, &mut context).await;
 
         // Fail due to too low compute budget
-        ix_should_fail(compute_ix.clone(), &mut relayer_a, &mut test_program).await;
+        let required_compute_budget = BaseCommitmentHashComputation::INSTRUCTIONS[i].compute_units;
+        if required_compute_budget > 300_000 { // include the 100k compute unit padding
+            ix_should_fail(compute_ix.clone(), &mut relayer_a, &mut context).await;
+        }
 
         // Success for correct compute budget
         tx_should_succeed(&[
-            request_compute_units(BaseCommitmentHashComputation::INSTRUCTIONS[i].compute_units),
+            request_compute_units(required_compute_budget),
             compute_ix.clone(),
-        ], &mut relayer_a, &mut test_program).await;
+        ], &mut relayer_a, &mut context).await;
 
         // Check for:
         // - rewards of the last computation
         // - compensation of the signature costs (no negative signature costs)
         assert_eq!(
             (i as u64 + 1) * hash_reward,
-            relayer_a.balance(&mut test_program).await
+            relayer_a.balance(&mut context).await
         );
     }
 
@@ -222,7 +232,7 @@ async fn test_base_commitment() {
     tx_should_fail(&[
         request_compute_units(1_400_000),
         compute_ix.clone(),
-    ], &mut relayer_a, &mut test_program).await;
+    ], &mut relayer_a, &mut context).await;
 
     // Finalize fails: B attempts to submit the wrong original_fee_payer
     ix_should_fail(
@@ -230,27 +240,27 @@ async fn test_base_commitment() {
             0,
             WritableUserAccount(relayer_b.pubkey)
         ),
-        &mut relayer_b, &mut test_program
+        &mut relayer_b, &mut context
     ).await;
 
     // Finalize succeeds: B supplies A as original_fee_payer
-    relayer_b.airdrop(lamports_per_tx, &mut test_program).await;
+    relayer_b.airdrop(lamports_per_tx, &mut context).await;
     ix_should_succeed(
         ElusivInstruction::finalize_base_commitment_hash_instruction(
             0,
             WritableUserAccount(relayer_a.pubkey)
         ),
-        &mut relayer_b, &mut test_program
+        &mut relayer_b, &mut context
     ).await;
 
     // Check that hash_account has been closed
-    assert!(account_does_not_exist(BaseCommitmentHashingAccount::find(Some(0)).0, &mut test_program).await);
+    assert!(account_does_not_exist(BaseCommitmentHashingAccount::find(Some(0)).0, &mut context).await);
 
     // Second finalize will fail
-    ix_should_fail(compute_ix.clone(), &mut relayer_a, &mut test_program).await;
+    ix_should_fail(compute_ix.clone(), &mut relayer_a, &mut context).await;
 
     // Check commitment queue for the correct hash
-    queue!(queue, CommitmentQueue, CommitmentQueueAccount, test_program);
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, context);
     let commitment = queue.view_first().unwrap();
     assert_eq!(queue.len(), 1);
     assert_eq!(commitment.commitment, requests[0].commitment);
@@ -261,7 +271,7 @@ async fn test_base_commitment() {
     // - check that rent has been sent to A and not B, since B called finalize
     assert_eq!(
         hash_reward * BaseCommitmentHashComputation::INSTRUCTIONS.len() as u64 + rent,
-        relayer_a.balance(&mut test_program).await
+        relayer_a.balance(&mut context).await
     );
 
     // SOL pool contains:
@@ -271,12 +281,337 @@ async fn test_base_commitment() {
     let commitment_hash_fee = fee.commitment_hash_fee();
     assert_eq!(
         requests[0].amount + requests[1].amount + commitment_hash_fee + base_commitment_hash_fee - network_fee + sol_pool_start_balance,
-        get_balance(sol_pool, &mut test_program).await
+        get_balance(sol_pool, &mut context).await
     );
 
     // Fee collector unchanged
     assert_eq!(
         2 * network_fee + fee_collector_start_balance,
-        get_balance(fee_collector, &mut test_program).await
+        get_balance(fee_collector, &mut context).await
+    );
+}
+
+#[tokio::test]
+async fn test_base_commitment_store_invalid_inputs() {
+    let (mut context, mut client) = setup_commitment_tests().await;
+    let request = &requests()[0];
+    pda_account!(pool, PoolAccount, None, context);
+    let sol_pool = Pubkey::new(&pool.get_sol_pool());
+    let fee_collector = Pubkey::new(&pool.get_fee_collector());
+
+    client.airdrop(MAX_STORE_AMOUNT / 1000, &mut context).await;
+
+    let mut invalid_instructions = Vec::new();
+
+    // Invalid fee-version
+    invalid_instructions.push(
+        ElusivInstruction::store_base_commitment_instruction(
+            CURRENT_FEE_VERSION as u64 + 1,
+            request.clone(),
+            SignerAccount(client.pubkey),
+            WritableUserAccount(sol_pool),
+            WritableUserAccount(fee_collector),
+        )
+    );
+
+    // Mismatched fee-version
+    invalid_instructions.push(
+        ElusivInstruction::store_base_commitment_instruction(
+            0,
+            BaseCommitmentHashRequest {
+                base_commitment: request.base_commitment,
+                commitment: request.commitment,
+                amount: MIN_STORE_AMOUNT,
+                fee_version: 1,
+            },
+            SignerAccount(client.pubkey),
+            WritableUserAccount(sol_pool),
+            WritableUserAccount(fee_collector),
+        )
+    );
+
+    // Amount too low
+    invalid_instructions.push(
+        ElusivInstruction::store_base_commitment_instruction(
+            0,
+            BaseCommitmentHashRequest {
+                base_commitment: request.base_commitment,
+                commitment: request.commitment,
+                amount: MIN_STORE_AMOUNT - 1,
+                fee_version: 0,
+            },
+            SignerAccount(client.pubkey),
+            WritableUserAccount(sol_pool),
+            WritableUserAccount(fee_collector),
+        )
+    );
+
+    // Amount too high
+    invalid_instructions.push(
+        ElusivInstruction::store_base_commitment_instruction(
+            0,
+            BaseCommitmentHashRequest {
+                base_commitment: request.base_commitment,
+                commitment: request.commitment,
+                amount: MAX_STORE_AMOUNT + 1,
+                fee_version: 0,
+            },
+            SignerAccount(client.pubkey),
+            WritableUserAccount(sol_pool),
+            WritableUserAccount(fee_collector),
+        )
+    );
+
+    // Non-scalar base-commitment
+    invalid_instructions.push(
+        ElusivInstruction::store_base_commitment_instruction(
+            0,
+            BaseCommitmentHashRequest {
+                base_commitment: big_uint_to_u256(&SCALAR_MODULUS),
+                commitment: request.commitment,
+                amount: MIN_STORE_AMOUNT,
+                fee_version: 0,
+            },
+            SignerAccount(client.pubkey),
+            WritableUserAccount(sol_pool),
+            WritableUserAccount(fee_collector),
+        )
+    );
+    
+    // Non-scalar commitment
+    invalid_instructions.push(
+        ElusivInstruction::store_base_commitment_instruction(
+            0,
+            BaseCommitmentHashRequest {
+                base_commitment: request.base_commitment,
+                commitment: big_uint_to_u256(&SCALAR_MODULUS),
+                amount: MIN_STORE_AMOUNT,
+                fee_version: 0,
+            },
+            SignerAccount(client.pubkey),
+            WritableUserAccount(sol_pool),
+            WritableUserAccount(fee_collector),
+        )
+    );
+
+    for ix in invalid_instructions {
+        ix_should_fail(ix, &mut client, &mut context).await;
+    }
+
+    // Valid inputs
+    ix_should_succeed(
+        ElusivInstruction::store_base_commitment_instruction(
+            0,
+            request.clone(),
+            SignerAccount(client.pubkey),
+            WritableUserAccount(sol_pool),
+            WritableUserAccount(fee_collector),
+        ), &mut client, &mut context
+    ).await;
+}
+
+#[tokio::test]
+async fn test_base_commitment_store__accounts_fuzzing() {
+    let (mut context, mut client) = setup_commitment_tests().await;
+    let request = &requests()[0];
+    pda_account!(pool, PoolAccount, None, context);
+    let sol_pool = Pubkey::new(&pool.get_sol_pool());
+    let fee_collector = Pubkey::new(&pool.get_fee_collector());
+
+    client.airdrop(MAX_STORE_AMOUNT / 1000, &mut context).await;
+
+    let valid_instruction = ElusivInstruction::store_base_commitment_instruction(
+        0,
+        request.clone(),
+        SignerAccount(client.pubkey),
+        WritableUserAccount(sol_pool),
+        WritableUserAccount(fee_collector),
+    );
+
+    let invalid_instructions = invalid_accounts_fuzzing(
+        &valid_instruction,
+        &mut context
+    ).await;
+
+    for ix in invalid_instructions {
+        ix_should_fail(ix, &mut client, &mut context).await;
+    }
+
+    ix_should_succeed(valid_instruction, &mut client, &mut context).await;
+}
+
+#[tokio::test]
+async fn test_single_commitment() {
+    let (mut context, _) = setup_commitment_tests().await;
+    setup_storage_account(&mut context).await;
+    let requests = requests();
+    let lamports_per_tx = lamports_per_signature(&mut context).await;
+
+    pda_account!(fee, FeeAccount, Some(0), context);
+    pda_account!(pool, PoolAccount, None, context);
+
+    let sol_pool = Pubkey::new(&pool.get_sol_pool());
+    let sol_pool_start_balance = get_balance(sol_pool, &mut context).await;
+
+    let mut relayer_a = Actor::new(&mut context).await;
+    let mut relayer_b = Actor::new(&mut context).await;
+
+    let storage_data = get_data(&mut context, StorageAccount::find(None).0).await;
+    let storage_fields = MultiAccountAccountFields::<{StorageAccount::COUNT}>::new(&storage_data).unwrap();
+    let storage_accounts: Vec<UserAccount> = storage_fields.pubkeys.iter()
+        .map(|p| UserAccount(Pubkey::new(p)))
+        .collect();
+    let writable_storage_accounts: Vec<WritableUserAccount> = storage_fields.pubkeys.iter()
+        .map(|p| WritableUserAccount(Pubkey::new(p)))
+        .collect();
+    let storage_accounts: [UserAccount; StorageAccount::COUNT] = storage_accounts.try_into().unwrap();
+    let writable_storage_accounts: [WritableUserAccount; StorageAccount::COUNT] = writable_storage_accounts.try_into().unwrap();
+
+    // Init fails, since queue is empty
+    ix_should_fail(
+        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+        &mut relayer_a, &mut context
+    ).await;
+
+    // Add requests to commitment queue
+    set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
+        queue_inner!(queue, CommitmentQueue, CommitmentQueueAccount, data);
+        queue.enqueue(
+            CommitmentHashRequest {
+                commitment: requests[0].commitment,
+                fee_version: 0
+            }
+        ).unwrap();
+
+        queue.enqueue(
+            CommitmentHashRequest {
+                commitment: requests[1].commitment,
+                fee_version: 0
+            }
+        ).unwrap();
+    }).await;
+
+    // Add funds: 
+    let hash_tx_count = CommitmentHashComputation::INSTRUCTIONS.len();
+    let amounts = requests[0].amount + requests[1].amount;
+    let hash_fee = fee.commitment_hash_fee();
+    let pool_lamports = 2 * hash_fee + amounts;
+    airdrop(&sol_pool, pool_lamports, &mut context).await;
+
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, context);
+    assert_eq!(queue.len(), 2);
+
+    pda_account!(hashing_account, CommitmentHashingAccount, None, context);
+    assert!(!hashing_account.get_is_active());
+
+    // Init succeeds
+    relayer_a.airdrop(lamports_per_tx, &mut context).await;
+    ix_should_succeed(
+        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+        &mut relayer_a, &mut context
+    ).await;
+
+    pda_account!(hashing_account, CommitmentHashingAccount, None, context);
+    assert!(hashing_account.get_is_active());
+    assert_eq!(hashing_account.get_fee_payer(), [0; 32]);   // has no role atm
+    assert_eq!(hashing_account.get_fee_version(), 0);
+    assert_eq!(hashing_account.get_commitment(), requests[0].commitment);
+    assert_eq!(hashing_account.get_ordering(), 0);
+    // The empty tree values are the siblings
+    for i in 0..MT_HEIGHT as usize {
+        assert_eq!(
+            hashing_account.get_siblings(i).0,
+            elusiv::state::EMPTY_TREE[i]
+        );
+    }
+
+    // Queue remains unchanged
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, context);
+    assert_eq!(queue.len(), 2);
+
+    // Second init fails, since a hashing is already active
+    ix_should_fail(
+        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+        &mut relayer_a, &mut context
+    ).await;
+
+    let finalize_ix = ElusivInstruction::finalize_commitment_hash_instruction(
+        &writable_storage_accounts
+    );
+
+    let compute_ix = ElusivInstruction::compute_commitment_hash_instruction(
+        0,
+        0,
+        SignerAccount(relayer_b.pubkey),
+        WritableUserAccount(sol_pool),
+    );
+
+    // Computation
+    let single_tx_reward = fee.get_relayer_hash_tx_fee();
+    for i in 0..hash_tx_count {
+        // Finalization will always fail before completion
+        ix_should_fail(finalize_ix.clone(), &mut relayer_b, &mut context).await;
+
+        // Fail due to too low compute budget
+        let required_compute_budget = CommitmentHashComputation::INSTRUCTIONS[i].compute_units;
+        if required_compute_budget > 300_000 { // include the 100k compute unit padding
+            ix_should_fail(compute_ix.clone(), &mut relayer_b, &mut context).await;
+        }
+
+        // Success for correct compute budget
+        tx_should_succeed(&[
+            request_compute_units(required_compute_budget),
+            compute_ix.clone(),
+        ], &mut relayer_b, &mut context).await;
+
+        // Hash compensation
+        // - reward per tx
+        // - compensation for signature costs
+        assert_eq!(
+            (i as u64 + 1) * single_tx_reward,
+            relayer_b.balance(&mut context).await
+        );
+    }
+    assert_eq!(hash_fee, (single_tx_reward + lamports_per_tx) * hash_tx_count as u64);
+
+    // Additional computation fails
+    tx_should_fail(&[
+        request_compute_units(1_400_000),
+        compute_ix.clone(),
+    ], &mut relayer_b, &mut context).await;
+
+    // Finalization
+    relayer_a.airdrop(lamports_per_tx, &mut context).await;
+    ix_should_succeed(finalize_ix.clone(), &mut relayer_a, &mut context).await;
+
+    // Changes in the queue
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, context);
+    let request = queue.view_first().unwrap();
+    assert_eq!(queue.len(), 1);
+    assert_eq!(request.commitment, requests[1].commitment);
+
+    // Hashing account is now inactive
+    pda_account!(hashing_account, CommitmentHashingAccount, None, context);
+    assert!(!hashing_account.get_is_active());
+
+    // Pool lost 1 hash_fee
+    assert_eq!(
+        pool_lamports - hash_fee + sol_pool_start_balance,
+        get_balance(sol_pool, &mut context).await
+    );
+
+    // Check updated MT
+    storage_account!(storage_account, context);
+    assert_eq!(
+        storage_account.get_root(),
+        u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575")
+    );
+    assert_eq!(
+        storage_account.get_node(0, MT_HEIGHT as usize),
+        u256_to_fr(&requests[0].commitment)
+    );
+    assert_eq!(
+        storage_account.get_next_commitment_ptr(),
+        1
     );
 }
