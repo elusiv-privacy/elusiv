@@ -7,33 +7,38 @@ use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
 use crate::processor::{BaseCommitmentHashRequest, CommitmentHashRequest};
-use super::program_account::{SizedAccount, ProgramAccount};
+use super::program_account::{SizedAccount, ProgramAccount, PDAAccountFields};
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
-    ($name: ident, $account: ident, $seed: literal, $size: literal, $ty: ty) => {
+    ($id: ident, $id_account: ident, $seed: literal, $size: literal, $ty_element: ty) => {
         #[elusiv_account(pda_seed = $seed)]
-        pub struct $account {
+        pub struct $id_account {
             bump_seed: u8,
             initialized: bool,
 
             head: u64,
             tail: u64,
-            data: [$ty; $size],
+            data: [$ty_element; $size],
         }
 
-        pub struct $name<'a, 'b> {
-            account: &'b mut $account<'a>,
+        const_assert_eq!(
+            <$id_account>::SIZE,
+            <$ty_element>::SIZE * $size + PDAAccountFields::SIZE + 8 + 8
+        );
+
+        pub struct $id<'a, 'b> {
+            account: &'b mut $id_account<'a>,
         }
 
-        impl<'a, 'b> Queue<'a, 'b, $account<'a>> for $name<'a, 'b> {
-            type T = $name<'a, 'b>;
-            fn new(account: &'b mut $account<'a>) -> Self::T { $name { account } }
+        impl<'a, 'b> Queue<'a, 'b, $id_account<'a>> for $id<'a, 'b> {
+            type T = $id<'a, 'b>;
+            fn new(account: &'b mut $id_account<'a>) -> Self::T { $id { account } }
         }
         
-        impl<'a, 'b> RingQueue for $name<'a, 'b> {
-            type N = $ty;
-            const SIZE: u64 = $size * Self::N::SIZE as u64;
+        impl<'a, 'b> RingQueue for $id<'a, 'b> {
+            type N = $ty_element;
+            const SIZE: u64 = $size as u64;
         
             fn get_head(&self) -> u64 { self.account.get_head() }
             fn set_head(&mut self, value: &u64) { self.account.set_head(value) }
@@ -51,7 +56,7 @@ pub trait Queue<'a, 'b, Account: ProgramAccount<'a>> {
 }
 
 // Base commitment queue
-queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, b"base_commitment_queue", 128, BaseCommitmentHashRequest);
+queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, b"base_commitment_queue", 129, BaseCommitmentHashRequest);
 
 // Queue used for storing commitments that should sequentially inserted into the active Merkle tree
 queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest);
@@ -65,6 +70,7 @@ queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240
 pub trait RingQueue {
     type N: PartialEq + BorshSerDeSized + Clone;
     const SIZE: u64;
+    const LEN: u64 = Self::SIZE - 1;
 
     fn get_head(&self) -> u64;
     fn set_head(&mut self, value: &u64);
@@ -143,17 +149,15 @@ pub trait RingQueue {
 mod tests {
     use super::*;
 
-    const SIZE: usize = 7;
-
-    struct TestQueue {
+    struct TestQueue<const S: usize> {
         head: u64,
         tail: u64,
-        data: [u32; SIZE],
+        data: [u32; S],
     }
 
-    impl RingQueue for TestQueue {
+    impl<const S: usize> RingQueue for TestQueue<S> {
         type N = u32;
-        const SIZE: u64 = SIZE as u64;
+        const SIZE: u64 = S as u64;
 
         fn get_head(&self) -> u64 { self.head }
         fn set_head(&mut self, value: &u64) { self.head = *value; }
@@ -165,17 +169,21 @@ mod tests {
         fn set_data(&mut self, index: usize, value: &u32) { self.data[index] = *value; }
     }
 
+    impl<const S: usize> TestQueue<S> {
+        pub fn size(&self) -> u64 { Self::SIZE }
+    }
+
     macro_rules! test_queue {
-        ($id: ident, $head: literal, $tail: literal) => {
-            let mut $id = TestQueue { head: $head, tail: $tail, data: [0; SIZE] };
+        ($id: ident, $size: literal, $head: literal, $tail: literal) => {
+            let mut $id = TestQueue { head: $head, tail: $tail, data: [0; $size] };
         };
     }
 
     #[test]
     fn test_persistent_fifo() {
-        test_queue!(queue, 0, 0);
+        test_queue!(queue, 7, 0, 0);
 
-        for i in 1..SIZE {
+        for i in 1..queue.size() {
             queue.enqueue(i as u32).unwrap();
             assert_eq!(1, queue.view_first().unwrap()); // first element does not change
             assert_eq!(queue.len(), i as u64);
@@ -184,19 +192,49 @@ mod tests {
 
     #[test]
     fn test_max_size() {
-        test_queue!(full_queue, 1, 0);
+        test_queue!(full_queue, 3, 1, 0);
         assert!(matches!(full_queue.enqueue(1), Err(_)));
+
+        full_queue.dequeue_first().unwrap();
+        assert!(matches!(full_queue.enqueue(1), Ok(())));
+        assert!(matches!(full_queue.enqueue(2), Err(_)));
+
+        full_queue.dequeue_first().unwrap();
+        assert!(matches!(full_queue.enqueue(2), Ok(())));
+    }
+
+    #[test]
+    fn test_wrap_around() {
+        test_queue!(queue, 11, 0, 0);
+
+        for _ in 0..11 {
+            for _ in 0..11 {
+                queue.enqueue(0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_len() {
+        test_queue!(queue, 4, 0, 0);
+        assert_eq!(queue.len(), 0);
+
+        queue.enqueue(0).unwrap();
+        assert_eq!(queue.len(), 1);
+
+        queue.dequeue_first().unwrap();
+        assert_eq!(queue.len(), 0);
     }
 
     #[test]
     fn test_ordering() {
-        test_queue!(queue, 0, 0);
+        test_queue!(queue, 13, 0, 0);
 
-        for i in 1..SIZE {
+        for i in 1..13 {
             queue.enqueue(i as u32).unwrap();
         }
 
-        for i in 1..SIZE {
+        for i in 1..13 {
             assert_eq!(i as u32, queue.view_first().unwrap());
             queue.dequeue_first().unwrap();
         }
