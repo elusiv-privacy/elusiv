@@ -1,8 +1,4 @@
-use borsh::BorshSerialize;
-use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::state::StorageAccount;
-use elusiv::state::pool::PoolAccount;
-use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program::{
     instruction::Instruction,
@@ -19,8 +15,7 @@ use solana_sdk::{
     account::AccountSharedData,
 };
 use elusiv::instruction::*;
-use elusiv::state::queue::{CommitmentQueueAccount, CommitmentQueue, Queue};
-use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount, ProgramAccount, MultiAccountAccountFields};
+use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount};
 use elusiv::processor::SingleInstancePDAAccountKind;
 
 use crate::common::lamports_per_signature;

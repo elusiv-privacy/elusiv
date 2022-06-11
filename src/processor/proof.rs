@@ -7,7 +7,7 @@ use solana_program::{
 };
 use crate::fee::{FeeAccount, CURRENT_FEE_VERSION};
 use crate::macros::{guard, BorshSerDeSized};
-use crate::processor::{open_pda_account_with_offset, close_account, CommitmentHashRequest};
+use crate::processor::{open_pda_account_with_offset, CommitmentHashRequest};
 use crate::state::program_account::PDAAccount;
 use crate::state::{
     NullifierAccount,
@@ -40,11 +40,11 @@ use crate::proof::{
         MigrateUnaryVKey,
     },
 };
-use crate::types::{RawProof, U256, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs};
+use crate::types::{RawProof, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs};
 use crate::bytes::BorshSerDeSized;
-use super::utils::{send_from_pool, send_with_system_program};
-use crate::fields::u256_to_fr;
-use elusiv_computation::{PartialComputation, PartialComputationInstruction};
+use super::utils::{send_from_pool, send_with_system_program, close_account};
+//use crate::fields::u256_to_fr;
+//use elusiv_computation::{PartialComputation, PartialComputationInstruction};
 use borsh::{BorshSerialize, BorshDeserialize};
 
 macro_rules! execute_with_vkey {

@@ -1,7 +1,5 @@
-use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
-
-use crate::macros::{elusiv_account, guard};
+use crate::macros::{elusiv_account};
 use solana_program::{entrypoint::ProgramResult, program_error::ProgramError::InvalidAccountData};
 use crate::types::{U256, U256Limbed2};
 use crate::bytes::*;
@@ -23,7 +21,7 @@ const NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = get_multi_accounts_count(MAX
 const_assert_eq!(NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT, 4);
 
 const NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * NULLIFIER_MAP_ELEMENT_SIZE;
-const NULLIFIER_ACCOUNT_LAST_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * NULLIFIER_MAP_ELEMENT_SIZE;
+//const NULLIFIER_ACCOUNT_LAST_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * NULLIFIER_MAP_ELEMENT_SIZE;
 
 /// NullifierAccount is a big-array storing `NULLIFIERS_COUNT` nullifiers over multiple accounts
 /// - we use `NullifierMap`s to store the nullifiers
@@ -98,12 +96,13 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    /*use super::*;
     use crate::macros::account;
     use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
     use crate::state::{program_account::{MultiAccountAccount, MultiAccountProgramAccount}};
-    use std::collections::BTreeMap;
+    use std::collections::BTreeMap;*/
 
+    #[allow(unused_macros)]
     macro_rules! nullifier_account {
         ($id: ident) => {
             let mut pks = Vec::new();

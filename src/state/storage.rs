@@ -180,7 +180,7 @@ fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
 mod tests {
     use super::*;
     use crate::macros::{account, generate_storage_accounts, generate_storage_accounts_valid_size};
-    use solana_program::{pubkey::Pubkey, account_info::AccountInfo};
+    use solana_program::{account_info::AccountInfo};
     use super::super::program_account::{MultiAccountAccount, BigArrayAccount};
     use std::str::FromStr;
 

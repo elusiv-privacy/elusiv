@@ -3,8 +3,6 @@ use borsh::{BorshSerialize, BorshDeserialize};
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
-    system_instruction,
-    program::invoke_signed,
     sysvar::Sysvar,
     rent::Rent,
 };
@@ -15,12 +13,11 @@ use crate::{state::{
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
 }, fee::{CURRENT_FEE_VERSION, FeeAccount}};
 use crate::commitment::{CommitmentHashingAccount};
-use crate::error::ElusivError::{InvalidAccountBalance, InvalidInstructionData, InvalidFeeVersion};
+use crate::error::ElusivError::{InvalidInstructionData, InvalidFeeVersion};
 use crate::macros::*;
 use crate::bytes::{BorshSerDeSized, is_zero};
 use crate::types::U256;
-
-use super::utils::send_from_pool;
+use super::utils::*;
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum SingleInstancePDAAccountKind {
@@ -112,13 +109,6 @@ macro_rules! verify_data_account {
     };
 }
 
-pub fn close_account<'a>(
-    payer: &AccountInfo<'a>,
-    account: &AccountInfo<'a>,
-) -> ProgramResult {
-    let lamports = account.lamports();
-    send_from_pool(account, payer, lamports)
-}
 
 pub struct IntermediaryStorageSubAccount { }
 impl SizedAccount for IntermediaryStorageSubAccount {
@@ -204,42 +194,6 @@ fn verify_storage_sub_accounts(storage_account: &StorageAccount) -> ProgramResul
             verify_data_account!(storage_account.get_account(i), LastStorageSubAccount, false);
         }
     }
-
-    Ok(())
-}
-
-fn create_pda_account<'a>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-    account_size: usize,
-    bump: u8,
-    signers_seeds: &[&[u8]],
-) -> ProgramResult {
-    let lamports_required = Rent::get()?.minimum_balance(account_size);
-    let space: u64 = account_size.try_into().unwrap();
-    guard!(payer.lamports() >= lamports_required, InvalidAccountBalance);
-
-    invoke_signed(
-        &system_instruction::create_account(
-            &payer.key,
-            &pda_account.key,
-            lamports_required,
-            space,
-            &crate::id(),
-        ),
-        &[
-            payer.clone(),
-            pda_account.clone(),
-        ],
-        &[signers_seeds]
-    )?;
-
-    let data = &mut pda_account.data.borrow_mut()[..];
-
-    // Save `bump_seed`
-    data[0] = bump;
-    // Set `initialized` flag
-    data[1] = 1;
 
     Ok(())
 }

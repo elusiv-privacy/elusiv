@@ -87,12 +87,13 @@ pub async fn airdrop(account: &Pubkey, lamports: u64, context: &mut ProgramTestC
     assert_matches!(context.banks_client.process_transaction(tx).await, Ok(()));
 }
 
+#[allow(deprecated)]
 pub async fn lamports_per_signature(context: &mut ProgramTestContext) -> u64 {
     context.banks_client.get_fees().await.unwrap().0.lamports_per_signature
 }
 
 // Account getters
-macro_rules! queue_inner {
+macro_rules! queue_mut {
     ($id: ident, $ty: ty, $ty_account: ty, $data: expr) => {
         let mut queue = <$ty_account>::new($data).unwrap();
         let mut $id = <$ty>::new(&mut queue);
@@ -102,7 +103,8 @@ macro_rules! queue_inner {
 macro_rules! queue {
     ($id: ident, $ty: ty, $ty_account: ty, $prg: ident) => {
         let mut queue = get_data(&mut $prg, <$ty_account>::find(None).0).await;
-        queue_inner!($id, $ty, $ty_account, &mut queue[..]);
+        let mut queue = <$ty_account>::new(&mut queue[..]).unwrap();
+        let $id = <$ty>::new(&mut queue);
     };
 }
 
@@ -162,12 +164,12 @@ macro_rules! storage_account {
     };
 }
 
-pub(crate) use queue;
-pub(crate) use queue_inner;
-pub(crate) use pda_account;
-pub(crate) use sized_account;
-pub(crate) use account_info;
-pub(crate) use storage_account;
+#[allow(unused_imports)] pub(crate) use queue;
+#[allow(unused_imports)] pub(crate) use queue_mut;
+#[allow(unused_imports)] pub(crate) use pda_account;
+#[allow(unused_imports)] pub(crate) use sized_account;
+#[allow(unused_imports)] pub(crate) use account_info;
+#[allow(unused_imports)] pub(crate) use storage_account;
 
 use self::program_setup::set_account;
 
@@ -190,8 +192,9 @@ pub async fn invalid_accounts_fuzzing(ix: &Instruction, context: &mut ProgramTes
 
         // Clone data and lamports
         let id = acc.pubkey;
-        let data = get_data(context, id).await;
-        let lamports = get_balance(id, context).await;
+        let accounts_exists = account_does_exist(id, context).await;
+        let data = if accounts_exists { get_data(context, id).await } else { vec![] };
+        let lamports = if accounts_exists { get_balance(id, context).await } else { 100_000 };
         let new_pubkey = Pubkey::new_unique();
         set_account(context, &new_pubkey, data, lamports).await;
 
@@ -204,6 +207,30 @@ pub async fn invalid_accounts_fuzzing(ix: &Instruction, context: &mut ProgramTes
         ixs.push(ix);
     }
     ixs
+}
+
+/// All fuzzed ix variants should fail and the original ix should afterwards succeed
+/// - prefix_ixs are used to e.g. supply compute budget requests without fuzzing those ixs
+pub async fn test_instruction_fuzzing(
+    prefix_ixs: &[Instruction],
+    valid_ix: Instruction,
+    signer: &mut Actor,
+    context: &mut ProgramTestContext
+) {
+    let invalid_instructions = invalid_accounts_fuzzing(
+        &valid_ix,
+        context
+    ).await;
+
+    for ix in invalid_instructions {
+        let mut ixs = prefix_ixs.to_vec();
+        ixs.push(ix);
+        tx_should_fail(&ixs, signer, context).await;
+    }
+
+    let mut ixs = prefix_ixs.to_vec();
+    ixs.push(valid_ix);
+    tx_should_succeed(&ixs, signer, context).await;
 }
 
 async fn generate_and_sign_tx(

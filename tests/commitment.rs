@@ -13,6 +13,7 @@ use elusiv::state::pool::PoolAccount;
 use elusiv::state::program_account::{SizedAccount, MultiAccountAccountFields, MultiAccountAccount};
 use elusiv::state::queue::{BaseCommitmentQueue, BaseCommitmentQueueAccount};
 use elusiv::instruction::*;
+use elusiv::types::U256;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
@@ -411,33 +412,112 @@ async fn test_base_commitment_store_invalid_inputs() {
 }
 
 #[tokio::test]
-async fn test_base_commitment_store__accounts_fuzzing() {
+async fn test_base_commitment_accounts_fuzzing() {
     let (mut context, mut client) = setup_commitment_tests().await;
     let request = &requests()[0];
     pda_account!(pool, PoolAccount, None, context);
     let sol_pool = Pubkey::new(&pool.get_sol_pool());
     let fee_collector = Pubkey::new(&pool.get_fee_collector());
+    let mut relayer_a = Actor::new(&mut context).await;
 
-    client.airdrop(MAX_STORE_AMOUNT / 1000, &mut context).await;
+    // Store fuzzing
+    client.airdrop(request.amount, &mut context).await;
+    test_instruction_fuzzing(
+        &[],
+        ElusivInstruction::store_base_commitment_instruction(
+            0,
+            request.clone(),
+            SignerAccount(client.pubkey),
+            WritableUserAccount(sol_pool),
+            WritableUserAccount(fee_collector),
+        ),
+        &mut client, &mut context
+    ).await;
 
-    let valid_instruction = ElusivInstruction::store_base_commitment_instruction(
+    // Init fuzzing
+    test_instruction_fuzzing(
+        &[],
+        ElusivInstruction::init_base_commitment_hash_instruction(
+            1,
+            SignerAccount(relayer_a.pubkey),
+        ),
+        &mut relayer_a,
+        &mut context
+    ).await;
+
+    // Computation fuzzing
+    let valid_computation_ix = ElusivInstruction::compute_base_commitment_hash_instruction(
+        1,
         0,
-        request.clone(),
+        0,
+        SignerAccount(relayer_a.pubkey),
+        WritableUserAccount(sol_pool),
+    );
+    test_instruction_fuzzing(
+        &[
+            request_compute_units(1_400_000)
+        ],
+        valid_computation_ix.clone(),
+        &mut relayer_a,
+        &mut context,
+    ).await;
+
+    tx_should_succeed(&[
+        request_compute_units(1_400_000),
+        valid_computation_ix,
+    ], &mut relayer_a, &mut context).await;
+
+    // Finalization fuzzing
+    test_instruction_fuzzing(
+        &[],
+        ElusivInstruction::finalize_base_commitment_hash_instruction(
+            1,
+            WritableUserAccount(relayer_a.pubkey),
+        ),
+        &mut relayer_a,
+        &mut context,
+    ).await;
+}
+
+#[tokio::test]
+async fn test_base_commitment_full_queue() {
+    let (mut context, mut client) = setup_commitment_tests().await;
+    let requests = &requests();
+    pda_account!(pool, PoolAccount, None, context);
+    let sol_pool = Pubkey::new(&pool.get_sol_pool());
+    let fee_collector = Pubkey::new(&pool.get_fee_collector());
+
+    // Enqueue all but one
+    set_pda_account::<BaseCommitmentQueueAccount, _>(&mut context, None, |data| {
+        queue_mut!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, data);
+        for _ in 0..BaseCommitmentQueue::CAPACITY - 1 {
+            queue.enqueue(requests[0].clone()).unwrap();
+        }
+    }).await;
+
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, context);
+    assert_eq!(queue.len(), BaseCommitmentQueue::CAPACITY - 1);
+    assert_eq!(queue.empty_slots(), 1);
+
+    // One insertion is still possible
+    let ix = ElusivInstruction::store_base_commitment_instruction(
+        0,
+        requests[0].clone(),
         SignerAccount(client.pubkey),
         WritableUserAccount(sol_pool),
         WritableUserAccount(fee_collector),
     );
 
-    let invalid_instructions = invalid_accounts_fuzzing(
-        &valid_instruction,
-        &mut context
-    ).await;
+    client.airdrop(LAMPORTS_PER_SOL * 2, &mut context).await;
+    ix_should_succeed(ix.clone(), &mut client, &mut context).await;
 
-    for ix in invalid_instructions {
-        ix_should_fail(ix, &mut client, &mut context).await;
-    }
+    // Now queue is full
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, context);
+    assert_eq!(queue.len(), BaseCommitmentQueue::CAPACITY);
+    assert_eq!(queue.empty_slots(), 0);
 
-    ix_should_succeed(valid_instruction, &mut client, &mut context).await;
+    client.airdrop(LAMPORTS_PER_SOL * 2, &mut context).await;
+    ix_should_fail(ix, &mut client, &mut context).await;
 }
 
 #[tokio::test]
@@ -475,7 +555,7 @@ async fn test_single_commitment() {
 
     // Add requests to commitment queue
     set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
-        queue_inner!(queue, CommitmentQueue, CommitmentQueueAccount, data);
+        queue_mut!(queue, CommitmentQueue, CommitmentQueueAccount, data);
         queue.enqueue(
             CommitmentHashRequest {
                 commitment: requests[0].commitment,
@@ -614,4 +694,65 @@ async fn test_single_commitment() {
         storage_account.get_next_commitment_ptr(),
         1
     );
+}
+
+async fn set_finished_base_commitment_hash(
+    hash_account_index: u64,
+    commitment: &U256,
+    original_fee_payer: &Pubkey,
+    context: &mut ProgramTestContext,
+) {
+    let len = BaseCommitmentHashingAccount::SIZE;
+    let cost = get_account_cost(context, len).await;
+    let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
+    {
+        let mut hashing_account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
+        hashing_account.set_instruction(&(BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32));
+        hashing_account.set_state(0, commitment);
+        hashing_account.set_fee_payer(&original_fee_payer.to_bytes());
+    }
+    set_account(
+        context,
+        &BaseCommitmentHashingAccount::find(Some(hash_account_index)).0,
+        data,
+        cost,
+    ).await;
+}
+
+#[tokio::test]
+async fn test_commitment_full_queue() {
+    let (mut context, mut client) = setup_commitment_tests().await;
+
+    let request = CommitmentHashRequest {
+        commitment: requests().clone()[0].commitment,
+        fee_version: 0
+    };
+
+    // Enqueue all
+    set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
+        queue_mut!(queue, CommitmentQueue, CommitmentQueueAccount, data);
+        for _ in 0..CommitmentQueue::CAPACITY {
+            queue.enqueue(request.clone()).unwrap();
+        }
+    }).await;
+
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, context);
+    assert_eq!(queue.len(), CommitmentQueue::CAPACITY);
+    assert_eq!(queue.empty_slots(), 0);
+
+    // Add finished base_commitment to hashing account
+    set_finished_base_commitment_hash(
+        0,
+        &request.commitment,
+        &client.pubkey,
+        &mut context,
+    ).await;
+
+    // Finalization should now fail due to full queue
+    ix_should_fail(
+        ElusivInstruction::finalize_base_commitment_hash_instruction(
+            0,
+            WritableUserAccount(client.pubkey)
+        ), &mut client, &mut context
+    ).await;
 }

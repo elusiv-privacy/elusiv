@@ -179,8 +179,6 @@ mod tests {
             siblings[i] = u64_to_scalar(i as u64);
         }
 
-        let fee_payer = [9; 32];
-
         account.reset(commitment, ordering, siblings, 0).unwrap();
 
         assert_eq!(account.get_state(0), [0; 32]);

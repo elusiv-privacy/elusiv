@@ -24,7 +24,12 @@ macro_rules! queue_account {
 
         const_assert_eq!(
             <$id_account>::SIZE,
-            <$ty_element>::SIZE * $size + PDAAccountFields::SIZE + 8 + 8
+            PDAAccountFields::SIZE + (8 + 8) + <$ty_element>::SIZE * ($size)
+        );
+
+        const_assert_eq!(
+            <$id>::SIZE,
+            $size
         );
 
         pub struct $id<'a, 'b> {
@@ -38,7 +43,7 @@ macro_rules! queue_account {
         
         impl<'a, 'b> RingQueue for $id<'a, 'b> {
             type N = $ty_element;
-            const SIZE: u64 = $size as u64;
+            const CAPACITY: u64 = $size as u64 - 1;
         
             fn get_head(&self) -> u64 { self.account.get_head() }
             fn set_head(&mut self, value: &u64) { self.account.set_head(value) }
@@ -61,7 +66,7 @@ queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, b"base_commitmen
 // Queue used for storing commitments that should sequentially inserted into the active Merkle tree
 queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest);
 
-/// Ring queue with a capacity of `SIZE - 1` elements
+/// Ring queue with a capacity of `CAPACITY` elements
 /// - works by having two pointers, `head` and `tail` and a some data storage with getter, setter
 /// - `head` points to the first element (first according to the FIFO definition)
 /// - `tail` points to the location to insert the next element
@@ -69,8 +74,8 @@ queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240
 /// - `head == tail` => queue is empty
 pub trait RingQueue {
     type N: PartialEq + BorshSerDeSized + Clone;
-    const SIZE: u64;
-    const LEN: u64 = Self::SIZE - 1;
+    const CAPACITY: u64;
+    const SIZE: u64 = Self::CAPACITY + 1;
 
     fn get_head(&self) -> u64;
     fn set_head(&mut self, value: &u64);
@@ -143,6 +148,10 @@ pub trait RingQueue {
             tail - head
         }
     }
+
+    fn empty_slots(&self) -> u64 {
+        Self::CAPACITY - self.len()
+    }
 }
 
 #[cfg(test)]
@@ -157,7 +166,7 @@ mod tests {
 
     impl<const S: usize> RingQueue for TestQueue<S> {
         type N = u32;
-        const SIZE: u64 = S as u64;
+        const CAPACITY: u64 = S as u64 - 1;
 
         fn get_head(&self) -> u64 { self.head }
         fn set_head(&mut self, value: &u64) { self.head = *value; }
@@ -170,7 +179,7 @@ mod tests {
     }
 
     impl<const S: usize> TestQueue<S> {
-        pub fn size(&self) -> u64 { Self::SIZE }
+        pub fn capacity(&self) -> u64 { Self::CAPACITY }
     }
 
     macro_rules! test_queue {
@@ -183,10 +192,29 @@ mod tests {
     fn test_persistent_fifo() {
         test_queue!(queue, 7, 0, 0);
 
-        for i in 1..queue.size() {
+        for i in 0..queue.capacity() {
             queue.enqueue(i as u32).unwrap();
-            assert_eq!(1, queue.view_first().unwrap()); // first element does not change
-            assert_eq!(queue.len(), i as u64);
+            assert_eq!(0, queue.view_first().unwrap()); // first element does not change
+            assert_eq!(queue.len(), i as u64 + 1);
+        }
+    }
+
+    #[test]
+    fn test_full_cycle() {
+        test_queue!(queue, 7, 0, 0);
+
+        for i in 0..queue.capacity() {
+            queue.enqueue(i as u32).unwrap();
+            assert_eq!(0, queue.view_first().unwrap()); // first element does not change
+            assert_eq!(queue.len(), i as u64 + 1);
+        }
+
+        assert!(matches!(queue.enqueue(2), Err(_)));
+
+        // Remove and insert one
+        for i in 0..queue.capacity() {
+            queue.dequeue_first().unwrap();
+            queue.enqueue(i as u32).unwrap();
         }
     }
 
@@ -204,26 +232,18 @@ mod tests {
     }
 
     #[test]
-    fn test_wrap_around() {
-        test_queue!(queue, 11, 0, 0);
-
-        for _ in 0..11 {
-            for _ in 0..11 {
-                queue.enqueue(0);
-            }
-        }
-    }
-
-    #[test]
     fn test_len() {
         test_queue!(queue, 4, 0, 0);
         assert_eq!(queue.len(), 0);
+        assert_eq!(queue.empty_slots(), 3);
 
         queue.enqueue(0).unwrap();
         assert_eq!(queue.len(), 1);
+        assert_eq!(queue.empty_slots(), 2);
 
         queue.dequeue_first().unwrap();
         assert_eq!(queue.len(), 0);
+        assert_eq!(queue.empty_slots(), 3);
     }
 
     #[test]

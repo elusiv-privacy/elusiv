@@ -1,11 +1,14 @@
 use solana_program::{
     account_info::AccountInfo,
     entrypoint::ProgramResult,
-    pubkey::Pubkey,
     system_program,
     program_error::ProgramError,
+    system_instruction,
+    program::invoke_signed,
+    rent::Rent,
+    sysvar::Sysvar,
 };
-use crate::error::ElusivError::{InvalidAccount, InvalidAmount};
+use crate::error::ElusivError::{InvalidAccount, InvalidAmount, InvalidAccountBalance};
 use crate::macros::guard;
 
 /// Sends lamports from the sender Sender to the recipient
@@ -50,6 +53,51 @@ pub fn send_from_pool<'a>(
         .ok_or(ProgramError::from(InvalidAmount))?;
 
     Ok(())
+}
+
+
+pub fn create_pda_account<'a>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+    account_size: usize,
+    bump: u8,
+    signers_seeds: &[&[u8]],
+) -> ProgramResult {
+    let lamports_required = Rent::get()?.minimum_balance(account_size);
+    let space: u64 = account_size.try_into().unwrap();
+    guard!(payer.lamports() >= lamports_required, InvalidAccountBalance);
+
+    invoke_signed(
+        &system_instruction::create_account(
+            &payer.key,
+            &pda_account.key,
+            lamports_required,
+            space,
+            &crate::id(),
+        ),
+        &[
+            payer.clone(),
+            pda_account.clone(),
+        ],
+        &[signers_seeds]
+    )?;
+
+    let data = &mut pda_account.data.borrow_mut()[..];
+
+    // Save `bump_seed`
+    data[0] = bump;
+    // Set `initialized` flag
+    data[1] = 1;
+
+    Ok(())
+}
+
+pub fn close_account<'a>(
+    payer: &AccountInfo<'a>,
+    account: &AccountInfo<'a>,
+) -> ProgramResult {
+    let lamports = account.lamports();
+    send_from_pool(account, payer, lamports)
 }
 
 #[cfg(test)]
