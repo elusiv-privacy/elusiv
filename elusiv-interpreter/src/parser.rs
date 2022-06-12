@@ -82,7 +82,7 @@ impl From<&[Token]> for Stmt {
                 Stmt::Return(tail.into())
             }
 
-            // We just hard-code two cases for assignments for simplicitys-sake: one ident and one field
+            // We just hard-code two cases for assignments for simplicity's sake: one ident and one field
             [ Ident(id), EQUALS, tail @ .. ] => {
                 Stmt::Assign(Id::Single(SingleId(id.clone())), tail.into())
             }
@@ -296,9 +296,9 @@ impl From<&[Token]> for Expr {
             [ Literal(lit) ] => { Expr::Literal(lit.clone()) }
             [ Ident(id) ] => { Expr::Id(Id::Single(SingleId(id.clone()))) }
 
-            // Dot separated idents
+            // Dot-separated idents
             // - we recursively match the tail and merge with the tail in order to construct all valid exprs
-            // - IMPORTANT: this is an first implementation, it would be better to have a recursive access structur of ident, literals and functions
+            // - IMPORTANT: this is an first implementation, it would be better to have a recursive access structure of ident, literals and functions
             // - I will probably add this in the future, but there is not need for it at the moment
             [ Ident(a) | Literal(a), DOT, tail @ .. ] => {
                 let tail: Expr = tail.into();
@@ -323,7 +323,7 @@ impl From<&[Token]> for Expr {
                     _ => Expr::Invalid
                 }
             }
-            // Double colon separated idents
+            // Double-colon-separated idents
             [ Ident(a), COLON, COLON, tail @ .. ] => {
                 let tail: Expr = tail.into();
                 let a = a.clone() + "::";

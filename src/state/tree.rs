@@ -7,10 +7,10 @@ use crate::error::ElusivError::{NullifierAlreadyExists};
 use super::program_account::{SizedAccount, MAX_PERMITTED_DATA_LENGTH, get_multi_accounts_count, MultiAccountAccount, HeterogenMultiAccountAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 
-/// The count of nullifiers is the count of leafes in the MT
+/// The count of nullifiers is the count of leaves in the MT
 const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
 
-/// We store nullifiers with the `NullifierMap` data structure for seaching and later N-SMT construction
+/// We store nullifiers with the `NullifierMap` data structure for searching and later N-SMT construction
 pub type NullifierMap = BTreeMap<U256Limbed2, ()>;
 
 const NULLIFIER_MAP_STATIC_SIZE: usize = 4; // 4 bytes to store the u32 tree map size
@@ -43,7 +43,7 @@ impl<'a, 'b, 'c> HeterogenMultiAccountAccount<'c> for NullifierAccount<'a, 'b, '
     const LAST_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * NULLIFIER_MAP_ELEMENT_SIZE;
 }
 
-/// Tree account after archivation (no big array anymore)
+/// Tree account after archiving (only a single collapsed N-SMT root)
 #[elusiv_account(pda_seed = b"archived_tree")]
 pub struct ArchivedTreeAccount {
     bump_seed: u8,

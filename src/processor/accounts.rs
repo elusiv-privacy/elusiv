@@ -79,7 +79,7 @@ pub fn open_multi_instance_account<'a>(
     }
 }
 
-/// Setup the StorageAccount with it's 7 subaccounts
+/// Setup the StorageAccount with it's 7 sub-accounts
 pub fn setup_storage_account(
     storage_account: &mut StorageAccount,
 ) -> ProgramResult {

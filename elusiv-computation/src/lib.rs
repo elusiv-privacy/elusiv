@@ -1,8 +1,8 @@
 //! Structs and types for partial computations
 
-/// A single partial-computation program call consists of `rounds` and require `computs_units`
+/// A single partial-computation program call consists of `rounds` and require `compute_units`
 /// - a collection of `PartialComputationInstruction` form a full computation
-/// - calling a single `PartialComputationInstruction` with `compute_units` guarantees successfull execution
+/// - calling a single `PartialComputationInstruction` with `compute_units` guarantees successful execution
 #[derive(Debug)]
 pub struct PartialComputationInstruction {
     pub start_round: u32,

@@ -330,9 +330,4 @@ mod test {
     fn test_public_inputs_parsing() {
 
     }
-
-    #[test]
-    fn test_pack_sending_details() {
-
-    }
 }

@@ -151,7 +151,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                     // System program `AccountInfo` (usage: <name> <key = ..>)
                     "sys" => {
-                        // Check that system progam pubkey is correct (for this we have a field `key` that the pubkey gets compared to)
+                        // Check that system program pubkey is correct (for this we have a field `key` that the pubkey gets compared to)
                         let key: TokenStream = named_sub_attribute("key", sub_attrs[1]).parse().unwrap();
 
                         accounts.extend(quote!{
@@ -184,8 +184,8 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         // Multi account account
                         let multi_account = sub_attrs.contains(&"multi_accounts");
 
-                        // (For multi accountx account): SKIPS THE PUBKEY VERIFICATION of the subaccounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)
-                        let no_subaccount_check = sub_attrs.contains(&"no_subaccount_check");
+                        // (For multi accounts): SKIPS THE PUBKEY VERIFICATION of the sub-accounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)
+                        let no_sub_account_check = sub_attrs.contains(&"no_sub_account_check");
 
                         // PDA verification
                         let find_pda = sub_attrs.contains(&"find_pda"); // does not read the bump byte from the account data
@@ -207,7 +207,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             let write_check = if !is_writable { quote!{} } else {
                                 quote!{ if !accounts[i].is_writable { return Err(InvalidArgument) } }
                             };
-                            let sub_account_check = if no_subaccount_check { quote!{} } else {
+                            let sub_account_check = if no_sub_account_check { quote!{} } else {
                                 quote!{ if accounts[i].key.to_bytes() != fields_check.pubkeys[i] { return Err(InvalidArgument) } }
                             };
 

@@ -23,7 +23,7 @@ use elusiv_computation::compute_unit_optimization;
 /// - a function `name_partial(round: usize, param_0, .., param_k) -> Result<Option<ReturnType>, &'static str>`
 /// - the count of rounds `NAME_ROUNDS_COUNT: usize` (function calls) required to complete the computation 
 /// - this means after `NAME_ROUNDS_COUNT` calls of `name_partial` it will return `Ok(Some(v))` if all went well
-/// - **IMPORTANT**: it's the callers responsibility to make sure that if a single step of the computation return `Err(_)` no further computations are performed, otherwise undefinied behaviour would result
+/// - **IMPORTANT**: it's the callers responsibility to make sure that if a single step of the computation return `Err(_)` no further computations are performed, otherwise undefined behavior would result
 /// 
 /// # Syntax
 /// - A `Computation` consists of multiple `ComputationScope`s
@@ -42,7 +42,7 @@ use elusiv_computation::compute_unit_optimization;
 ///         - **IMPORTANT**: declarations that require writing are not allowed in for-loops (only local vars or assignments)
 ///     - conditionals:
 ///         - `if (<<Expr>>) { <<Stmt>> }` or `if (<<Expr>>) { <<Stmt>> } else { <<Stmt>> }`
-///         - **IMPORTANT**: the conditional expression is not allowed to be changed in any branch stmt (or have side effects), otherwise this leads to undefined behaviour
+///         - **IMPORTANT**: the conditional expression is not allowed to be changed in any branch stmt (or have side effects), otherwise this leads to undefined behavior
 ///     - partial computations:
 ///         - for more powerful computations it's possible to call other elusiv_computations with `partial <<Id>> = <<Expr::Fn>>(..) { <<Stmt>> }`
 ///         - this results in `k - 1` rounds doing the computation and in the last round `k` the stmt is performed with the specified var

@@ -70,7 +70,7 @@ pub trait Queue<'a, 'b, Account: ProgramAccount<'a>> {
 // Base commitment queue
 queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, b"base_commitment_queue", 101, BaseCommitmentHashRequest, 10);
 
-// Queue used for storing commitments that should sequentially inserted into the active Merkle tree
+// Queue used for storing commitments that should sequentially inserted into the active MT
 queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest, 1);
 
 /// Ring queue with a capacity of `CAPACITY` elements

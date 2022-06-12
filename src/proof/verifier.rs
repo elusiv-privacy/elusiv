@@ -330,7 +330,7 @@ elusiv_computations!(
     // - coefficient generation ref: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L68
     // - implementation:
     // - the miller loop receives an iterator over 3 elements (https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L41)
-    // - for B we need to generate the coeffs (all other coeffs already are generated befor compilation)
+    // - for B we need to generate the coefficients (all other coefficients are already generated before compilation)
     // - so we have a var r = (x: rbx, y: rby, z: rbz)
     combined_miller_loop{<VKey: VerificationKey>}(
         storage: &mut VerificationAccount,
@@ -343,7 +343,7 @@ elusiv_computations!(
 
             let f: Fq12 = Fq12::one();
 
-            // values for B coeffs generation (https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L79)
+            // values for B coefficient generation (https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L79)
             let alt_b: G2A = G2A(b.neg());
             let c0: Fq2 = Fq2::zero();
             let c1: Fq2 = Fq2::zero();

@@ -275,7 +275,7 @@ pub fn compute_proof<'a>(
 /// Proof finalization
 /// - enqueue commitment, save nullifier-hashes, reward the original_fee_payer, and
 /// - for Send: send amount to recipient
-/// - for Migrate: update NSMT-root
+/// - for Migrate: update N-SMT-root
 #[allow(clippy::too_many_arguments)]
 pub fn finalize_proof<'a>(
     original_fee_payer: &AccountInfo<'a>,

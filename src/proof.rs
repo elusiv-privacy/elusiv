@@ -24,7 +24,7 @@ pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 7>;
 pub type RAMG2A<'a> = LazyRAM<'a, G2A, 1>;
 
 /// Account used for verifying all kinds of Groth16 proofs over the span of multiple transactions
-/// - alive only for verifying a single proof, closed afterwards
+/// - exists only for verifying a single proof, closed afterwards
 #[elusiv_account(pda_seed = b"proof", partial_computation)]
 pub struct VerificationAccount {
     bump_seed: u8,
@@ -64,7 +64,7 @@ pub struct VerificationAccount {
 }
 
 impl<'a> VerificationAccount<'a> {
-    /// A VerificationAccount can be reset after a computation has been succesfully finished or has failed
+    /// A VerificationAccount can be reset after a computation has been successfully finished or has failed
     pub fn reset(
         &mut self,
         public_inputs: &[BigInteger256],
@@ -168,7 +168,7 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
     }
 
     /// Call this before calling a function
-    /// - we don't do any checked arithmethic here since we in any case require the calls and parameters to be correct (data is never dependent on user input)
+    /// - we don't do any checked arithmetic here since we in any case require the calls and parameters to be correct (data is never dependent on user input)
     pub fn inc_frame(&mut self, frame: usize) {
         self.frame += frame;
     }

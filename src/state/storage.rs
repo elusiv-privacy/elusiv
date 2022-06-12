@@ -8,16 +8,17 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ark_bn254::Fr;
 use ark_ff::{BigInteger256};
 
-/// Height of the active Merkle Tree
+/// Height of the active MT (we define the height using the amount of leaves)
+/// - so a tree of height n has 2ˆn leaves
 pub const MT_HEIGHT: u32 = 20;
 
-/// Count of all nodes in the merkle-tree
+/// Count of all nodes in the MT
 pub const MT_SIZE: usize = two_pow!(MT_HEIGHT + 1) - 1;
 
-/// Count of all commitments (leafes) in the merkle-tree
+/// Count of all commitments (leaves) in the MT
 pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
 
-/// Index of the first commitment in the Merkle Tree
+/// Index of the first commitment in the MT
 pub const MT_COMMITMENT_START: usize = two_pow!(MT_HEIGHT) - 1;
 
 /// Since before submitting a proof request the current root can change, we store the previous ones
@@ -53,7 +54,7 @@ pub const EMPTY_TREE: [Fr; MT_HEIGHT as usize + 1] = [
 
 const ZERO: Fr = Fr::new(BigInteger256::new([0, 0, 0, 0]));
 
-// The `StorageAccount` contains the active Merkle Tree that stores new commitments
+// The `StorageAccount` contains the active MT that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
 #[elusiv_account(pda_seed = b"storage", multi_account = (

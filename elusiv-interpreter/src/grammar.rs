@@ -60,7 +60,7 @@ pub struct SingleId(pub String);
 #[derive(Debug, Clone)]
 pub struct PathId(pub Vec<String>);
 
-/// Types are only allowed as Strings without punctations
+/// Types are only allowed as Strings without punctuations
 /// 
 /// # Examples
 /// 

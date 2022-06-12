@@ -17,7 +17,8 @@ Scaling privacy with compliance in mind for the [Solana](https://github.com/sola
 
 ## Building
 Use `cargo-build-bpf` [release version 1.9.28](https://github.com/solana-labs/solana/releases/tag/v1.9.28) with `bash bin/elusiv`.
-The results in the dynamic library _dist/elusiv.so_.
+
+This results in the dynamic library _dist/elusiv.so_.
 
 ## Testing
 - Integration tests: `bash bin/test integration`

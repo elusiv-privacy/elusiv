@@ -150,7 +150,7 @@ pub enum ElusivInstruction {
     },
 
     // Creates a new `NullifierAccount`
-    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { multi_accounts, no_subaccount_check, writable })]
+    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { multi_accounts, no_sub_account_check, writable })]
     OpenNewMerkleTree {
         mt_index: u64,
     },
@@ -183,7 +183,7 @@ pub enum ElusivInstruction {
     },
 
     // Can be called once, setups all sub-accounts for the storage account
-    #[pda(storage_account, Storage, { multi_accounts, no_subaccount_check, writable })]
+    #[pda(storage_account, Storage, { multi_accounts, no_sub_account_check, writable })]
     SetupStorageAccount,
 
     #[acc(payer, { writable, signer })]

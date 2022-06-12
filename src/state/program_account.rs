@@ -31,7 +31,7 @@ pub trait MultiAccountProgramAccount<'a, 'b, 't>: SizedAccount {
 ///     2. a PDA that is derived using the following seed: `&[ &SEED, offset?, bump ]`
 /// - so there are two kinds of PDAAccounts:
 ///     - single instance: the pda_offset is `None` -> `&[ &SEED, bump ]`
-///     - multi instance: the pda_offset is `Some(offst)` -> `&[ &SEED, offset, bump ]`
+///     - multi instance: the pda_offset is `Some(offset)` -> `&[ &SEED, offset, bump ]`
 pub trait PDAAccount {
     const SEED: &'static [u8];
 

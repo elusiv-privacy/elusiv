@@ -22,7 +22,7 @@ use crate::state::program_account::{
     SizedAccount
 };
 
-/// Sends lamports from the sender Sender to the recipient
+/// Sends `lamports` from `sender` to `recipient`
 pub fn send_with_system_program<'a>(
     sender: &AccountInfo<'a>,
     recipient: &AccountInfo<'a>,
