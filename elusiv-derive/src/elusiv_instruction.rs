@@ -54,7 +54,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 // Sub-attrs are the fields as in #[usr(sub_attr0 = .., sub_attr1, ..)]
                 let mut fields = attr.tokens.to_string();
                 fields.retain(|x| x != '{' && x != '}' && !x.is_whitespace());
-                let sub_attrs: Vec<&str> = (&fields[1..fields.len() - 1]).split(",").collect();
+                let sub_attrs: Vec<&str> = (&fields[1..fields.len() - 1]).split(',').collect();
 
                 let mut account: TokenStream = sub_attrs[0].parse().unwrap();
                 let mut account_init = Vec::new(); // used for creating the instruction objects with the abi-feature
@@ -98,9 +98,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                 let user_account_type = if is_signer {
                     if is_writable { quote!{ SignerAccount } } else { quote!{ WritableSignerAccount } }
-                } else {
-                    if is_writable { quote!{ WritableUserAccount } } else { quote!{ UserAccount } }
-                };
+                } else if is_writable { quote!{ WritableUserAccount } } else { quote!{ UserAccount } };
 
                 match attr_name.as_str() {
                     // `AccountInfo` (usage: <name>)
@@ -243,29 +241,25 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     let #account = accounts;
                                 });
                                 account = quote!{ #account };
+                            } else if is_writable {
+                                accounts.extend(quote!{ let mut #account = #ty::new(acc_data, accounts)?; });
+                                account = quote!{ &mut #account };
                             } else {
-                                if is_writable {
-                                    accounts.extend(quote!{ let mut #account = #ty::new(acc_data, accounts)?; });
-                                    account = quote!{ &mut #account };
-                                } else {
-                                    accounts.extend(quote!{ let #account = #ty::new(acc_data, accounts)?; });
-                                    account = quote!{ &#account };
-                                }
-                            }
-                        } else {
-                            if as_account_info {
+                                accounts.extend(quote!{ let #account = #ty::new(acc_data, accounts)?; });
                                 account = quote!{ &#account };
-                            } else {
-                                accounts.extend(quote!{
-                                    let acc_data = &mut #account.data.borrow_mut()[..];
-                                    let #mut_token #account = <#ty>::new(acc_data)?;
-                                });
+                            }
+                        } else if as_account_info {
+                            account = quote!{ &#account };
+                        } else {
+                            accounts.extend(quote!{
+                                let acc_data = &mut #account.data.borrow_mut()[..];
+                                let #mut_token #account = <#ty>::new(acc_data)?;
+                            });
 
-                                if is_writable {
-                                    account = quote!{ &mut #account };
-                                } else {
-                                    account = quote!{ &#account };
-                                }
+                            if is_writable {
+                                account = quote!{ &mut #account };
+                            } else {
+                                account = quote!{ &#account };
                             }
                         }
                     },
@@ -288,6 +282,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             });
 
             functions.extend(quote!{
+                #[warn(clippy::large_enum_variant)]
                 pub fn #fn_name(program_id: &Pubkey, accounts: &[AccountInfo], #fields_with_type) -> ProgramResult {
                     let account_info_iter = &mut accounts.iter();
                     #accounts
@@ -296,6 +291,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             });
 
             abi_functions.extend(quote!{
+                #[warn(clippy::large_enum_variant)]
                 pub fn #fn_name_abi(#fields_with_type #user_accounts) -> solana_program::instruction::Instruction {
                     let mut accounts = Vec::new();
 

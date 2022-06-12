@@ -80,6 +80,7 @@ pub struct CommitmentHashRequest {
 
 /// Stores a base commitment hash and takes the funds from the sender
 /// - computation: `commitment = h(base_commitment, amount)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
+#[allow(clippy::too_many_arguments)]
 pub fn store_base_commitment<'a>(
     sender: &AccountInfo<'a>,
     fee: &FeeAccount,
@@ -135,8 +136,8 @@ pub fn init_base_commitment_hash<'a>(
     let request = queue.dequeue_first()?;
 
     // Hashing account setup
-    let mut data = &mut hashing_account.data.borrow_mut()[..];
-    let mut hashing_account = BaseCommitmentHashingAccount::new(&mut data)?;
+    let data = &mut hashing_account.data.borrow_mut()[..];
+    let mut hashing_account = BaseCommitmentHashingAccount::new(data)?;
     hashing_account.reset(request, fee_payer.key.to_bytes())
 }
 
@@ -185,8 +186,8 @@ pub fn finalize_base_commitment_hash<'a>(
 
     _hash_account_index: u64,
 ) -> ProgramResult {
-    let mut data = &mut hashing_account_info.data.borrow_mut()[..];
-    let hashing_account = BaseCommitmentHashingAccount::new(&mut data)?;
+    let data = &mut hashing_account_info.data.borrow_mut()[..];
+    let hashing_account = BaseCommitmentHashingAccount::new(data)?;
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(hashing_account.get_fee_payer() == original_fee_payer.key.to_bytes(), InvalidAccount);
     partial_computation_is_finished!(BaseCommitmentHashComputation, hashing_account);
@@ -355,6 +356,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::needless_range_loop)]
     fn test_compute_commitment_hash() {
         zero_account!(mut hashing_account, CommitmentHashingAccount);
         zero_account!(fee, FeeAccount);
@@ -368,7 +370,7 @@ mod tests {
 
         // Siblings are the default values of the MT
         let mut siblings = [Fr::zero(); MT_HEIGHT as usize];
-        for i in 0..MT_HEIGHT as usize { siblings[i] = EMPTY_TREE[i]; } 
+        siblings[..(MT_HEIGHT as usize)].copy_from_slice(&EMPTY_TREE[..(MT_HEIGHT as usize)]);
 
         // Reset values and get hashing siblings from storage account
         hashing_account.reset(commitment, ordering, siblings, 0).unwrap();

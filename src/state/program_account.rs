@@ -68,7 +68,7 @@ pub trait PDAAccount {
 
     fn is_valid_pubkey(account: &AccountInfo, offset: Option<u64>, pubkey: &Pubkey) -> Result<bool, ProgramError> {
         let acc_data = &account.data.borrow()[..PDAAccountFields::SIZE];
-        match PDAAccountFields::new(&acc_data) {
+        match PDAAccountFields::new(acc_data) {
             Ok(a) => Ok(Self::pubkey(offset, a.bump_seed)? == *pubkey),
             Err(_) => Err(ProgramError::InvalidAccountData)
         }
@@ -208,7 +208,7 @@ mod tests {
     use super::*;
     use crate::macros::account;
 
-    const SEED: &'static [u8] = b"TEST_seed";
+    const SEED: &[u8] = b"TEST_seed";
 
     struct TestPDAAccount { }
     impl PDAAccount for TestPDAAccount {
@@ -263,9 +263,7 @@ mod tests {
 
         fn set_all_pubkeys(&mut self, pubkeys: &[U256]) {
             assert!(pubkeys.len() == Self::COUNT);
-            for i in 0..Self::COUNT {
-                self.pubkeys[i] = pubkeys[i];
-            }
+            self.pubkeys[..Self::COUNT].copy_from_slice(&pubkeys[..Self::COUNT]);
         }
 
         fn get_account(&self, account_index: usize) -> &AccountInfo<'t> {
@@ -301,6 +299,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::needless_range_loop)]
     fn test_big_array_account() {
         assert_eq!(LAST_ACCOUNT_SIZE, TestMultiAccountAccount::LAST_ACCOUNT_SIZE);
 

@@ -12,7 +12,7 @@ solana_program::declare_id!("AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7");
 solana_program::entrypoint!(process_instruction);
 #[cfg(not(tarpaulin_include))]
 pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], instruction_data: &[u8]) -> ProgramResult {
-    if instruction_data.len() == 0 { return Err(ProgramError::InvalidInstructionData) }
+    if instruction_data.is_empty() { return Err(ProgramError::InvalidInstructionData) }
 
     // We parse the ix length based on the first byte
     // - this allows our transactions to contain extra data (like nonces or encrypted client relevant information)

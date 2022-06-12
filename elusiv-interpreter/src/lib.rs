@@ -117,7 +117,7 @@ fn multi_step_computation(
     previous_computation_rounds: &mut HashMap<String, usize>,
     previous_compute_units: &mut HashMap<String, Vec<usize>>,
 ) -> proc_macro2::TokenStream {
-    match &input[..] {
+    match input {
         // matches: `name{<generics>}(params) -> ty, {computation}`
         [ Ident(id), Group(generics), Group(p), Punct(arrow0), Punct(arrow1), Ident(ty), Group(c), tail @ ..  ] => {
             assert_eq!(p.delimiter(), Delimiter::Parenthesis);
@@ -143,7 +143,7 @@ fn multi_step_computation(
                 _ => quote::quote!{}
             };
 
-            let (rounds, compute_units, stream) = interpreter::interpret(computation, id, generics, params, ty, &previous_computation_rounds, &previous_compute_units);
+            let (rounds, compute_units, stream) = interpreter::interpret(computation, id, generics, params, ty, previous_computation_rounds, previous_compute_units);
             previous_computation_rounds.insert(id.clone(), rounds);
             previous_compute_units.insert(format!("{}_zero", id.clone()), vec![0; compute_units.len()]);
             previous_compute_units.insert(id.clone(), compute_units);
@@ -167,7 +167,7 @@ fn multi_step_computation(
             let params = p.stream();
             let ty = (&ty.to_string()).parse().unwrap();
 
-            let (rounds, compute_units, stream) = interpreter::interpret(computation, id, quote!{}, params, ty, &previous_computation_rounds, &previous_compute_units);
+            let (rounds, compute_units, stream) = interpreter::interpret(computation, id, quote!{}, params, ty, previous_computation_rounds, previous_compute_units);
             previous_computation_rounds.insert(id.clone(), rounds);
             previous_compute_units.insert(format!("{}_zero", id.clone()), vec![0; compute_units.len()]);
             previous_compute_units.insert(id.clone(), compute_units);

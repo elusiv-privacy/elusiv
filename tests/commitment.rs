@@ -295,19 +295,15 @@ async fn test_base_commitment_store_invalid_inputs() {
 
     client.airdrop(MAX_STORE_AMOUNT / 1000, &mut context).await;
 
-    let mut invalid_instructions = Vec::new();
-
-    // Non-existent queue offset
-    invalid_instructions.push(
+    let invalid_instructions = vec![
+        // Non-existent queue offset
         ElusivInstruction::store_base_commitment_instruction(
             1000,
             request.clone(),
             SignerAccount(client.pubkey),
-        )
-    );
+        ),
 
-    // Invalid fee-version
-    invalid_instructions.push(
+        // Invalid fee-version
         ElusivInstruction::store_base_commitment_instruction(
             0,
             BaseCommitmentHashRequest {
@@ -317,11 +313,9 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 1,
             },
             SignerAccount(client.pubkey),
-        )
-    );
+        ),
 
-    // Amount too low
-    invalid_instructions.push(
+        // Amount too low
         ElusivInstruction::store_base_commitment_instruction(
             0,
             BaseCommitmentHashRequest {
@@ -331,11 +325,9 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 0,
             },
             SignerAccount(client.pubkey),
-        )
-    );
+        ),
 
-    // Amount too high
-    invalid_instructions.push(
+        // Amount too high
         ElusivInstruction::store_base_commitment_instruction(
             0,
             BaseCommitmentHashRequest {
@@ -345,11 +337,9 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 0,
             },
             SignerAccount(client.pubkey),
-        )
-    );
+        ),
 
-    // Non-scalar base-commitment
-    invalid_instructions.push(
+        // Non-scalar base-commitment
         ElusivInstruction::store_base_commitment_instruction(
             0,
             BaseCommitmentHashRequest {
@@ -359,11 +349,9 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 0,
             },
             SignerAccount(client.pubkey),
-        )
-    );
-    
-    // Non-scalar commitment
-    invalid_instructions.push(
+        ),
+        
+        // Non-scalar commitment
         ElusivInstruction::store_base_commitment_instruction(
             0,
             BaseCommitmentHashRequest {
@@ -373,8 +361,8 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 0,
             },
             SignerAccount(client.pubkey),
-        )
-    );
+        ),
+    ];
 
     for ix in invalid_instructions {
         ix_should_fail(ix, &mut client, &mut context).await;
@@ -691,7 +679,7 @@ async fn test_commitment_full_queue() {
     let (mut context, mut client) = setup_commitment_tests().await;
 
     let request = CommitmentHashRequest {
-        commitment: requests().clone()[0].commitment,
+        commitment: requests()[0].commitment,
         fee_version: 0
     };
 

@@ -152,6 +152,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         root == self.get_root() || contains(root, self.active_mt_root_history)
     }
 
+    #[allow(clippy::needless_range_loop)]
     pub fn get_mt_opening(&self, index: usize) -> [Fr; MT_HEIGHT as usize] {
         let mut opening = [ZERO; MT_HEIGHT as usize];
         let mut index = index;
@@ -160,7 +161,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
             let level = MT_HEIGHT as usize - i;
             let n_index = if index % 2 == 0 { index + 1 } else { index - 1};
             opening[i] = self.get_node(n_index, level);
-            index = index >> 1;
+            index >>= 1;
         }
 
         opening
@@ -209,10 +210,10 @@ mod tests {
 
         for level in (0..=MT_HEIGHT as usize).rev() {
             // Empty tree
-            assert_eq!(use_default_value(0, level, 0), true);
+            assert!(use_default_value(0, level, 0));
 
             // One commitment
-            assert_eq!(use_default_value(0, level, 1), false);
+            assert!(!use_default_value(0, level, 1));
         }
     }
 }

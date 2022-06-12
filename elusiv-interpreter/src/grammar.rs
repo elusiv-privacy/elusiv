@@ -189,7 +189,7 @@ impl Stmt {
                 let mut sub_scopes: Vec<StmtResult> = vec![];
                 let mut last_stmt: Option<&Stmt> = None;
                 for stmt in stmts {
-                    let result = stmt.to_stream(start_round.clone(), previous_computation_rounds);
+                    let result = stmt.to_stream(start_round, previous_computation_rounds);
 
                     if result.rounds == 0 { // If a child has `0` round, we can compute this stmt with adjacent `0` round stmts
                         match sub_scopes.last_mut() {
@@ -236,7 +236,7 @@ impl Stmt {
                             },
                         });
 
-                        lower = upper.clone();
+                        lower = upper;
                     }
 
                     stream = quote!{
@@ -257,10 +257,10 @@ impl Stmt {
             Stmt::IfElse(cond, t, f) => {
                 let cond: TokenStream = cond.into();
 
-                let result_true = t.to_stream(start_round.clone(), previous_computation_rounds);
+                let result_true = t.to_stream(start_round, previous_computation_rounds);
                 let mut body_true = result_true.stream;
 
-                let result_false = f.to_stream(start_round.clone(), previous_computation_rounds);
+                let result_false = f.to_stream(start_round, previous_computation_rounds);
                 let mut body_false = result_false.stream;
 
                 let rounds = std::cmp::max(result_true.rounds, result_false.rounds);
@@ -290,7 +290,7 @@ impl Stmt {
                 let arr: TokenStream = Expr::Array(arr.clone()).into();
                 assert!(iterations > 0, "For loop arrays need to contain at least one element");
 
-                let child_result = child.to_stream(start_round.clone(), previous_computation_rounds);
+                let child_result = child.to_stream(start_round, previous_computation_rounds);
                 let child_body = child_result.stream;
                 let child_rounds = if child_result.rounds == 0 { 1 } else { child_result.rounds };
 
@@ -389,7 +389,7 @@ impl Stmt {
 
                 for (i, value) in arr.iter().enumerate() {
                     if let Expr::Literal(u) = value {
-                        cus.push(compute_units.apply_mapping(&iter_id, &var_id, i, u.parse().unwrap()));
+                        cus.push(compute_units.apply_mapping(iter_id, var_id, i, u.parse().unwrap()));
                     } else { panic!("Array elements need to be literals") }
                 }
 
@@ -402,7 +402,8 @@ impl Stmt {
                 }
                 CUs::Collection(cus)
             },
-            Stmt::Partial(_, Expr::Fn(Id::Single(SingleId(id)), _, _), stmt) => {
+            Stmt::Partial(_, Expr::Fn(Id::Single(SingleId(id)), _, _), _stmt) => {
+                // TODO: not required atm but in the future add costs of last-round-stmt as well
                 CUs::Multiple(id.clone())
             },
 
@@ -559,7 +560,7 @@ impl Expr {
             Expr::BinOp(l, _, r) => merge((*l).all_vars(), (*r).all_vars()),
             Expr::UnOp(_, e) => (*e).all_vars(),
             Expr::Literal(_) => vec![],
-            Expr::Fn(id, _, e) => merge(vec![id.get_var().clone()], Expr::Array(e.clone()).all_vars()),
+            Expr::Fn(id, _, e) => merge(vec![id.get_var()], Expr::Array(e.clone()).all_vars()),
             Expr::Array(e) => e.iter().map(|e| e.all_vars()).fold(Vec::new(), merge),
             Expr::Unwrap(e) => (*e).all_vars(),
             Expr::Invalid => panic!("Invalid expression"),

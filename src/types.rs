@@ -52,7 +52,7 @@ impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
         match &self.value {
             Some(v) => v.clone(),
             None => {
-                self.value = Some(N::try_from_slice(&self.data).unwrap());
+                self.value = Some(N::try_from_slice(self.data).unwrap());
                 self.value.clone().unwrap()
             }
         }
@@ -67,9 +67,7 @@ impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
         if !self.modified { return }
         let v = self.value.clone().unwrap().try_to_vec().unwrap();
         assert!(self.data.len() >= v.len());
-        for i in 0..v.len() {
-            self.data[i] = v[i];
-        }
+        self.data[..v.len()].copy_from_slice(&v[..]);
     }
 }
 
@@ -119,7 +117,7 @@ pub trait PublicInputs {
     fn public_inputs_raw(&self) -> Vec<U256>;
 
     fn public_inputs_big_integer(&self) -> Vec<BigInteger256> {
-        self.public_inputs_raw().iter().map(|x| u256_to_fr(&x).into_repr()).collect()
+        self.public_inputs_raw().iter().map(|x| u256_to_fr(x).into_repr()).collect()
     }
 }
 

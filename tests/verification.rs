@@ -2,10 +2,10 @@
 
 #[cfg(not(tarpaulin_include))]
 mod common;
-use common::*;
-use common::program_setup::*;
+//use common::*;
+//use common::program_setup::*;
 
-use solana_program::native_token::LAMPORTS_PER_SOL;
+//use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program_test::*;
 
 #[tokio::test]

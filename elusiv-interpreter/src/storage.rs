@@ -47,7 +47,7 @@ impl Var {
 
     // Returns true if the var is being used in a different scope than the one it was declared in
     pub fn used_outside_of_decl(&self) -> bool {
-        let decl = self.declaration.clone().unwrap();
+        let decl = self.declaration.unwrap();
         matches!(self.usages.iter().find(|&u| *u != decl), Some(_))
     }
 }
@@ -145,7 +145,7 @@ impl StorageMapping {
     pub fn height(&self) -> usize {
         for i in 0..self.mapping.len() {
             let index = self.mapping.len() - 1 - i;
-            if let Some(_) = self.mapping[index] { return index + 1 }
+            if self.mapping[index].is_some() { return index + 1 }
         }
         0
     }

@@ -84,8 +84,8 @@ impl<'a> VerificationAccount<'a> {
         self.b.set(&proof.b);
         self.c.set(&proof.c);
 
-        for i in 0..public_inputs.len() {
-            self.set_public_input(i, &Wrap(public_inputs[i]));
+        for (i, &public_input) in public_inputs.iter().enumerate() {
+            self.set_public_input(i, &Wrap(public_input));
         }
 
         self.prepared_inputs.set(&G1A(G1Affine::zero()));
@@ -157,12 +157,12 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
         self.check_vector_size(i);
 
         match &self.data[i] {
-            Some(v) => v.clone(),
+            Some(v) => *v,
             None => {
                 let data = &self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE];
-                let v = <Wrap<N>>::try_from_slice(&data).unwrap();
+                let v = <Wrap<N>>::try_from_slice(data).unwrap();
                 self.data[i] = Some(v.0);
-                (&self.data[i]).unwrap().clone()
+                (&self.data[i]).unwrap()
             }
         }
     }

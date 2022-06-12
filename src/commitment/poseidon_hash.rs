@@ -37,7 +37,7 @@ pub fn binary_poseidon_hash_partial(round: u32, state: &mut [Fr; 3]) {
     state[2] += constants[2];
 
     // Sbox
-    if round < 4 || round >= 61 { // First and last full rounds (~ 15411 CUs)
+    if !(4..61).contains(&round) { // First and last full rounds (~ 15411 CUs)
         round!(0, state);
         round!(1, state);
         round!(2, state);
@@ -66,7 +66,7 @@ pub fn full_poseidon2_hash(a: Fr, b: Fr) -> Fr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{state::{MT_HEIGHT, EMPTY_TREE}};
+    use crate::state::EMPTY_TREE;
     use std::str::FromStr;
 
     #[test]
@@ -111,19 +111,9 @@ mod tests {
     #[test]
     fn test_mt_default_values() {
         let mut a = full_poseidon2_hash(Fr::zero(), Fr::zero());
-        for i in 0..=MT_HEIGHT as usize {
-            assert_eq!(a, EMPTY_TREE[i]);
+        for empty_value in EMPTY_TREE {
+            assert_eq!(a, empty_value);
             a = full_poseidon2_hash(a, a);
-        }
-    }
-
-    #[test]
-    fn generate_mt_constants() {
-        let mut a = Fr::from_str("0").unwrap();
-        for i in 0..20 {
-            //println!("{}", format!("Fr::new(BigInteger256::new([{}, {}, {}, {}])),", a.0.0[0], a.0.0[1], a.0.0[2], a.0.0[3]));
-            a = full_poseidon2_hash(a, a);
-            println!("{}: {}", i, a.to_string());
         }
     }
 }

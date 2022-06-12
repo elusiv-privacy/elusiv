@@ -22,7 +22,7 @@ fn split_at(splitter: Token, trees: Vec<Token>) -> Vec<Vec<Token>> {
         stream.push(t);
     }
 
-    if stream.len() > 0 { streams.push(stream); }
+    if !stream.is_empty() { streams.push(stream); }
     streams
 }
 
@@ -137,13 +137,13 @@ impl From<&[Token]> for Stmt {
 fn match_compute_units_head(tokens: &[Token]) -> (Option<CUs>, &[Token]) {
     if let [ HASH, Group(g, Delimiter::Bracket), c_tail @ .. ] = tokens {
         if let [ DOC, EQUALS, Literal(compute_units) ] = &g[..] {
-            let cutoff = if compute_units.starts_with("r") { 3 } else { 2 }; // raw string literal
+            let cutoff = if compute_units.starts_with('r') { 3 } else { 2 }; // raw string literal
             let cus = String::from(&compute_units[cutoff..&compute_units.len() - 1]);
 
             if let Some(compute_units) = try_parse_usize(&cus) { // Single static compute units
                 return (Some(CUs::Single(compute_units)), c_tail)
             } else { // Mappings of (at compile time known) values of variables to compute units
-                let token: Vec<&str> = cus.split(" ").collect();
+                let token: Vec<&str> = cus.split(' ').collect();
 
                 if let [ ident, "in", "{", mapping @ .., "}" ] = &token[..] {
 
@@ -177,7 +177,7 @@ fn match_compute_units_head(tokens: &[Token]) -> (Option<CUs>, &[Token]) {
             }
         }
     }
-    return (None, tokens)
+    (None, tokens)
 }
 
 /// Attempts to parse a String into a usize, ignoring any '_' character
@@ -228,7 +228,7 @@ impl From<&[Token]> for Expr {
                     for i in 2..=tree.len() {
                         let expr: Expr = (&tree[1..i]).into();
                         if !matches!(expr, Expr::Invalid) {
-                            let un_expr = Expr::UnOp(op.clone().unwrap(), Box::new(expr));
+                            let un_expr = Expr::UnOp(op.unwrap(), Box::new(expr));
                             if i == tree.len() { // full expr is just an unop expr
                                 return un_expr;
                             } else { // if tokens remain on the right, we know that we have to be part of a binop expr
@@ -306,19 +306,19 @@ impl From<&[Token]> for Expr {
 
                 match tail {
                     Expr::Fn(Id::Single(SingleId(id)), g, p) => {
-                        Expr::Fn(Id::Path(PathId(vec![a.clone(), id.clone()])), g, p)
+                        Expr::Fn(Id::Path(PathId(vec![a, id])), g, p)
                     },
                     Expr::Fn(Id::Path(PathId(path)), g, p) => {
-                        Expr::Fn(Id::Path(PathId(merge(vec![a.clone()], path))), g, p)
+                        Expr::Fn(Id::Path(PathId(merge(vec![a], path))), g, p)
                     },
                     Expr::Id(Id::Single(SingleId(id))) => {
-                        Expr::Id(Id::Path(PathId(vec![a.clone(), id.clone()])))
+                        Expr::Id(Id::Path(PathId(vec![a, id])))
                     },
                     Expr::Id(Id::Path(PathId(path))) => {
-                        Expr::Id(Id::Path(PathId(merge(vec![a.clone()], path))))
+                        Expr::Id(Id::Path(PathId(merge(vec![a], path))))
                     },
                     Expr::Literal(lit) => {
-                        Expr::Id(Id::Path(PathId(vec![a.clone(), lit.clone()])))
+                        Expr::Id(Id::Path(PathId(vec![a, lit])))
                     }
                     _ => Expr::Invalid
                 }
@@ -330,19 +330,19 @@ impl From<&[Token]> for Expr {
 
                 match tail {
                     Expr::Fn(Id::Single(SingleId(id)), g, p) => {
-                        Expr::Fn(Id::Path(PathId(vec![a.clone(), id.clone()])), g, p)
+                        Expr::Fn(Id::Path(PathId(vec![a, id])), g, p)
                     },
                     Expr::Fn(Id::Path(PathId(path)), g, p) => {
-                        Expr::Fn(Id::Path(PathId(merge(vec![a.clone()], path))), g, p)
+                        Expr::Fn(Id::Path(PathId(merge(vec![a], path))), g, p)
                     },
                     Expr::Id(Id::Single(SingleId(id))) => {
-                        Expr::Id(Id::Path(PathId(vec![a.clone(), id.clone()])))
+                        Expr::Id(Id::Path(PathId(vec![a, id])))
                     },
                     Expr::Id(Id::Path(PathId(path))) => {
-                        Expr::Id(Id::Path(PathId(merge(vec![a.clone()], path))))
+                        Expr::Id(Id::Path(PathId(merge(vec![a], path))))
                     },
                     Expr::Literal(lit) => {
-                        Expr::Id(Id::Path(PathId(vec![a.clone(), lit.clone()])))
+                        Expr::Id(Id::Path(PathId(vec![a, lit])))
                     }
                     _ => Expr::Invalid
                 }

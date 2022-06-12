@@ -16,7 +16,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let name = &ast.ident.clone();
 
     fn get_struct(ast: syn::DeriveInput) -> DataStruct {
-        if let Data::Struct(input) = ast.data { return input; } else { panic!("Struct not found"); }
+        if let Data::Struct(input) = ast.data { input } else { panic!("Struct not found"); }
     }
     let input = get_struct(ast.clone());
 
@@ -32,17 +32,14 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
     // Attributes
     let attrs = sub_attrs_prepare(attrs.to_string());
-    let attrs: Vec<&str> = (&attrs).split(",").collect();
+    let attrs: Vec<&str> = (&attrs).split(',').collect();
 
     // Lifetimes
     for attr in &attrs {
-        let attr_ident = attr.split("=").next().unwrap();
-        match attr_ident {
-            "multi_account" => {
-                lifetimes.extend(quote! { , 'b, 't });
-                account_trait = quote! { crate::state::program_account::MultiAccountProgramAccount<'a, 'b, 't> };
-            },
-            _ => {}
+        let attr_ident = attr.split('=').next().unwrap();
+        if attr_ident == "multi_account" {
+            lifetimes.extend(quote! { , 'b, 't });
+            account_trait = quote! { crate::state::program_account::MultiAccountProgramAccount<'a, 'b, 't> };
         }
     }
 
@@ -53,7 +50,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
     // Special implementations
     for attr in attrs {
-        let attr_ident = attr.split("=").next().unwrap();
+        let attr_ident = attr.split('=').next().unwrap();
         match attr_ident {
             "pda_seed" => { // PDA based account
                 assert_field!(first_field, fields_iter, "bump_seed : u8");
@@ -79,7 +76,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 assert!(is_pda);
 
                 let multi_account: String = named_sub_attribute("multi_account", attr).parse().unwrap();
-                let multi_account = (&multi_account[1..multi_account.len() - 1]).split(";").collect::<Vec<&str>>();
+                let multi_account = (&multi_account[1..multi_account.len() - 1]).split(';').collect::<Vec<&str>>();
                 let count: TokenStream = multi_account[0].parse().unwrap();
                 let max_account_size: TokenStream = multi_account[1].parse().unwrap();
 
@@ -142,7 +139,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         let mut use_getter_setter = true;
 
         // Attribute that prevents the usage of a getter and setter
-        if let Some(_) = field.attrs.iter().find(|x| x.path.get_ident().unwrap().to_string() == "pub_non_lazy") {
+        if field.attrs.iter().any(|x| *x.path.get_ident().unwrap() == "pub_non_lazy") {
             use_getter_setter = false;
         }
 

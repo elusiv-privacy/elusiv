@@ -41,7 +41,7 @@ pub struct FeeAccount {
     initialized: bool,
 
     /// consists of `lamports_per_signature` and possible additional compute units costs
-    /// hard cap until we find a better solution (also depends on the future changes made to the Solana fee model)
+    /// hard cap until we find a better solution (also depends on the future changed made to the Solana fee model)
     lamports_per_tx: u64,
 
     base_commitment_network_fee: u64,

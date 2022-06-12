@@ -128,7 +128,7 @@ pub async fn create_account_rent_exepmt(
     let transaction = Transaction::new_signed_with_payer(
         &[ix],
         Some(&payer.pubkey()),
-        &[&payer, &keypair],
+        &[payer, &keypair],
         recent_blockhash,
     );
     assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));

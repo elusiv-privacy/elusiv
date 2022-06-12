@@ -156,6 +156,10 @@ pub trait RingQueue {
         }
     }
 
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     fn empty_slots(&self) -> u64 {
         Self::CAPACITY - self.len()
     }

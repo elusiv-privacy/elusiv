@@ -132,8 +132,8 @@ async fn test_setup_storage_account() {
 
     storage_account!(storage_account, context);
     assert!(storage_account.get_initialized());
-    for i in 0..StorageAccount::COUNT {
-        assert_eq!(storage_account.get_pubkeys(i), keys[i].to_bytes());
+    for (i, &key) in keys.iter().enumerate() {
+        assert_eq!(storage_account.get_pubkeys(i), key.to_bytes());
     }
 }
 
@@ -155,8 +155,8 @@ async fn test_open_new_merkle_tree() {
 
         nullifier_account!(nullifier_account, mt_index, context);
         assert!(nullifier_account.get_initialized());
-        for i in 0..NullifierAccount::COUNT {
-            assert_eq!(nullifier_account.get_pubkeys(i), keys[i].to_bytes());
+        for (i, &key) in keys.iter().enumerate() {
+            assert_eq!(nullifier_account.get_pubkeys(i), key.to_bytes());
         }
     }
 }

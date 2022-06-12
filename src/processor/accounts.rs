@@ -8,7 +8,7 @@ use solana_program::{
 };
 use crate::state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount, DEFAULT_COMMITMENT_BATCHING_RATE},
-    program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount, HeterogenMultiAccountAccount},
+    program_account::{MultiAccountAccount, ProgramAccount, HeterogenMultiAccountAccount},
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
     fee::FeeAccount, NullifierAccount,
@@ -79,40 +79,6 @@ pub fn open_multi_instance_account<'a>(
     }
 }
 
-pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-    pda_offset: u64,
-) -> ProgramResult {
-    let account_size = T::SIZE;
-    let (pk, bump) = T::find(Some(pda_offset));
-    let seed = vec![
-        T::SEED.to_vec(),
-        u64::to_le_bytes(pda_offset).to_vec(),
-        vec![bump]
-    ];
-    let signers_seeds: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
-    guard!(pk == *pda_account.key, InvalidInstructionData);
-
-    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
-}
-
-pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-) -> ProgramResult {
-    let account_size = T::SIZE;
-    let (pk, bump) = T::find(None);
-    let seed = vec![
-        T::SEED.to_vec(),
-        vec![bump]
-    ];
-    let signers_seeds: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
-    guard!(pk == *pda_account.key, InvalidInstructionData);
-
-    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
-}
-
 /// Setup the StorageAccount with it's 7 subaccounts
 pub fn setup_storage_account(
     storage_account: &mut StorageAccount,
@@ -137,8 +103,8 @@ pub fn open_new_merkle_tree(
     for i in 0..NullifierAccount::COUNT {
         let account = nullifier_account.get_account(i);
         let data = &mut account.data.borrow_mut()[..];
-        for j in 0..4 {
-            data[j] = 0;
+        for b in data.iter_mut().take(4) {
+            *b = 0;
         }        
     }
 
@@ -181,8 +147,8 @@ pub fn setup_governor_account<'a>(
 ) -> ProgramResult {
     open_pda_account_without_offset::<GovernorAccount>(payer, governor_account)?;
 
-    let mut data = &mut governor_account.data.borrow_mut()[..];
-    let mut governor = GovernorAccount::new(&mut data)?;
+    let data = &mut governor_account.data.borrow_mut()[..];
+    let mut governor = GovernorAccount::new(data)?;
 
     governor.set_commitment_batching_rate(&DEFAULT_COMMITMENT_BATCHING_RATE);
 
@@ -191,6 +157,7 @@ pub fn setup_governor_account<'a>(
 
 /// Setup a new `FeeAccount`
 /// - Note: there is no way of upgrading the program fees atm
+#[allow(clippy::too_many_arguments)]
 pub fn init_new_fee_version<'a>(
     payer: &AccountInfo<'a>,
     governor: &GovernorAccount,
@@ -199,8 +166,8 @@ pub fn init_new_fee_version<'a>(
     fee_version: u64,
 
     lamports_per_tx: u64,
-    base_commitment_fee: u64,
-    proof_fee: u64,
+    base_commitment_network_fee: u64,
+    proof_network_fee: u64,
     relayer_hash_tx_fee: u64,
     relayer_proof_tx_fee: u64,
     relayer_proof_reward: u64,
@@ -211,7 +178,14 @@ pub fn init_new_fee_version<'a>(
     let mut data = new_fee.data.borrow_mut();
     let mut fee = FeeAccount::new(&mut data[..])?;
 
-    fee.setup(lamports_per_tx, base_commitment_fee, proof_fee, relayer_hash_tx_fee, relayer_proof_tx_fee, relayer_proof_reward)
+    fee.setup(
+        lamports_per_tx,
+        base_commitment_network_fee,
+        proof_network_fee,
+        relayer_hash_tx_fee,
+        relayer_proof_tx_fee,
+        relayer_proof_reward
+    )
 }
 
 fn setup_multi_account_account<'a, T: MultiAccountAccount<'a>>(
@@ -227,7 +201,7 @@ fn setup_multi_account_account<'a, T: MultiAccountAccount<'a>>(
     account.set_all_pubkeys(&pks);
 
     // Check for account duplicates
-    let set: HashSet<U256> = account.get_all_pubkeys().clone().drain(..).collect();
+    let set: HashSet<U256> = account.get_all_pubkeys().drain(..).collect();
     guard!(set.len() == T::COUNT, InvalidInstructionData);
 
     account.set_pda_initialized(true);
@@ -282,7 +256,7 @@ fn verify_extern_data_account(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::program_account::MultiAccountProgramAccount;
+    use crate::state::program_account::{SizedAccount, MultiAccountProgramAccount};
 
     #[test]
     fn test_storage_account_valid() {

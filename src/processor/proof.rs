@@ -7,7 +7,6 @@ use solana_program::{
 };
 use crate::macros::{guard, BorshSerDeSized};
 use crate::processor::CommitmentHashRequest;
-use crate::processor::utils::open_pda_account_with_offset;
 use crate::state::program_account::PDAAccount;
 use crate::state::{
     NullifierAccount,
@@ -35,7 +34,7 @@ use crate::error::ElusivError::{
 };
 use crate::proof::{
     VerificationAccount,
-    verifier::verify_partial,
+    //verifier::verify_partial,
     vkey::{
         SendBinaryVKey,
         MergeBinaryVKey,
@@ -44,7 +43,7 @@ use crate::proof::{
 };
 use crate::types::{RawProof, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs};
 use crate::bytes::BorshSerDeSized;
-use super::utils::{send_from_pool, send_with_system_program, close_account};
+use super::utils::{send_from_pool, close_account};
 use borsh::{BorshSerialize, BorshDeserialize};
 
 macro_rules! execute_with_vkey {
@@ -117,21 +116,22 @@ pub struct MigrateProofRequest {
 /// Due to imprecision of the chain clock we cut off the last bits of the timestamp
 const TIMESTAMP_BITS_PRUNING: usize = 5;
 
+#[allow(clippy::too_many_arguments)]
 pub fn init_proof<'a, 'b, 'c, 'd>(
-    fee_payer: &AccountInfo<'c>,
-    fee: &FeeAccount,
+    _fee_payer: &AccountInfo<'c>,
+    _fee: &FeeAccount,
     governor: &GovernorAccount,
-    pool: &AccountInfo<'c>,
-    fee_collector: &AccountInfo<'c>,
+    _pool: &AccountInfo<'c>,
+    _fee_collector: &AccountInfo<'c>,
     verification_account: &AccountInfo<'c>,
     storage_account: &StorageAccount,
     nullifier_account0: &NullifierAccount<'a, 'b, 'd>,
     nullifier_account1: &NullifierAccount<'a, 'b, 'd>,
-    system_program: &AccountInfo<'c>,
+    _system_program: &AccountInfo<'c>,
 
     verification_account_index: u64,
     request: ProofRequest,
-    ignore_duplicate_verifications: bool,
+    _ignore_duplicate_verifications: bool,
     tree_indices: [u64; 2],
 ) -> ProgramResult {
     guard!(*verification_account.key == VerificationAccount::find(Some(verification_account_index)).0, InvalidAccount);
@@ -146,8 +146,8 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
             check_join_split_public_inputs(
                 &request.public_inputs.join_split,
                 &request.proof_data,
-                &storage_account,
-                [&nullifier_account0, &nullifier_account1],
+                storage_account,
+                [nullifier_account0, nullifier_account1],
             )?;
             guard!(tree_indices[0] == request.proof_data.tree_indices[0], InvalidInstructionData);
             guard!(tree_indices[1] == request.proof_data.tree_indices[1], InvalidInstructionData);
@@ -161,8 +161,8 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
             check_join_split_public_inputs(
                 &request.public_inputs.join_split,
                 &request.proof_data,
-                &storage_account,
-                [&nullifier_account0, &nullifier_account1],
+                storage_account,
+                [nullifier_account0, nullifier_account1],
             )?;
             guard!(tree_indices[0] == request.proof_data.tree_indices[0], InvalidInstructionData);
             guard!(tree_indices[1] == request.proof_data.tree_indices[1], InvalidInstructionData);
@@ -172,8 +172,8 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
             check_join_split_public_inputs(
                 &request.public_inputs.join_split,
                 &request.proof_data,
-                &storage_account,
-                [&nullifier_account0],
+                storage_account,
+                [nullifier_account0],
             )?;
             guard!(tree_indices[0] == request.proof_data.tree_indices[0], InvalidInstructionData);
         }
@@ -182,12 +182,12 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
     // Check for expected nullifier duplicates
     // - we need to allow for two verifications having the same nullifiers, since a bad relayer could attempt block users from accessing their funds
     // - but every request receives a short time-frame in which it can be completed with a guarantee of no duplicates
+
+    // Also: Only storage account PDA required here
     todo!();
 
-    todo!("Only storage account PDA required here");
-
     // fee_payer rents verification_account
-    open_pda_account_with_offset::<VerificationAccount>(
+    /*open_pda_account_with_offset::<VerificationAccount>(
         fee_payer,
         verification_account,
         verification_account_index
@@ -219,29 +219,29 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
         &public_inputs,
         request,
         fee_payer.key.to_bytes(),
-    )
+    )*/
 }
 
 /// Partial proof verification computation
 pub fn compute_proof<'a>(
-    fee_payer: &AccountInfo<'a>,
-    fee: &FeeAccount,
-    pool: &AccountInfo<'a>,
-    verification_account: &mut VerificationAccount,
+    _fee_payer: &AccountInfo<'a>,
+    _fee: &FeeAccount,
+    _pool: &AccountInfo<'a>,
+    _verification_account: &mut VerificationAccount,
 
     _verification_account_index: u64,
-    fee_version: u64,
+    _fee_version: u64,
     _nonce: u64,
 ) -> ProgramResult {
-    guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
+    panic!("Computation missing");
+    /*guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(verification_account.get_fee_version() == fee_version, InvalidFeeVersion);
 
     let instruction = verification_account.get_instruction();
     let start_round = 0;
-    let rounds = 0;
-    panic!("Computation missing");
+    let rounds = 0;*/
 
-    let request = verification_account.get_request();
+    /*let request = verification_account.get_request();
 
     match execute_with_vkey!(request, VKey, {
         verify_partial::<VKey>(
@@ -269,13 +269,14 @@ pub fn compute_proof<'a>(
     verification_account.serialize_lazy_fields();
     verification_account.set_instruction(&(instruction + 1));
 
-    send_from_pool(pool, fee_payer, fee.proof_tx_compensation())
+    send_from_pool(pool, fee_payer, fee.proof_tx_compensation())*/
 }
 
 /// Proof finalization
 /// - enqueue commitment, save nullifier-hashes, reward the original_fee_payer, and
 /// - for Send: send amount to recipient
 /// - for Migrate: update NSMT-root
+#[allow(clippy::too_many_arguments)]
 pub fn finalize_proof<'a>(
     original_fee_payer: &AccountInfo<'a>,
     recipient: &AccountInfo<'a>, // can be any account for non-send-proofs
@@ -291,8 +292,8 @@ pub fn finalize_proof<'a>(
     fee_version: u64,
     tree_indices: [u64; 2],
 ) -> ProgramResult {
-    let mut data = &mut verification_account_info.data.borrow_mut()[..];
-    let verification_account = VerificationAccount::new(&mut data)?;
+    let data = &mut verification_account_info.data.borrow_mut()[..];
+    let verification_account = VerificationAccount::new(data)?;
 
     guard!(verification_account.get_fee_version() == fee_version, InvalidFeeVersion);
     guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
@@ -379,7 +380,6 @@ pub fn check_join_split_public_inputs<const N: usize>(
     proof_data: &JoinSplitProofData<N>,
     storage_account: &StorageAccount,
     nullifier_accounts: [&NullifierAccount; N],
-    //commitment_queue_account: &CommitmentQueueAccount,
 ) -> ProgramResult {
     assert!(N <= 2);
 
@@ -390,22 +390,20 @@ pub fn check_join_split_public_inputs<const N: usize>(
     guard!(!uses_multiple_trees || public_inputs.roots[0] == public_inputs.roots[1], InvalidMerkleRoot);
 
     // Check that roots are valid
-    for i in 0..N {
+    for (i, nullifier_account) in nullifier_accounts.iter().enumerate() {
         // For the active tree: root can either be the last root or any root from the active_mt_root_history
         if proof_data.tree_indices[i] == active_tree_index {
             guard!(storage_account.is_root_valid(public_inputs.roots[i]), InvalidMerkleRoot);
         } else { // For a non-active tree: root can only be one value
-            guard!(public_inputs.roots[i] == nullifier_accounts[i].get_root(), InvalidMerkleRoot);
+            guard!(public_inputs.roots[i] == nullifier_account.get_root(), InvalidMerkleRoot);
         }
+
+        // Check that nullifier_hashes can be inserted
+        guard!(nullifier_account.can_insert_nullifier_hash(public_inputs.nullifier_hashes[i]), NullifierAlreadyExists);
     }
 
     // Check that nullifier_hashes for the same tree are different
     guard!(!uses_multiple_trees || public_inputs.nullifier_hashes[0] == public_inputs.nullifier_hashes[1], InvalidPublicInputs);
-
-    // Check that nullifier_hashes can be inserted
-    for i in 0..N {
-        guard!(nullifier_accounts[i].can_insert_nullifier_hash(public_inputs.nullifier_hashes[i]), NullifierAlreadyExists);
-    }
 
     Ok(())
 }

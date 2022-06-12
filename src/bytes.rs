@@ -5,9 +5,7 @@ pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
 
     fn override_slice(value: &Self, slice: &mut [u8]) {
         let vec = Self::try_to_vec(value).unwrap();
-        for i in 0..vec.len() {
-            slice[i] = vec[i];
-        }
+        slice[..vec.len()].copy_from_slice(&vec[..]);
     }
 }
 
@@ -52,10 +50,7 @@ impl_borsh_sized!(bool, 1);
 // TODO: optimize find and contains with byte alignment
 pub fn contains<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8]) -> bool {
     let length = data.len() / N::SIZE;
-    match find(v, data, length) {
-        Some(_) => true,
-        None => false
-    }
+    find(v, data, length).is_some()
 }
 
 pub fn find<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8], length: usize) -> Option<usize> {
@@ -83,8 +78,8 @@ pub fn is_zero(s: &[u8]) -> bool {
             let arr: [u8; 16] = s[i..i+16].try_into().unwrap();
             if u128::from_be_bytes(arr) != 0 { return false }
         } else {
-            for i in i..s.len() {
-                if s[i] != 0 { return false }
+            for &bit in s.iter().skip(i) {
+                if bit != 0 { return false }
             }
         }
     }
@@ -94,7 +89,7 @@ pub fn is_zero(s: &[u8]) -> bool {
 pub fn slice_to_array<N: Default + Copy, const SIZE: usize>(s: &[N]) -> [N; SIZE] {
     assert!(s.len() >= SIZE);
     let mut a = [N::default(); SIZE];
-    for i in 0..SIZE { a[i] = s[i]; }
+    a[..SIZE].copy_from_slice(&s[..SIZE]);
     a
 }
 
@@ -154,11 +149,11 @@ mod tests {
         }
 
         for i in 0..length {
-            assert_eq!(contains(i as u64, &data[..]), true);
+            assert!(contains(i as u64, &data[..]));
             assert_eq!(find(i as u64, &data[..], length).unwrap(), i as usize);
         }
         for i in length..length + 20 {
-            assert_eq!(contains(i as u64, &data[..]), false);
+            assert!(!contains(i as u64, &data[..]));
             assert!(matches!(find(i as u64, &data[..], length), None));
         }
     }
@@ -168,8 +163,8 @@ mod tests {
         let mut slice = vec![0; 256];
         U256::override_slice(&[1; 32], &mut slice[32..64]);
 
-        for i in 32..64 {
-            assert_eq!(slice[i], 1);
+        for &v in slice.iter().take(64).skip(32) {
+            assert_eq!(v, 1);
         }
     }
 

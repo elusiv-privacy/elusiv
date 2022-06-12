@@ -8,7 +8,7 @@ const PARTIAL_ROUNDS_CUS: u32 = 5200 + 17740 + 600;
 
 pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
     let attrs = sub_attrs_prepare(attrs.to_string());
-    let attrs: Vec<&str> = (&attrs).split(",").collect();
+    let attrs: Vec<&str> = (&attrs).split(',').collect();
 
     // Ident
     let id: TokenStream = attrs[0].parse().unwrap();
@@ -23,7 +23,7 @@ pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
 
         // Cost based on full or partial rounds
         rounds.push(
-            if round < 4 || round >= 61 {   // 8 full rounds
+            if !(4..61).contains(&round) {   // 8 full rounds
                 FULL_ROUNDS_CUS
             } else { // 57 partial rounds
                 PARTIAL_ROUNDS_CUS

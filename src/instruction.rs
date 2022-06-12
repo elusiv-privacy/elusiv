@@ -32,6 +32,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::instruction::AccountMeta;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
+#[allow(clippy::large_enum_variant)]
 pub enum ElusivInstruction {
     // Client sends base_commitment and amount to be stored in the Elusiv program
     #[acc(sender, { writable, signer })]
@@ -195,8 +196,8 @@ pub enum ElusivInstruction {
     InitNewFeeVersion {
         fee_version: u64,
         lamports_per_tx: u64,
-        base_commitment_fee: u64,
-        proof_fee: u64,
+        base_commitment_network_fee: u64,
+        proof_network_fee: u64,
         relayer_hash_tx_fee: u64,
         relayer_proof_tx_fee: u64,
         relayer_proof_reward: u64,
@@ -205,66 +206,52 @@ pub enum ElusivInstruction {
 
 #[cfg(feature = "instruction-abi")]
 pub fn open_all_initial_accounts(payer: Pubkey, lamports_per_tx: u64) -> Vec<solana_program::instruction::Instruction> {
-    let mut ixs = Vec::new();
-    
-    // Governor
-    ixs.push(
+    vec![
+        // Governor
         ElusivInstruction::setup_governor_account_instruction(
             SignerAccount(payer),
             WritableUserAccount(GovernorAccount::find(None).0)
-        )
-    );
+        ),
 
-    // Genesis Fee
-    ixs.push(init_genesis_fee_account(payer, lamports_per_tx));
+        // Genesis Fee
+        init_genesis_fee_account(payer, lamports_per_tx),
 
-    // SOL pool
-    ixs.push(
+        // SOL pool
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::PoolAccount,
             SignerAccount(payer),
             WritableUserAccount(PoolAccount::find(None).0)
-        )
-    );
+        ),
 
-    // Fee collector
-    ixs.push(
+        // Fee collector
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::FeeCollectorAccount,
             SignerAccount(payer),
             WritableUserAccount(FeeCollectorAccount::find(None).0)
-        )
-    );
+        ),
 
-    // Commitment hashing
-    ixs.push(
+        // Commitment hashing
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::CommitmentHashingAccount,
             SignerAccount(payer),
             WritableUserAccount(CommitmentHashingAccount::find(None).0)
-        )
-    );
+        ),
 
-    // Commitment queue
-    ixs.push(
+        // Commitment queue
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::CommitmentQueueAccount,
             SignerAccount(payer),
             WritableUserAccount(CommitmentQueueAccount::find(None).0)
-        )
-    );
+        ),
 
-    // Base commitment queue
-    ixs.push(
+        // Base commitment queue
         ElusivInstruction::open_multi_instance_account_instruction(
             MultiInstancePDAAccountKind::BaseCommitmentQueueAccount,
             0,
             SignerAccount(payer),
             WritableUserAccount(BaseCommitmentQueueAccount::find(Some(0)).0)
-        )
-    );
-
-    ixs
+        ),
+    ]
 }
 
 #[cfg(feature = "instruction-abi")]

@@ -7,10 +7,10 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use regex::Regex;
 
-const LOG_LOCATION: &'static str = "log/output.log";
+const LOG_LOCATION: &str = "log/output.log";
 
 pub fn save_debug_log() {
-    match std::fs::remove_file(LOG_LOCATION) { _ => {} };
+    _ = std::fs::remove_file(LOG_LOCATION);
 
     let logfile = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{l} - {m}\n")))
@@ -58,7 +58,7 @@ pub fn get_compute_unit_pairs_from_log() {
 
     let max = cus.iter().fold(0, |a, b| std::cmp::max(a, *b));
     let min = cus.iter().fold(usize::MAX, |a, b| std::cmp::min(a, *b));
-    let avg = if cus.len() > 0 { cus.iter().fold(0, |acc, x| acc + x) / cus.len() } else { 0 };
+    let avg = if !cus.is_empty() { cus.iter().sum::<usize>() / cus.len() } else { 0 };
     let mut out = format!("(CUs: max: {}, min: {}, avg: {})", max, min, avg);
 
     for c in cus {

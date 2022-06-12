@@ -112,7 +112,7 @@ impl<'a> CommitmentHashingAccount<'a> {
 
         // Assign siblings
         let mut v = Vec::new();
-        for i in 0..MT_HEIGHT { Wrap(siblings[i]).serialize(&mut v).unwrap(); }
+        for sibling in siblings { Wrap(sibling).serialize(&mut v).unwrap(); }
         self.set_all_siblings(&v);
 
         Ok(())
@@ -142,12 +142,12 @@ mod tests {
         let mut account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
 
         let mut base_commitment = [0; 32];
-        for i in 0..32 { base_commitment[i] = i as u8; }
+        for (i, b) in base_commitment.iter_mut().enumerate() { *b = i as u8 }
 
         let amount = 123456789;
 
         let mut commitment = [0; 32];
-        for i in 0..32 { commitment[i] = i as u8 * 2; }
+        for (i, b) in commitment.iter_mut().enumerate() { *b = i as u8 * 2 }
 
         let fee_payer = [9; 32];
 
@@ -169,18 +169,19 @@ mod tests {
     }
     
     #[test]
+    #[allow(clippy::needless_range_loop)]
     fn test_commitment_account_reset() {
         let mut data = vec![0; CommitmentHashingAccount::SIZE];
         let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
 
         let mut commitment = [0; 32];
-        for i in 0..32 { commitment[i] = i as u8; }
+        for (i, b) in commitment.iter_mut().enumerate() { *b = i as u8 }
 
         let ordering = 123456789;
 
         let mut siblings = [Fr::zero(); MT_HEIGHT as usize];
-        for i in 0..siblings.len() {
-            siblings[i] = u64_to_scalar(i as u64);
+        for (i, sibling) in siblings.iter_mut().enumerate() {
+            *sibling = u64_to_scalar(i as u64);
         }
 
         account.reset(commitment, ordering, siblings, 0).unwrap();

@@ -52,7 +52,7 @@ pub fn interpret(
 
     // Add the storage read, write, free instructions
     for var in &vars.0 {
-        let decl= var.declaration.clone().unwrap();
+        let decl= var.declaration.unwrap();
         if !var.used_outside_of_decl() { continue; }
 
         // Add write to declare scope
@@ -86,7 +86,7 @@ pub fn interpret(
     let mut storage = StorageMappings { store: vec![] };
     for scope in &computation.scopes { 
         let start_rounds = rounds;
-        let result = scope.stmt.to_stream(start_rounds, &previous_computation_rounds);
+        let result = scope.stmt.to_stream(start_rounds, previous_computation_rounds);
         let body = result.stream;
 
         let mut read = quote!{};
@@ -113,7 +113,7 @@ pub fn interpret(
             for f in scope.free.clone() { storage.free(f); }
             for w in &scope.write {
                 // Reallocate vars that have not been freed
-                if let Some(_) = scope.free.iter().find(|x| x.id == w.id) { continue; }
+                if scope.free.iter().any(|x| x.id == w.id) { continue; }
                 write_after_free.extend(storage.write(w.clone()));
             }
 

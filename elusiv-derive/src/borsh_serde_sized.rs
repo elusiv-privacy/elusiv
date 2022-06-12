@@ -27,7 +27,7 @@ pub fn impl_borsh_serde_sized(ast: &syn::DeriveInput) -> TokenStream {
             }
             sizes.retain(|x| !x.is_empty());
             let mut size = quote!{};
-            if sizes.len() > 0 {
+            if !sizes.is_empty() {
                 size = sizes[0].clone();
                 for s in sizes {
                     size = quote!{ crate::bytes::max(#s, #size) }

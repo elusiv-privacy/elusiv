@@ -34,7 +34,7 @@ pub fn send_with_system_program<'a>(
 
     // Transfer funds from sender
     let instruction = solana_program::system_instruction::transfer(
-        &sender.key,
+        sender.key,
         recipient.key,
         lamports 
     );
@@ -57,10 +57,10 @@ pub fn send_from_pool<'a>(
     amount: u64,
 ) -> ProgramResult {
     **pool.try_borrow_mut_lamports()? = pool.lamports().checked_sub(amount)
-        .ok_or(ProgramError::from(InvalidAmount))?;
+        .ok_or_else(|| ProgramError::from(InvalidAmount))?;
 
     **recipient.try_borrow_mut_lamports()? = recipient.lamports().checked_add(amount)
-        .ok_or(ProgramError::from(InvalidAmount))?;
+        .ok_or_else(|| ProgramError::from(InvalidAmount))?;
 
     Ok(())
 }
@@ -121,8 +121,8 @@ pub fn create_pda_account<'a>(
 
     invoke_signed(
         &system_instruction::create_account(
-            &payer.key,
-            &pda_account.key,
+            payer.key,
+            pda_account.key,
             lamports_required,
             space,
             &crate::id(),
@@ -135,12 +135,12 @@ pub fn create_pda_account<'a>(
     )?;
 
     // Assign default fields
-    let mut data = &mut pda_account.data.borrow_mut()[..];
-    let mut fields = PDAAccountFields::new(&data)?;
+    let data = &mut pda_account.data.borrow_mut()[..];
+    let mut fields = PDAAccountFields::new(data)?;
     fields.bump_seed = bump;
     fields.version = 0;
     fields.initialized = false;
-    PDAAccountFields::override_slice(&fields, &mut data);
+    PDAAccountFields::override_slice(&fields, data);
 
     Ok(())
 }
