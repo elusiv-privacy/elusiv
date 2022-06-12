@@ -14,7 +14,7 @@ use crate::state::{
     fee::FeeAccount, NullifierAccount,
 };
 use crate::commitment::{CommitmentHashingAccount};
-use crate::error::ElusivError::{InvalidInstructionData, InvalidFeeVersion};
+use crate::error::ElusivError::{InvalidInstructionData, InvalidFeeVersion, InvalidAccount};
 use crate::macros::*;
 use crate::bytes::{BorshSerDeSized, is_zero};
 use crate::types::U256;
@@ -26,9 +26,7 @@ pub enum SingleInstancePDAAccountKind {
     CommitmentQueueAccount,
     PoolAccount,
     FeeCollectorAccount,
-
     StorageAccount,
-    NullifierAccount,
 }
 
 /// Opens one single instance `PDAAccount`, as long this PDA does not already exist
@@ -54,15 +52,13 @@ pub fn open_single_instance_account<'a>(
         SingleInstancePDAAccountKind::StorageAccount => {
             open_pda_account_without_offset::<StorageAccount>(payer, pda_account)
         }
-        SingleInstancePDAAccountKind::NullifierAccount => {
-            open_pda_account_without_offset::<NullifierAccount>(payer, pda_account)
-        }
     }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum MultiInstancePDAAccountKind {
-    BaseCommitmentQueueAccount
+    BaseCommitmentQueueAccount,
+    NullifierAccount,
 }
 
 /// Opens one multi instance `PDAAccount` with the offset `Some(pda_offset)`, as long this PDA does not already exist
@@ -76,6 +72,9 @@ pub fn open_multi_instance_account<'a>(
     match kind {
         MultiInstancePDAAccountKind::BaseCommitmentQueueAccount => {
             open_pda_account_with_offset::<BaseCommitmentQueueAccount>(payer, pda_account, pda_offset)
+        }
+        MultiInstancePDAAccountKind::NullifierAccount => {
+            open_pda_account_with_offset::<NullifierAccount>(payer, pda_account, pda_offset)
         }
     }
 }
@@ -123,6 +122,57 @@ pub fn setup_storage_account(
     setup_multi_account_account(storage_account)
 }
 
+/// Opens a new MT (aka creates a new `NullifierAccount`)
+/// - Note: requires a prior call to `open_multi_instance_account`
+/// - Note: the `NullifierAccount` will be useless until the MT with `index = merkle_tree_index - 1` is closed
+pub fn open_new_merkle_tree(
+    nullifier_account: &mut NullifierAccount,
+    _merkle_tree_index: u64,
+) -> ProgramResult {
+    // Note: we don't zero-check these accounts, BUT we need to manipulate the maps we store in each account and set the size to zero 
+    verify_heterogen_sub_accounts(nullifier_account, false)?;
+    setup_multi_account_account(nullifier_account)?;
+
+    // Set all map sizes to zero (leading u32)
+    for i in 0..NullifierAccount::COUNT {
+        let account = nullifier_account.get_account(i);
+        let data = &mut account.data.borrow_mut()[..];
+        for j in 0..4 {
+            data[j] = 0;
+        }        
+    }
+
+    Ok(())
+}
+
+/// Closes the active MT and activates the next one
+/// - there are two scenarios in which this is required/allowed:
+///     1. the active MT is full
+///     2. the active MT is not full but the remaining places in the MT are < than the batching rate of the next commitment in the commitment queue
+pub fn reset_active_merkle_tree(
+    storage_account: &mut StorageAccount,
+    _active_nullifier_account: &mut NullifierAccount,
+    _next_nullifier_account: &mut NullifierAccount,
+
+    active_merkle_tree_index: u64,
+) -> ProgramResult {
+    guard!(storage_account.get_trees_count() == active_merkle_tree_index, InvalidInstructionData);
+    todo!("Reset active MT not implemented yet");
+}
+
+/// Archives a closed MT by creating creating a N-SMT in an `ArchivedTreeAccount`
+pub fn archive_closed_merkle_tree<'a>(
+    _payer: &AccountInfo<'a>,
+    storage_account: &StorageAccount,
+    _next_nullifier_account: &mut NullifierAccount,
+    _archived_tree_account: &AccountInfo<'a>,
+
+    closed_merkle_tree_index: u64,
+) -> ProgramResult {
+    guard!(storage_account.get_trees_count() > closed_merkle_tree_index, InvalidInstructionData);
+    todo!("N-SMT not implemented yet");
+}
+
 /// Setup the `GovernorAccount` with the default values
 /// - Note: there is no way of upgrading it atm
 pub fn setup_governor_account<'a>(
@@ -167,7 +217,7 @@ pub fn init_new_fee_version<'a>(
 fn setup_multi_account_account<'a, T: MultiAccountAccount<'a>>(
     account: &mut T,
 ) -> ProgramResult {
-    guard!(!account.pda_initialized(), InvalidInstructionData);
+    guard!(!account.pda_initialized(), InvalidAccount);
 
     // Set all pubkeys
     let mut pks = Vec::new();
@@ -178,11 +228,30 @@ fn setup_multi_account_account<'a, T: MultiAccountAccount<'a>>(
 
     // Check for account duplicates
     let set: HashSet<U256> = account.get_all_pubkeys().clone().drain(..).collect();
-    guard!(set.len() == StorageAccount::COUNT, InvalidInstructionData);
+    guard!(set.len() == T::COUNT, InvalidInstructionData);
 
     account.set_pda_initialized(true);
-    guard!(account.pda_initialized(), InvalidInstructionData);
+    guard!(account.pda_initialized(), InvalidAccount);
 
+    Ok(())
+}
+
+// Verifies the user-supplied sub-accounts
+fn verify_heterogen_sub_accounts<'a, T: HeterogenMultiAccountAccount<'a>>(
+    storage_account: &T,
+    check_zeroness: bool,
+) -> ProgramResult {
+    for i in 0..T::COUNT {
+        verify_extern_data_account(
+            storage_account.get_account(i),
+            if i < T::COUNT - 1 {
+                T::INTERMEDIARY_ACCOUNT_SIZE
+            } else {
+                T::LAST_ACCOUNT_SIZE
+            },
+            check_zeroness
+        )?;
+    }
     Ok(())
 }
 
@@ -207,25 +276,6 @@ fn verify_extern_data_account(
     // Check ownership
     guard!(*account.owner == crate::id(), InvalidInstructionData);
 
-    Ok(())
-}
-
-// Verifies the user-supplied sub-accounts
-fn verify_heterogen_sub_accounts<'a, T: HeterogenMultiAccountAccount<'a>>(
-    storage_account: &T,
-    check_zeroness: bool,
-) -> ProgramResult {
-    for i in 0..T::COUNT {
-        verify_extern_data_account(
-            storage_account.get_account(i),
-            if i < T::COUNT - 1 {
-                T::INTERMEDIARY_ACCOUNT_SIZE
-            } else {
-                T::LAST_ACCOUNT_SIZE
-            },
-            check_zeroness
-        )?;
-    }
     Ok(())
 }
 

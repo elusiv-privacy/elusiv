@@ -164,12 +164,33 @@ macro_rules! storage_account {
     };
 }
 
+macro_rules! nullifier_account {
+    ($id: ident, $index: expr, $prg: ident) => {
+        use elusiv::state::program_account::MultiAccountProgramAccount;
+
+        let mut data = get_data(&mut $prg, NullifierAccount::find(Some($index)).0).await;
+
+        let pks = elusiv::state::program_account::MultiAccountAccountFields::<{NullifierAccount::COUNT}>::new(&data).unwrap();
+        let keys = pks.pubkeys;
+
+        account_info!(acc0, &keys[0], $prg);
+        account_info!(acc1, &keys[1], $prg);
+        account_info!(acc2, &keys[2], $prg);
+        account_info!(acc3, &keys[3], $prg);
+
+        let sub_accounts = vec![&acc0, &acc1, &acc2, &acc3];
+
+        let $id = NullifierAccount::new(&mut data[..], sub_accounts).unwrap();
+    };
+}
+
 #[allow(unused_imports)] pub(crate) use queue;
 #[allow(unused_imports)] pub(crate) use queue_mut;
 #[allow(unused_imports)] pub(crate) use pda_account;
 #[allow(unused_imports)] pub(crate) use sized_account;
 #[allow(unused_imports)] pub(crate) use account_info;
 #[allow(unused_imports)] pub(crate) use storage_account;
+#[allow(unused_imports)] pub(crate) use nullifier_account;
 
 use self::program_setup::set_account;
 

@@ -70,7 +70,7 @@ pub struct StorageAccount {
     // Points to the next commitment in the active MT
     next_commitment_ptr: u32,
 
-    // The amount of already finished MTs
+    // The amount of already finished (closed) MTs
     trees_count: u64,
 
     // The amount of archived MTs
@@ -181,7 +181,7 @@ mod tests {
     use super::*;
     use crate::macros::{account, generate_storage_accounts, generate_storage_accounts_valid_size};
     use solana_program::{account_info::AccountInfo};
-    use super::super::program_account::{MultiAccountAccount, BigArrayAccount};
+    use super::super::program_account::{MultiAccountAccount};
     use std::str::FromStr;
 
     macro_rules! storage_account {

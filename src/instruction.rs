@@ -138,11 +138,29 @@ pub enum ElusivInstruction {
         tree_indices: [u64; 2],
     },
 
-    // Closes the active MT
+    // Set the next MT as the active MT
+    #[pda(storage_account, Storage, { writable, multi_accounts })]
+    #[pda(active_nullifier_account, Nullifier, pda_offset = Some(active_mt_index), { writable, multi_accounts })]
+    #[pda(next_nullifier_account, Nullifier, pda_offset = Some(active_mt_index + 1), { writable, multi_accounts })]
+    ResetActiveMerkleTree {
+        active_mt_index: u64,
+    },
 
     // Creates a new `NullifierAccount`
+    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { multi_accounts, no_subaccount_check, writable })]
+    OpenNewMerkleTree {
+        mt_index: u64,
+    },
 
     // Archives a `NullifierAccount` into a N-SMT (Nullifier-Sparse-Merkle-Tree)
+    #[acc(payer, { writable, signer })]
+    #[pda(storage_account, Storage, { writable, multi_accounts })]
+    #[pda(nullifier_account, Nullifier, pda_offset = Some(closed_mt_index), { writable, multi_accounts })]
+    #[acc(archived_tree_account, { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    ArchiveClosedMerkleTree {
+        closed_mt_index: u64,
+    },
 
     // Opens one `PDAAccount` with offset = None
     #[acc(payer, { writable, signer })]

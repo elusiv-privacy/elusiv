@@ -110,6 +110,15 @@ pub fn create_pda_account<'a>(
     let space: u64 = account_size.try_into().unwrap();
     guard!(payer.lamports() >= lamports_required, InvalidAccountBalance);
 
+    // Additional (redundant) check that account does not already exist
+    guard!(
+        match pda_account.try_data_len() {
+            Ok(l) => l == 0,
+            Err(_) => true
+        },
+        InvalidAccount
+    );
+
     invoke_signed(
         &system_instruction::create_account(
             &payer.key,

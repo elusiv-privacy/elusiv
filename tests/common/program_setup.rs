@@ -1,4 +1,4 @@
-use elusiv::state::StorageAccount;
+use elusiv::state::{StorageAccount, NullifierAccount};
 use solana_program::pubkey::Pubkey;
 use solana_program::{
     instruction::Instruction,
@@ -15,8 +15,8 @@ use solana_sdk::{
     account::AccountSharedData,
 };
 use elusiv::instruction::*;
-use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount, HeterogenMultiAccountAccount};
-use elusiv::processor::SingleInstancePDAAccountKind;
+use elusiv::state::program_account::{SizedAccount, PDAAccount, HeterogenMultiAccountAccount};
+use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind};
 
 use crate::common::{lamports_per_signature, nonce_instruction};
 
@@ -42,24 +42,8 @@ pub async fn setup_pda_accounts(context: &mut ProgramTestContext) {
 }
 
 pub async fn setup_storage_account<'a>(context: &mut ProgramTestContext) -> Vec<Pubkey> {
-    let mut accounts = Vec::new();
-    let mut result = Vec::new();
-    for i in 0..elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT {
-        let account_size = if i < elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT - 1 {
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE
-        } else {
-            StorageAccount::LAST_ACCOUNT_SIZE
-        };
-
-        let pk = create_account_rent_exepmt(
-            &mut context.banks_client,
-            &context.payer,
-            context.last_blockhash,
-            account_size
-        ).await.pubkey();
-        result.push(pk);
-        accounts.push(WritableUserAccount(pk));
-    }
+    let pubkeys = create_multi_account::<StorageAccount>(context).await;
+    let accounts: Vec<WritableUserAccount> = pubkeys.iter().map(|p| WritableUserAccount(*p)).collect();
 
     let mut transaction = Transaction::new_with_payer(
         &[
@@ -76,6 +60,58 @@ pub async fn setup_storage_account<'a>(context: &mut ProgramTestContext) -> Vec<
     );
     transaction.sign(&[&context.payer], context.last_blockhash);
     assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
+
+    pubkeys
+}
+
+pub async fn create_merkle_tree(
+    context: &mut ProgramTestContext,
+    index: u64,
+) -> Vec<Pubkey> {
+    let pubkeys = create_multi_account::<NullifierAccount>(context).await;
+    let accounts: Vec<WritableUserAccount> = pubkeys.iter().map(|p| WritableUserAccount(*p)).collect();
+
+    let mut transaction = Transaction::new_with_payer(
+        &[
+            ElusivInstruction::open_multi_instance_account_instruction(
+                MultiInstancePDAAccountKind::NullifierAccount,
+                index,
+                SignerAccount(context.payer.pubkey()),
+                WritableUserAccount(NullifierAccount::find(Some(index)).0)
+            ),
+            ElusivInstruction::open_new_merkle_tree_instruction(
+                index,
+                &accounts.try_into().unwrap()
+            ),
+        ],
+        Some(&context.payer.pubkey()),
+    );
+    transaction.sign(&[&context.payer], context.last_blockhash);
+    assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
+
+    pubkeys
+}
+
+async fn create_multi_account<'a, T: HeterogenMultiAccountAccount<'a>>(
+    context: &mut ProgramTestContext
+) -> Vec<Pubkey> {
+    let mut result = Vec::new();
+
+    for i in 0..T::COUNT {
+        let account_size = if i < T::COUNT - 1 {
+            T::INTERMEDIARY_ACCOUNT_SIZE
+        } else {
+            T::LAST_ACCOUNT_SIZE
+        };
+
+        let pk = create_account_rent_exepmt(
+            &mut context.banks_client,
+            &context.payer,
+            context.last_blockhash,
+            account_size
+        ).await.pubkey();
+        result.push(pk);
+    }
 
     result
 }
