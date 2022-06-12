@@ -4,16 +4,19 @@ use solana_program::{
     native_token::LAMPORTS_PER_SOL,
 };
 use crate::commitment::poseidon_hash::TOTAL_POSEIDON_ROUNDS;
-use crate::fee::{FeeAccount, CURRENT_FEE_VERSION};
 use crate::macros::guard;
 use crate::processor::{open_pda_account_with_offset};
 use crate::state::{MT_HEIGHT, StorageAccount, program_account::ProgramAccount};
 use crate::types::U256;
 use super::utils::{send_with_system_program, send_from_pool, close_account};
-use crate::state::queue::{
-    RingQueue,
-    Queue,
-    CommitmentQueue, CommitmentQueueAccount, BaseCommitmentQueueAccount, BaseCommitmentQueue,
+use crate::state::{
+    fee::FeeAccount,
+    queue::{
+        RingQueue,
+        Queue,
+        CommitmentQueue, CommitmentQueueAccount, BaseCommitmentQueueAccount, BaseCommitmentQueue,
+    },
+    governor::GovernorAccount,
 };
 use crate::error::ElusivError::{
     InvalidAmount,
@@ -67,13 +70,13 @@ pub struct BaseCommitmentHashRequest {
     pub base_commitment: U256,
     pub amount: u64,
     pub commitment: U256,
-    pub fee_version: u16,
+    pub fee_version: u64,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 pub struct CommitmentHashRequest {
     pub commitment: U256,
-    pub fee_version: u16,
+    pub fee_version: u64,
 }
 
 /// Stores a base commitment hash and takes the funds from the sender
@@ -81,20 +84,20 @@ pub struct CommitmentHashRequest {
 pub fn store_base_commitment<'a>(
     sender: &AccountInfo<'a>,
     fee: &FeeAccount,
+    governor: &GovernorAccount,
     pool: &AccountInfo<'a>,
     fee_collector: &AccountInfo<'a>,
     system_program: &AccountInfo<'a>,
     base_commitment_queue: &mut BaseCommitmentQueueAccount,
 
-    fee_version: u64,
+    _base_commitment_queue_index: u64,
     request: BaseCommitmentHashRequest,
 ) -> ProgramResult {
     guard!(request.amount >= MIN_STORE_AMOUNT, InvalidAmount);
     guard!(request.amount <= MAX_STORE_AMOUNT, InvalidAmount);
     guard!(matches!(try_scalar_montgomery(u256_to_big_uint(&request.base_commitment)), Some(_)), NonScalarValue);
     guard!(matches!(try_scalar_montgomery(u256_to_big_uint(&request.commitment)), Some(_)), NonScalarValue);
-    guard!(fee_version == request.fee_version as u64, InvalidFeeVersion);
-    guard!(fee_version == CURRENT_FEE_VERSION as u64, InvalidFeeVersion);
+    guard!(request.fee_version == governor.get_fee_version(), InvalidFeeVersion);
 
     // Take amount + fee from sender
     let compensation_fee = fee.base_commitment_hash_fee();
@@ -123,6 +126,7 @@ pub fn init_base_commitment_hash<'a>(
     base_commitment_queue: &mut BaseCommitmentQueueAccount,
     hashing_account: &AccountInfo<'a>,
 
+    _base_commitment_queue_index: u64,
     hash_account_index: u64,
 ) -> ProgramResult {
     // fee_payer rents hashing_account
@@ -148,7 +152,7 @@ pub fn compute_base_commitment_hash<'a>(
     _nonce: u64,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
-    guard!(hashing_account.get_fee_version() as u64 == fee_version, InvalidFeeVersion);
+    guard!(hashing_account.get_fee_version() == fee_version, InvalidFeeVersion);
     partial_computation_is_not_finished!(BaseCommitmentHashComputation, hashing_account);
 
     let instruction = hashing_account.get_instruction();
@@ -236,7 +240,7 @@ pub fn compute_commitment_hash<'a>(
     _nonce: u64,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
-    guard!(hashing_account.get_fee_version() as u64 == fee_version, InvalidFeeVersion);
+    guard!(hashing_account.get_fee_version() == fee_version, InvalidFeeVersion);
     partial_computation_is_not_finished!(CommitmentHashComputation, hashing_account);
 
     let instruction = hashing_account.get_instruction();
@@ -317,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_compute_base_commitment_hash() {
-        zero_account!(hashing_account, BaseCommitmentHashingAccount);
+        zero_account!(mut hashing_account, BaseCommitmentHashingAccount);
         zero_account!(fee, FeeAccount);
         test_account_info!(pool, 0);
         test_account_info!(fee_payer, 0);
@@ -353,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_compute_commitment_hash() {
-        zero_account!(hashing_account, CommitmentHashingAccount);
+        zero_account!(mut hashing_account, CommitmentHashingAccount);
         zero_account!(fee, FeeAccount);
         test_account_info!(pool, 0);
         test_account_info!(fee_payer, 0);

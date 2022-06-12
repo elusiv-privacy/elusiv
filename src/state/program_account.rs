@@ -67,6 +67,7 @@ pub trait PDAAccount {
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct PDAAccountFields {
     pub bump_seed: u8,
+    pub version: u8,
     pub initialized: bool,
 }
 
@@ -79,7 +80,9 @@ impl PDAAccountFields {
 /// Every `MultiAccountAccount` has these fields at the beginning. (guaranteed by the `elusiv_account` macro) 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct MultiAccountAccountFields<const COUNT: usize> {
+    // { .. } PDAAccountFields
     pub bump_seed: u8,
+    pub version: u8,
     pub initialized: bool,
     pub pubkeys: [U256; COUNT],
 }
@@ -180,7 +183,7 @@ mod tests {
 
     const SEED: &'static [u8] = b"TEST_seed";
 
-    struct TestPDAAccount {}
+    struct TestPDAAccount { }
     impl PDAAccount for TestPDAAccount {
         const SEED: &'static [u8] = SEED;
     }
@@ -199,14 +202,6 @@ mod tests {
         assert_eq!(result_pubkey, expected_pubkey);
         assert_eq!(result_bump, expected_bump);
         assert_eq!(TestPDAAccount::pubkey(offset, result_bump).unwrap(), expected_pubkey);
-
-        // Test valid account
-        account!(account, result_pubkey, vec![result_bump, 1]);
-        assert!(TestPDAAccount::is_valid_pubkey(&account, offset, &expected_pubkey).unwrap());
-
-        // Test invalid account
-        account!(account, result_pubkey, vec![0, 1]);
-        assert!(!TestPDAAccount::is_valid_pubkey(&account, offset, &expected_pubkey).unwrap());
     }
 
     const MAX_VALUES_PER_ACCOUNT: usize = max_account_size(32) / 32;

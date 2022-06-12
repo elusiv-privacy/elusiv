@@ -30,14 +30,12 @@ pub const MAX_RELAYER_PROOF_REWARD: u64 = 500;
 const MIN_LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 const MAX_LAMPORTS_PER_SIGNATURE: u64 = 100_000;
 
-// should stay below u16::MAX since we use 16 bit in the proof public inputs to store the fee version
-pub const CURRENT_FEE_VERSION: u16 = 0;
-
 #[elusiv_account(pda_seed = b"fee")]
 /// The current program (and network) fees
 /// - multiple fee-accounts can exist (each one has it's version as pda-offset)
 pub struct FeeAccount {
     bump_seed : u8,
+    version: u8,
     initialized: bool,
 
     /// consists of `lamports_per_signature` and possible additional compute units costs

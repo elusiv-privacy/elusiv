@@ -101,8 +101,8 @@ macro_rules! queue_mut {
 }
 
 macro_rules! queue {
-    ($id: ident, $ty: ty, $ty_account: ty, $prg: ident) => {
-        let mut queue = get_data(&mut $prg, <$ty_account>::find(None).0).await;
+    ($id: ident, $ty: ty, $ty_account: ty, $offset: expr, $prg: ident) => {
+        let mut queue = get_data(&mut $prg, <$ty_account>::find($offset).0).await;
         let mut queue = <$ty_account>::new(&mut queue[..]).unwrap();
         let $id = <$ty>::new(&mut queue);
     };
@@ -295,6 +295,6 @@ pub fn u256_from_str(str: &str) -> U256 {
     fr_to_u256_le(&Fr::from_str(str).unwrap())
 }
 
-pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u16) -> BaseCommitmentHashRequest {
+pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u64) -> BaseCommitmentHashRequest {
     BaseCommitmentHashRequest { base_commitment: u256_from_str(bc), commitment: u256_from_str(c), amount, fee_version }
 }

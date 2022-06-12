@@ -26,12 +26,13 @@ const_assert_eq!(BaseCommitmentHashComputation::INSTRUCTIONS.len(), 2);
 #[elusiv_account(pda_seed = b"base_commitment", partial_computation)]
 pub struct BaseCommitmentHashingAccount {
     bump_seed: u8,
+    version: u8,
     initialized: bool,
 
     is_active: bool,
     instruction: u32,
     fee_payer: U256,
-    fee_version: u16,
+    fee_version: u64,
 
     state: [U256; 3],
 }
@@ -68,12 +69,13 @@ const_assert_eq!(CommitmentHashComputation::INSTRUCTIONS.len(), 26);
 #[elusiv_account(pda_seed = b"commitment", partial_computation)]
 pub struct CommitmentHashingAccount {
     bump_seed: u8,
+    version: u8,
     initialized: bool,
 
     is_active: bool,
     instruction: u32,
     fee_payer: U256, // fee_payer is null and has no meaning for commitment hashing
-    fee_version: u16,
+    fee_version: u64,
 
     commitment: U256,
     state: [U256; 3],
@@ -88,7 +90,7 @@ impl<'a> CommitmentHashingAccount<'a> {
         commitment: U256,
         ordering: u32,
         siblings: [Fr; MT_HEIGHT as usize],
-        fee_version: u16,
+        fee_version: u64,
     ) -> Result<(), ProgramError> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
 

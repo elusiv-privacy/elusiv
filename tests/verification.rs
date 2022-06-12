@@ -2,39 +2,41 @@
 
 #[cfg(not(tarpaulin_include))]
 mod common;
-use common::log::*;
-use common::program_setup::{start_program_solana_program_test, setup_pda_accounts, request_compute_units};
-use elusiv::instruction::ElusivInstruction;
-use solana_sdk::{signature::Signer, transaction::Transaction};
-use assert_matches::assert_matches;
+use common::*;
+use common::program_setup::*;
 
+use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program_test::*;
 
 #[tokio::test]
-async fn test_verify_full_proof() {
-    //save_debug_log();
+async fn test_send_proof() {
+    // Client has stored these three commitments in the MT
+    /*let commitments = [
+        base_commitment_request(
+            "",
+            "",
+            LAMPORTS_PER_SOL / 2,
+            0,
+        ),
+        base_commitment_request(
+            "",
+            "",
+            LAMPORTS_PER_SOL / 2,
+            0,
+        ),
+        base_commitment_request(
+            "",
+            "",
+            LAMPORTS_PER_SOL / 4,
+            0,
+        ),
+    ];
+    let private_balance = commitments.iter().fold(0, |acc, x| acc + x.amount);*/
 
-    //let (mut banks_client, payer, recent_blockhash) = start_program_solana_program_test().await;
-    //setup_pda_accounts(&mut banks_client, &payer, recent_blockhash).await;
+    // Client sends 1 SOL - fees to R1
+    //let _remaining_balance = private_balance - LAMPORTS_PER_SOL;
 
-    /*let mut transaction = Transaction::new_with_payer(
-        &[
-            ElusivInstruction::setup_proof_test_instruction()
-        ],
-        Some(&payer.pubkey()),
-    );
-    transaction.sign(&[&payer], recent_blockhash);
-    assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));*/
+    // Client sends 1/4 SOL - fees to R2
 
-    /*let mut transaction = Transaction::new_with_payer(
-        &[
-            request_compute_units(1_400_000),
-            ElusivInstruction::verify_proof_test_instruction()
-        ],
-        Some(&payer.pubkey()),
-    );
-    transaction.sign(&[&payer], recent_blockhash);
-    assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));*/
-
-    //get_compute_unit_pairs_from_log();
+    // Client now has a private balance of zero
 }

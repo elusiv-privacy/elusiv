@@ -31,6 +31,7 @@ const NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_
 ))]
 pub struct NullifierAccount {
     bump_seed: u8,
+    version: u8,
     initialized: bool,
 
     pubkeys: [U256; NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT],
@@ -44,6 +45,7 @@ pub struct NullifierAccount {
 #[elusiv_account(pda_seed = b"archived_tree")]
 pub struct ArchivedTreeAccount {
     bump_seed: u8,
+    version: u8,
     initialized: bool,
 
     commitment_root: U256,

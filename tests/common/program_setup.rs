@@ -18,7 +18,7 @@ use elusiv::instruction::*;
 use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount};
 use elusiv::processor::SingleInstancePDAAccountKind;
 
-use crate::common::lamports_per_signature;
+use crate::common::{lamports_per_signature, nonce_instruction};
 
 use super::{get_account_cost, get_data};
 
@@ -30,43 +30,18 @@ pub async fn start_program_solana_program_test() -> ProgramTestContext {
     test.start_with_context().await
 }
 
-macro_rules! setup_pda_account {
-    ($ty: ty, $offset: expr, $test: ident, $data: expr) => {
-        let mut data = match $data { Some(d) => d, None => vec![0; <$ty>::SIZE] };
-        let mut acc = <$ty>::new(&mut data).unwrap();
-        let (pk, bump) = <$ty>::find($offset);
-        acc.set_bump_seed(&bump);
-        acc.set_initialized(&true);
-
-        $test.add_account_with_base64_data(pk, LAMPORTS_PER_SOL, elusiv::id(), &base64::encode(data))
-    };
-}
-
-macro_rules! setup_pda_account_with_closure {
-    ($ty: ty, $offset: expr, $test: ident, $closure: ident) => {
-        let mut data = vec![0; <$ty>::SIZE];
-        let mut acc = <$ty>::new(&mut data).unwrap();
-        $closure(&mut acc);
-        setup_pda_account!($ty, $offset, $test, Some(data))
-    };
-}
-
 pub async fn setup_pda_accounts(context: &mut ProgramTestContext) {
-    let nonce: u8 = rand::random();
     let lamports_per_tx = lamports_per_signature(context).await;
+    let ixs = open_all_initial_accounts(context.payer.pubkey(), lamports_per_tx);
+    let ixs: Vec<Instruction> = ixs.iter().map(|ix| nonce_instruction(ix.clone())).collect();
 
-    let mut transaction = Transaction::new_with_payer(
-        &open_all_initial_accounts(context.payer.pubkey(), nonce, lamports_per_tx),
-        Some(&context.payer.pubkey()),
-    );
+    let mut transaction = Transaction::new_with_payer(&ixs, Some(&context.payer.pubkey()));
     transaction.sign(&[&context.payer], context.last_blockhash);
 
     assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
 }
 
 pub async fn setup_storage_account<'a>(context: &mut ProgramTestContext) -> Vec<Pubkey> {
-    let nonce: u8 = rand::random();
-
     let mut accounts = Vec::new();
     let mut result = Vec::new();
     for i in 0..elusiv::state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT {
@@ -89,8 +64,7 @@ pub async fn setup_storage_account<'a>(context: &mut ProgramTestContext) -> Vec<
     let mut transaction = Transaction::new_with_payer(
         &[
             ElusivInstruction::open_single_instance_account_instruction(
-                SingleInstancePDAAccountKind::Storage,
-                nonce,
+                SingleInstancePDAAccountKind::StorageAccount,
                 SignerAccount(context.payer.pubkey()),
                 WritableUserAccount(StorageAccount::find(None).0)
             ),
@@ -101,40 +75,9 @@ pub async fn setup_storage_account<'a>(context: &mut ProgramTestContext) -> Vec<
         Some(&context.payer.pubkey()),
     );
     transaction.sign(&[&context.payer], context.last_blockhash);
-
     assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
 
     result
-}
-
-pub async fn setup_pool_accounts<'a>(
-    context: &mut ProgramTestContext,
-) -> (Pubkey, Pubkey) {
-    let sol_pool = create_account_rent_exepmt(
-        &mut context.banks_client, &context.payer, context.last_blockhash, 0
-    ).await;
-    let fee_collector = create_account_rent_exepmt(
-        &mut context.banks_client, &context.payer, context.last_blockhash, 0
-    ).await;
-
-    let mut transaction = Transaction::new_with_payer(
-        &[
-            ElusivInstruction::setup_pool_accounts_instruction(
-                SignerAccount(context.payer.pubkey()),
-                UserAccount(sol_pool.pubkey()),
-                UserAccount(fee_collector.pubkey()),
-            ),
-        ],
-        Some(&context.payer.pubkey()),
-    );
-    transaction.sign(&[&context.payer], context.last_blockhash);
-
-    assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
-
-    (
-        sol_pool.pubkey(),
-        fee_collector.pubkey()
-    )
 }
 
 pub async fn create_account_rent_exepmt(

@@ -57,6 +57,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         match attr_ident {
             "pda_seed" => { // PDA based account
                 assert_field!(first_field, fields_iter, "bump_seed : u8");
+                assert_field!(first_field, fields_iter, "version : u8");
                 assert_field!(second_field, fields_iter, "initialized : bool");
 
                 is_pda = true;
@@ -117,7 +118,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 assert_field!(first_field, fields_iter, "is_active : bool");
                 assert_field!(second_field, fields_iter, "instruction : u32");
                 assert_field!(third_field, fields_iter, "fee_payer : U256");
-                assert_field!(fourth_field, fields_iter, "fee_version : u16");
+                assert_field!(fourth_field, fields_iter, "fee_version : u64");
             },
             _ => { }
         }

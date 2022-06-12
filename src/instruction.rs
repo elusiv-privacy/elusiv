@@ -2,7 +2,7 @@ use crate::macros::*;
 use crate::bytes::BorshSerDeSized;
 use super::processor;
 use super::processor::{BaseCommitmentHashRequest};
-use crate::processor::{SingleInstancePDAAccountKind, ProofRequest};
+use crate::processor::{SingleInstancePDAAccountKind, ProofRequest, MultiInstancePDAAccountKind};
 use crate::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount};
 use crate::state::{
     program_account::{
@@ -12,11 +12,11 @@ use crate::state::{
         ProgramAccount,
         MultiAccountProgramAccount,
     },
-    pool::PoolAccount,
+    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
     StorageAccount,
     NullifierAccount,
+    fee::FeeAccount,
 };
-use crate::fee::{FeeAccount};
 use crate::proof::VerificationAccount;
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use solana_program::{
@@ -35,33 +35,29 @@ use solana_program::instruction::AccountMeta;
 pub enum ElusivInstruction {
     // Client sends base_commitment and amount to be stored in the Elusiv program
     #[acc(sender, { writable, signer })]
-    #[pda(fee, Fee, pda_offset = Some(fee_version))]
-
-    #[pda(pool, Pool, { ignore })]
-    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
-    #[prg(fee_collector, key = pool.get_fee_collector(), { writable, account_info })]
-
+    #[pda(fee, Fee, pda_offset = Some(request.fee_version))]
+    #[pda(governor, Governor)]
+    #[pda(sol_pool, Pool, { writable, account_info })]
+    #[pda(fee_collector, FeeCollector, { writable, account_info })]
     #[sys(system_program, key = system_program::ID)]
-    #[pda(base_commitment_queue, BaseCommitmentQueue, { writable })]
+    #[pda(base_commitment_queue, BaseCommitmentQueue, pda_offset = Some(base_commitment_queue_index), { writable })]
     StoreBaseCommitment {
-        fee_version: u64,
-        base_commitment_request: BaseCommitmentHashRequest,
+        base_commitment_queue_index: u64,
+        request: BaseCommitmentHashRequest,
     },
 
     #[acc(fee_payer, { writable, signer })]
-    #[pda(base_commitment_queue, BaseCommitmentQueue, { writable })]
+    #[pda(base_commitment_queue, BaseCommitmentQueue, pda_offset = Some(base_commitment_queue_index), { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable, account_info, find_pda })]
     InitBaseCommitmentHash {
+        base_commitment_queue_index: u64,
         hash_account_index: u64,
     },
 
     #[acc(fee_payer, { writable, signer })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
-
-    #[pda(pool, Pool, { ignore })]
-    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
-
+    #[pda(sol_pool, Pool, { writable, account_info })]
     #[pda(hashing_account, BaseCommitmentHashing, pda_offset = Some(hash_account_index), { writable })]
     ComputeBaseCommitmentHash {
         hash_account_index: u64,
@@ -84,10 +80,7 @@ pub enum ElusivInstruction {
 
     #[acc(fee_payer, { writable, signer })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
-
-    #[pda(pool, Pool, { ignore })]
-    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
-
+    #[pda(sol_pool, Pool, { writable, account_info })]
     #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     ComputeCommitmentHash {
         fee_version: u64,
@@ -101,12 +94,10 @@ pub enum ElusivInstruction {
 
     // Proof verification initialization for Send/Merge
     #[acc(fee_payer, { writable, signer })]
-    #[pda(fee, Fee, pda_offset = Some(fee_version))]
-
-    #[pda(pool, Pool, { ignore })]
-    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
-    #[prg(fee_collector, key = pool.get_fee_collector(), { writable, account_info })]
-
+    #[pda(fee, Fee, pda_offset = Some(request.fee_version()))]
+    #[pda(governor, Governor)]
+    #[pda(sol_pool, Pool, { writable, account_info })]
+    #[pda(fee_collector, FeeCollector, { writable, account_info })]
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable, account_info, find_pda })]
     #[pda(storage_account, Storage, { multi_accounts })]
     #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { multi_accounts })]
@@ -114,8 +105,7 @@ pub enum ElusivInstruction {
     #[sys(system_program, key = system_program::ID)]
     InitProof {
         verification_account_index: u64,
-        fee_version: u64,
-        proof_request: ProofRequest,
+        request: ProofRequest,
         ignore_duplicate_verifications: bool,
         tree_indices: [u64; 2],
     },
@@ -123,10 +113,7 @@ pub enum ElusivInstruction {
     // Proof verification computation
     #[acc(fee_payer, { writable, signer })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
-
-    #[pda(pool, Pool, { ignore })]
-    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
-
+    #[pda(sol_pool, Pool, { writable, account_info })]
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
     ComputeProof {
         verification_account_index: u64,
@@ -138,11 +125,8 @@ pub enum ElusivInstruction {
     #[acc(original_fee_payer, { writable })]
     #[acc(recipient, { writable })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
-
-    #[pda(pool, Pool, { ignore })]
-    #[prg(sol_pool, key = pool.get_sol_pool(), { writable, account_info })]
-    #[prg(fee_collector, key = pool.get_fee_collector(), { writable, account_info })]
-
+    #[pda(sol_pool, Pool, { writable, account_info })]
+    #[pda(fee_collector, FeeCollector, { writable, account_info })]
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable, account_info })]
     #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { writable, multi_accounts })]
@@ -159,7 +143,14 @@ pub enum ElusivInstruction {
     #[sys(system_program, key = system_program::ID, { ignore })]
     OpenSingleInstanceAccount {
         kind: SingleInstancePDAAccountKind,
-        nonce: u8,  // nonce used for not-having duplicate transactions rejected (only important for this ix for test cases)
+    },
+
+    #[acc(payer, { writable, signer })]
+    #[acc(pda_account, { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    OpenMultiInstanceAccount {
+        kind: MultiInstancePDAAccountKind,
+        pda_offset: u64,
     },
 
     // Can be called once, setups all sub-accounts for the storage account
@@ -167,15 +158,12 @@ pub enum ElusivInstruction {
     SetupStorageAccount,
 
     #[acc(payer, { writable, signer })]
-
-    #[pda(pool, Pool, { writable, account_info, find_pda })]
-    #[acc(sol_pool, { owned })]
-    #[acc(fee_collector, { owned })]
-
+    #[acc(governor, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
-    SetupPoolAccounts,
+    SetupGovernorAccount,
 
     #[acc(payer, { writable, signer })]
+    #[pda(governor, Governor)]
     #[pda(fee, Fee, pda_offset = Some(fee_version), { writable, account_info, find_pda })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     InitNewFeeVersion {
@@ -190,17 +178,42 @@ pub enum ElusivInstruction {
 }
 
 #[cfg(feature = "instruction-abi")]
-pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8, lamports_per_tx: u64) -> Vec<solana_program::instruction::Instruction> {
+pub fn open_all_initial_accounts(payer: Pubkey, lamports_per_tx: u64) -> Vec<solana_program::instruction::Instruction> {
     let mut ixs = Vec::new();
+    
+    // Governor
+    ixs.push(
+        ElusivInstruction::setup_governor_account_instruction(
+            SignerAccount(payer),
+            WritableUserAccount(GovernorAccount::find(None).0)
+        )
+    );
 
     // Genesis Fee
     ixs.push(init_genesis_fee_account(payer, lamports_per_tx));
 
+    // SOL pool
+    ixs.push(
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::PoolAccount,
+            SignerAccount(payer),
+            WritableUserAccount(PoolAccount::find(None).0)
+        )
+    );
+
+    // Fee collector
+    ixs.push(
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::FeeCollectorAccount,
+            SignerAccount(payer),
+            WritableUserAccount(FeeCollectorAccount::find(None).0)
+        )
+    );
+
     // Commitment hashing
     ixs.push(
         ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::CommitmentHashing,
-            nonce,
+            SingleInstancePDAAccountKind::CommitmentHashingAccount,
             SignerAccount(payer),
             WritableUserAccount(CommitmentHashingAccount::find(None).0)
         )
@@ -209,8 +222,7 @@ pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8, lamports_per_tx: u64)
     // Commitment queue
     ixs.push(
         ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::CommitmentQueue,
-            nonce,
+            SingleInstancePDAAccountKind::CommitmentQueueAccount,
             SignerAccount(payer),
             WritableUserAccount(CommitmentQueueAccount::find(None).0)
         )
@@ -218,11 +230,11 @@ pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8, lamports_per_tx: u64)
 
     // Base commitment queue
     ixs.push(
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::BaseCommitmentQueue,
-            nonce,
+        ElusivInstruction::open_multi_instance_account_instruction(
+            MultiInstancePDAAccountKind::BaseCommitmentQueueAccount,
+            0,
             SignerAccount(payer),
-            WritableUserAccount(BaseCommitmentQueueAccount::find(None).0)
+            WritableUserAccount(BaseCommitmentQueueAccount::find(Some(0)).0)
         )
     );
 
@@ -231,7 +243,7 @@ pub fn open_all_initial_accounts(payer: Pubkey, nonce: u8, lamports_per_tx: u64)
 
 #[cfg(feature = "instruction-abi")]
 pub fn init_genesis_fee_account(payer: Pubkey, lamports_per_tx: u64) -> solana_program::instruction::Instruction {
-    use crate::fee::{MAX_BASE_COMMITMENT_NETWORK_FEE, MAX_PROOF_NETWORK_FEE, MAX_RELAYER_HASH_TX_FEE, MAX_RELAYER_PROOF_TX_FEE, MAX_RELAYER_PROOF_REWARD};
+    use crate::state::fee::{MAX_BASE_COMMITMENT_NETWORK_FEE, MAX_PROOF_NETWORK_FEE, MAX_RELAYER_HASH_TX_FEE, MAX_RELAYER_PROOF_TX_FEE, MAX_RELAYER_PROOF_REWARD};
 
     ElusivInstruction::init_new_fee_version_instruction(
         0,

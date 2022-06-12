@@ -81,10 +81,14 @@ macro_rules! generate_storage_accounts_valid_size {
 
 #[cfg(test)]
 macro_rules! zero_account {
-    ($id: ident, $ty: ty) => {
+    (mut $id: ident, $ty: ty) => {
         let mut data = vec![0; <$ty>::SIZE];
         let mut $id = <$ty>::new(&mut data).unwrap();
-    }
+    };
+    ($id: ident, $ty: ty) => {
+        let mut data = vec![0; <$ty>::SIZE];
+        let $id = <$ty>::new(&mut data).unwrap();
+    };
 }
 
 pub(crate) use guard;

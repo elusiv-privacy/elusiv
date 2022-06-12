@@ -6,12 +6,13 @@ use solana_program::{
     sysvar::Sysvar,
     rent::Rent,
 };
-use crate::{state::{
-    pool::PoolAccount,
+use crate::state::{
+    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount, DEFAULT_COMMITMENT_BATCHING_RATE},
     program_account::{PDAAccount, SizedAccount, MultiAccountAccount, BigArrayAccount, ProgramAccount},
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
-}, fee::{CURRENT_FEE_VERSION, FeeAccount}};
+    fee::FeeAccount,
+};
 use crate::commitment::{CommitmentHashingAccount};
 use crate::error::ElusivError::{InvalidInstructionData, InvalidFeeVersion};
 use crate::macros::*;
@@ -21,21 +22,11 @@ use super::utils::*;
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum SingleInstancePDAAccountKind {
-    CommitmentHashing,
-    CommitmentQueue,
-    BaseCommitmentQueue,
-    Storage,
-}
-
-macro_rules! single_instance_account {
-    ($v: ident, $e: ident) => {
-        match $v {
-            SingleInstancePDAAccountKind::CommitmentHashing => CommitmentHashingAccount::$e,
-            SingleInstancePDAAccountKind::CommitmentQueue => CommitmentQueueAccount::$e,
-            SingleInstancePDAAccountKind::BaseCommitmentQueue => BaseCommitmentQueueAccount::$e,
-            SingleInstancePDAAccountKind::Storage => StorageAccount::$e,
-        }
-    };
+    CommitmentHashingAccount,
+    CommitmentQueueAccount,
+    PoolAccount,
+    FeeCollectorAccount,
+    StorageAccount,
 }
 
 /// Used to open the PDA accounts, of which types there always only exist one instance
@@ -44,15 +35,43 @@ pub fn open_single_instance_account<'a>(
     pda_account: &AccountInfo<'a>,
 
     kind: SingleInstancePDAAccountKind,
-    _nonce: u8,
 ) -> ProgramResult {
-    let account_size = single_instance_account!(kind, SIZE);
-    let (pk, bump) = single_instance_account!(kind, find)(None);
-    let seed = vec![single_instance_account!(kind, SEED).to_vec(), vec![bump]];
-    let signers_seeds: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
-    guard!(pk == *pda_account.key, InvalidInstructionData);
-    
-    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
+    match kind {
+        SingleInstancePDAAccountKind::CommitmentHashingAccount => {
+            open_pda_account_without_offset::<CommitmentHashingAccount>(payer, pda_account)
+        }
+        SingleInstancePDAAccountKind::CommitmentQueueAccount => {
+            open_pda_account_without_offset::<CommitmentQueueAccount>(payer, pda_account)
+        }
+        SingleInstancePDAAccountKind::PoolAccount => {
+            open_pda_account_without_offset::<PoolAccount>(payer, pda_account)
+        }
+        SingleInstancePDAAccountKind::FeeCollectorAccount => {
+            open_pda_account_without_offset::<FeeCollectorAccount>(payer, pda_account)
+        }
+        SingleInstancePDAAccountKind::StorageAccount => {
+            open_pda_account_without_offset::<StorageAccount>(payer, pda_account)
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
+pub enum MultiInstancePDAAccountKind {
+    BaseCommitmentQueueAccount
+}
+
+pub fn open_multi_instance_account<'a>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+
+    kind: MultiInstancePDAAccountKind,
+    pda_offset: u64,
+) -> ProgramResult {
+    match kind {
+        MultiInstancePDAAccountKind::BaseCommitmentQueueAccount => {
+            open_pda_account_with_offset::<BaseCommitmentQueueAccount>(payer, pda_account, pda_offset)
+        }
+    }
 }
 
 pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
@@ -89,37 +108,6 @@ pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
     create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
 }
 
-macro_rules! verify_data_account {
-    ($account: expr, $ty: ty, $check_zero: literal) => {
-        // Check zeroness
-        if $check_zero { guard!(is_zero(&$account.data.borrow()[..]), InvalidInstructionData); }
-
-        // Check data size
-        guard!($account.data_len() == <$ty>::SIZE, InvalidInstructionData);
-
-        // Check rent-exemption
-        if cfg!(test) { // only unit-testing
-            guard!($account.lamports() >= u64::MAX / 2, InvalidInstructionData);
-        } else {
-            guard!($account.lamports() >= Rent::get()?.minimum_balance(<$ty>::SIZE), InvalidInstructionData);
-        }
-
-        // Check ownership
-        guard!(*$account.owner == crate::id(), InvalidInstructionData);
-    };
-}
-
-
-pub struct IntermediaryStorageSubAccount { }
-impl SizedAccount for IntermediaryStorageSubAccount {
-    const SIZE: usize = StorageAccount::INTERMEDIARY_ACCOUNT_SIZE;
-}
-
-pub struct LastStorageSubAccount { }
-impl SizedAccount for LastStorageSubAccount {
-    const SIZE: usize = StorageAccount::LAST_ACCOUNT_SIZE;
-}
-
 /// Setup the StorageAccount with it's 7 subaccounts
 pub fn setup_storage_account(
     storage_account: &mut StorageAccount,
@@ -142,30 +130,24 @@ pub fn setup_storage_account(
     Ok(())
 }
 
-pub fn setup_pool_accounts<'a>(
+pub fn setup_governor_account<'a>(
     payer: &AccountInfo<'a>,
-    pool_account: &AccountInfo<'a>,
-
-    sol_pool: &AccountInfo<'a>,
-    fee_collector: &AccountInfo<'a>,
+    governor_account: &AccountInfo<'a>,
 ) -> ProgramResult {
-    open_pda_account_without_offset::<PoolAccount>(payer, pool_account)?;
+    open_pda_account_without_offset::<GovernorAccount>(payer, governor_account)?;
 
-    let mut data = &mut pool_account.data.borrow_mut()[..];
-    let mut pool = PoolAccount::new(&mut data)?;
+    let mut data = &mut governor_account.data.borrow_mut()[..];
+    let mut governor = GovernorAccount::new(&mut data)?;
 
-    pool.set_sol_pool(&sol_pool.key.to_bytes());
-    pool.set_fee_collector(&fee_collector.key.to_bytes());
-
-    guard!(*sol_pool.owner == crate::id(), InvalidInstructionData);
-    guard!(*fee_collector.owner == crate::id(), InvalidInstructionData);
+    governor.set_commitment_batching_rate(&DEFAULT_COMMITMENT_BATCHING_RATE);
 
     Ok(())
 }
 
 pub fn init_new_fee_version<'a>(
     payer: &AccountInfo<'a>,
-    fee: &AccountInfo<'a>,
+    governor: &GovernorAccount,
+    new_fee: &AccountInfo<'a>,
 
     fee_version: u64,
 
@@ -176,11 +158,43 @@ pub fn init_new_fee_version<'a>(
     relayer_proof_tx_fee: u64,
     relayer_proof_reward: u64,
 ) -> ProgramResult {
-    guard!(fee_version == CURRENT_FEE_VERSION as u64, InvalidFeeVersion);
-    open_pda_account_with_offset::<FeeAccount>(payer, fee, fee_version)?;
-    let mut data = &mut fee.data.borrow_mut()[..];
+    guard!(fee_version == governor.get_fee_version(), InvalidFeeVersion);
+    open_pda_account_with_offset::<FeeAccount>(payer, new_fee, fee_version)?;
+
+    let mut data = &mut new_fee.data.borrow_mut()[..];
     let mut fee = FeeAccount::new(&mut data)?;
+
     fee.setup(lamports_per_tx, base_commitment_fee, proof_fee, relayer_hash_tx_fee, relayer_proof_tx_fee, relayer_proof_reward)
+}
+
+macro_rules! verify_data_account {
+    ($account: expr, $ty: ty, $check_zero: literal) => {
+        // Check zeroness
+        if $check_zero { guard!(is_zero(&$account.data.borrow()[..]), InvalidInstructionData); }
+
+        // Check data size
+        guard!($account.data_len() == <$ty>::SIZE, InvalidInstructionData);
+
+        // Check rent-exemption
+        if cfg!(test) { // only unit-testing
+            guard!($account.lamports() >= u64::MAX / 2, InvalidInstructionData);
+        } else {
+            guard!($account.lamports() >= Rent::get()?.minimum_balance(<$ty>::SIZE), InvalidInstructionData);
+        }
+
+        // Check ownership
+        guard!(*$account.owner == crate::id(), InvalidInstructionData);
+    };
+}
+
+pub struct IntermediaryStorageSubAccount { }
+impl SizedAccount for IntermediaryStorageSubAccount {
+    const SIZE: usize = StorageAccount::INTERMEDIARY_ACCOUNT_SIZE;
+}
+
+pub struct LastStorageSubAccount { }
+impl SizedAccount for LastStorageSubAccount {
+    const SIZE: usize = StorageAccount::LAST_ACCOUNT_SIZE;
 }
 
 /// Verify the storage account sub-accounts

@@ -113,7 +113,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                     // Program owned accounts that satisfy a pubkey constraint
                     "prg" => {
-
                         user_accounts.extend(quote!{ #account: #user_account_type, });
                         account_init.push(quote!{
                             accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));

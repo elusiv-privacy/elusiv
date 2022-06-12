@@ -5,16 +5,18 @@ mod common;
 use common::*;
 use common::program_setup::*;
 
-use elusiv::fee::FeeAccount;
 use elusiv::state::StorageAccount;
 use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
 use elusiv::processor::SingleInstancePDAAccountKind;
-use elusiv::state::pool::PoolAccount;
-use elusiv::state::program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount};
 use solana_program::account_info::Account;
 use solana_program_test::*;
-use elusiv::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount};
+use elusiv::state::{
+    queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
+    program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount},
+    fee::FeeAccount,
+    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
+};
 
 macro_rules! assert_account {
     ($ty: ty, $test_program: expr, $offset: expr) => {
@@ -25,9 +27,10 @@ macro_rules! assert_account {
             assert!(get_balance(<$ty>::find($offset).0, &mut $test_program).await > 0);
             assert_eq!(data.len(), <$ty>::SIZE);
 
-            // Check bump and initialized flag
+            // Check pda account fields
             let account = <$ty>::new(&mut data).unwrap();
             assert_eq!(account.get_bump_seed(), <$ty>::find($offset).1);
+            assert_eq!(account.get_version(), 0);
             assert_eq!(account.get_initialized(), true);
         }
     };
@@ -38,10 +41,14 @@ async fn test_setup_pda_accounts() {
     let mut test_program = start_program_solana_program_test().await;
     setup_pda_accounts(&mut test_program).await;
 
+    assert_account!(GovernorAccount, test_program, None);
+    assert_account!(FeeAccount, test_program, Some(0));
+    assert_account!(PoolAccount, test_program, None);
+    assert_account!(FeeCollectorAccount, test_program, None);
+
     assert_account!(CommitmentHashingAccount, test_program, None);
     assert_account!(CommitmentQueueAccount, test_program, None);
-    assert_account!(BaseCommitmentQueueAccount, test_program, None);
-    assert_account!(FeeAccount, test_program, Some(0));
+    assert_account!(BaseCommitmentQueueAccount, test_program, Some(0));
 }
 
 #[tokio::test]
@@ -53,27 +60,16 @@ async fn test_setup_pda_accounts_duplicate() {
 }
 
 #[tokio::test]
-async fn test_setup_pool_accounts() {
-    let mut test_program = start_program_solana_program_test().await;
-    let (sol_pool, fee_collector) = setup_pool_accounts(&mut test_program).await;
-    
-    pda_account!(pool, PoolAccount, None, test_program);
-    assert_eq!(pool.get_sol_pool(), sol_pool.to_bytes());
-    assert_eq!(pool.get_fee_collector(), fee_collector.to_bytes());
-}
-
-#[tokio::test]
-#[should_panic]
-async fn test_setup_pool_accounts_duplicate() {
-    let mut test_program = start_program_solana_program_test().await;
-    setup_pool_accounts(&mut test_program).await;
-    setup_pool_accounts(&mut test_program).await;
-}
-
-#[tokio::test]
 async fn test_setup_fee_account() {
     let mut test_program = start_program_solana_program_test().await;
     let mut payer = Actor::new(&mut test_program).await;
+
+    ix_should_succeed(
+        ElusivInstruction::setup_governor_account_instruction(
+            SignerAccount(payer.pubkey),
+            WritableUserAccount(GovernorAccount::find(None).0)
+        ), &mut payer, &mut test_program
+    ).await;
 
     let ix = ElusivInstruction::init_new_fee_version_instruction(
         0,
@@ -120,7 +116,7 @@ async fn test_setup_pda_accounts_invalid_pda() {
 
     ix_should_fail(
         ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::CommitmentQueue, 0,
+            SingleInstancePDAAccountKind::CommitmentQueueAccount,
             SignerAccount(payer.pubkey),
             WritableUserAccount(BaseCommitmentQueueAccount::find(None).0)
         ),

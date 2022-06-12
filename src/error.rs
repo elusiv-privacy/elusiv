@@ -16,7 +16,7 @@ pub enum ElusivError {
 
     // Merkle tree
     InvalidMerkleTreeAccess,
-    InvalidMerkleRoot, // 10
+    InvalidMerkleRoot,
 
     // Nullifier
     NullifierAlreadyExists,
@@ -32,21 +32,15 @@ pub enum ElusivError {
     DidNotFinishHashing,
 
     // Proof
-    InvalidProof, // 20
+    InvalidProof,
     InvalidPublicInputs,
     InvalidFeePayer,
     InvalidTimestamp,
-    InvalidVerificationKey,
-    CouldNotParseProof,
     CouldNotProcessProof,
-    CannotFinalizeUnaryProof,
-    CannotFinalizeBinaryProof,
 
     // Queue
     QueueIsEmpty,
-    QueueIsFull, // 30
-    ElementIsNotBeingProcessed,
-    ElementIsAlreadyBeingProcessed,
+    QueueIsFull,
 
     // Archiving
     UnableToArchiveNullifierAccount,

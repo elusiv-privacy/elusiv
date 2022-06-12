@@ -718,7 +718,7 @@ mod tests {
                         fr_to_u256_le(&Fr::from_str(roots[1]).unwrap()),
                     ],
                     commitment: fr_to_u256_le(&Fr::from_str(commitment).unwrap()),
-                    lamports_per_tx: 0,
+                    fee_amount: 0,
                     fee_version: 0,
                 },
                 recipient,

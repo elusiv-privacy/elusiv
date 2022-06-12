@@ -105,12 +105,12 @@ pub struct JoinSplitPublicInputs<const N: usize> {
     pub nullifier_hashes: [U256; N],
     pub roots: [U256; N],
     pub commitment: U256,
-    pub lamports_per_tx: u32,
-    pub fee_version: u16,
+    pub fee_version: u64,
+    pub fee_amount: u64,
 }
 
 impl<const N: usize> JoinSplitPublicInputs<N> {
-    pub fn fee_version(&self) -> u16 {
+    pub fn fee_version(&self) -> u64 {
         self.fee_version
     }
 }
@@ -123,7 +123,7 @@ pub trait PublicInputs {
     }
 }
 
-pub const MAX_PUBLIC_INPUTS_COUNT: usize = 7;
+pub const MAX_PUBLIC_INPUTS_COUNT: usize = 8;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 /// Send public inputs: https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/send_binary.circom
@@ -162,6 +162,8 @@ impl PublicInputs for SendPublicInputs {
             self.join_split.nullifier_hashes[0],
             self.join_split.nullifier_hashes[1],
             self.join_split.commitment,
+            //self.join_split.fee_version,
+            //self.join_split.fee_amount,
         ]
     }
 }
@@ -174,6 +176,8 @@ impl PublicInputs for MergePublicInputs {
             self.join_split.nullifier_hashes[0],
             self.join_split.nullifier_hashes[1],
             self.join_split.commitment,
+            //self.join_split.fee_version,
+            //self.join_split.fee_amount,
         ]
     }
 }
@@ -186,6 +190,8 @@ impl PublicInputs for MigratePublicInputs {
             self.join_split.commitment,
             self.current_nsmt_root,
             self.next_nsmt_root,
+            //self.join_split.fee_version,
+            //self.join_split.fee_amount,
         ]
     }
 }
@@ -280,7 +286,13 @@ mod test {
     fn test_max_public_inputs_count() {
         assert!(
             SendPublicInputs {
-                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO, ZERO ], roots: [ ZERO, ZERO ], commitment: ZERO, lamports_per_tx: 0, fee_version: 0 },
+                join_split: JoinSplitPublicInputs {
+                    nullifier_hashes: [ ZERO, ZERO ],
+                    roots: [ ZERO, ZERO ],
+                    commitment: ZERO,
+                    fee_amount: 0,
+                    fee_version: 0
+                },
                 recipient: ZERO,
                 amount: 0,
                 timestamp: 0,
@@ -291,16 +303,38 @@ mod test {
 
         assert!(
             MergePublicInputs {
-                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO, ZERO ], roots: [ ZERO, ZERO ], commitment: ZERO, lamports_per_tx: 0, fee_version: 0 },
+                join_split: JoinSplitPublicInputs {
+                    nullifier_hashes: [ ZERO, ZERO ],
+                    roots: [ ZERO, ZERO ],
+                    commitment: ZERO,
+                    fee_amount: 0,
+                    fee_version: 0
+                },
             }.public_inputs_raw().len() <= MAX_PUBLIC_INPUTS_COUNT
         );
 
         assert!(
             MigratePublicInputs {
-                join_split: JoinSplitPublicInputs { nullifier_hashes: [ ZERO ], roots: [ ZERO ], commitment: ZERO, lamports_per_tx: 0, fee_version: 0 },
+                join_split: JoinSplitPublicInputs {
+                    nullifier_hashes: [ ZERO ],
+                    roots: [ ZERO ],
+                    commitment: ZERO,
+                    fee_amount: 0,
+                    fee_version: 0
+                },
                 current_nsmt_root: ZERO,
                 next_nsmt_root: ZERO,
             }.public_inputs_raw().len() <= MAX_PUBLIC_INPUTS_COUNT
         );
+    }
+    
+    #[test]
+    fn test_public_inputs_parsing() {
+
+    }
+
+    #[test]
+    fn test_pack_sending_details() {
+
     }
 }

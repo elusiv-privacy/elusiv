@@ -5,7 +5,6 @@ use solana_program::{
     clock::Clock,
     sysvar::Sysvar,
 };
-use crate::fee::{FeeAccount, CURRENT_FEE_VERSION};
 use crate::macros::{guard, BorshSerDeSized};
 use crate::processor::{open_pda_account_with_offset, CommitmentHashRequest};
 use crate::state::program_account::PDAAccount;
@@ -13,6 +12,8 @@ use crate::state::{
     NullifierAccount,
     StorageAccount,
     program_account::ProgramAccount,
+    fee::FeeAccount,
+    governor::GovernorAccount,
 };
 use crate::state::queue::{
     RingQueue,
@@ -79,7 +80,7 @@ impl ProofRequest {
         }
     }
 
-    pub fn fee_version(&self) -> u16 {
+    pub fn fee_version(&self) -> u64 {
         match self {
             Self::Send { request } => request.public_inputs.join_split.fee_version(),
             Self::Merge { request } => request.public_inputs.join_split.fee_version(),
@@ -120,6 +121,7 @@ const TIMESTAMP_BITS_PRUNING: usize = 5;
 pub fn init_proof<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'c>,
     fee: &FeeAccount,
+    governor: &GovernorAccount,
     pool: &AccountInfo<'c>,
     fee_collector: &AccountInfo<'c>,
     verification_account: &AccountInfo<'c>,
@@ -129,15 +131,12 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
     system_program: &AccountInfo<'c>,
 
     verification_account_index: u64,
-    fee_version: u64,
     request: ProofRequest,
     ignore_duplicate_verifications: bool,
     tree_indices: [u64; 2],
 ) -> ProgramResult {
     guard!(*verification_account.key == VerificationAccount::find(Some(verification_account_index)).0, InvalidAccount);
-
-    guard!(fee_version == CURRENT_FEE_VERSION as u64, InvalidFeeVersion);
-    guard!(request.fee_version() as u64 == fee_version, InvalidFeeVersion);
+    guard!(request.fee_version() == governor.get_fee_version(), InvalidFeeVersion);
 
     let clock = Clock::get()?;
     let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();
@@ -236,7 +235,7 @@ pub fn compute_proof<'a>(
     _nonce: u64,
 ) -> ProgramResult {
     guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
-    guard!(verification_account.get_fee_version() as u64 == fee_version, InvalidFeeVersion);
+    guard!(verification_account.get_fee_version() == fee_version, InvalidFeeVersion);
 
     let instruction = verification_account.get_instruction();
     let start_round = 0;
@@ -296,7 +295,7 @@ pub fn finalize_proof<'a>(
     let mut data = &mut verification_account_info.data.borrow_mut()[..];
     let verification_account = VerificationAccount::new(&mut data)?;
 
-    guard!(verification_account.get_fee_version() as u64 == fee_version, InvalidFeeVersion);
+    guard!(verification_account.get_fee_version() == fee_version, InvalidFeeVersion);
     guard!(verification_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(original_fee_payer.key.to_bytes() == verification_account.get_fee_payer(), InvalidFeePayer);
 

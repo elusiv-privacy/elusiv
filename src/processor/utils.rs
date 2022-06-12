@@ -1,3 +1,4 @@
+use borsh::BorshSerialize;
 use solana_program::{
     account_info::AccountInfo,
     entrypoint::ProgramResult,
@@ -8,8 +9,10 @@ use solana_program::{
     rent::Rent,
     sysvar::Sysvar,
 };
+use crate::bytes::BorshSerDeSized;
 use crate::error::ElusivError::{InvalidAccount, InvalidAmount, InvalidAccountBalance};
 use crate::macros::guard;
+use crate::state::program_account::PDAAccountFields;
 
 /// Sends lamports from the sender Sender to the recipient
 pub fn send_with_system_program<'a>(
@@ -82,12 +85,13 @@ pub fn create_pda_account<'a>(
         &[signers_seeds]
     )?;
 
-    let data = &mut pda_account.data.borrow_mut()[..];
-
-    // Save `bump_seed`
-    data[0] = bump;
-    // Set `initialized` flag
-    data[1] = 1;
+    // Assign default fields
+    let mut data = &mut pda_account.data.borrow_mut()[..];
+    let mut fields = PDAAccountFields::new(&data)?;
+    fields.bump_seed = bump;
+    fields.version = 0;
+    fields.initialized = true;
+    PDAAccountFields::override_slice(&fields, &mut data);
 
     Ok(())
 }

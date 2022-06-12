@@ -62,6 +62,7 @@ const ZERO: Fr = Fr::new(BigInteger256::new([0, 0, 0, 0]));
 ))]
 pub struct StorageAccount {
     bump_seed: u8,
+    version: u8,
     initialized: bool,
 
     pubkeys: [U256; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],

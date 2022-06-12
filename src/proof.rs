@@ -28,12 +28,13 @@ pub type RAMG2A<'a> = LazyRAM<'a, G2A, 1>;
 #[elusiv_account(pda_seed = b"proof", partial_computation)]
 pub struct VerificationAccount {
     bump_seed: u8,
+    version: u8,
     initialized: bool,
 
     is_active: bool,
     instruction: u32,
     fee_payer: U256,
-    fee_version: u16,
+    fee_version: u64,
 
     // if true, the proof request can be finalized
     is_verified: bool,

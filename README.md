@@ -16,6 +16,7 @@
 Scaling privacy with compliance in mind for the [Solana](https://github.com/solana-labs/solana) blockchain.
 
 ## Testing
+- Use `cargo-build-bpf` [_release version 1.9.28_](https://github.com/solana-labs/solana/releases/tag/v1.9.28)
 - Integration tests: `bash bin/test integration`
 - Unit tests: `bash bin/test unit`
 - All tests: `bash bin/test`

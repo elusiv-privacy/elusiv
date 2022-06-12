@@ -7,14 +7,15 @@ use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
 use crate::processor::{BaseCommitmentHashRequest, CommitmentHashRequest};
-use super::program_account::{SizedAccount, ProgramAccount, PDAAccountFields};
+use super::program_account::{SizedAccount, ProgramAccount, PDAAccountFields, MultiInstanceAccount};
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
-    ($id: ident, $id_account: ident, $seed: literal, $size: literal, $ty_element: ty) => {
+    ($id: ident, $id_account: ident, $seed: literal, $size: literal, $ty_element: ty, $max_instances: literal) => {
         #[elusiv_account(pda_seed = $seed)]
         pub struct $id_account {
             bump_seed: u8,
+            version: u8,
             initialized: bool,
 
             head: u64,
@@ -31,6 +32,12 @@ macro_rules! queue_account {
             <$id>::SIZE,
             $size
         );
+
+        impl<'a> MultiInstanceAccount for $id_account<'a> {
+            const MAX_INSTANCES: u64 = $max_instances;
+        }
+
+        const_assert!(1 <= $id_account::MAX_INSTANCES);
 
         pub struct $id<'a, 'b> {
             account: &'b mut $id_account<'a>,
@@ -61,10 +68,10 @@ pub trait Queue<'a, 'b, Account: ProgramAccount<'a>> {
 }
 
 // Base commitment queue
-queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, b"base_commitment_queue", 129, BaseCommitmentHashRequest);
+queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, b"base_commitment_queue", 101, BaseCommitmentHashRequest, 10);
 
 // Queue used for storing commitments that should sequentially inserted into the active Merkle tree
-queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest);
+queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest, 1);
 
 /// Ring queue with a capacity of `CAPACITY` elements
 /// - works by having two pointers, `head` and `tail` and a some data storage with getter, setter
