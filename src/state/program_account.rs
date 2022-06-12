@@ -6,7 +6,7 @@ use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 
 use crate::macros::BorshSerDeSized;
-use crate::bytes::BorshSerDeSized;
+use crate::bytes::{BorshSerDeSized, u64_as_usize_safe};
 use crate::types::U256;
 
 pub trait SizedAccount {
@@ -165,7 +165,7 @@ pub trait BigArrayAccount<'a>: MultiAccountAccount<'a> {
     type T: BorshSerDeSized;
 
     const VALUES_COUNT: usize;
-    const MAX_VALUES_PER_ACCOUNT: usize = MAX_PERMITTED_DATA_LENGTH as usize / Self::T::SIZE;
+    const MAX_VALUES_PER_ACCOUNT: usize = u64_as_usize_safe(MAX_PERMITTED_DATA_LENGTH) / Self::T::SIZE;
 
     // indices in this implementation are always the external array indices and not byte-indices!
     fn account_and_local_index(&self, index: usize) -> (usize, usize) {
@@ -190,11 +190,11 @@ impl<'a, T: BigArrayAccount<'a, T=N>, N: BorshSerDeSized> HeterogenMultiAccountA
 }
 
 pub const fn max_account_size(element_size: usize) -> usize {
-    (MAX_PERMITTED_DATA_LENGTH as usize / element_size) * element_size
+    (u64_as_usize_safe(MAX_PERMITTED_DATA_LENGTH) / element_size) * element_size
 }
 
 pub const fn big_array_accounts_count(len: usize, element_size: usize) -> usize {
-    let max = MAX_PERMITTED_DATA_LENGTH as usize / element_size;
+    let max = u64_as_usize_safe(MAX_PERMITTED_DATA_LENGTH) / element_size;
     len / max + (if len % max == 0 { 0 } else { 1 })
 }
 

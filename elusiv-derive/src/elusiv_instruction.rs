@@ -225,6 +225,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     accounts.push(next_account_info(account_info_iter)?);
                                     #write_check
                                     #sub_account_check
+                                    if accounts[i].owner != program_id { return Err(InvalidArgument) }
                                 }
                             });
 

@@ -12,7 +12,22 @@ pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
 }
 
 pub const fn max(a: usize, b: usize) -> usize {
-    [a, b][(a < b) as usize]
+    [a, b][if a < b { 1 } else { 0 }]
+}
+
+pub const fn u64_as_usize_safe(u: u64) -> usize {
+    u64_as_u32_safe(u) as usize
+}
+
+pub const fn u64_as_u32_safe(u: u64) -> u32 {
+    if u > u32::MAX as u64 { panic!() }
+    u as u32
+}
+
+/// Ensures the safety of a cast from usize to u32 on a 64-bit architecture
+pub const fn usize_as_u32_safe(u: usize) -> u32 {
+    if u > u32::MAX as usize { panic!() }
+    u as u32
 }
 
 macro_rules! impl_borsh_sized {
@@ -87,6 +102,45 @@ pub fn slice_to_array<N: Default + Copy, const SIZE: usize>(s: &[N]) -> [N; SIZE
 mod tests {
     use super::*;
     use crate::{macros::BorshSerDeSized, types::U256};
+
+    #[test]
+    fn test_max() {
+        assert_eq!(max(1, 3), 3);
+        assert_eq!(max(3, 1), 3);
+    }
+
+    #[test]
+    fn test_u64_as_usize_safe() {
+        assert_eq!(u64_as_usize_safe(u32::MAX as u64), u32::MAX as usize);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_u64_as_usize_safe_panic() {
+        assert_eq!(u64_as_usize_safe(u32::MAX as u64 + 1), u32::MAX as usize + 1);
+    }
+
+    #[test]
+    fn test_u64_as_u32_safe() {
+        assert_eq!(u64_as_u32_safe(u32::MAX as u64), u32::MAX);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_u64_as_u32_safe_panic() {
+        assert_eq!(u64_as_u32_safe(u32::MAX as u64 + 1), u32::MAX);
+    }
+
+    #[test]
+    fn test_usize_as_u32_safe() {
+        assert_eq!(usize_as_u32_safe(u32::MAX as usize), u32::MAX);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_usize_as_u32_safe_panic() {
+        assert_eq!(usize_as_u32_safe(u32::MAX as usize + 1), u32::MAX);
+    }
 
     #[test]
     fn test_find_contains() {

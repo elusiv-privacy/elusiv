@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use crate::macros::{elusiv_account};
+use crate::macros::{elusiv_account, two_pow};
 use solana_program::{entrypoint::ProgramResult, program_error::ProgramError::InvalidAccountData};
 use crate::types::{U256, U256Limbed2};
 use crate::bytes::*;
@@ -8,7 +8,7 @@ use super::program_account::{SizedAccount, MAX_PERMITTED_DATA_LENGTH, get_multi_
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// The count of nullifiers is the count of leafes in the MT
-const NULLIFIERS_COUNT: usize = 2usize.pow(super::MT_HEIGHT as u32);
+const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
 
 /// We store nullifiers with the `NullifierMap` data structure for seaching and later N-SMT construction
 pub type NullifierMap = BTreeMap<U256Limbed2, ()>;
@@ -58,7 +58,7 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
     /// Returns the index of the sub-account/NullifierMap that will store the next nullifier
     /// - returns `None` if there is no room for a nullifier
     fn nullifier_map_index(&self) -> Option<usize> {
-        let count = self.get_nullifiers_count() as usize;
+        let count = u64_as_usize_safe(self.get_nullifiers_count());
         if count >= NULLIFIERS_COUNT { return None }
         Some(count / MAX_NULLIFIERS_PER_ACCOUNT)
     }

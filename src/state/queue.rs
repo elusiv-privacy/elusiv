@@ -50,7 +50,7 @@ macro_rules! queue_account {
         
         impl<'a, 'b> RingQueue for $id<'a, 'b> {
             type N = $ty_element;
-            const CAPACITY: u64 = $size as u64 - 1;
+            const CAPACITY: u64 = $size - 1;
         
             fn get_head(&self) -> u64 { self.account.get_head() }
             fn set_head(&mut self, value: &u64) { self.account.set_head(value) }
@@ -101,7 +101,7 @@ pub trait RingQueue {
         let next_tail = (tail + 1) % Self::SIZE;
         guard!(next_tail != head, QueueIsFull);
 
-        self.set_data(tail as usize, &value);
+        self.set_data(u64_as_usize_safe(tail), &value);
         self.set_tail(&next_tail);
 
         Ok(())
@@ -117,7 +117,7 @@ pub trait RingQueue {
         let tail = self.get_tail();
         guard!(head != tail, QueueIsEmpty);
 
-        Ok(self.get_data((head as usize + offset) % (Self::SIZE as usize)))
+        Ok(self.get_data((u64_as_usize_safe(head) + offset) % (u64_as_usize_safe(Self::SIZE))))
     }
 
     /// Try to remove the first element from the queue
@@ -127,7 +127,7 @@ pub trait RingQueue {
 
         guard!(head != tail, QueueIsEmpty);
 
-        let value = self.get_data(head as usize);
+        let value = self.get_data(u64_as_usize_safe(head));
         self.set_head(&((head + 1) % Self::SIZE));
 
         Ok(value)
@@ -138,7 +138,7 @@ pub trait RingQueue {
         let tail = self.get_tail();
 
         while ptr != tail {
-            if self.get_data(ptr as usize) == *value { return true; }
+            if self.get_data(u64_as_usize_safe(ptr)) == *value { return true; }
             ptr = (ptr + 1) % Self::SIZE;
         }
 

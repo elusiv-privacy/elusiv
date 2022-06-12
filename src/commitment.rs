@@ -8,7 +8,7 @@ use crate::macros::{elusiv_account, elusiv_hash_compute_units, guard};
 use crate::processor::BaseCommitmentHashRequest;
 use crate::types::U256;
 use crate::bytes::BorshSerDeSized;
-use crate::state::{program_account::SizedAccount, MT_HEIGHT};
+use crate::state::program_account::SizedAccount;
 use crate::fields::{fr_to_u256_le, u64_to_scalar, Wrap};
 use solana_program::program_error::ProgramError;
 use ark_bn254::Fr;
@@ -64,6 +64,8 @@ elusiv_hash_compute_units!(CommitmentHashComputation, 20);
 const_assert_eq!(MT_HEIGHT, 20);
 const_assert_eq!(CommitmentHashComputation::INSTRUCTIONS.len(), 26);
 
+const MT_HEIGHT: usize = crate::state::MT_HEIGHT as usize;
+
 /// Account used for computing the hashes of a MT
 /// - only one of these accounts can exist per MT
 #[elusiv_account(pda_seed = b"commitment", partial_computation)]
@@ -80,8 +82,8 @@ pub struct CommitmentHashingAccount {
     commitment: U256,
     state: [U256; 3],
     ordering: u32,
-    siblings: [Wrap<Fr>; MT_HEIGHT as usize],
-    finished_hashes: [U256; MT_HEIGHT as usize],
+    siblings: [Wrap<Fr>; MT_HEIGHT],
+    finished_hashes: [U256; MT_HEIGHT],
 }
 
 impl<'a> CommitmentHashingAccount<'a> {
@@ -89,7 +91,7 @@ impl<'a> CommitmentHashingAccount<'a> {
         &mut self,
         commitment: U256,
         ordering: u32,
-        siblings: [Fr; MT_HEIGHT as usize],
+        siblings: [Fr; MT_HEIGHT],
         fee_version: u64,
     ) -> Result<(), ProgramError> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
@@ -110,7 +112,7 @@ impl<'a> CommitmentHashingAccount<'a> {
 
         // Assign siblings
         let mut v = Vec::new();
-        for i in 0..MT_HEIGHT as usize { Wrap(siblings[i]).serialize(&mut v).unwrap(); }
+        for i in 0..MT_HEIGHT { Wrap(siblings[i]).serialize(&mut v).unwrap(); }
         self.set_all_siblings(&v);
 
         Ok(())

@@ -168,7 +168,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 }
 
 pub fn mt_array_index(index: usize, level: usize) -> usize {
-    two_pow!(level as u32) - 1 + index
+    two_pow!(usize_as_u32_safe(level)) - 1 + index
 }
 
 fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {

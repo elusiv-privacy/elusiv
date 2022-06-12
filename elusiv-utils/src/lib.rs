@@ -29,7 +29,7 @@ pub fn create_account(
         &payer.pubkey(),
         &new_account_keypair.pubkey(),
         amount,
-        account_size as u64,
+        account_size.try_into().unwrap(),
         program_id,
     );
 
