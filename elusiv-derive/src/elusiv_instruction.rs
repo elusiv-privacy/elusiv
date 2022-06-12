@@ -282,7 +282,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             });
 
             functions.extend(quote!{
-                #[warn(clippy::large_enum_variant)]
                 pub fn #fn_name(program_id: &Pubkey, accounts: &[AccountInfo], #fields_with_type) -> ProgramResult {
                     let account_info_iter = &mut accounts.iter();
                     #accounts
@@ -291,7 +290,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             });
 
             abi_functions.extend(quote!{
-                #[warn(clippy::large_enum_variant)]
                 pub fn #fn_name_abi(#fields_with_type #user_accounts) -> solana_program::instruction::Instruction {
                     let mut accounts = Vec::new();
 

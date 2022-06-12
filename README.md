@@ -17,7 +17,7 @@ Scaling privacy with compliance in mind for the [Solana](https://github.com/sola
 
 ## Building
 Use `cargo-build-bpf` [release version 1.9.28](https://github.com/solana-labs/solana/releases/tag/v1.9.28) with `bash bin/elusiv`.
-The resulting dynamic library is located in _/dist_.
+The results in the dynamic library _dist/elusiv.so_.
 
 ## Testing
 - Integration tests: `bash bin/test integration`
@@ -26,9 +26,9 @@ The resulting dynamic library is located in _/dist_.
 
 ## Program interaction
 ### Rust instruction API
-In order to easily interact with the program from a Rust client, import Elusiv with the `instruction-abi` feature activated.
-This will enable access to the functions `ElusivInstruction::do_this_instruction(..)`.
+In order to easily interact with the program from a Rust client, import Elusiv with the `instruction-abi` feature enabled.
+This results in access to the functions `ElusivInstruction::do_this_instruction(..)`.
 
 ### Instruction serialization
 When calling the instructions from other clients, serialize the `ElusivInstruction` enum using [Borsh](https://docs.rs/borsh/latest/borsh/).
-The Elusiv interface also allows for arbitrary instruction data after the required fields.
+The Elusiv interface also allows for arbitrary instruction data succeeding the required fields.

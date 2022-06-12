@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use crate::macros::*;
 use crate::bytes::BorshSerDeSized;
 use super::processor;

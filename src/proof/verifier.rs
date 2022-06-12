@@ -1,6 +1,10 @@
 //! Groth16 proof verification
 //! Since these computations are computationally very expensive, we use `elusiv_computations` macros to generate partial-computation-functions.
 //! Calling those functions `n` times (over the span of multiple transactions) results in a finished computation.
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::collapsible_else_if)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::assign_op_pattern)]
 
 use elusiv_interpreter::elusiv_computations;
 use elusiv_computation::{PartialComputation, compute_unit_instructions};
@@ -146,16 +150,16 @@ const ADD_ASSIGN_MIXED_COST: u32 = 20_000;
 
 /// Returns the instructions (and their rounds) required for a specific public-input bound input preparation
 pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: &[BigInteger256]) -> Vec<u32> {
+    assert!(public_inputs.len() == VKey::PUBLIC_INPUTS_COUNT);
+
     let mut rounds = Vec::new();
 
-    for i in 0..VKey::PUBLIC_INPUTS_COUNT {
-        let skip = find_first_non_zero(&public_inputs[i]);
-        for _ in 0..skip {
-            rounds.push(0);
-        }
+    for public_input in public_inputs.iter() {
+        let skip = find_first_non_zero(public_input);
+        rounds.extend(vec![0; skip]);
 
         for b in skip..256 {
-            if get_bit(&public_inputs[i], b) {
+            if get_bit(public_input, b) {
                 rounds.push(DOUBLE_IN_PLACE_COST + ADD_ASSIGN_MIXED_COST);
             } else {
                 rounds.push(DOUBLE_IN_PLACE_COST);
@@ -563,10 +567,10 @@ fn get_bit(repr_num: &BigInteger256, bit: usize) -> bool {
 fn find_first_non_zero(repr_num: &BigInteger256) -> usize {
     for limb in 0..4 {
         let bytes = u64::to_be_bytes(repr_num.0[3 - limb]);
-        for byte in 0..8 {
+        for (i, byte) in bytes.iter().enumerate() {
             for bit in 0..8 {
-                if (bytes[byte] >> (7 - bit)) & 1 == 1 {
-                    return limb * 64 + byte * 8 + bit;
+                if (byte >> (7 - bit)) & 1 == 1 {
+                    return limb * 64 + i * 8 + bit;
                 }
             }
         }
@@ -592,7 +596,7 @@ const TWIST_MUL_BY_Q_X: Fq2 = Parameters::TWIST_MUL_BY_Q_X;
 const TWIST_MUL_BY_Q_Y: Fq2 = Parameters::TWIST_MUL_BY_Q_Y;
 
 fn frobenius_map_fq2_one(f: Fq2) -> Fq2 {
-    let mut k = f.clone();
+    let mut k = f;
     k.frobenius_map(1);
     k
 }
@@ -616,14 +620,14 @@ fn mul_fq6_by_c0_c1_0(f: Fq6, c0: &Fq2, c1: &Fq2) -> Fq6 {
     let a0_plus_a1: Fq2 = f.c0 + f.c1;
     let a0_plus_a2: Fq2 = f.c0 + f.c2;
 
-    let b1_plus_b2: Fq2 = c1.clone();
+    let b1_plus_b2: Fq2 = *c1;
     let b0_plus_b1: Fq2 = *c0 + c1;
-    let b0_plus_b2: Fq2 = c0.clone();
+    let b0_plus_b2: Fq2 = *c0;
 
     Fq6::new(
-        (a1_plus_a2 * b1_plus_b2 - &v1) * Fp6ParamsWrapper::<Fq6Parameters>::NONRESIDUE + &v0,
-        a0_plus_a1 * &b0_plus_b1 - &v0 - &v1,
-        a0_plus_a2 * &b0_plus_b2 - &v0 + &v1,
+        (a1_plus_a2 * b1_plus_b2 - v1) * Fp6ParamsWrapper::<Fq6Parameters>::NONRESIDUE + v0,
+        a0_plus_a1 * b0_plus_b1 - v0 - v1,
+        a0_plus_a2 * b0_plus_b2 - v0 + v1,
     )
 }
 
@@ -634,12 +638,12 @@ fn mul_by_fp(v: &Fq2, fp: Fq) -> Fq2 {
 }
 
 fn conjugate(f: Fq12) -> Fq12 {
-    let mut k = f.clone();
+    let mut k = f;
     k.conjugate();
     k
 }
 fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
-    let mut k = f.clone();
+    let mut k = f;
     k.frobenius_map(u);
     k
 }
@@ -681,6 +685,7 @@ mod tests {
 
     fn g2_affine() -> G2Affine { G2Affine::new(f().c0.c0, f().c0.c1, false) }
 
+    #[allow(clippy::too_many_arguments)]
     fn proof(ax: &str, ay: &str, ainf: bool, b0x: &str, b0y: &str, b1x: &str, b1y: &str, binf: bool, cx: &str, cy: &str, cinf: bool) -> Proof {
         Proof {
             a: G1A(G1Affine::new(Fq::from_str(ax).unwrap(), Fq::from_str(ay).unwrap(), ainf)),
@@ -795,7 +800,7 @@ mod tests {
         verifier_account.reset(&request.public_inputs(), request, [0; 32]).unwrap();
 
         let result = verify_full::<VK>(&mut verifier_account);
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
     }
 
     #[test]
@@ -841,7 +846,7 @@ mod tests {
 
     #[test]
     fn test_get_bit() {
-        assert_eq!(get_bit(&BigInteger256::from(1), 255), true);
+        assert!(get_bit(&BigInteger256::from(1), 255));
     }
 
     #[test]
@@ -874,9 +879,9 @@ mod tests {
             Fq::from_str("85960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
             false
         );
-        let c0 = f().c0.c0.clone();
-        let c1 = f().c0.c1.clone();
-        let c2 = f().c0.c2.clone();
+        let c0 = f().c0.c0;
+        let c1 = f().c0.c1;
+        let c2 = f().c0.c2;
         for round in 0..COMBINED_ELL_ROUNDS_COUNT {
             value = combined_ell_partial::<VK>(round, &mut storage, &a, &prepared_inputs, &c, &c0, &c1, &c2, 0, f()).unwrap();
         }

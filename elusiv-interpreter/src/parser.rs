@@ -98,13 +98,13 @@ impl From<&[Token]> for Stmt {
             // If-else and if stmts
             [ IF, Group(c, Delimiter::Parenthesis), Group(t, Delimiter::Brace), ELSE, Group(f, Delimiter::Brace), tail @ .. ] => {
                 try_stmt_tail(
-                    Stmt::IfElse(c.into(), Box::new(t.into()), Box::new(f.into())),
+                    Stmt::IfElse(c.into(), Box::new(t.into()), Some(Box::new(f.into()))),
                     tail
                 )
             }
             [ IF, Group(c, Delimiter::Parenthesis), Group(t, Delimiter::Brace), tail @ .. ] => {
                 try_stmt_tail(
-                    Stmt::IfElse(c.into(), Box::new(t.into()), Box::new(Stmt::Collection(vec![]))),
+                    Stmt::IfElse(c.into(), Box::new(t.into()), None),
                     tail
                 )
             }

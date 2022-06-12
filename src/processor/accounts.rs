@@ -129,7 +129,7 @@ pub fn reset_active_merkle_tree(
 /// Archives a closed MT by creating creating a N-SMT in an `ArchivedTreeAccount`
 pub fn archive_closed_merkle_tree<'a>(
     _payer: &AccountInfo<'a>,
-    storage_account: &StorageAccount,
+    storage_account: &mut StorageAccount,
     _next_nullifier_account: &mut NullifierAccount,
     _archived_tree_account: &AccountInfo<'a>,
 

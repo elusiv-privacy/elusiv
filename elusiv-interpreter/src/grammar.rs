@@ -31,7 +31,7 @@ pub struct ComputationScope {
 pub enum Stmt {
     // Non-terminal stmts
     Collection(Vec<Stmt>),
-    IfElse(Expr, Box<Stmt>, Box<Stmt>),
+    IfElse(Expr, Box<Stmt>, Option<Box<Stmt>>),
     For(SingleId, SingleId, Expr, Box<Stmt>),
     
     // Terminal stmts
@@ -230,7 +230,7 @@ impl Stmt {
 
                         let s = scope.stream;
                         m.extend(quote!{
-                            round if round >= #lower && round < #upper => {
+                            round if (#lower..#upper).contains(&round) => {
                                 let round = round - (#lower);
                                 #s
                             },
@@ -260,7 +260,10 @@ impl Stmt {
                 let result_true = t.to_stream(start_round, previous_computation_rounds);
                 let mut body_true = result_true.stream;
 
-                let result_false = f.to_stream(start_round, previous_computation_rounds);
+                let result_false = match f {
+                    Some(f) => f.to_stream(start_round, previous_computation_rounds),
+                    None => StmtResult { stream: quote!{}, rounds: 0 },
+                };
                 let mut body_false = result_false.stream;
 
                 let rounds = std::cmp::max(result_true.rounds, result_false.rounds);
@@ -272,13 +275,21 @@ impl Stmt {
                 let false_rounds = if result_false.rounds == 0 { 1 } else { result_false.rounds };
                 body_false = quote!{ if round < #false_rounds { #body_false } };
 
-                StmtResult { stream: quote!{
-                    if (#cond) {
-                        #body_true
-                    } else {
-                        #body_false
-                    }
-                }, rounds }
+                if f.is_some() {
+                    StmtResult { stream: quote!{
+                        if (#cond) {
+                            #body_true
+                        } else {
+                            #body_false
+                        }
+                    }, rounds }
+                } else {
+                    StmtResult { stream: quote!{
+                        if (#cond) {
+                            #body_true
+                        }
+                    }, rounds }
+                }
             },
 
             // - the `iterations` of the for-loop are multiplied by the rounds required by the child
@@ -528,7 +539,10 @@ impl Stmt {
     pub fn all_terminal_stmts(&self) -> Vec<Stmt> {
         match self {
             Stmt::Collection(s) => s.iter().map(|s| s.all_terminal_stmts()).fold(Vec::new(), merge),
-            Stmt::IfElse(_, t, f) => merge(t.all_terminal_stmts(), f.all_terminal_stmts()),
+            Stmt::IfElse(_, t, f) => merge(
+                t.all_terminal_stmts(),
+                match f { Some(f) => f.all_terminal_stmts(), _ => vec![] }
+            ),
             Stmt::For(_, _, _, s) => s.all_terminal_stmts(),
             Stmt::Partial(_, _, s) =>  s.all_terminal_stmts(),
             Stmt::ComputeUnitStmt(_, s) =>  s.all_terminal_stmts(),
@@ -540,7 +554,13 @@ impl Stmt {
     pub fn all_exprs(&self) -> Vec<Expr> {
         match self {
             Stmt::Collection(s) => s.iter().map(|s| s.all_exprs()).fold(Vec::new(), merge),
-            Stmt::IfElse(e, t, f) => merge(vec![e.clone()], merge((*t).all_exprs(), (*f).all_exprs())),
+            Stmt::IfElse(e, t, f) => merge(
+                vec![e.clone()],
+                merge(
+                    (*t).all_exprs(),
+                    match f { Some(f) => f.all_exprs(), _ => vec![] }
+                )
+            ),
             Stmt::For(_, _, e, s) => merge(vec![e.clone()], (*s).all_exprs()),
             Stmt::Partial(_, e, s) => merge(vec![e.clone()], (*s).all_exprs()),
             Stmt::Let(_, _, _, e) => vec![e.clone()],
