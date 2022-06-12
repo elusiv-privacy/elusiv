@@ -8,10 +8,10 @@ use solana_program::{
 };
 use crate::state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount, DEFAULT_COMMITMENT_BATCHING_RATE},
-    program_account::{PDAAccount, SizedAccount, MultiAccountAccount, BigArrayAccount, ProgramAccount},
+    program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount, HeterogenMultiAccountAccount},
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
-    fee::FeeAccount,
+    fee::FeeAccount, NullifierAccount,
 };
 use crate::commitment::{CommitmentHashingAccount};
 use crate::error::ElusivError::{InvalidInstructionData, InvalidFeeVersion};
@@ -26,10 +26,12 @@ pub enum SingleInstancePDAAccountKind {
     CommitmentQueueAccount,
     PoolAccount,
     FeeCollectorAccount,
+
     StorageAccount,
+    NullifierAccount,
 }
 
-/// Used to open the PDA accounts, of which types there always only exist one instance
+/// Opens one single instance `PDAAccount`, as long this PDA does not already exist
 pub fn open_single_instance_account<'a>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
@@ -52,6 +54,9 @@ pub fn open_single_instance_account<'a>(
         SingleInstancePDAAccountKind::StorageAccount => {
             open_pda_account_without_offset::<StorageAccount>(payer, pda_account)
         }
+        SingleInstancePDAAccountKind::NullifierAccount => {
+            open_pda_account_without_offset::<NullifierAccount>(payer, pda_account)
+        }
     }
 }
 
@@ -60,6 +65,7 @@ pub enum MultiInstancePDAAccountKind {
     BaseCommitmentQueueAccount
 }
 
+/// Opens one multi instance `PDAAccount` with the offset `Some(pda_offset)`, as long this PDA does not already exist
 pub fn open_multi_instance_account<'a>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
@@ -112,24 +118,13 @@ pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
 pub fn setup_storage_account(
     storage_account: &mut StorageAccount,
 ) -> ProgramResult {
-    guard!(!storage_account.get_finished_setup(), InvalidInstructionData);
-
-    verify_storage_sub_accounts(&storage_account)?;
-
-    // Assign pubkeys
-    for i in 0..StorageAccount::COUNT {
-        storage_account.set_pubkeys(i, &storage_account.get_account(i).key.to_bytes());
-    }
-
-    // Check for duplicates
-    let set: HashSet<U256> = storage_account.get_all_pubkeys().clone().drain(..).collect();
-    assert!(set.len() == StorageAccount::COUNT);
-
-    storage_account.set_finished_setup(&true);
-
-    Ok(())
+    // Note: we don't zero-check these accounts, since we will never access data that has not been set by the program
+    verify_heterogen_sub_accounts(storage_account, false)?;
+    setup_multi_account_account(storage_account)
 }
 
+/// Setup the `GovernorAccount` with the default values
+/// - Note: there is no way of upgrading it atm
 pub fn setup_governor_account<'a>(
     payer: &AccountInfo<'a>,
     governor_account: &AccountInfo<'a>,
@@ -144,6 +139,8 @@ pub fn setup_governor_account<'a>(
     Ok(())
 }
 
+/// Setup a new `FeeAccount`
+/// - Note: there is no way of upgrading the program fees atm
 pub fn init_new_fee_version<'a>(
     payer: &AccountInfo<'a>,
     governor: &GovernorAccount,
@@ -161,54 +158,74 @@ pub fn init_new_fee_version<'a>(
     guard!(fee_version == governor.get_fee_version(), InvalidFeeVersion);
     open_pda_account_with_offset::<FeeAccount>(payer, new_fee, fee_version)?;
 
-    let mut data = &mut new_fee.data.borrow_mut()[..];
-    let mut fee = FeeAccount::new(&mut data)?;
+    let mut data = new_fee.data.borrow_mut();
+    let mut fee = FeeAccount::new(&mut data[..])?;
 
     fee.setup(lamports_per_tx, base_commitment_fee, proof_fee, relayer_hash_tx_fee, relayer_proof_tx_fee, relayer_proof_reward)
 }
 
-macro_rules! verify_data_account {
-    ($account: expr, $ty: ty, $check_zero: literal) => {
-        // Check zeroness
-        if $check_zero { guard!(is_zero(&$account.data.borrow()[..]), InvalidInstructionData); }
+fn setup_multi_account_account<'a, T: MultiAccountAccount<'a>>(
+    account: &mut T,
+) -> ProgramResult {
+    guard!(!account.pda_initialized(), InvalidInstructionData);
 
-        // Check data size
-        guard!($account.data_len() == <$ty>::SIZE, InvalidInstructionData);
+    // Set all pubkeys
+    let mut pks = Vec::new();
+    for i in 0..T::COUNT {
+        pks.push(account.get_account(i).key.to_bytes());
+    }
+    account.set_all_pubkeys(&pks);
 
-        // Check rent-exemption
-        if cfg!(test) { // only unit-testing
-            guard!($account.lamports() >= u64::MAX / 2, InvalidInstructionData);
-        } else {
-            guard!($account.lamports() >= Rent::get()?.minimum_balance(<$ty>::SIZE), InvalidInstructionData);
-        }
+    // Check for account duplicates
+    let set: HashSet<U256> = account.get_all_pubkeys().clone().drain(..).collect();
+    guard!(set.len() == StorageAccount::COUNT, InvalidInstructionData);
 
-        // Check ownership
-        guard!(*$account.owner == crate::id(), InvalidInstructionData);
-    };
+    account.set_pda_initialized(true);
+    guard!(account.pda_initialized(), InvalidInstructionData);
+
+    Ok(())
 }
 
-pub struct IntermediaryStorageSubAccount { }
-impl SizedAccount for IntermediaryStorageSubAccount {
-    const SIZE: usize = StorageAccount::INTERMEDIARY_ACCOUNT_SIZE;
-}
-
-pub struct LastStorageSubAccount { }
-impl SizedAccount for LastStorageSubAccount {
-    const SIZE: usize = StorageAccount::LAST_ACCOUNT_SIZE;
-}
-
-/// Verify the storage account sub-accounts
-/// - we do not check for zero-ness (nice our merkle-tree logic handles this)
-fn verify_storage_sub_accounts(storage_account: &StorageAccount) -> ProgramResult {
-    for i in 0..StorageAccount::COUNT {
-        if i < StorageAccount::COUNT - 1 { 
-            // note: we do not zero-check these accounts, since we will never access data that has not been set by the program
-            verify_data_account!(storage_account.get_account(i), IntermediaryStorageSubAccount, false);
-        } else { 
-            verify_data_account!(storage_account.get_account(i), LastStorageSubAccount, false);
-        }
+/// Verifies that an account with `data_len` > 10 KiB (non PDA) is formatted correctly
+fn verify_extern_data_account(
+    account: &AccountInfo,
+    data_len: usize,
+    check_zeroness: bool,
+) -> ProgramResult {
+    guard!(account.data_len() == data_len, InvalidInstructionData);
+    if check_zeroness {
+        guard!(is_zero(&account.data.borrow()[..]), InvalidInstructionData);
     }
 
+    // Check rent-exemption
+    if cfg!(test) { // only unit-testing (since we have no ledger there)
+        guard!(account.lamports() >= u64::MAX / 2, InvalidInstructionData);
+    } else {
+        guard!(account.lamports() >= Rent::get()?.minimum_balance(data_len), InvalidInstructionData);
+    }
+
+    // Check ownership
+    guard!(*account.owner == crate::id(), InvalidInstructionData);
+
+    Ok(())
+}
+
+// Verifies the user-supplied sub-accounts
+fn verify_heterogen_sub_accounts<'a, T: HeterogenMultiAccountAccount<'a>>(
+    storage_account: &T,
+    check_zeroness: bool,
+) -> ProgramResult {
+    for i in 0..T::COUNT {
+        verify_extern_data_account(
+            storage_account.get_account(i),
+            if i < T::COUNT - 1 {
+                T::INTERMEDIARY_ACCOUNT_SIZE
+            } else {
+                T::LAST_ACCOUNT_SIZE
+            },
+            check_zeroness
+        )?;
+    }
     Ok(())
 }
 
@@ -221,8 +238,8 @@ mod tests {
     fn test_storage_account_valid() {
         let mut data = vec![0; StorageAccount::SIZE];
         generate_storage_accounts_valid_size!(accounts);
-        let mut storage_account = StorageAccount::new(&mut data, accounts).unwrap();
-        verify_storage_sub_accounts(&mut storage_account).unwrap();
+        let storage_account = StorageAccount::new(&mut data, accounts).unwrap();
+        verify_heterogen_sub_accounts(&storage_account, false).unwrap();
     }
 
     #[test]
@@ -240,7 +257,7 @@ mod tests {
             StorageAccount::LAST_ACCOUNT_SIZE - 1,
         ]);
 
-        let mut storage_account = StorageAccount::new(&mut data, accounts).unwrap();
-        verify_storage_sub_accounts(&mut storage_account).unwrap();
+        let storage_account = StorageAccount::new(&mut data, accounts).unwrap();
+        verify_heterogen_sub_accounts(&storage_account, false).unwrap();
     }
 }

@@ -65,6 +65,13 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::PDAAccount for #name<#lifetimes> {
                         const SEED: &'static [u8] = #seed;
+
+                        fn pda_bump_seed(&self) -> u8 { self.get_bump_seed() }
+                        fn pda_version(&self) -> u8 { self.get_version() }
+                        fn pda_initialized(&self) -> bool { self.get_initialized() }
+                        fn set_pda_initialized(&mut self, initialized: bool) {
+                            self.set_initialized(&initialized);
+                        }
                     }
                 });
             },
@@ -77,7 +84,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 let max_account_size: TokenStream = multi_account[1].parse().unwrap();
 
                 assert_field!(first_field, fields_iter, format!("pubkeys : [U256 ; {}]", multi_account[0]));
-                assert_field!(first_field, fields_iter, "finished_setup : bool");
 
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'t> for #name<#lifetimes> {

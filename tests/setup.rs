@@ -31,7 +31,7 @@ macro_rules! assert_account {
             let account = <$ty>::new(&mut data).unwrap();
             assert_eq!(account.get_bump_seed(), <$ty>::find($offset).1);
             assert_eq!(account.get_version(), 0);
-            assert_eq!(account.get_initialized(), true);
+            assert_eq!(account.get_initialized(), false);
         }
     };
 }
@@ -130,7 +130,7 @@ async fn test_setup_storage_account() {
     let keys = setup_storage_account(&mut test_program).await;
 
     storage_account!(storage_account, test_program);
-    assert!(storage_account.get_finished_setup());
+    assert!(storage_account.get_initialized());
     for i in 0..StorageAccount::COUNT {
         assert_eq!(storage_account.get_pubkeys(i), keys[i].to_bytes());
     }

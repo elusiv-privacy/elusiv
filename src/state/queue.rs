@@ -7,7 +7,7 @@ use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
 use crate::processor::{BaseCommitmentHashRequest, CommitmentHashRequest};
-use super::program_account::{SizedAccount, ProgramAccount, PDAAccountFields, MultiInstanceAccount};
+use super::program_account::{SizedAccount, ProgramAccount, PDAAccountFields, MultiInstancePDAAccount};
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
@@ -33,7 +33,7 @@ macro_rules! queue_account {
             $size
         );
 
-        impl<'a> MultiInstanceAccount for $id_account<'a> {
+        impl<'a> MultiInstancePDAAccount for $id_account<'a> {
             const MAX_INSTANCES: u64 = $max_instances;
         }
 

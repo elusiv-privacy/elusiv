@@ -15,7 +15,7 @@ use solana_sdk::{
     account::AccountSharedData,
 };
 use elusiv::instruction::*;
-use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount};
+use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, BigArrayAccount, PDAAccount, HeterogenMultiAccountAccount};
 use elusiv::processor::SingleInstancePDAAccountKind;
 
 use crate::common::{lamports_per_signature, nonce_instruction};

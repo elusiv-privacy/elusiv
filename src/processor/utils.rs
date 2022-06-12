@@ -1,4 +1,3 @@
-use borsh::BorshSerialize;
 use solana_program::{
     account_info::AccountInfo,
     entrypoint::ProgramResult,
@@ -10,9 +9,18 @@ use solana_program::{
     sysvar::Sysvar,
 };
 use crate::bytes::BorshSerDeSized;
-use crate::error::ElusivError::{InvalidAccount, InvalidAmount, InvalidAccountBalance};
+use crate::error::ElusivError::{
+    InvalidAccount,
+    InvalidInstructionData,
+    InvalidAmount,
+    InvalidAccountBalance
+};
 use crate::macros::guard;
-use crate::state::program_account::PDAAccountFields;
+use crate::state::program_account::{
+    PDAAccountFields,
+    PDAAccount,
+    SizedAccount
+};
 
 /// Sends lamports from the sender Sender to the recipient
 pub fn send_with_system_program<'a>(
@@ -31,7 +39,6 @@ pub fn send_with_system_program<'a>(
         lamports 
     );
     
-    //let (_, bump_seed) = Pubkey::find_program_address(&[b"elusiv"], &super::super::id());
     solana_program::program::invoke_signed(
         &instruction,
         &[
@@ -58,6 +65,39 @@ pub fn send_from_pool<'a>(
     Ok(())
 }
 
+pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+    pda_offset: u64,
+) -> ProgramResult {
+    let account_size = T::SIZE;
+    let (pk, bump) = T::find(Some(pda_offset));
+    let seed = vec![
+        T::SEED.to_vec(),
+        u64::to_le_bytes(pda_offset).to_vec(),
+        vec![bump]
+    ];
+    let signers_seeds: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
+    guard!(pk == *pda_account.key, InvalidInstructionData);
+
+    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
+}
+
+pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+) -> ProgramResult {
+    let account_size = T::SIZE;
+    let (pk, bump) = T::find(None);
+    let seed = vec![
+        T::SEED.to_vec(),
+        vec![bump]
+    ];
+    let signers_seeds: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
+    guard!(pk == *pda_account.key, InvalidInstructionData);
+
+    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
+}
 
 pub fn create_pda_account<'a>(
     payer: &AccountInfo<'a>,
@@ -90,7 +130,7 @@ pub fn create_pda_account<'a>(
     let mut fields = PDAAccountFields::new(&data)?;
     fields.bump_seed = bump;
     fields.version = 0;
-    fields.initialized = true;
+    fields.initialized = false;
     PDAAccountFields::override_slice(&fields, &mut data);
 
     Ok(())

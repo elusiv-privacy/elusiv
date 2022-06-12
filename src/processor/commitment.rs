@@ -5,10 +5,9 @@ use solana_program::{
 };
 use crate::commitment::poseidon_hash::TOTAL_POSEIDON_ROUNDS;
 use crate::macros::guard;
-use crate::processor::{open_pda_account_with_offset};
 use crate::state::{MT_HEIGHT, StorageAccount, program_account::ProgramAccount};
 use crate::types::U256;
-use super::utils::{send_with_system_program, send_from_pool, close_account};
+use super::utils::{send_with_system_program, send_from_pool, close_account, open_pda_account_with_offset};
 use crate::state::{
     fee::FeeAccount,
     queue::{

@@ -1,4 +1,4 @@
-use ark_ff::{PrimeField, BigInteger256};
+use ark_ff::BigInteger256;
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
@@ -6,7 +6,8 @@ use solana_program::{
     sysvar::Sysvar,
 };
 use crate::macros::{guard, BorshSerDeSized};
-use crate::processor::{open_pda_account_with_offset, CommitmentHashRequest};
+use crate::processor::CommitmentHashRequest;
+use crate::processor::utils::open_pda_account_with_offset;
 use crate::state::program_account::PDAAccount;
 use crate::state::{
     NullifierAccount,
@@ -44,8 +45,6 @@ use crate::proof::{
 use crate::types::{RawProof, JoinSplitProofData, SendPublicInputs, MergePublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs};
 use crate::bytes::BorshSerDeSized;
 use super::utils::{send_from_pool, send_with_system_program, close_account};
-//use crate::fields::u256_to_fr;
-//use elusiv_computation::{PartialComputation, PartialComputationInstruction};
 use borsh::{BorshSerialize, BorshDeserialize};
 
 macro_rules! execute_with_vkey {
@@ -192,7 +191,7 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
         fee_payer,
         verification_account,
         verification_account_index
-    );
+    )?;
 
     let public_inputs = request.public_inputs();
 

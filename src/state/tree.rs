@@ -4,7 +4,7 @@ use solana_program::{entrypoint::ProgramResult, program_error::ProgramError::Inv
 use crate::types::{U256, U256Limbed2};
 use crate::bytes::*;
 use crate::error::ElusivError::{NullifierAlreadyExists};
-use super::program_account::{SizedAccount, MAX_PERMITTED_DATA_LENGTH, get_multi_accounts_count, MultiAccountAccount};
+use super::program_account::{SizedAccount, MAX_PERMITTED_DATA_LENGTH, get_multi_accounts_count, MultiAccountAccount, HeterogenMultiAccountAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// The count of nullifiers is the count of leafes in the MT
@@ -21,7 +21,6 @@ const NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = get_multi_accounts_count(MAX
 const_assert_eq!(NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT, 4);
 
 const NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * NULLIFIER_MAP_ELEMENT_SIZE;
-//const NULLIFIER_ACCOUNT_LAST_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * NULLIFIER_MAP_ELEMENT_SIZE;
 
 /// NullifierAccount is a big-array storing `NULLIFIERS_COUNT` nullifiers over multiple accounts
 /// - we use `NullifierMap`s to store the nullifiers
@@ -35,10 +34,13 @@ pub struct NullifierAccount {
     initialized: bool,
 
     pubkeys: [U256; NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT],
-    finished_setup: bool,
 
     root: U256, // this value is only valid, after the active tree has been reset
     nullifiers_count: u64,
+}
+
+impl<'a, 'b, 'c> HeterogenMultiAccountAccount<'c> for NullifierAccount<'a, 'b, 'c> {
+    const LAST_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * NULLIFIER_MAP_ELEMENT_SIZE;
 }
 
 /// Tree account after archivation (no big array anymore)

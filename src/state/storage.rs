@@ -66,7 +66,6 @@ pub struct StorageAccount {
     initialized: bool,
 
     pubkeys: [U256; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],
-    finished_setup: bool,
 
     // Points to the next commitment in the active MT
     next_commitment_ptr: u32,
@@ -86,7 +85,7 @@ impl<'a, 'b, 't> BigArrayAccount<'t> for StorageAccount<'a, 'b, 't> {
     const VALUES_COUNT: usize = MT_SIZE;
 }
 
-impl<'a, 'b, 't> MultiInstanceAccount for StorageAccount<'a, 'b, 't> {
+impl<'a, 'b, 't> MultiInstancePDAAccount for StorageAccount<'a, 'b, 't> {
     const MAX_INSTANCES: u64 = 1;
 }
 

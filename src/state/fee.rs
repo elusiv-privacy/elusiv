@@ -31,15 +31,17 @@ const MIN_LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 const MAX_LAMPORTS_PER_SIGNATURE: u64 = 100_000;
 
 #[elusiv_account(pda_seed = b"fee")]
-/// The current program (and network) fees
-/// - multiple fee-accounts can exist (each one has it's version as pda-offset)
+/// Specifies the program fees and compensation for relayers
+/// - multiple fee-accounts can exist
+/// - each one has it's own version as its pda-offset
+/// - the `GovernorAccount` defines the most-recent version
 pub struct FeeAccount {
     bump_seed : u8,
     version: u8,
     initialized: bool,
 
     /// consists of `lamports_per_signature` and possible additional compute units costs
-    /// hard cap until we find a better solution (also depends on the future changed made to the Solana fee model)
+    /// hard cap until we find a better solution (also depends on the future changes made to the Solana fee model)
     lamports_per_tx: u64,
 
     base_commitment_network_fee: u64,

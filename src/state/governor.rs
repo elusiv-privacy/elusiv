@@ -11,7 +11,10 @@ pub struct GovernorAccount {
     version: u8,
     initialized: bool,
 
+    /// the current fee-version (new requests are forced to use this version)
     fee_version: u64,
+
+    /// the number of commitments in a MT-root hashing batch
     commitment_batching_rate: u64,
 }
 
@@ -23,6 +26,7 @@ pub struct PoolAccount {
 }
 
 #[elusiv_account(pda_seed = b"fee_collector")]
+/// Collects the network fees
 pub struct FeeCollectorAccount {
     bump_seed: u8,
     version: u8,

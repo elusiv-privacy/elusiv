@@ -46,6 +46,7 @@ pub enum ElusivInstruction {
         request: BaseCommitmentHashRequest,
     },
 
+    // Base commitment hashing (commitment = h(base_commitment, amount))
     #[acc(fee_payer, { writable, signer })]
     #[pda(base_commitment_queue, BaseCommitmentQueue, pda_offset = Some(base_commitment_queue_index), { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
@@ -72,7 +73,7 @@ pub enum ElusivInstruction {
         hash_account_index: u64,
     },
 
-    // Commitment (MT-root) hashing
+    // Hashes 1-N commitments in a new MT-root (Merkle-Tree-root)
     #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     #[pda(storage_account, Storage, { multi_accounts })]
@@ -137,7 +138,13 @@ pub enum ElusivInstruction {
         tree_indices: [u64; 2],
     },
 
-    // Can be called once per `SingleInstancePDAAccountKind`
+    // Closes the active MT
+
+    // Creates a new `NullifierAccount`
+
+    // Archives a `NullifierAccount` into a N-SMT (Nullifier-Sparse-Merkle-Tree)
+
+    // Opens one `PDAAccount` with offset = None
     #[acc(payer, { writable, signer })]
     #[acc(pda_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
@@ -145,6 +152,7 @@ pub enum ElusivInstruction {
         kind: SingleInstancePDAAccountKind,
     },
 
+    // Opens one `MultiInstancePDAAccount` with some offset
     #[acc(payer, { writable, signer })]
     #[acc(pda_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
