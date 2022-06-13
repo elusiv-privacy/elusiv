@@ -22,7 +22,7 @@ pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
 pub const MT_COMMITMENT_START: usize = two_pow!(MT_HEIGHT) - 1;
 
 /// Since before submitting a proof request the current root can change, we store the previous ones
-const HISTORY_ARRAY_COUNT: usize = 100;
+pub const HISTORY_ARRAY_COUNT: usize = 100;
 
 pub const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(MT_SIZE, U256::SIZE);
 const_assert_eq!(STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT, 7);

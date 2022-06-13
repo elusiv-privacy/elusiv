@@ -109,6 +109,10 @@ impl<const COUNT: usize> MultiAccountAccountFields<COUNT> {
     pub fn new(data: &[u8]) -> Result<Self, std::io::Error> {
         MultiAccountAccountFields::try_from_slice(&data[..Self::SIZE])
     }
+
+    pub fn all_pubkeys(&self) -> Vec<Pubkey> {
+        self.pubkeys.iter().map(|x| Pubkey::new(x)).collect()
+    }
 }
 
 /// Certain accounts, like the `VerificationAccount` can be instantiated multiple times.

@@ -5,7 +5,8 @@ mod common;
 use common::*;
 use common::program_setup::*;
 
-use elusiv::state::StorageAccount;
+use elusiv::fields::fr_to_u256_le;
+use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT, HISTORY_ARRAY_COUNT, EMPTY_TREE};
 use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
 use elusiv::processor::SingleInstancePDAAccountKind;
@@ -17,6 +18,7 @@ use elusiv::state::{
     fee::FeeAccount,
     NullifierAccount,
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
+    MT_HEIGHT,
 };
 
 macro_rules! assert_account {
@@ -167,4 +169,89 @@ async fn test_open_new_merkle_tree_duplicate() {
     let mut context = start_program_solana_program_test().await;
     create_merkle_tree(&mut context, 0).await;
     create_merkle_tree(&mut context, 0).await;
+}
+
+#[tokio::test]
+async fn test_close_merkle_tree() {
+    let mut context = start_program_solana_program_test().await;
+    let mut client = Actor::new(&mut context).await;
+    setup_storage_account(&mut context).await;
+
+    let (_, _, storage_account) = storage_accounts(&mut context).await;
+
+    create_merkle_tree(&mut context, 0).await;
+    create_merkle_tree(&mut context, 1).await;
+    create_merkle_tree(&mut context, 2).await;
+
+    let (_, _, nullifier_0_w)= nullifier_accounts(0, &mut context).await;
+    let (_, _, nullifier_1_w)= nullifier_accounts(1, &mut context).await;
+    let (_, _, nullifier_2_w)= nullifier_accounts(2, &mut context).await;
+
+    // Failure since active MT is not full
+    ix_should_fail(
+        ElusivInstruction::reset_active_merkle_tree_instruction(
+            0,
+            &storage_account,
+            &nullifier_0_w,
+            &nullifier_1_w,
+        ),
+        &mut client,
+        &mut context
+    ).await;
+
+    // Set active MT as full
+    set_pda_account::<StorageAccount, _>(&mut context, None, |data| {
+        let mut storage_account = StorageAccount::new(data, vec![]).unwrap();
+        storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
+        for i in 0..HISTORY_ARRAY_COUNT {
+            storage_account.set_active_mt_root_history(i, &[1; 32]);
+        }
+    }).await;
+
+    // Failure since active_nullifier_account is invalid
+    ix_should_fail(
+        ElusivInstruction::reset_active_merkle_tree_instruction(
+            0,
+            &storage_account,
+            &nullifier_1_w,
+            &nullifier_2_w,
+        ),
+        &mut client,
+        &mut context
+    ).await;
+
+    // Failure since next_nullifier_account index is mismatched
+    ix_should_fail(
+        ElusivInstruction::reset_active_merkle_tree_instruction(
+            0,
+            &storage_account,
+            &nullifier_0_w,
+            &nullifier_2_w,
+        ),
+        &mut client,
+        &mut context
+    ).await;
+
+    // Success
+    ix_should_succeed(
+        ElusivInstruction::reset_active_merkle_tree_instruction(
+            0,
+            &storage_account,
+            &nullifier_0_w,
+            &nullifier_1_w,
+        ),
+        &mut client,
+        &mut context
+    ).await;
+
+    // TODO: Check root in closed tree
+    nullifier_account!(nullifier_account, 0, context);
+    assert_eq!(nullifier_account.get_root(), fr_to_u256_le(&EMPTY_TREE[MT_HEIGHT as usize]));
+
+    // Check active index
+    storage_account!(storage_account, context);
+    assert_eq!(storage_account.get_trees_count(), 1);
+    for i in 0..HISTORY_ARRAY_COUNT {
+        assert_eq!(storage_account.get_active_mt_root_history(i), [0; 32]);
+    }
 }

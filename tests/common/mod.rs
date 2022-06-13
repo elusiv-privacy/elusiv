@@ -4,7 +4,6 @@
 pub mod program_setup;
 pub mod log;
 
-use elusiv_utils::get_storage_account_sub_accounts;
 use solana_program::{
     pubkey::Pubkey,
     instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL,
@@ -14,10 +13,10 @@ use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer}
 use assert_matches::assert_matches;
 use std::{str::FromStr};
 use ark_bn254::Fr;
-use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}, state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT};
+use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}, state::{STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT, NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT}};
 use elusiv::fields::{fr_to_u256_le};
 use elusiv::processor::{BaseCommitmentHashRequest};
-use elusiv::state::{StorageAccount, program_account::{PDAAccount, MultiAccountAccount}};
+use elusiv::state::{StorageAccount, NullifierAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountFields}};
 
 const DEFAULT_START_BALANCE: u64 = LAMPORTS_PER_SOL;
 
@@ -191,7 +190,7 @@ macro_rules! nullifier_account {
 #[allow(unused_imports)] pub(crate) use nullifier_account;
 
 pub async fn storage_accounts(
-    context: &mut ProgramTestContext
+    context: &mut ProgramTestContext,
 ) ->
 (
     Vec<Pubkey>,
@@ -199,16 +198,35 @@ pub async fn storage_accounts(
     [WritableUserAccount; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],
 )
 {
-    let storage_data = get_data(context, StorageAccount::find(None).0).await;
-    let accounts = get_storage_account_sub_accounts(&storage_data[..]).unwrap();
+    let data = get_data(context, StorageAccount::find(None).0).await;
+    let pubkeys = MultiAccountAccountFields::<{StorageAccount::COUNT}>::new(&data).unwrap().all_pubkeys();
+    let (read_only, writeable) = multi_account_pubkeys(&pubkeys);
 
-    let storage_accounts: Vec<UserAccount> = accounts.iter().map(|p| UserAccount(*p)).collect();
-    let writable_storage_accounts: Vec<WritableUserAccount> = accounts.iter().map(|p| WritableUserAccount(*p)).collect();
+    (pubkeys, read_only.try_into().unwrap(), writeable.try_into().unwrap())
+}
 
-    let storage_accounts: [UserAccount; StorageAccount::COUNT] = storage_accounts.try_into().unwrap();
-    let writable_storage_accounts: [WritableUserAccount; StorageAccount::COUNT] = writable_storage_accounts.try_into().unwrap();
+pub async fn nullifier_accounts(
+    mt_index: u64,
+    context: &mut ProgramTestContext,
+) ->
+(
+    Vec<Pubkey>,
+    [UserAccount; NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT],
+    [WritableUserAccount; NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT],
+)
+{
+    let data = get_data(context, NullifierAccount::find(Some(mt_index)).0).await;
+    let pubkeys = MultiAccountAccountFields::<{NullifierAccount::COUNT}>::new(&data).unwrap().all_pubkeys();
+    let (read_only, writeable) = multi_account_pubkeys(&pubkeys);
 
-    (accounts, storage_accounts, writable_storage_accounts)
+    (pubkeys, read_only.try_into().unwrap(), writeable.try_into().unwrap())
+}
+
+fn multi_account_pubkeys(pubkeys: &[Pubkey]) -> (Vec<UserAccount>, Vec<WritableUserAccount>) {
+    (
+        pubkeys.iter().map(|p| UserAccount(*p)).collect(),
+        pubkeys.iter().map(|p| WritableUserAccount(*p)).collect(),
+    )
 }
 
 use self::program_setup::set_account;

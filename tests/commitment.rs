@@ -811,36 +811,22 @@ async fn test_commitment_hash_multiple_commitments() {
     let sol_pool = PoolAccount::find(None).0;
     airdrop(&sol_pool, LAMPORTS_PER_SOL * 100, &mut context).await;
 
-    let requests = vec![
-        CommitmentHashRequest {
-            commitment: u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
-            fee_version: 0,
-        },
-        CommitmentHashRequest {
-            commitment: u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
-            fee_version: 0,
-        },
-        CommitmentHashRequest {
-            commitment: u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
-            fee_version: 0,
-        },
-        CommitmentHashRequest {
-            commitment: u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
-            fee_version: 0,
-        },
-        CommitmentHashRequest {
-            commitment: u256_from_str("4912675451529070464762528188865498315454175094749833577169306500804282376621"),
-            fee_version: 0,
-        },
-        CommitmentHashRequest {
-            commitment: u256_from_str("14672838342938789129773189810958973041204269514853784121478587260372791091464"),
-            fee_version: 0,
-        },
-        CommitmentHashRequest {
-            commitment: u256_from_str("5808462669014571118534375825896524695834768083342937741019165053845945714865"),
-            fee_version: 0,
-        },
+    let commitments = vec![
+        u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+        u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+        u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+        u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+        u256_from_str("4912675451529070464762528188865498315454175094749833577169306500804282376621"),
+        u256_from_str("14672838342938789129773189810958973041204269514853784121478587260372791091464"),
+        u256_from_str("5808462669014571118534375825896524695834768083342937741019165053845945714865"),
     ];
+
+    let requests: Vec<CommitmentHashRequest> = commitments.iter()
+        .map(|c| CommitmentHashRequest {
+            commitment: *c,
+            fee_version: 0,
+        })
+        .collect();
 
     let correct_roots_afterwards = vec![
         u256_from_str("9067782498943005972697481747658603367081340211439558541654633405673676102857"),
