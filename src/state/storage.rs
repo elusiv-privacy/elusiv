@@ -140,6 +140,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     fn set_node(&mut self, value: &U256, index: usize, level: usize) {
         assert!(level <= MT_HEIGHT as usize);
 
+        //solana_program::msg!("set: {} index: {} level: {}", u256_to_fr(value), index, level);
+
         self.set(mt_array_index(index, level), *value);
     }
 
@@ -149,8 +151,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: U256) -> bool {
-        // TODO: only check till ptr
-        root == self.get_root() || contains(root, self.active_mt_root_history)
+        let max_history_roots = max(self.get_next_commitment_ptr() as usize, HISTORY_ARRAY_COUNT);
+        root == self.get_root() || contains(root, &self.active_mt_root_history[..max_history_roots * 32])
     }
 
     #[allow(clippy::needless_range_loop)]
@@ -175,13 +177,13 @@ pub fn mt_array_index(index: usize, level: usize) -> usize {
 
 fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
     let level_inv = MT_HEIGHT as usize - level;
-    next_leaf_ptr == 0 || (index >> level_inv) > ((next_leaf_ptr - 1) >> level_inv)
+    next_leaf_ptr == 0 || index > (next_leaf_ptr - 1) >> level_inv
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::macros::{account, generate_storage_accounts, generate_storage_accounts_valid_size};
+    use crate::{macros::{account, generate_storage_accounts, generate_storage_accounts_valid_size}, commitment::poseidon_hash::full_poseidon2_hash};
     use solana_program::{account_info::AccountInfo};
     use super::super::program_account::{MultiAccountAccount};
     use std::str::FromStr;
@@ -216,5 +218,27 @@ mod tests {
             // One commitment
             assert!(!use_default_value(0, level, 1));
         }
+    }
+
+    #[test]
+    fn test_use_default_value() {
+        assert!(!use_default_value(0, MT_HEIGHT as usize, 1));
+        assert!(use_default_value(1, MT_HEIGHT as usize, 1));
+
+        for i in 0..MT_HEIGHT as usize {
+            assert!(use_default_value(1, MT_HEIGHT as usize - i, 1));
+        }
+    }
+
+    #[test]
+    #[allow(clippy::needless_range_loop)]
+    fn test_hash_two_commitments_together() {
+        let a = Fr::from_str("8806693615866680221624359022326040351320802923100496896469027799555969415608").unwrap();
+        let b = Fr::from_str("10325823052538184185762853738620713863393182243594528391700012489616960720113").unwrap();
+        let mut hash = full_poseidon2_hash(a, b);
+        for i in 1..MT_HEIGHT as usize {
+            hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
+        }
+        assert_eq!(hash, Fr::from_str("2405070960812791252603303680410822171263982421393937538616415344325138142909").unwrap());
     }
 }

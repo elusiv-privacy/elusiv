@@ -284,6 +284,12 @@ pub fn compute_commitment_hash<'a>(
 
     hashing_account.set_instruction(&(instruction + 1));
 
+    solana_program::msg!(
+        "Commitment hash computation {} / {}",
+        instruction,
+        CommitmentHashComputation::INSTRUCTIONS.len() - 1
+    );
+
     send_from_pool(pool, fee_payer, fee.hash_tx_compensation())
 }
 

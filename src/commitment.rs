@@ -102,6 +102,7 @@ impl<'a> CommitmentHashingAccount<'a> {
 
         // Reset hashing state
         self.set_state(0, &fr_to_u256_le(&Fr::zero()));
+
         let offset = ordering as usize % 2;
         self.set_state(1 + offset, &commitment);
         self.set_state(2 - offset, &fr_to_u256_le(&siblings[0]));

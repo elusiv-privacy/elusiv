@@ -2,14 +2,16 @@
 
 #[cfg(not(tarpaulin_include))]
 mod common;
+
 use common::*;
 use common::program_setup::*;
 
-use elusiv::fields::{SCALAR_MODULUS, big_uint_to_u256, u256_to_fr};
+use elusiv::commitment::poseidon_hash::full_poseidon2_hash;
+use elusiv::fields::{SCALAR_MODULUS, big_uint_to_u256, u256_to_fr, fr_to_u256_le};
 use elusiv::processor::{BaseCommitmentHashRequest, MIN_STORE_AMOUNT, MAX_STORE_AMOUNT, CommitmentHashRequest};
-use elusiv::state::{StorageAccount, MT_HEIGHT};
+use elusiv::state::{StorageAccount, MT_HEIGHT, MT_COMMITMENT_COUNT, EMPTY_TREE};
 use elusiv::state::governor::{PoolAccount, FeeCollectorAccount};
-use elusiv::state::program_account::{SizedAccount, MultiAccountAccountFields, MultiAccountAccount};
+use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, MultiAccountProgramAccount};
 use elusiv::state::queue::{BaseCommitmentQueue, BaseCommitmentQueueAccount};
 use elusiv::instruction::*;
 use elusiv::types::U256;
@@ -492,12 +494,7 @@ async fn test_single_commitment() {
     let mut relayer_a = Actor::new(&mut context).await;
     let mut relayer_b = Actor::new(&mut context).await;
 
-    let storage_accounts = storage_accounts(&mut context).await;
-    let writable_storage_accounts: Vec<WritableUserAccount> = storage_accounts.iter().map(|p| WritableUserAccount(*p)).collect();
-    let storage_accounts: Vec<UserAccount> = storage_accounts.iter().map(|p| UserAccount(*p)).collect();
-
-    let storage_accounts: [UserAccount; StorageAccount::COUNT] = storage_accounts.try_into().unwrap();
-    let writable_storage_accounts: [WritableUserAccount; StorageAccount::COUNT] = writable_storage_accounts.try_into().unwrap();
+    let (_, storage, storage_writable) = storage_accounts(&mut context).await;
 
     // Init fails, since queue is empty
     /*ix_should_fail(
@@ -539,7 +536,7 @@ async fn test_single_commitment() {
     // Init succeeds
     relayer_a.airdrop(lamports_per_tx, &mut context).await;
     ix_should_succeed(
-        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+        ElusivInstruction::init_commitment_hash_instruction(&storage),
         &mut relayer_a, &mut context
     ).await;
 
@@ -568,7 +565,7 @@ async fn test_single_commitment() {
     ).await;*/
 
     let finalize_ix = ElusivInstruction::finalize_commitment_hash_instruction(
-        &writable_storage_accounts
+        &storage_writable
     );
 
     let compute_ix = ElusivInstruction::compute_commitment_hash_instruction(
@@ -612,7 +609,7 @@ async fn test_single_commitment() {
     ], &mut relayer_b, &mut context).await;*/
 
     // Finalization
-    /*relayer_a.airdrop(lamports_per_tx, &mut context).await;
+    relayer_a.airdrop(lamports_per_tx, &mut context).await;
     ix_should_succeed(finalize_ix.clone(), &mut relayer_a, &mut context).await;
 
     // Changes in the queue
@@ -644,7 +641,16 @@ async fn test_single_commitment() {
     assert_eq!(
         storage_account.get_next_commitment_ptr(),
         1
-    );*/
+    );
+    let mut hash = u256_to_fr(&requests[0].commitment);
+    for i in 0..MT_HEIGHT as usize {
+        assert_eq!(
+            hash,
+            storage_account.get_node(0, MT_HEIGHT as usize - i)
+        );
+        hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
+    }
+    assert_eq!(fr_to_u256_le(&hash), storage_account.get_root());
 }
 
 async fn set_finished_base_commitment_hash(
@@ -706,4 +712,164 @@ async fn test_commitment_full_queue() {
             WritableUserAccount(client.pubkey)
         ), &mut client, &mut context
     ).await;
+}
+
+#[tokio::test]
+async fn test_commitment_full_mt() {
+    let (mut context, mut client) = setup_commitment_tests().await;
+    setup_storage_account(&mut context).await;
+    set_pda_account::<StorageAccount, _>(&mut context, None, |data| {
+        let mut storage_account = StorageAccount::new(data, vec![]).unwrap();
+        storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
+    }).await;
+
+    set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
+        queue_mut!(queue, CommitmentQueue, CommitmentQueueAccount, data);
+        queue.enqueue(
+            CommitmentHashRequest {
+                commitment: requests()[0].commitment,
+                fee_version: 0
+            }
+        ).unwrap();
+    }).await;
+
+    let (_, storage_accounts, _) = storage_accounts(&mut context).await;
+
+    // Init should fail, since MT is full
+    ix_should_fail(
+        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+        &mut client, &mut context
+    ).await;
+
+    set_pda_account::<StorageAccount, _>(&mut context, None, |data| {
+        let mut storage_account = StorageAccount::new(data, vec![]).unwrap();
+        storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32 - 1));
+    }).await;
+
+    // Init should succeed now
+    ix_should_succeed(
+        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+        &mut client, &mut context
+    ).await;
+}
+
+#[tokio::test]
+async fn test_commitment_correct_storage_account_insertion() {
+    // tests correct insertion into storage account
+}
+
+#[tokio::test]
+#[allow(clippy::needless_range_loop)]
+async fn test_commitment_hash_multiple_commitments() {
+    let (mut context, mut client) = setup_commitment_tests().await;
+    setup_storage_account(&mut context).await;
+
+    // Transfer enough fees
+    let sol_pool = PoolAccount::find(None).0;
+    airdrop(&sol_pool, LAMPORTS_PER_SOL * 100, &mut context).await;
+
+    let requests = vec![
+        CommitmentHashRequest {
+            commitment: u256_from_str("18978676199311225077931012463876476939302504752849357777102244426736610765433"),
+            fee_version: 0,
+        },
+        CommitmentHashRequest {
+            commitment: u256_from_str("936828317382474498743555265886447610527399265491500203515102581099803671454"),
+            fee_version: 0,
+        },
+        CommitmentHashRequest {
+            commitment: u256_from_str("9685140165050712193683107960103245886283263727578372598956892351832062048868"),
+            fee_version: 0,
+        },
+    ];
+
+    let correct_roots_afterwards = vec![
+        u256_from_str("8352217591248667868845002845328167773994555145323680243805222502110316332387"),
+        u256_from_str("18891586727718629425378648065776596439018083460285024254205343698824077829136"),
+        u256_from_str("14218354346119753276388781239397702609917152372772366212400563818989515422770"),
+    ];
+
+    // Verify roots offchain
+    let hash0 = full_poseidon2_hash(u256_to_fr(&requests[0].commitment), u256_to_fr(&requests[1].commitment));
+    let hash1 = full_poseidon2_hash(u256_to_fr(&requests[2].commitment), EMPTY_TREE[0]);
+    let mut hash = full_poseidon2_hash(hash0, hash1);
+    for i in 2..MT_HEIGHT as usize {
+        hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
+    }
+    assert_eq!(hash, u256_to_fr(&correct_roots_afterwards[2]));
+
+    set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
+        queue_mut!(queue, CommitmentQueue, CommitmentQueueAccount, data);
+        for request in &requests {
+            queue.enqueue(request.clone()).unwrap();
+        }
+    }).await;
+
+    let (_, storage, storage_writable) = storage_accounts(&mut context).await;
+
+    // Init, compute, finalize every commitment
+    for i in 0..requests.len() {
+        ix_should_succeed(
+            ElusivInstruction::init_commitment_hash_instruction(&storage),
+            &mut client, &mut context
+        ).await;
+
+        for c in 0..CommitmentHashComputation::INSTRUCTIONS.len() {
+            tx_should_succeed(
+                &[
+                    request_compute_units(CommitmentHashComputation::INSTRUCTIONS[c].compute_units),
+                    ElusivInstruction::compute_commitment_hash_instruction(
+                        0,
+                        0,
+                        SignerAccount(client.pubkey)
+                    ),
+                ],
+                &mut client, &mut context
+            ).await;
+        }
+
+        ix_should_succeed(
+            ElusivInstruction::finalize_commitment_hash_instruction(&storage_writable),
+            &mut client, &mut context
+        ).await;
+
+        storage_account!(storage_account, context);
+
+        // Verify commitment
+        assert_eq!(
+            storage_account.get_node(i, MT_HEIGHT as usize),
+            u256_to_fr(&requests[i].commitment)
+        );
+
+        // Verify root
+        assert_eq!(
+            storage_account.get_root(),
+            correct_roots_afterwards[i]
+        );
+    }
+
+    storage_account!(storage_account, context);
+    for i in 0..requests.len() {
+        assert_eq!(
+            storage_account.get_node(i, MT_HEIGHT as usize),
+            u256_to_fr(&requests[i].commitment)
+        );
+    }
+
+    assert_eq!(
+        storage_account.get_node(0, MT_HEIGHT as usize - 1),
+        hash0
+    );
+    assert_eq!(
+        storage_account.get_node(1, MT_HEIGHT as usize - 1),
+        hash1
+    );
+    let mut hash = full_poseidon2_hash(hash0, hash1);
+    for i in 2..MT_HEIGHT as usize {
+        assert_eq!(
+            storage_account.get_node(0, MT_HEIGHT as usize - i),
+            hash
+        );
+        hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
+    }
 }

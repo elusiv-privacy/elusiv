@@ -13,7 +13,7 @@ use solana_program::account_info::Account;
 use solana_program_test::*;
 use elusiv::state::{
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
-    program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount},
+    program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount, MultiAccountProgramAccount},
     fee::FeeAccount,
     NullifierAccount,
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},

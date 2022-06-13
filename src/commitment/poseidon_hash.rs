@@ -54,7 +54,7 @@ pub fn binary_poseidon_hash_partial(round: u32, state: &mut [Fr; 3]) {
     *state = new_state;
 }
 
-#[cfg(test)]
+//#[cfg(test)]
 pub fn full_poseidon2_hash(a: Fr, b: Fr) -> Fr {
     let mut state = [Fr::zero(), a, b];
     for round in 0..TOTAL_POSEIDON_ROUNDS {

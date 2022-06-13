@@ -14,10 +14,10 @@ use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer}
 use assert_matches::assert_matches;
 use std::{str::FromStr};
 use ark_bn254::Fr;
-use elusiv::{types::U256};
+use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}, state::STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT};
 use elusiv::fields::{fr_to_u256_le};
 use elusiv::processor::{BaseCommitmentHashRequest};
-use elusiv::state::{StorageAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountFields}};
+use elusiv::state::{StorageAccount, program_account::{PDAAccount, MultiAccountAccount}};
 
 const DEFAULT_START_BALANCE: u64 = LAMPORTS_PER_SOL;
 
@@ -145,8 +145,6 @@ macro_rules! account_info {
 
 macro_rules! storage_account {
     ($id: ident, $prg: ident) => {
-        use elusiv::state::program_account::MultiAccountProgramAccount;
-
         let mut data = get_data(&mut $prg, StorageAccount::find(None).0).await;
 
         let pks = elusiv::state::program_account::MultiAccountAccountFields::<{StorageAccount::COUNT}>::new(&data).unwrap();
@@ -168,8 +166,6 @@ macro_rules! storage_account {
 
 macro_rules! nullifier_account {
     ($id: ident, $index: expr, $prg: ident) => {
-        use elusiv::state::program_account::MultiAccountProgramAccount;
-
         let mut data = get_data(&mut $prg, NullifierAccount::find(Some($index)).0).await;
 
         let pks = elusiv::state::program_account::MultiAccountAccountFields::<{NullifierAccount::COUNT}>::new(&data).unwrap();
@@ -194,9 +190,25 @@ macro_rules! nullifier_account {
 #[allow(unused_imports)] pub(crate) use storage_account;
 #[allow(unused_imports)] pub(crate) use nullifier_account;
 
-pub async fn storage_accounts(context: &mut ProgramTestContext) -> Vec<Pubkey> {
+pub async fn storage_accounts(
+    context: &mut ProgramTestContext
+) ->
+(
+    Vec<Pubkey>,
+    [UserAccount; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],
+    [WritableUserAccount; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],
+)
+{
     let storage_data = get_data(context, StorageAccount::find(None).0).await;
-    get_storage_account_sub_accounts(&storage_data[..]).unwrap()
+    let accounts = get_storage_account_sub_accounts(&storage_data[..]).unwrap();
+
+    let storage_accounts: Vec<UserAccount> = accounts.iter().map(|p| UserAccount(*p)).collect();
+    let writable_storage_accounts: Vec<WritableUserAccount> = accounts.iter().map(|p| WritableUserAccount(*p)).collect();
+
+    let storage_accounts: [UserAccount; StorageAccount::COUNT] = storage_accounts.try_into().unwrap();
+    let writable_storage_accounts: [WritableUserAccount; StorageAccount::COUNT] = writable_storage_accounts.try_into().unwrap();
+
+    (accounts, storage_accounts, writable_storage_accounts)
 }
 
 use self::program_setup::set_account;
