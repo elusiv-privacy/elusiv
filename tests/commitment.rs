@@ -7,7 +7,7 @@ use common::*;
 use common::program_setup::*;
 
 use elusiv::commitment::poseidon_hash::full_poseidon2_hash;
-use elusiv::fields::{SCALAR_MODULUS, big_uint_to_u256, u256_to_fr, fr_to_u256_le};
+use elusiv::fields::{SCALAR_MODULUS, big_uint_to_u256, u256_to_fr, fr_to_u256_le, u64_to_scalar};
 use elusiv::processor::{BaseCommitmentHashRequest, MIN_STORE_AMOUNT, MAX_STORE_AMOUNT, CommitmentHashRequest};
 use elusiv::state::{StorageAccount, MT_HEIGHT, MT_COMMITMENT_COUNT, EMPTY_TREE};
 use elusiv::state::governor::{PoolAccount, FeeCollectorAccount};
@@ -480,6 +480,7 @@ async fn test_base_commitment_full_queue() {
 }
 
 #[tokio::test]
+#[allow(clippy::needless_range_loop)]
 async fn test_single_commitment() {
     let (mut context, _) = setup_commitment_tests().await;
     setup_storage_account(&mut context).await;
@@ -497,10 +498,10 @@ async fn test_single_commitment() {
     let (_, storage, storage_writable) = storage_accounts(&mut context).await;
 
     // Init fails, since queue is empty
-    /*ix_should_fail(
-        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+    ix_should_fail(
+        ElusivInstruction::init_commitment_hash_instruction(&storage),
         &mut relayer_a, &mut context
-    ).await;*/
+    ).await;
 
     // Add requests to commitment queue
     set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
@@ -559,10 +560,10 @@ async fn test_single_commitment() {
     assert_eq!(queue.len(), 2);
 
     // Second init fails, since a hashing is already active
-    /*ix_should_fail(
-        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+    ix_should_fail(
+        ElusivInstruction::init_commitment_hash_instruction(&storage),
         &mut relayer_a, &mut context
-    ).await;*/
+    ).await;
 
     let finalize_ix = ElusivInstruction::finalize_commitment_hash_instruction(
         &storage_writable
@@ -578,13 +579,13 @@ async fn test_single_commitment() {
     let single_tx_reward = fee.get_relayer_hash_tx_fee();
     for i in 0..hash_tx_count {
         // Finalization will always fail before completion
-        //ix_should_fail(finalize_ix.clone(), &mut relayer_b, &mut context).await;
+        ix_should_fail(finalize_ix.clone(), &mut relayer_b, &mut context).await;
 
         // Fail due to too low compute budget
         let required_compute_budget = CommitmentHashComputation::INSTRUCTIONS[i].compute_units;
-        //if required_compute_budget > 300_000 { // include the 100k compute unit padding
-            //ix_should_fail(compute_ix.clone(), &mut relayer_b, &mut context).await;
-        //}
+        if required_compute_budget > 300_000 { // include the 100k compute unit padding
+            ix_should_fail(compute_ix.clone(), &mut relayer_b, &mut context).await;
+        }
 
         // Success for correct compute budget
         tx_should_succeed(&[
@@ -603,10 +604,10 @@ async fn test_single_commitment() {
     assert_eq!(hash_fee, (single_tx_reward + lamports_per_tx) * hash_tx_count as u64);
 
     // Additional computation fails
-    /*tx_should_fail(&[
+    tx_should_fail(&[
         request_compute_units(1_400_000),
         compute_ix.clone(),
-    ], &mut relayer_b, &mut context).await;*/
+    ], &mut relayer_b, &mut context).await;
 
     // Finalization
     relayer_a.airdrop(lamports_per_tx, &mut context).await;
@@ -756,6 +757,48 @@ async fn test_commitment_full_mt() {
 #[tokio::test]
 async fn test_commitment_correct_storage_account_insertion() {
     // tests correct insertion into storage account
+    let (mut context, mut client) = setup_commitment_tests().await;
+    setup_storage_account(&mut context).await;
+
+    let (_, _, storage_writable) = storage_accounts(&mut context).await;
+    let len = CommitmentHashComputation::INSTRUCTIONS.len() as u32;
+    let commitment_count = 33;
+
+    set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
+        queue_mut!(queue, CommitmentQueue, CommitmentQueueAccount, data);
+        for i in 0..commitment_count {
+            queue.enqueue(
+                CommitmentHashRequest {
+                    commitment: fr_to_u256_le(&u64_to_scalar(i as u64)),
+                    fee_version: 0,
+                }
+            ).unwrap();
+        }
+    }).await;
+
+    for i in 0..commitment_count {
+        set_pda_account::<CommitmentHashingAccount, _>(&mut context, None, |data| {
+            let mut account = CommitmentHashingAccount::new(data).unwrap();
+            account.set_is_active(&true);
+            account.set_instruction(&len);
+            account.set_commitment(&fr_to_u256_le(&u64_to_scalar(i as u64)));
+        }).await;
+
+        ix_should_succeed(
+            ElusivInstruction::finalize_commitment_hash_instruction(&storage_writable),
+            &mut client, &mut context
+        ).await;
+    }
+
+    storage_account!(storage_account, context);
+
+    // Check that each commitment is at the correct position
+    for i in 0..commitment_count {
+        assert_eq!(
+            storage_account.get_node(i, MT_HEIGHT as usize),
+            u64_to_scalar(i as u64)
+        );
+    }
 }
 
 #[tokio::test]
@@ -770,33 +813,44 @@ async fn test_commitment_hash_multiple_commitments() {
 
     let requests = vec![
         CommitmentHashRequest {
-            commitment: u256_from_str("18978676199311225077931012463876476939302504752849357777102244426736610765433"),
+            commitment: u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
             fee_version: 0,
         },
         CommitmentHashRequest {
-            commitment: u256_from_str("936828317382474498743555265886447610527399265491500203515102581099803671454"),
+            commitment: u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
             fee_version: 0,
         },
         CommitmentHashRequest {
-            commitment: u256_from_str("9685140165050712193683107960103245886283263727578372598956892351832062048868"),
+            commitment: u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+            fee_version: 0,
+        },
+        CommitmentHashRequest {
+            commitment: u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+            fee_version: 0,
+        },
+        CommitmentHashRequest {
+            commitment: u256_from_str("4912675451529070464762528188865498315454175094749833577169306500804282376621"),
+            fee_version: 0,
+        },
+        CommitmentHashRequest {
+            commitment: u256_from_str("14672838342938789129773189810958973041204269514853784121478587260372791091464"),
+            fee_version: 0,
+        },
+        CommitmentHashRequest {
+            commitment: u256_from_str("5808462669014571118534375825896524695834768083342937741019165053845945714865"),
             fee_version: 0,
         },
     ];
 
     let correct_roots_afterwards = vec![
-        u256_from_str("8352217591248667868845002845328167773994555145323680243805222502110316332387"),
-        u256_from_str("18891586727718629425378648065776596439018083460285024254205343698824077829136"),
-        u256_from_str("14218354346119753276388781239397702609917152372772366212400563818989515422770"),
+        u256_from_str("9067782498943005972697481747658603367081340211439558541654633405673676102857"),
+        u256_from_str("15301892188911160449341837174902405446602050384096489477117140364841430914614"),
+        u256_from_str("8712848136848990562797370443371161139823751675261015848376388074182704347947"),
+        u256_from_str("6543817352315114290363106811223879539017599496237896578152011659905900001939"),
+        u256_from_str("7664287681500223472370483741580378590496434315208292049383954342296148132753"),
+        u256_from_str("10008823716965287250940652746474616373356829327674075836642853586040635964761"),
+        u256_from_str("21620303059720667189546524860541209640581655979702452251272504609177116384089"),
     ];
-
-    // Verify roots offchain
-    let hash0 = full_poseidon2_hash(u256_to_fr(&requests[0].commitment), u256_to_fr(&requests[1].commitment));
-    let hash1 = full_poseidon2_hash(u256_to_fr(&requests[2].commitment), EMPTY_TREE[0]);
-    let mut hash = full_poseidon2_hash(hash0, hash1);
-    for i in 2..MT_HEIGHT as usize {
-        hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
-    }
-    assert_eq!(hash, u256_to_fr(&correct_roots_afterwards[2]));
 
     set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
         queue_mut!(queue, CommitmentQueue, CommitmentQueueAccount, data);
@@ -848,28 +902,12 @@ async fn test_commitment_hash_multiple_commitments() {
         );
     }
 
+    // Verify all commitments
     storage_account!(storage_account, context);
     for i in 0..requests.len() {
         assert_eq!(
             storage_account.get_node(i, MT_HEIGHT as usize),
             u256_to_fr(&requests[i].commitment)
         );
-    }
-
-    assert_eq!(
-        storage_account.get_node(0, MT_HEIGHT as usize - 1),
-        hash0
-    );
-    assert_eq!(
-        storage_account.get_node(1, MT_HEIGHT as usize - 1),
-        hash1
-    );
-    let mut hash = full_poseidon2_hash(hash0, hash1);
-    for i in 2..MT_HEIGHT as usize {
-        assert_eq!(
-            storage_account.get_node(0, MT_HEIGHT as usize - i),
-            hash
-        );
-        hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
     }
 }

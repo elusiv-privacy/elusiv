@@ -303,7 +303,7 @@ pub fn finalize_commitment_hash(
 
     let mut commitment_queue = CommitmentQueue::new(queue);
     let commitment = commitment_queue.dequeue_first()?;
-    assert_eq!(commitment.commitment, hashing_account.get_commitment());
+    assert_eq!(commitment.commitment, hashing_account.get_commitment()); // TODO: change this, at the moment this is just here for testing
 
     // Insert commitment and hashes and save last root
     let mut values = vec![commitment.commitment];

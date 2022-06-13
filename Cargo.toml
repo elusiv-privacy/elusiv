@@ -16,6 +16,8 @@ members = [
 [features]
 instruction-abi = []
 extended-logging = []
+no-entrypoint = []
+test-bpf = []
 
 [dependencies]
 elusiv-interpreter = { path = "./elusiv-interpreter" }
@@ -47,6 +49,9 @@ regex = "1.5.6"
 
 assert_matches = "1.5.0"
 ark-groth16 = { version = "0.3.0", default-features = false }
+
+[profile.test] # fixed
+opt-level = 2
 
 [lib]
 name = "elusiv"

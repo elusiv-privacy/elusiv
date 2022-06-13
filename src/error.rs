@@ -29,7 +29,6 @@ pub enum ElusivError {
     NoRoomForCommitment,
     Commitment,
     HashingIsAlreadyComplete,
-    DidNotFinishHashing,
 
     // Proof
     InvalidProof,
