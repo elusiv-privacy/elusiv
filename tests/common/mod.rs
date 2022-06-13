@@ -4,6 +4,7 @@
 pub mod program_setup;
 pub mod log;
 
+use elusiv_utils::get_storage_account_sub_accounts;
 use solana_program::{
     pubkey::Pubkey,
     instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL,
@@ -13,9 +14,10 @@ use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer}
 use assert_matches::assert_matches;
 use std::{str::FromStr};
 use ark_bn254::Fr;
-use elusiv::types::U256;
+use elusiv::{types::U256};
 use elusiv::fields::{fr_to_u256_le};
 use elusiv::processor::{BaseCommitmentHashRequest};
+use elusiv::state::{StorageAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountFields}};
 
 const DEFAULT_START_BALANCE: u64 = LAMPORTS_PER_SOL;
 
@@ -191,6 +193,11 @@ macro_rules! nullifier_account {
 #[allow(unused_imports)] pub(crate) use account_info;
 #[allow(unused_imports)] pub(crate) use storage_account;
 #[allow(unused_imports)] pub(crate) use nullifier_account;
+
+pub async fn storage_accounts(context: &mut ProgramTestContext) -> Vec<Pubkey> {
+    let storage_data = get_data(context, StorageAccount::find(None).0).await;
+    get_storage_account_sub_accounts(&storage_data[..]).unwrap()
+}
 
 use self::program_setup::set_account;
 

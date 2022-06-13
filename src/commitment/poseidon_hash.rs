@@ -28,7 +28,7 @@ macro_rules! round {
 /// - in our implementation we use two types of rounds: computation rounds and Poseidon rounds
 /// - circom javascript reference implementation: https://github.com/iden3/circomlibjs/blob/9300d3f820b40a16d2f342ab5127a0cb9090bd15/src/poseidon_reference.js#L27
 pub fn binary_poseidon_hash_partial(round: u32, state: &mut [Fr; 3]) {
-    // Load constants (~ 260)
+    // Load constants (~ 260 CUs)
     let constants = constants(round as usize);
 
     // Ark (~ 277 CUs)

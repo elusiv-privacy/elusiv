@@ -44,6 +44,5 @@ pub fn get_storage_account_sub_accounts(
         Ok(v) => v,
         Err(_) => return Err(UtilsError::InvalidAccount)
     };
-    let pks = acc.pubkeys;
-    Ok(pks.iter().map(|x| Pubkey::new(x)).collect())
+    Ok(acc.pubkeys.iter().map(|x| Pubkey::new(x)).collect())
 }
