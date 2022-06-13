@@ -31,6 +31,7 @@ use crate::error::ElusivError::{
     NullifierAlreadyExists,
     InvalidTimestamp,
     InvalidFeeVersion,
+    MerkleTreeIsNotInitialized,
 };
 use crate::proof::{
     VerificationAccount,
@@ -136,6 +137,9 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
 ) -> ProgramResult {
     guard!(*verification_account.key == VerificationAccount::find(Some(verification_account_index)).0, InvalidAccount);
     guard!(request.fee_version() == governor.get_fee_version(), InvalidFeeVersion);
+    guard!(storage_account.get_initialized(), MerkleTreeIsNotInitialized);
+    guard!(nullifier_account0.get_initialized(), MerkleTreeIsNotInitialized);
+    guard!(nullifier_account1.get_initialized(), MerkleTreeIsNotInitialized);
 
     let clock = Clock::get()?;
     let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();

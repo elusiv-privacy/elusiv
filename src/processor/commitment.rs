@@ -25,6 +25,7 @@ use crate::error::ElusivError::{
     NonScalarValue,
     NoRoomForCommitment,
     InvalidFeeVersion,
+    MerkleTreeIsNotInitialized,
 };
 use crate::fields::{try_scalar_montgomery, u256_to_big_uint};
 use crate::commitment::{
@@ -214,6 +215,7 @@ pub fn init_commitment_hash(
 ) -> ProgramResult {
     guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(!storage_account.is_full(), NoRoomForCommitment);
+    guard!(storage_account.get_initialized(), MerkleTreeIsNotInitialized);
 
     let queue = CommitmentQueue::new(queue);
     let request = queue.view_first()?;
@@ -298,6 +300,7 @@ pub fn finalize_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
     storage_account: &mut StorageAccount,
 ) -> ProgramResult {
+    guard!(storage_account.get_initialized(), MerkleTreeIsNotInitialized);
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     partial_computation_is_finished!(CommitmentHashComputation, hashing_account);
 

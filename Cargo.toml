@@ -25,21 +25,21 @@ elusiv-derive = { path = "./elusiv-derive" }
 elusiv-proc-macros = { path = "./elusiv-proc-macros" }
 elusiv-computation = { path = "./elusiv-computation" }
 
-solana-program = "1.9.26"
+solana-program = "=1.9.26"
 
 static_assertions = "1.1.0"
 borsh = { version = "0.9.3", features = ["const-generics"] }
 
-ark-bn254 = "0.3.0"
-ark-ff = { version = "0.3.0", default-features = false }
-ark-ec = { version = "0.3.0", default-features = false }
+ark-bn254 = "=0.3.0"
+ark-ff = { version = "=0.3.0", default-features = false }
+ark-ec = { version = "=0.3.0", default-features = false }
 
 [dev-dependencies]
 elusiv = { path = ".", features = ["instruction-abi", "extended-logging"] }
 elusiv-utils = { path = "./elusiv-utils" }
 
-solana-program-test = "1.9.26"
-solana-sdk = "1.9.26"
+solana-program-test = "=1.9.26"
+solana-sdk = "=1.9.26"
 base64 = "0.13.0"
 
 log = "0.4.17"
@@ -48,9 +48,9 @@ rand = "0.8.5"
 regex = "1.5.6"
 
 assert_matches = "1.5.0"
-ark-groth16 = { version = "0.3.0", default-features = false }
+ark-groth16 = { version = "=0.3.0", default-features = false }
 
-[profile.test] # fixed
+[profile.test]
 opt-level = 2
 
 [lib]

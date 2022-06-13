@@ -35,7 +35,7 @@ pub struct NullifierAccount {
 
     pubkeys: [U256; NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT],
 
-    root: U256, // this value is only valid, after the active tree has been reset
+    root: U256, // this value is only valid, after the active tree has been closed
     nullifiers_count: u64,
 }
 

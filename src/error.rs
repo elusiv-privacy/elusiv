@@ -15,6 +15,7 @@ pub enum ElusivError {
     SenderIsNotWritable,
 
     // Merkle tree
+    MerkleTreeIsNotInitialized,
     InvalidMerkleTreeAccess,
     InvalidMerkleRoot,
 

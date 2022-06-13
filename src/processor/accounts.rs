@@ -11,10 +11,16 @@ use crate::state::{
     program_account::{MultiAccountAccount, ProgramAccount, HeterogenMultiAccountAccount},
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
-    fee::FeeAccount, NullifierAccount,
+    fee::FeeAccount, NullifierAccount, MT_COMMITMENT_COUNT,
 };
 use crate::commitment::{CommitmentHashingAccount};
-use crate::error::ElusivError::{InvalidInstructionData, InvalidFeeVersion, InvalidAccount};
+use crate::error::ElusivError::{
+    InvalidInstructionData,
+    InvalidFeeVersion,
+    InvalidAccount,
+    MerkleTreeIsNotFullYet,
+    MerkleTreeIsNotInitialized,
+};
 use crate::macros::*;
 use crate::bytes::{BorshSerDeSized, is_zero};
 use crate::types::U256;
@@ -117,13 +123,24 @@ pub fn open_new_merkle_tree(
 ///     2. the active MT is not full but the remaining places in the MT are < than the batching rate of the next commitment in the commitment queue
 pub fn reset_active_merkle_tree(
     storage_account: &mut StorageAccount,
-    _active_nullifier_account: &mut NullifierAccount,
-    _next_nullifier_account: &mut NullifierAccount,
+    active_nullifier_account: &mut NullifierAccount,
+    next_nullifier_account: &mut NullifierAccount,
 
     active_merkle_tree_index: u64,
 ) -> ProgramResult {
     guard!(storage_account.get_trees_count() == active_merkle_tree_index, InvalidInstructionData);
-    todo!("Reset active MT not implemented yet");
+    guard!(storage_account.get_initialized(), MerkleTreeIsNotInitialized);
+    guard!(active_nullifier_account.get_initialized(), MerkleTreeIsNotInitialized);
+    guard!(next_nullifier_account.get_initialized(), MerkleTreeIsNotInitialized);
+
+    // Note: since batching is not yet implemented, we only close a MT when it's full
+    guard!(storage_account.get_next_commitment_ptr() as usize >= MT_COMMITMENT_COUNT, MerkleTreeIsNotFullYet);
+
+    storage_account.reset();
+    storage_account.set_trees_count(&(active_merkle_tree_index + 1));
+    active_nullifier_account.set_root(&storage_account.get_root());
+
+    Ok(())
 }
 
 /// Archives a closed MT by creating creating a N-SMT in an `ArchivedTreeAccount`
