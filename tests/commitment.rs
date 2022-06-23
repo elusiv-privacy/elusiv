@@ -1,5 +1,5 @@
 //! Tests the base commitment and commitment hashing
-
+/*
 #[cfg(not(tarpaulin_include))]
 mod common;
 
@@ -896,4 +896,4 @@ async fn test_commitment_hash_multiple_commitments() {
             u256_to_fr(&requests[i].commitment)
         );
     }
-}
+}*/

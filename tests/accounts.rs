@@ -1,5 +1,5 @@
 //! Tests the account setup process
-
+/*
 #[cfg(not(tarpaulin_include))]
 mod common;
 use common::*;
@@ -254,4 +254,4 @@ async fn test_close_merkle_tree() {
     for i in 0..HISTORY_ARRAY_COUNT {
         assert_eq!(storage_account.get_active_mt_root_history(i), [0; 32]);
     }
-}
+}*/

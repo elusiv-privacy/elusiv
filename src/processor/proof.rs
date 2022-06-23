@@ -7,6 +7,7 @@ use solana_program::{
 };
 use crate::macros::{guard, BorshSerDeSized};
 use crate::processor::CommitmentHashRequest;
+use crate::state::governor;
 use crate::state::program_account::PDAAccount;
 use crate::state::{
     NullifierAccount,
@@ -80,11 +81,11 @@ impl ProofRequest {
     }
 
     pub fn fee_version(&self) -> u64 {
-        match self {
-            Self::Send { request } => request.public_inputs.join_split.fee_version(),
-            Self::Merge { request } => request.public_inputs.join_split.fee_version(),
-            Self::Migrate { request } => request.public_inputs.join_split.fee_version(),
-        }
+        panic!()
+    }
+
+    pub fn batching_rate(&self) -> u32 {
+        panic!()
     }
 
     pub fn public_inputs(&self) -> Vec<BigInteger256> {
@@ -97,12 +98,14 @@ impl ProofRequest {
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
+/// Sending funds from a private balance to a recipient pubkey (on Ed25519)
 pub struct SendProofRequest {
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: SendPublicInputs,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
+/// Merging 
 pub struct MergeProofRequest {
     pub proof_data: JoinSplitProofData<2>,
     pub public_inputs: MergePublicInputs,
@@ -135,7 +138,7 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
     _ignore_duplicate_verifications: bool,
     tree_indices: [u64; 2],
 ) -> ProgramResult {
-    guard!(*verification_account.key == VerificationAccount::find(Some(verification_account_index)).0, InvalidAccount);
+    /*guard!(*verification_account.key == VerificationAccount::find(Some(verification_account_index)).0, InvalidAccount);
     guard!(request.fee_version() == governor.get_fee_version(), InvalidFeeVersion);
     guard!(storage_account.get_initialized(), MerkleTreeIsNotInitialized);
     guard!(nullifier_account0.get_initialized(), MerkleTreeIsNotInitialized);
@@ -181,7 +184,7 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
             )?;
             guard!(tree_indices[0] == request.proof_data.tree_indices[0], InvalidInstructionData);
         }
-    }
+    }*/
 
     // Check for expected nullifier duplicates
     // - we need to allow for two verifications having the same nullifiers, since a bad relayer could attempt block users from accessing their funds
@@ -296,7 +299,8 @@ pub fn finalize_proof<'a>(
     fee_version: u64,
     tree_indices: [u64; 2],
 ) -> ProgramResult {
-    let data = &mut verification_account_info.data.borrow_mut()[..];
+    todo!("Resulting zero commitment is not allowed");
+    /*let data = &mut verification_account_info.data.borrow_mut()[..];
     let verification_account = VerificationAccount::new(data)?;
 
     guard!(verification_account.get_fee_version() == fee_version, InvalidFeeVersion);
@@ -317,8 +321,9 @@ pub fn finalize_proof<'a>(
     let request = verification_account.get_request();
     let fee_version = verification_account.get_fee_version();
     let public_inputs = request.public_inputs();
+    let batching_rate = 
     let proof_verification_fee = execute_with_vkey!(request, VKey, {
-        fee.proof_verification_fee::<VKey>(&public_inputs)
+        fee.proof_verification_fee::<VKey>(&public_inputs, )
     });
 
     match request {
@@ -328,10 +333,12 @@ pub fn finalize_proof<'a>(
             nullifier_account0.insert_nullifier_hash(request.public_inputs.join_split.nullifier_hashes[0])?;
             nullifier_account1.insert_nullifier_hash(request.public_inputs.join_split.nullifier_hashes[1])?;
 
-            commitment_queue.enqueue(CommitmentHashRequest {
-                commitment: request.public_inputs.join_split.commitment,
-                fee_version
-            })?;
+            commitment_queue.enqueue(
+                CommitmentHashRequest {
+                    commitment: request.public_inputs.join_split.commitment,
+                    fee_version
+                }
+            )?;
 
             // Send amount - fees to the recipient
             guard!(recipient.key.to_bytes() == request.public_inputs.recipient, InvalidRecipient);
@@ -348,20 +355,24 @@ pub fn finalize_proof<'a>(
             nullifier_account0.insert_nullifier_hash(request.public_inputs.join_split.nullifier_hashes[0])?;
             nullifier_account1.insert_nullifier_hash(request.public_inputs.join_split.nullifier_hashes[1])?;
 
-            commitment_queue.enqueue(CommitmentHashRequest {
-                commitment: request.public_inputs.join_split.commitment,
-                fee_version
-            })?;
+            commitment_queue.enqueue(
+                CommitmentHashRequest {
+                    commitment: request.public_inputs.join_split.commitment,
+                    fee_version
+                }
+            )?;
         }
 
         ProofRequest::Migrate { request } => {
             guard!(tree_indices[0] == request.proof_data.tree_indices[0], InvalidAccount);
             nullifier_account0.insert_nullifier_hash(request.public_inputs.join_split.nullifier_hashes[0])?;
 
-            commitment_queue.enqueue(CommitmentHashRequest {
-                commitment: request.public_inputs.join_split.commitment,
-                fee_version
-            })?;
+            commitment_queue.enqueue(
+                CommitmentHashRequest {
+                    commitment: request.public_inputs.join_split.commitment,
+                    fee_version
+                }
+            )?;
 
             todo!("NSTM archivation system not implemented")
         }
@@ -375,7 +386,8 @@ pub fn finalize_proof<'a>(
     )?;
 
     // Close verification account
-    close_account(original_fee_payer, verification_account_info)
+    close_account(original_fee_payer, verification_account_info)*/
+    panic!()
 }
 
 /// Verifies public inputs and the proof data for proof requests

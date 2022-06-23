@@ -250,17 +250,18 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             }
                         } else if as_account_info {
                             account = quote!{ &#account };
+                        } else if is_writable {
+                            accounts.extend(quote!{
+                                let acc_data = &mut #account.data.borrow_mut()[..];
+                                let #mut_token #account = <#ty>::new(acc_data)?;
+                            });
+                            account = quote!{ &mut #account };
                         } else {
                             accounts.extend(quote!{
                                 let acc_data = &mut #account.data.borrow_mut()[..];
                                 let #mut_token #account = <#ty>::new(acc_data)?;
                             });
-
-                            if is_writable {
-                                account = quote!{ &mut #account };
-                            } else {
-                                account = quote!{ &#account };
-                            }
+                            account = quote!{ &#account };
                         }
                     },
                     v => panic!("Invalid attribute name {}", v)

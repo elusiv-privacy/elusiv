@@ -723,11 +723,10 @@ mod tests {
                         fr_to_u256_le(&Fr::from_str(roots[1]).unwrap()),
                     ],
                     commitment: fr_to_u256_le(&Fr::from_str(commitment).unwrap()),
-                    fee_amount: 0,
+                    amount,
                     fee_version: 0,
                 },
                 recipient,
-                amount,
                 timestamp,
                 identifier: 0,
                 salt: 0,
@@ -932,7 +931,8 @@ mod tests {
         assert_eq!(
             prepare_public_inputs_instructions::<VK>(&vec![BigInteger256::new([0,0,0,0]); VK::PUBLIC_INPUTS_COUNT]),
             vec![VK::PREPARE_PUBLIC_INPUTS_ROUNDS as u32]
-        )
+        );
+        panic!("{:?}", prepare_public_inputs_instructions::<VK>(&vec![BigInteger256::new([u64::MAX,u64::MAX,u64::MAX,u64::MAX]); VK::PUBLIC_INPUTS_COUNT]).len());
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
@@ -964,5 +964,26 @@ mod tests {
         let mut f = f.cyclotomic_exp(&Parameters::X);
         if !Parameters::X_IS_NEGATIVE { f.conjugate(); }
         f
+    }
+
+    #[test]
+    fn test_abx() {
+        let mut rounds = Vec::new();
+
+        let public_input = &BigInteger256([0, 0, 0, u64::MAX]);
+            let skip = find_first_non_zero(public_input);
+            rounds.extend(vec![0; skip]);
+
+            for b in skip..256 {
+                if get_bit(public_input, b) {
+                    rounds.push(DOUBLE_IN_PLACE_COST + ADD_ASSIGN_MIXED_COST);
+                } else {
+                    rounds.push(DOUBLE_IN_PLACE_COST);
+                }
+            }
+
+            rounds.push(0);
+
+        panic!("{}", compute_unit_instructions(rounds).len());
     }
 }

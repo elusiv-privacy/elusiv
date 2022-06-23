@@ -13,6 +13,12 @@ pub const fn max(a: usize, b: usize) -> usize {
     [a, b][if a < b { 1 } else { 0 }]
 }
 
+/// Rounds a integer division up
+pub const fn div_ceiling(divident: u64, divisor: u64) -> u64 {
+    if divisor == 0 { panic!() }
+    (divident + divisor - 1) / divisor
+}
+
 pub const fn u64_as_usize_safe(u: u64) -> usize {
     u64_as_u32_safe(u) as usize
 }
@@ -102,6 +108,19 @@ mod tests {
     fn test_max() {
         assert_eq!(max(1, 3), 3);
         assert_eq!(max(3, 1), 3);
+    }
+
+    #[test]
+    fn test_div_ceiling() {
+        assert_eq!(div_ceiling(3, 2), 2);
+        assert_eq!(div_ceiling(4, 3), 2);
+        assert_eq!(div_ceiling(7, 3), 3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_div_ceiling_zero() {
+        div_ceiling(0, 0);
     }
 
     #[test]

@@ -191,6 +191,14 @@ pub enum ElusivInstruction {
     #[sys(system_program, key = system_program::ID, { ignore })]
     SetupGovernorAccount,
 
+    #[acc(authority, { signer })]
+    #[pda(governor, Governor, { writable })]
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
+    UpgradeGovernorState {
+        fee_version: u64,
+        batching_rate: u32,
+    },
+
     #[acc(payer, { writable, signer })]
     #[pda(governor, Governor)]
     #[pda(fee, Fee, pda_offset = Some(fee_version), { writable, account_info, find_pda })]

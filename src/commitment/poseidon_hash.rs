@@ -1,5 +1,8 @@
 use ark_ff::{Field, Zero};
 use ark_bn254::Fr;
+use borsh::{BorshSerialize, BorshDeserialize};
+use crate::{types::U256, fields::{fr_to_u256_le, u256_to_fr}, bytes::BorshSerDeSized};
+
 use super::poseidon_constants::*;
 
 pub const TOTAL_POSEIDON_ROUNDS: u32 = 65;
@@ -23,13 +26,61 @@ macro_rules! round {
     };
 }
 
+#[derive(Debug, PartialEq)]
+pub struct BinarySpongeHashingState(pub [Fr; 3]);
+
+impl BinarySpongeHashingState {
+    pub fn new(l: Fr, r: Fr, invert: bool) -> Self {
+        if invert {
+            BinarySpongeHashingState([Fr::zero(), r, l])
+        } else {
+            BinarySpongeHashingState([Fr::zero(), l, r])
+        }
+    }
+
+    pub fn result(&self) -> Fr {
+        self.0[0]
+    }
+}
+
+impl BorshSerDeSized for BinarySpongeHashingState {
+    const SIZE: usize = U256::SIZE * 3;
+}
+
+impl BorshSerialize for BinarySpongeHashingState {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        [
+            fr_to_u256_le(&self.0[0]),
+            fr_to_u256_le(&self.0[1]),
+            fr_to_u256_le(&self.0[2]),
+        ].serialize(writer)
+    }
+}
+
+impl BorshDeserialize for BinarySpongeHashingState {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        let v = <[U256; 3]>::deserialize(buf)?;
+        Ok(
+            BinarySpongeHashingState([
+                u256_to_fr(&v[0]),
+                u256_to_fr(&v[1]),
+                u256_to_fr(&v[2]),
+            ])
+        )
+    }
+}
+
 /// Computes the Poseidon Hash for two input values over multiple calls
 /// - for input arity 2 we have 8 full rounds and 57 partial rounds (recommended in: https://eprint.iacr.org/2019/458.pdf (table 2, table 8))
 /// - in our implementation we use two types of rounds: computation rounds and Poseidon rounds
 /// - circom javascript reference implementation: https://github.com/iden3/circomlibjs/blob/9300d3f820b40a16d2f342ab5127a0cb9090bd15/src/poseidon_reference.js#L27
-pub fn binary_poseidon_hash_partial(round: u32, state: &mut [Fr; 3]) {
+pub fn binary_poseidon_hash_partial(
+    round: u32,
+    hashing_state: &mut BinarySpongeHashingState,
+) {
     // Load constants (~ 260 CUs)
     let constants = constants(round as usize);
+    let mut state = hashing_state.0;
 
     // Ark (~ 277 CUs)
     state[0] += constants[0];
@@ -37,30 +88,29 @@ pub fn binary_poseidon_hash_partial(round: u32, state: &mut [Fr; 3]) {
     state[2] += constants[2];
 
     // Sbox
-    if !(4..61).contains(&round) { // First and last full rounds (~ 15411 CUs)
+    if !(4..61).contains(&round) { // First and last full rounds (~ 15_411 CUs)
         round!(0, state);
         round!(1, state);
         round!(2, state);
-    } else { // Middle partial rounds (~ 5200 CUs)
+    } else { // Middle partial rounds (~ 5_200 CUs)
         round!(0, state);
     }
 
-    // Mix (~ 17740)
+    // Mix (~ 17_740)
     let mut new_state = [Fr::zero(); 3];
     matrix_mix!(new_state, 0, 0, state);
     matrix_mix!(new_state, 1, 3, state);
     matrix_mix!(new_state, 2, 6, state);
 
-    *state = new_state;
+    hashing_state.0 = new_state;
 }
 
-//#[cfg(test)]
 pub fn full_poseidon2_hash(a: Fr, b: Fr) -> Fr {
-    let mut state = [Fr::zero(), a, b];
+    let mut state = BinarySpongeHashingState::new(a, b, false);
     for round in 0..TOTAL_POSEIDON_ROUNDS {
         binary_poseidon_hash_partial(round, &mut state);
     }
-    state[0]
+    state.result()
 }
 
 #[cfg(test)]
@@ -68,6 +118,7 @@ mod tests {
     use super::*;
     use crate::state::EMPTY_TREE;
     use std::str::FromStr;
+    use ark_ff::One;
 
     #[test]
     fn test_binary_poseidon_hash() {
@@ -115,5 +166,61 @@ mod tests {
             assert_eq!(a, empty_value);
             a = full_poseidon2_hash(a, a);
         }
+    }
+
+    #[test]
+    fn test_new_hashing_state() {
+        let a = BinarySpongeHashingState::new(
+            Fr::zero(),
+            Fr::one(),
+            false
+        );
+
+        let b = BinarySpongeHashingState::new(
+            Fr::zero(),
+            Fr::one(),
+            true
+        );
+
+        assert_eq!(a.0[0], Fr::zero());
+        assert_eq!(a.0[1], Fr::zero());
+        assert_eq!(a.0[2], Fr::one());
+
+        assert_eq!(b.0[0], Fr::zero());
+        assert_eq!(b.0[1], Fr::one());
+        assert_eq!(b.0[2], Fr::zero());
+    }
+
+    #[test]
+    fn test_hashing_state_result() {
+        let mut a = BinarySpongeHashingState::new(
+            Fr::zero(),
+            Fr::zero(),
+            false
+        );
+        a.0[0] = Fr::one();
+        assert_eq!(a.result(), Fr::one());
+    }
+
+    #[test]
+    fn test_hashing_state_ser_de() {
+        let a = BinarySpongeHashingState::new(
+            Fr::zero(),
+            Fr::zero(),
+            false,
+        );
+
+        assert_eq!(
+            a.try_to_vec().unwrap(),
+            vec![0; 32 * 3]
+        );
+
+        let b = BinarySpongeHashingState::new(
+            Fr::one(),
+            Fr::zero(),
+            false
+        );
+
+        assert_eq!(b, BinarySpongeHashingState::try_from_slice(&b.try_to_vec().unwrap()[..]).unwrap());
     }
 }

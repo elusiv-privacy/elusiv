@@ -106,6 +106,11 @@ pub fn create_pda_account<'a>(
     bump: u8,
     signers_seeds: &[&[u8]],
 ) -> ProgramResult {
+    // For unit testing we exit
+    if cfg!(test) {
+        return Ok(());
+    }
+
     let lamports_required = Rent::get()?.minimum_balance(account_size);
     let space: u64 = account_size.try_into().unwrap();
     guard!(payer.lamports() >= lamports_required, InvalidAccountBalance);

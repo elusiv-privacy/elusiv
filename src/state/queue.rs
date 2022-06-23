@@ -2,6 +2,7 @@
 
 use borsh::{BorshSerialize, BorshDeserialize};
 use solana_program::program_error::ProgramError;
+use crate::commitment::commitments_per_batch;
 use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty};
 use crate::macros::guard;
 use crate::bytes::*;
@@ -72,6 +73,33 @@ queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, b"base_commitmen
 
 // Queue used for storing commitments that should sequentially inserted into the active MT
 queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest, 1);
+
+impl<'a, 'b> CommitmentQueue<'a, 'b> {
+    /// Returns the next batch of commitments to be hashed together
+    pub fn next_batch(&self) -> Result<Vec<CommitmentHashRequest>, ProgramError> {
+        let mut requests = Vec::new();
+        let mut highest_batching_rate = 0;
+        let mut commitment_count: usize = u32::MAX as usize;
+        let mut fee_version = 0;
+
+        while requests.len() < commitment_count {
+            let request = self.view(requests.len())?;
+            highest_batching_rate = std::cmp::max(
+                highest_batching_rate,
+                request.min_batching_rate
+            );
+            fee_version = std::cmp::min(
+                fee_version,
+                request.fee_version
+            );
+            commitment_count = commitments_per_batch(highest_batching_rate);
+
+            requests.push(request);
+        }
+
+        Ok(requests)
+    }
+}
 
 /// Ring queue with a capacity of `CAPACITY` elements
 /// - works by having two pointers, `head` and `tail` and a some data storage with getter, setter
@@ -270,5 +298,10 @@ mod tests {
             queue.dequeue_first().unwrap();
         }
         assert!(matches!(queue.dequeue_first(), Err(_)));
+    }
+
+    #[test]
+    fn test_next_batch() {
+        panic!()
     }
 }

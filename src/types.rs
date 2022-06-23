@@ -104,7 +104,7 @@ pub struct JoinSplitPublicInputs<const N: usize> {
     pub roots: [U256; N],
     pub commitment: U256,
     pub fee_version: u64,
-    pub fee_amount: u64,
+    pub amount: u64,
 }
 
 impl<const N: usize> JoinSplitPublicInputs<N> {
@@ -128,7 +128,6 @@ pub const MAX_PUBLIC_INPUTS_COUNT: usize = 8;
 pub struct SendPublicInputs {
     pub join_split: JoinSplitPublicInputs<2>,
     pub recipient: U256,
-    pub amount: u64,
     pub timestamp: u64,
     pub identifier: u64,
     pub salt: u32,
@@ -138,6 +137,7 @@ pub struct SendPublicInputs {
 // https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/main/merge_binary.circom
 pub struct MergePublicInputs {
     pub join_split: JoinSplitPublicInputs<2>,
+    pub timestamp: u64,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
@@ -150,11 +150,15 @@ pub struct MigratePublicInputs {
 
 impl PublicInputs for SendPublicInputs {
     fn public_inputs_raw(&self) -> Vec<U256> {
-        let packed = pack_inputs(self.recipient, self.timestamp, self.amount).unwrap();
+        let mut recipient0 = [0; 32];
+        for i in 0..16 { recipient0[i] = self.recipient[i]; }
+
+        let mut recipient1 = [0; 32];
+        for i in 16..32 { recipient1[i] = self.recipient[i]; }
 
         vec![
-            packed[0],
-            packed[1],
+            recipient0,
+            recipient1,
             self.join_split.roots[0],
             self.join_split.roots[1],
             self.join_split.nullifier_hashes[0],
@@ -168,15 +172,9 @@ impl PublicInputs for SendPublicInputs {
 
 impl PublicInputs for MergePublicInputs {
     fn public_inputs_raw(&self) -> Vec<U256> {
-        vec![
-            self.join_split.roots[0],
-            self.join_split.roots[1],
-            self.join_split.nullifier_hashes[0],
-            self.join_split.nullifier_hashes[1],
-            self.join_split.commitment,
-            //self.join_split.fee_version,
-            //self.join_split.fee_amount,
-        ]
+        // TODO: map public inputs to the send public inputs
+        panic!()
+
     }
 }
 
@@ -288,11 +286,10 @@ mod test {
                     nullifier_hashes: [ ZERO, ZERO ],
                     roots: [ ZERO, ZERO ],
                     commitment: ZERO,
-                    fee_amount: 0,
+                    amount: 0,
                     fee_version: 0
                 },
                 recipient: ZERO,
-                amount: 0,
                 timestamp: 0,
                 identifier: 0,
                 salt: 0,
@@ -305,9 +302,10 @@ mod test {
                     nullifier_hashes: [ ZERO, ZERO ],
                     roots: [ ZERO, ZERO ],
                     commitment: ZERO,
-                    fee_amount: 0,
-                    fee_version: 0
+                    amount: 0,
+                    fee_version: 0,
                 },
+                timestamp: 0,
             }.public_inputs_raw().len() <= MAX_PUBLIC_INPUTS_COUNT
         );
 
@@ -317,7 +315,7 @@ mod test {
                     nullifier_hashes: [ ZERO ],
                     roots: [ ZERO ],
                     commitment: ZERO,
-                    fee_amount: 0,
+                    amount: 0,
                     fee_version: 0
                 },
                 current_nsmt_root: ZERO,

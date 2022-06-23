@@ -1,6 +1,6 @@
-use crate::commitment::{BaseCommitmentHashComputation, CommitmentHashComputation};
+use crate::commitment::{BaseCommitmentHashComputation, commitment_hash_computation_instructions, commitments_per_batch};
 use crate::macros::{elusiv_account};
-use crate::bytes::BorshSerDeSized;
+use crate::bytes::{BorshSerDeSized, div_ceiling, u64_as_usize_safe};
 use crate::proof::{prepare_public_inputs_instructions, CombinedMillerLoop, FinalExponentiation};
 use crate::proof::vkey::VerificationKey;
 use ark_ff::BigInteger256;
@@ -91,22 +91,37 @@ impl<'a> FeeAccount<'a> {
     }
 
     /// tx_count * (lamports_per_tx + relayer_hash_tx_fee) + commitment_hash_fee + base_commitment_network_fee
-    pub fn base_commitment_hash_fee(&self) -> u64 {
+    pub fn base_commitment_hash_fee(
+        &self,
+        min_batching_rate: u32,
+    ) -> u64 {
         BaseCommitmentHashComputation::INSTRUCTIONS.len() as u64 * self.hash_tx_compensation()
             + self.get_base_commitment_network_fee()
-            + self.commitment_hash_fee()
+            + self.commitment_hash_fee(min_batching_rate)
     }
 
     /// tx_count * (lamports_per_tx + relayer_hash_tx_fee)
-    pub fn commitment_hash_fee(&self) -> u64 {
-        CommitmentHashComputation::INSTRUCTIONS.len() as u64 * self.hash_tx_compensation()
+    pub fn commitment_hash_fee(
+        &self,
+        min_batching_rate: u32,
+    ) -> u64 {
+        let tx_count_total = commitment_hash_computation_instructions(min_batching_rate).len();
+        let commitments_per_batch = commitments_per_batch(min_batching_rate);
+        div_ceiling(
+            tx_count_total as u64 * self.hash_tx_compensation(),
+            commitments_per_batch as u64
+        )
     }
 
     /// tx_count * (lamports_per_tx + relayer_proof_tx_fee) + relayer_proof_reward + commitment_hash_fee + proof_network_fee
-    pub fn proof_verification_fee<VKey: VerificationKey>(&self, public_inputs: &[BigInteger256]) -> u64 {
+    pub fn proof_verification_fee<VKey: VerificationKey>(
+        &self,
+        public_inputs: &[BigInteger256],
+        min_batching_rate: u32,
+    ) -> u64 {
         Self::proof_tx_count::<VKey>(public_inputs) as u64 * (self.get_lamports_per_tx() + self.get_relayer_proof_tx_fee())
             + self.get_relayer_proof_reward()
-            + self.commitment_hash_fee()
+            + self.commitment_hash_fee(min_batching_rate)
             + self.get_proof_network_fee()
     }
 
@@ -120,10 +135,6 @@ impl<'a> FeeAccount<'a> {
 
     pub fn proof_tx_compensation(&self) -> u64 {
         self.get_lamports_per_tx() + self.get_relayer_proof_tx_fee()
-    }
-
-    pub fn proof_fee_payer_fee<VKey: VerificationKey>(&self, public_inputs: &[BigInteger256]) -> u64 {
-        self.proof_verification_fee::<VKey>(public_inputs) - self.get_relayer_proof_reward()
     }
 }
 
@@ -176,9 +187,9 @@ mod tests {
         max_value_setup(&mut fee_account);
 
         assert_eq!(
-            fee_account.base_commitment_hash_fee(),
+            fee_account.base_commitment_hash_fee(0),
             (MAX_RELAYER_HASH_TX_FEE + MAX_LAMPORTS_PER_SIGNATURE) * BaseCommitmentHashComputation::INSTRUCTIONS.len() as u64
-            + fee_account.commitment_hash_fee()
+            + fee_account.commitment_hash_fee(0)
             + MAX_BASE_COMMITMENT_NETWORK_FEE
         )
     }
@@ -189,8 +200,8 @@ mod tests {
         max_value_setup(&mut fee_account);
 
         assert_eq!(
-            fee_account.commitment_hash_fee(),
-            (MAX_RELAYER_HASH_TX_FEE + MAX_LAMPORTS_PER_SIGNATURE) * CommitmentHashComputation::INSTRUCTIONS.len() as u64
+            fee_account.commitment_hash_fee(0),
+            (MAX_RELAYER_HASH_TX_FEE + MAX_LAMPORTS_PER_SIGNATURE) * commitment_hash_computation_instructions(0).len() as u64
         )
     }
 
@@ -203,7 +214,7 @@ mod tests {
         let public_inputs = vec![BigInteger256::new([0,0,0,0]); VK::PUBLIC_INPUTS_COUNT];
 
         assert_eq!(
-            fee_account.proof_verification_fee::<VK>(&public_inputs),
+            fee_account.proof_verification_fee::<VK>(&public_inputs, 0),
             (MAX_RELAYER_PROOF_TX_FEE + MAX_LAMPORTS_PER_SIGNATURE) * (
                 1
                 + CombinedMillerLoop::INSTRUCTIONS.len() as u64
@@ -211,12 +222,7 @@ mod tests {
             )
             + MAX_PROOF_NETWORK_FEE
             + MAX_RELAYER_PROOF_REWARD
-            + fee_account.commitment_hash_fee()
+            + fee_account.commitment_hash_fee(0)
         );
-
-        assert_eq!(
-            fee_account.proof_fee_payer_fee::<VK>(&public_inputs),
-            fee_account.proof_verification_fee::<VK>(&public_inputs) - fee_account.get_relayer_proof_reward()
-        )
     }
 }

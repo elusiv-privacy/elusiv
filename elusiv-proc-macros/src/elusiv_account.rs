@@ -77,13 +77,16 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 let multi_account: String = named_sub_attribute("multi_account", attr).parse().unwrap();
                 let multi_account = (&multi_account[1..multi_account.len() - 1]).split(';').collect::<Vec<&str>>();
-                let count: TokenStream = multi_account[0].parse().unwrap();
-                let max_account_size: TokenStream = multi_account[1].parse().unwrap();
 
-                assert_field!(first_field, fields_iter, format!("pubkeys : [U256 ; {}]", multi_account[0]));
+                let ty: TokenStream = multi_account[0].parse().unwrap();
+                let count: TokenStream = multi_account[1].parse().unwrap();
+                let max_account_size: TokenStream = multi_account[2].parse().unwrap();
+
+                assert_field!(field0, fields_iter, format!("pubkeys : [U256 ; {}]", multi_account[1]));
 
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'t> for #name<#lifetimes> {
+                        type T = #ty;
                         const COUNT: usize = #count;
                         const INTERMEDIARY_ACCOUNT_SIZE: usize = #max_account_size;
 
@@ -105,23 +108,31 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         fn get_account(&self, account_index: usize) -> &solana_program::account_info::AccountInfo<'t> {
                             &self.accounts[account_index]
                         }
+
+                        fn modify(&mut self, index: usize, value: Self::T) {
+                            self.modifications.insert(index, value);
+                        }
                     }
                 });
 
                 // Add accounts field (IMPORTANT: no verification happens here, caller needs to make sure that the accounts match the pubkeys)
-                fields.extend(quote! { accounts, });
+                fields.extend(quote! { accounts, modifications, });
                 definition.extend(quote! {
                     accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>,
+                    pub modifications: std::collections::HashMap<usize, #ty>,
                 });
                 signature.extend(quote! {
                     accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>,
                 });
+                init.extend(quote! {
+                    let modifications = std::collections::HashMap::new();
+                });
             },
             "partial_computation" => {
-                assert_field!(first_field, fields_iter, "is_active : bool");
-                assert_field!(second_field, fields_iter, "instruction : u32");
-                assert_field!(third_field, fields_iter, "fee_payer : U256");
-                assert_field!(fourth_field, fields_iter, "fee_version : u64");
+                assert_field!(field0, fields_iter, "is_active : bool");
+                assert_field!(field1, fields_iter, "instruction : u32");
+                assert_field!(field3, fields_iter, "fee_payer : U256");
+                assert_field!(field4, fields_iter, "fee_version : u64");
             },
             _ => { }
         }

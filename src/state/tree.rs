@@ -14,19 +14,19 @@ const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
 pub type NullifierMap = BTreeMap<U256Limbed2, ()>;
 
 const NULLIFIER_MAP_STATIC_SIZE: usize = 4; // 4 bytes to store the u32 tree map size
-const NULLIFIER_MAP_ELEMENT_SIZE: usize = U256::SIZE + 1;
-const MAX_NULLIFIERS_PER_ACCOUNT: usize = (MAX_PERMITTED_DATA_LENGTH as usize - NULLIFIER_MAP_STATIC_SIZE) / NULLIFIER_MAP_ELEMENT_SIZE;
+const MAX_NULLIFIERS_PER_ACCOUNT: usize = (MAX_PERMITTED_DATA_LENGTH as usize - NULLIFIER_MAP_STATIC_SIZE) / U256::SIZE;
 
 pub const NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = get_multi_accounts_count(MAX_NULLIFIERS_PER_ACCOUNT, NULLIFIERS_COUNT);
 const_assert_eq!(NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT, 4);
 
-const NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * NULLIFIER_MAP_ELEMENT_SIZE;
+const NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * U256::SIZE;
 
 /// NullifierAccount is a big-array storing `NULLIFIERS_COUNT` nullifiers over multiple accounts
 /// - we use `NullifierMap`s to store the nullifiers
 #[elusiv_account(pda_seed = b"tree", multi_account = (
+    U256;
     NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT;
-    NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE
+    NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE;
 ))]
 pub struct NullifierAccount {
     bump_seed: u8,
@@ -40,7 +40,7 @@ pub struct NullifierAccount {
 }
 
 impl<'a, 'b, 'c> HeterogenMultiAccountAccount<'c> for NullifierAccount<'a, 'b, 'c> {
-    const LAST_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * NULLIFIER_MAP_ELEMENT_SIZE;
+    const LAST_ACCOUNT_SIZE: usize = NULLIFIER_MAP_STATIC_SIZE + MAX_NULLIFIERS_PER_ACCOUNT * U256::SIZE;
 }
 
 /// Tree account after archiving (only a single collapsed N-SMT root)
@@ -100,6 +100,9 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
 
 #[cfg(test)]
 mod tests {
+    use borsh::BorshSerialize;
+    use crate::types::U256Limbed2;
+    use super::NullifierMap;
     /*use super::*;
     use crate::macros::account;
     use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
@@ -126,15 +129,19 @@ mod tests {
     #[test]
     fn test_nullifier_map_index() {
         //nullifier_account!(nullifier_account);
+        let mut map = NullifierMap::new();
+        map.insert(U256Limbed2([0; 2]), ());
+        map.insert(U256Limbed2([1; 2]), ());
+        println!("{:?}", map.try_to_vec().unwrap().len());
     }
 
     #[test]
     fn test_insert_nullifier() {
-
+        panic!()
     }
 
     #[test]
     fn test_insert_duplicate_nullifier() {
-
+        panic!()
     }
 }

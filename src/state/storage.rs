@@ -8,12 +8,17 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ark_bn254::Fr;
 use ark_ff::{BigInteger256};
 
-/// Height of the active MT (we define the height using the amount of leaves)
-/// - so a tree of height n has 2ˆn leaves
+/// Height of the active MT
+/// - we define the height using the amount of leaves
+/// - a tree of height n has 2ˆn leaves
 pub const MT_HEIGHT: u32 = 20;
 
 /// Count of all nodes in the MT
-pub const MT_SIZE: usize = two_pow!(MT_HEIGHT + 1) - 1;
+pub const MT_SIZE: usize = mt_size(MT_HEIGHT);
+
+pub const fn mt_size(height: u32) -> usize {
+    two_pow!(height + 1) - 1
+}
 
 /// Count of all commitments (leaves) in the MT
 pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
@@ -58,8 +63,9 @@ const ZERO: Fr = Fr::new(BigInteger256::new([0, 0, 0, 0]));
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
 #[elusiv_account(pda_seed = b"storage", multi_account = (
+    U256;
     STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT;
-    max_account_size(U256::SIZE)
+    max_account_size(U256::SIZE);
 ))]
 pub struct StorageAccount {
     bump_seed: u8,
@@ -79,10 +85,10 @@ pub struct StorageAccount {
 
     // Stores the last HISTORY_ARRAY_COUNT roots of the active tree
     active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
+    mt_roots_count: u32, // required since we batch insert commitments
 }
 
 impl<'a, 'b, 't> BigArrayAccount<'t> for StorageAccount<'a, 'b, 't> {
-    type T = U256;
     const VALUES_COUNT: usize = MT_SIZE;
 }
 
@@ -93,6 +99,7 @@ impl<'a, 'b, 't> MultiInstancePDAAccount for StorageAccount<'a, 'b, 't> {
 impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     pub fn reset(&mut self) {
         self.set_next_commitment_ptr(&0);
+        self.set_mt_roots_count(&0);
 
         for i in 0..self.active_mt_root_history.len() {
             self.active_mt_root_history[i] = 0;
@@ -102,25 +109,6 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     pub fn is_full(&self) -> bool {
         let ptr = self.get_next_commitment_ptr() as usize;
         ptr >= MT_COMMITMENT_COUNT
-    }
-
-    /// Inserts commitment and the above hashes
-    pub fn insert_commitment(&mut self, values: &[U256]) {
-        assert!(values.len() == MT_HEIGHT as usize + 1);
-
-        let ptr = self.get_next_commitment_ptr();
-
-        // Save last root
-        self.set_active_mt_root_history(ptr as usize % HISTORY_ARRAY_COUNT, &self.get_root());
-
-        // Insert values into the tree
-        for (i, &value) in values.iter().enumerate() {
-            let level = MT_HEIGHT as usize - i;
-            let index = ptr >> i;
-            self.set_node(&value, index as usize, level);
-        }
-
-        self.set_next_commitment_ptr(&(ptr + 1));
     }
 
     /// `level`: 0 is the root level, `MT_HEIGHT` the commitment level
@@ -137,11 +125,9 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         }
     }
 
-    fn set_node(&mut self, value: &U256, index: usize, level: usize) {
+    pub fn set_node(&mut self, value: &U256, index: usize, level: usize) {
         assert!(level <= MT_HEIGHT as usize);
-
-        //solana_program::msg!("set: {} index: {} level: {}", u256_to_fr(value), index, level);
-
+        assert!(index < two_pow!(usize_as_u32_safe(level)));
         self.set(mt_array_index(index, level), *value);
     }
 
@@ -151,7 +137,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: U256) -> bool {
-        let max_history_roots = max(self.get_next_commitment_ptr() as usize, HISTORY_ARRAY_COUNT);
+        let max_history_roots = max(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
         root == self.get_root() || contains(root, &self.active_mt_root_history[..max_history_roots * 32])
     }
 
@@ -183,18 +169,10 @@ fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{macros::{account, generate_storage_accounts, generate_storage_accounts_valid_size}, commitment::poseidon_hash::full_poseidon2_hash};
-    use solana_program::{account_info::AccountInfo};
+    use crate::{macros::storage_account, commitment::poseidon_hash::full_poseidon2_hash};
     use super::super::program_account::{MultiAccountAccount};
     use std::str::FromStr;
-
-    macro_rules! storage_account {
-        ($id: ident) => {
-            let mut data = vec![0; StorageAccount::SIZE];
-            generate_storage_accounts_valid_size!(accounts);
-            let $id = StorageAccount::new(&mut data, accounts).unwrap();
-        };
-    }
+    use ark_ff::Zero;
 
     #[test]
     fn test_storage_account() {
@@ -202,22 +180,53 @@ mod tests {
     }
 
     #[test]
-    fn test_get_default_mt_values() {
-        storage_account!(storage_account);
+    fn test_mt_array_index() {
+        assert_eq!(0, mt_array_index(0, 0));
 
-        // Commitment
-        assert_eq!(storage_account.get_node(0, MT_HEIGHT as usize), Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap());
+        assert_eq!(1, mt_array_index(0, 1));
+        assert_eq!(2, mt_array_index(1, 1));
 
-        // root
-        assert_eq!(storage_account.get_node(0, 0), Fr::from_str("11702828337982203149177882813338547876343922920234831094975924378932809409969").unwrap());
+        assert_eq!(3, mt_array_index(0, 2));
+        assert_eq!(4, mt_array_index(1, 2));
+        assert_eq!(5, mt_array_index(2, 2));
+        assert_eq!(6, mt_array_index(3, 2));
+    }
 
-        for level in (0..=MT_HEIGHT as usize).rev() {
-            // Empty tree
-            assert!(use_default_value(0, level, 0));
+    #[test]
+    fn test_set_node() {
+        storage_account!(mut storage_account);
 
-            // One commitment
-            assert!(!use_default_value(0, level, 1));
+        for level in 0..=MT_HEIGHT {
+            let last = two_pow!(level) - 1;
+
+            // First node
+            storage_account.set_node(&[1; 32], 0, level as usize);
+            assert_eq!(
+                *storage_account.modifications.get(&mt_array_index(0, level as usize)).unwrap(),
+                [1; 32]
+            );
+
+            // Last node
+            storage_account.set_node(&[2; 32], last, level as usize);
+            assert_eq!(
+                *storage_account.modifications.get(&mt_array_index(last, level as usize)).unwrap(),
+                [2; 32]
+            );
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_set_node_invalid_level() {
+        storage_account!(mut storage_account);
+        storage_account.set_node(&[1; 32], 0, MT_HEIGHT as usize + 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_set_node_invalid_level_index() {
+        storage_account!(mut storage_account);
+        storage_account.set_node(&[1; 32], 4, 2);
     }
 
     #[test]
@@ -225,9 +234,67 @@ mod tests {
         assert!(!use_default_value(0, MT_HEIGHT as usize, 1));
         assert!(use_default_value(1, MT_HEIGHT as usize, 1));
 
-        for i in 0..MT_HEIGHT as usize {
-            assert!(use_default_value(1, MT_HEIGHT as usize - i, 1));
+        for level in 0..=MT_HEIGHT as usize {
+            // Empty tree
+            assert!(use_default_value(0, level, 0));
+
+            // Commitments
+            assert!(!use_default_value(0, level, 1));
+            assert!(!use_default_value(0, level, 2));
         }
+    }
+
+    #[test]
+    fn test_get_node() {
+        storage_account!(mut storage_account);
+
+        // No commitments -> default values
+        assert_eq!(
+            storage_account.get_node(0, 0),
+            Fr::from_str("11702828337982203149177882813338547876343922920234831094975924378932809409969").unwrap()
+        );
+        assert_eq!(
+            storage_account.get_node(0, MT_HEIGHT as usize),
+            Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap()
+        );
+        for level in 0..=MT_HEIGHT {
+            assert_eq!(
+                storage_account.get_node(0, level as usize),
+                EMPTY_TREE[(MT_HEIGHT - level) as usize],
+            );
+        }
+
+        for i in 0..4 {
+            storage_account.set_next_commitment_ptr(&(i as u32 + 1));
+
+            for level in 0..=MT_HEIGHT as usize {
+                assert_eq!(
+                    storage_account.get_node(i >> (MT_HEIGHT as usize - level), level),
+                    Fr::zero()
+                );
+
+                // Default values right of commitment
+                let offset = (i + 1) >> (MT_HEIGHT as usize - level);
+                if offset > (i + 1) {
+                    assert_eq!(
+                        storage_account.get_node(offset, level),
+                        EMPTY_TREE[MT_HEIGHT as usize - level],
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_root() {
+        storage_account!(mut storage_account);
+        storage_account.set_node(&[1; 32], 0, 0);
+        storage_account.set_next_commitment_ptr(&1);
+
+        assert_eq!(
+            storage_account.get_root(),
+            [1; 32]
+        );
     }
 
     #[test]

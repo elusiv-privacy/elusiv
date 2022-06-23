@@ -1,5 +1,5 @@
 //! Tests the account setup process
-
+/*
 #[cfg(not(tarpaulin_include))]
 mod common;
 //use common::*;
@@ -39,4 +39,4 @@ async fn test_send_proof() {
     // Client sends 1/4 SOL - fees to R2
 
     // Client now has a private balance of zero
-}
+}*/

@@ -30,6 +30,7 @@ pub enum ElusivError {
     NoRoomForCommitment,
     Commitment,
     HashingIsAlreadyComplete,
+    InvalidBatchingRate,
 
     // Proof
     InvalidProof,

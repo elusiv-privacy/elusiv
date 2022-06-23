@@ -6,13 +6,13 @@ use solana_program::{
     sysvar::Sysvar,
     rent::Rent,
 };
-use crate::state::{
-    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount, DEFAULT_COMMITMENT_BATCHING_RATE},
+use crate::{state::{
+    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount, GOVERNOR_UPGRADE_AUTHORITY},
     program_account::{MultiAccountAccount, ProgramAccount, HeterogenMultiAccountAccount},
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
     fee::FeeAccount, NullifierAccount, MT_COMMITMENT_COUNT,
-};
+}, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe};
 use crate::commitment::{CommitmentHashingAccount};
 use crate::error::ElusivError::{
     InvalidInstructionData,
@@ -167,9 +167,24 @@ pub fn setup_governor_account<'a>(
     let data = &mut governor_account.data.borrow_mut()[..];
     let mut governor = GovernorAccount::new(data)?;
 
-    governor.set_commitment_batching_rate(&DEFAULT_COMMITMENT_BATCHING_RATE);
+    governor.set_commitment_batching_rate(&usize_as_u32_safe(DEFAULT_COMMITMENT_BATCHING_RATE));
 
     Ok(())
+}
+
+/// Changes the state of the `GovernorAccount`
+pub fn upgrade_governor_state(
+    authority: &AccountInfo,
+    governor_account: &mut GovernorAccount,
+    commitment_queue: &mut CommitmentQueueAccount,
+
+    fee_version: u64,
+    batching_rate: u32,
+) -> ProgramResult {
+    guard!(*authority.key == GOVERNOR_UPGRADE_AUTHORITY, InvalidAccount);
+    todo!("Not implemented yet");
+    // TODO: changes in the batching rate are only possible when checking the commitment queue
+    // TODO: fee changes require empty queues
 }
 
 /// Setup a new `FeeAccount`

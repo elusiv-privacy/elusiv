@@ -3,20 +3,25 @@ pub mod poseidon_hash;
 #[cfg(not(tarpaulin_include))]
 mod poseidon_constants;
 
+use crate::commitment::poseidon_hash::{binary_poseidon_hash_partial, TOTAL_POSEIDON_ROUNDS};
 use crate::error::ElusivError;
-use crate::macros::{elusiv_account, elusiv_hash_compute_units, guard};
+use crate::error::ElusivError::{ComputationIsAlreadyFinished};
+use crate::macros::{elusiv_account, elusiv_hash_compute_units, guard, two_pow};
 use crate::processor::BaseCommitmentHashRequest;
+use crate::state::{StorageAccount, HISTORY_ARRAY_COUNT};
 use crate::types::U256;
-use crate::bytes::BorshSerDeSized;
+use crate::bytes::{BorshSerDeSized, usize_as_u32_safe};
 use crate::state::program_account::SizedAccount;
-use crate::fields::{fr_to_u256_le, u64_to_scalar, Wrap};
+use crate::fields::{u64_to_scalar, u256_to_fr, fr_to_u256_le};
 use solana_program::program_error::ProgramError;
-use ark_bn254::Fr;
-use ark_ff::Zero;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_computation::{PartialComputation};
+use elusiv_computation::{PartialComputation, PartialComputationInstruction};
 
-// Base commitment hashing instructions
+use self::poseidon_hash::BinarySpongeHashingState;
+
+/// Partial computation resulting in `commitment = h(base_commitment, amount)`
+pub struct BaseCommitmentHashComputation {}
+
 elusiv_hash_compute_units!(BaseCommitmentHashComputation, 1);
 const_assert_eq!(BaseCommitmentHashComputation::INSTRUCTIONS.len(), 2);
 
@@ -34,7 +39,8 @@ pub struct BaseCommitmentHashingAccount {
     fee_payer: U256,
     fee_version: u64,
 
-    state: [U256; 3],
+    state: BinarySpongeHashingState,
+    min_batching_rate: u32,
 }
 
 impl<'a> BaseCommitmentHashingAccount<'a> {
@@ -50,21 +56,127 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
         self.set_fee_payer(&fee_payer);
         self.set_fee_version(&request.fee_version);
 
+        self.set_min_batching_rate(&request.min_batching_rate);
+
         // Reset hashing state
-        self.set_state(0, &fr_to_u256_le(&Fr::zero()));
-        self.set_state(1, &request.base_commitment);
-        self.set_state(2, &fr_to_u256_le(&u64_to_scalar(request.amount)));
+        self.set_state(
+            &BinarySpongeHashingState::new(
+                u256_to_fr(&request.base_commitment),
+                u64_to_scalar(request.amount),
+                false,
+            )
+        );
 
         Ok(())
     }
 }
 
-// Commitment hashing instructions
-elusiv_hash_compute_units!(CommitmentHashComputation, 20);
-const_assert_eq!(MT_HEIGHT, 20);
-const_assert_eq!(CommitmentHashComputation::INSTRUCTIONS.len(), 26);
+pub fn compute_base_commitment_hash_partial(
+    hashing_account: &mut BaseCommitmentHashingAccount,
+) -> Result<(), ProgramError> {
+    let instructions = BaseCommitmentHashComputation::INSTRUCTIONS;
+    let instruction = hashing_account.get_instruction();
+    guard!((instruction as usize) < instructions.len(), ComputationIsAlreadyFinished);
+    let start_round = instructions[instruction as usize].start_round;
+    let rounds = instructions[instruction as usize].rounds;
+
+    let mut state = hashing_account.get_state();
+
+    for round in start_round..start_round + rounds {
+        guard!(round < BaseCommitmentHashComputation::TOTAL_ROUNDS, ComputationIsAlreadyFinished);
+        binary_poseidon_hash_partial(round, &mut state);
+    }
+
+    hashing_account.set_state(&state);
+    hashing_account.set_instruction(&(instruction + 1));
+
+    Ok(())
+}
+
+pub const DEFAULT_COMMITMENT_BATCHING_RATE: usize = 0;
+pub const MAX_COMMITMENT_BATCHING_RATE: usize = 5;
+
+/// Commitment hashing computations with batches
+/// - all commitments in a batch are hashed together in order to reduce hashing costs
+/// - 2ˆbatching_rate is the amount of commitments per batch
+/// - batch sizes range: `[0; MAX_COMMITMENT_BATCHING_RATE]`
+struct CommitmentHashComputation<const BATCHING_RATE: usize> {}
+
+/// Generates a `CommitmentHashComputation` with a specific `BATCHING_RATE`
+/// - the macro also verifies that `$hash_count$ is valid
+macro_rules! commitment_batch_hashing {
+    ($batching_rate: literal, $hash_count: literal) => {
+        elusiv_hash_compute_units!(CommitmentHashComputation<$batching_rate>, $hash_count);
+        const_assert_eq!($hash_count, hash_count_per_batch($batching_rate));
+    };
+}
+
+commitment_batch_hashing!(0, 20);
+commitment_batch_hashing!(1, 20);
+commitment_batch_hashing!(2, 21);
+commitment_batch_hashing!(3, 24);
+commitment_batch_hashing!(4, 31);
+commitment_batch_hashing!(5, 46);
+
+macro_rules! commitment_hash_computation {
+    ($batching_rate: ident, $field: ident) => {
+        match $batching_rate {
+            0 => &CommitmentHashComputation::<0>::$field,
+            1 => &CommitmentHashComputation::<1>::$field,
+            2 => &CommitmentHashComputation::<2>::$field,
+            3 => &CommitmentHashComputation::<3>::$field,
+            4 => &CommitmentHashComputation::<4>::$field,
+            5 => &CommitmentHashComputation::<5>::$field,
+            _ => { panic!() }
+        }
+    };
+}
+
+pub fn commitment_hash_computation_instructions<'a>(batching_rate: u32) -> &'a [PartialComputationInstruction] {
+    commitment_hash_computation!(batching_rate, INSTRUCTIONS)
+}
+
+pub fn commitment_hash_computation_rounds(batching_rate: u32) -> u32 {
+    *commitment_hash_computation!(batching_rate, TOTAL_ROUNDS)
+}
 
 const MT_HEIGHT: usize = crate::state::MT_HEIGHT as usize;
+
+/// Amount of commitments batched together to compute the MT root
+pub const fn commitments_per_batch(batching_rate: u32) -> usize {
+    two_pow!(batching_rate)
+}
+
+/// Amount of hashes per commitment batch
+/// - the commitments in a batch form a hash-sub-tree (HT) of height `batching_rate`
+/// - there are additional `MT_HEIGHT - batching_rate` hashes from the HT-root to the MT-root
+/// - the HT contains the commitments and has `2ˆ{batching_rate + 1} - 1` hashes
+/// 
+/// ### Example
+/// Hash-sub-tree for batching_rate `2` with `n := MT_HEIGHT`:
+/// ```
+///                  ...                
+///                 ┌─┴──┐  
+/// n-2       ┌─────┤ h2 ├─────┐        ...
+///           │     └────┘     │
+///         ┌─┴──┐          ┌──┴─┐
+/// n-1   ┌─┤ h0 ├─┐      ┌─┤ h1 ├─┐    ...
+///       │ └────┘ │      │ └────┘ │
+///     ┌─┴──┐  ┌──┴─┐  ┌─┴──┐  ┌──┴─┐
+/// n   │ c0 │  │ c1 │  │ c2 │  │ c3 │  ...
+///     └────┘  └────┘  └────┘  └────┘
+/// ```
+pub const fn hash_count_per_batch(batching_rate: u32) -> usize {
+    // batching_rate - 1 is the height of the sub-tree without commitments
+    two_pow!(batching_rate) - 1 + MT_HEIGHT as usize - batching_rate as usize
+}
+
+/// Max amount of nodes in a HT (commitments + hashes)
+const MAX_HT_SIZE: usize = two_pow!(usize_as_u32_safe(MAX_COMMITMENT_BATCHING_RATE) + 1) - 1;
+pub const MAX_HT_COMMITMENTS: usize = commitments_per_batch(usize_as_u32_safe(MAX_COMMITMENT_BATCHING_RATE));
+
+const_assert_eq!(MAX_HT_SIZE, 63);
+const_assert_eq!(MAX_HT_COMMITMENTS, 32);
 
 /// Account used for computing the hashes of a MT
 /// - only one of these accounts can exist per MT
@@ -79,19 +191,62 @@ pub struct CommitmentHashingAccount {
     fee_payer: U256, // fee_payer is null and has no meaning for commitment hashing
     fee_version: u64,
 
-    commitment: U256,
-    state: [U256; 3],
+    batching_rate: u32,
+    state: BinarySpongeHashingState,
     ordering: u32,
-    siblings: [Wrap<Fr>; MT_HEIGHT],
-    finished_hashes: [U256; MT_HEIGHT],
+    siblings: [U256; MT_HEIGHT],
+
+    // hashes in: (HT-root; MT-root]
+    above_hashes: [U256; MT_HEIGHT],
+
+    // commitments and hashes in the HT
+    hash_tree: [U256; MAX_HT_SIZE],
+}
+
+pub fn compute_commitment_hash_partial(
+    hashing_account: &mut CommitmentHashingAccount,
+) -> Result<(), ProgramError> {
+    let batching_rate = hashing_account.get_batching_rate();
+    let instruction = hashing_account.get_instruction();
+    let instructions = commitment_hash_computation_instructions(batching_rate);
+    guard!((instruction as usize) < instructions.len(), ComputationIsAlreadyFinished);
+    let start_round = instructions[instruction as usize].start_round;
+    let rounds = instructions[instruction as usize].rounds;
+    let total_rounds = commitment_hash_computation_rounds(batching_rate);
+
+    let mut state = hashing_account.get_state();
+
+    for round in start_round..start_round + rounds {
+        guard!(round < total_rounds, ComputationIsAlreadyFinished);
+
+        binary_poseidon_hash_partial(round % TOTAL_POSEIDON_ROUNDS, &mut state);
+
+        // A single hash is finished
+        if round % TOTAL_POSEIDON_ROUNDS == 64 {
+            let hash_index = round / TOTAL_POSEIDON_ROUNDS;
+
+            // Save hash
+            hashing_account.save_finished_hash(hash_index as usize, &state);
+
+            // Reset state for next hash
+            if hash_index < super::state::MT_HEIGHT - 1 {
+                state = hashing_account.next_hashing_state(hash_index as usize + 1);
+            }
+        }
+    }
+
+    hashing_account.set_state(&state);
+    hashing_account.set_instruction(&(instruction + 1));
+    Ok(())
 }
 
 impl<'a> CommitmentHashingAccount<'a> {
     pub fn reset(
         &mut self,
-        commitment: U256,
+        batching_rate: u32,
+        commitments: [U256; MAX_HT_COMMITMENTS],
         ordering: u32,
-        siblings: [Fr; MT_HEIGHT],
+        siblings: [U256; MT_HEIGHT],
         fee_version: u64,
     ) -> Result<(), ProgramError> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
@@ -99,42 +254,452 @@ impl<'a> CommitmentHashingAccount<'a> {
         self.set_is_active(&true);
         self.set_instruction(&0);
         self.set_fee_version(&fee_version);
-
-        // Reset hashing state
-        self.set_state(0, &fr_to_u256_le(&Fr::zero()));
-
-        let offset = ordering as usize % 2;
-        self.set_state(1 + offset, &commitment);
-        self.set_state(2 - offset, &fr_to_u256_le(&siblings[0]));
-
-        // Assign new values
-        self.set_commitment(&commitment);
+        
+        self.set_batching_rate(&batching_rate);
         self.set_ordering(&ordering);
 
-        // Assign siblings
-        let mut v = Vec::new();
-        for sibling in siblings { Wrap(sibling).serialize(&mut v).unwrap(); }
-        self.set_all_siblings(&v);
+        for (i, commitment) in commitments.iter().enumerate() {
+            self.set_hash_tree(i, commitment);
+        }
+
+        for (i, sibling) in siblings.iter().enumerate() {
+            self.set_siblings(i, sibling);
+        }
+
+        self.set_state(&self.next_hashing_state(0));
 
         Ok(())
     }
+
+    /// Returns the initial state for the next hash
+    /// - hashing order:
+    ///     1. commitment sibling hashes on MT-layer `n`: h(c0, c1), h(c2, c3), ..
+    ///     2. hashes of previous hashes till MT-layer `n - batching_rate`: h(h0, h1), ..
+    ///     3. hashes of the form h(h', sibling[x]) from HT-root till MT-root
+    #[allow(clippy::comparison_chain)]
+    pub fn next_hashing_state(&self, hash_index: usize) -> BinarySpongeHashingState {
+        let batching_rate = self.get_batching_rate();
+
+        // Size of the ht without the commitments
+        let sub_tree_size = two_pow!(batching_rate) - 1;
+
+        if hash_index < sub_tree_size { // HT hashes
+            // Ignore commitments in HT
+            let commitment_count = commitments_per_batch(batching_rate);
+            let mut nodes_below = 0;
+
+            // Find the hash-tree layer for the hash (all layers except the commitment layer)
+            for ht_layer in (0..batching_rate).rev() {
+                let layer_size = two_pow!(ht_layer);
+                if hash_index - nodes_below < layer_size {
+                    let index_in_layer = hash_index - nodes_below;
+                    let below_layer_size = two_pow!(ht_layer + 1);
+                    let index_below = commitment_count + nodes_below - below_layer_size + index_in_layer * 2;
+
+                    return BinarySpongeHashingState::new(
+                        u256_to_fr(&self.get_hash_tree(index_below)),
+                        u256_to_fr(&self.get_hash_tree(index_below + 1)),
+                        false,
+                    )
+                }
+                nodes_below += layer_size;
+            }
+            panic!()
+        } else if hash_index == sub_tree_size { // hash with the HT-root and a sibling
+            let ordering = self.get_ordering() >> batching_rate;
+            let ht_root_index = two_pow!(batching_rate + 1) - 2;
+
+            BinarySpongeHashingState::new(
+                u256_to_fr(&self.get_hash_tree(ht_root_index)),
+                u256_to_fr(&self.get_siblings(batching_rate as usize)),
+                ordering & 1 == 1,
+            )
+        } else {    // hash above hashes with siblings
+            let index = hash_index - sub_tree_size;
+            let ordering = self.get_ordering() >> (index + batching_rate as usize);
+
+            let a = u256_to_fr(&self.get_above_hashes(index - 1));
+            let b = u256_to_fr(&self.get_siblings(batching_rate as usize + index));
+
+            BinarySpongeHashingState::new(
+                a,
+                b,
+                ordering & 1 == 1,
+            )
+        }
+    }
+
+    pub fn save_finished_hash(
+        &mut self,
+        hash_index: usize,
+        state: &BinarySpongeHashingState,
+    ) {
+        let batching_rate = self.get_batching_rate();
+        // Size of the ht without the commitments
+        let sub_tree_size = two_pow!(batching_rate) - 1;
+        let result = fr_to_u256_le(&state.result());
+
+        if hash_index < sub_tree_size {
+            let commitments_count = two_pow!(batching_rate);
+            self.set_hash_tree(commitments_count + hash_index, &result);
+        } else {
+            self.set_above_hashes(hash_index - sub_tree_size, &result)
+        }
+    }
+
+    /// Updates the active MT with all finished hashes and commitments
+    pub fn update_mt(
+        &self,
+        storage_account: &mut StorageAccount,
+    ) {
+        let batching_rate = self.get_batching_rate();
+        let ordering = self.get_ordering();
+
+        // Insert values from the HT
+        let mut nodes_below = 0;
+        for ht_level in (0..=batching_rate).rev() {
+            let mt_level = MT_HEIGHT - batching_rate as usize + ht_level as usize;
+            let ht_level_size = two_pow!(ht_level);
+            let ordering = ordering >> (MT_HEIGHT - mt_level);
+
+            for i in 0..ht_level_size {
+                storage_account.set_node(
+                    &self.get_hash_tree(nodes_below + i),
+                    ordering as usize + i,
+                    mt_level,
+                )
+            }
+
+            nodes_below += ht_level_size;
+        }
+
+        // Insert above hashes (including new MT)
+        for i in 0..MT_HEIGHT - batching_rate as usize {
+            let mt_layer = MT_HEIGHT - batching_rate as usize - i - 1;
+            let ordering = ordering as usize >> (batching_rate as usize + i + 1);
+
+            storage_account.set_node(
+                &self.get_above_hashes(i),
+                ordering as usize,
+                mt_layer,
+            )
+        }
+
+        storage_account.set_active_mt_root_history(ordering as usize % HISTORY_ARRAY_COUNT, &storage_account.get_root());
+        storage_account.set_mt_roots_count(&(storage_account.get_mt_roots_count() + 1));
+        storage_account.set_next_commitment_ptr(&(ordering + usize_as_u32_safe(commitments_per_batch(batching_rate))));
+    }
+}
+
+#[cfg(test)]
+pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u64, min_batching_rate: u32) -> BaseCommitmentHashRequest {
+    BaseCommitmentHashRequest { base_commitment: u256_from_str(bc), commitment: u256_from_str(c), amount, fee_version, min_batching_rate }
+}
+
+#[cfg(test)]
+pub fn u256_from_str(str: &str) -> U256 {
+    use std::str::FromStr;
+    fr_to_u256_le(&ark_bn254::Fr::from_str(str).unwrap())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::program_account::ProgramAccount;
+    use crate::state::{mt_array_index, EMPTY_TREE};
+    use crate::state::program_account::{ProgramAccount, MultiAccountAccount, HeterogenMultiAccountAccount, MultiAccountProgramAccount};
+    use crate::macros::storage_account;
+    use ark_bn254::Fr;
+    use ark_ff::Zero;
+    use assert_matches::assert_matches;
+    use solana_program::native_token::LAMPORTS_PER_SOL;
 
-    #[test]
-    fn test_base_commitment_hashing_account_setup() {
-        let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
-        BaseCommitmentHashingAccount::new(&mut data).unwrap();
+    fn u64_to_u256(v: u64) -> U256 {
+        fr_to_u256_le(&u64_to_scalar(v))
     }
 
     #[test]
-    fn test_commitment_hashing_account_setup() {
+    fn test_commitments_per_batch() {
+        assert_eq!(commitments_per_batch(0), 1);
+        assert_eq!(commitments_per_batch(1), 2);
+        assert_eq!(commitments_per_batch(2), 4);
+        assert_eq!(commitments_per_batch(3), 8);
+    }
+
+    #[test]
+    fn test_hash_count_per_batch() {
+        let n = MT_HEIGHT as usize;
+
+        // 1 or 2 commitments => tree height hashes
+        assert_eq!(hash_count_per_batch(0), n);
+        assert_eq!(hash_count_per_batch(1), n);
+
+        // 4 commitments => 2 hashes on the lowest level, 1 above, then n - 2 hashes
+        assert_eq!(hash_count_per_batch(2), 2 + 1 + n - 2);
+
+        assert_eq!(hash_count_per_batch(3), 4 + 2 + 1 + n - 3);
+    }
+
+    #[test]
+    #[allow(clippy::needless_range_loop)]
+    fn test_next_hashing_state() {
         let mut data = vec![0; CommitmentHashingAccount::SIZE];
-        CommitmentHashingAccount::new(&mut data).unwrap();
+        let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
+
+        let commitments = [[0; 32]; MAX_HT_COMMITMENTS];
+
+        let mut siblings = [[0; 32]; MT_HEIGHT];
+        for i in 0..MT_HEIGHT {
+            siblings[i] = u64_to_u256(MT_HEIGHT as u64 - i as u64);
+        }
+
+        let batching_rate = 3;
+
+        // Alternating between left and right ordering of the hashes
+        let mut ordering = 0;
+        for i in (0..=MT_HEIGHT).rev() {
+            if i & 1 == 1 {
+                ordering += two_pow!(i as u32) as u32;
+            }
+        }
+        let fee_version = 0;
+
+        account.reset(batching_rate, commitments, ordering, siblings, fee_version).unwrap();
+
+        // Init HT value to: 100 * level + index_in_layer
+        let mut offset = 0;
+        for level in (0..=batching_rate as u64).rev() {
+            let level_size = two_pow!(level as u32);
+            for i in 0..level_size {
+                account.set_hash_tree(
+                    offset + i,
+                    &u64_to_u256(i as u64 + level * 100)
+                );
+            }
+            offset += level_size;
+        }
+
+        // Init above hashes to: index
+        for index in 0..MT_HEIGHT - batching_rate as usize {
+            account.set_above_hashes(index, &u64_to_u256(index as u64));
+        }
+
+        // Check commitment hashes
+        let commitent_count = commitments_per_batch(batching_rate);
+        for i in 0..commitent_count / 2 {
+            assert_eq!(
+                account.next_hashing_state(i),
+                BinarySpongeHashingState::new(
+                    u64_to_scalar(i as u64 * 2 + (batching_rate as u64) * 100),
+                    u64_to_scalar(i as u64 * 2 + (batching_rate as u64) * 100 + 1),
+                    false
+                )
+            )
+        }
+
+        // Check all HT hashes
+        let mut hash_index = 0;
+        for level in (1..=batching_rate as u64).rev() {
+            let above_level_size = two_pow!(level as u32 - 1);
+            for i in 0..above_level_size {
+                assert_eq!(
+                    account.next_hashing_state(hash_index + i),
+                    BinarySpongeHashingState::new(
+                        u64_to_scalar(i as u64 * 2 + level * 100),
+                        u64_to_scalar(i as u64 * 2 + level * 100 + 1),
+                        false
+                    )
+                )
+            }
+            hash_index += above_level_size;
+        }
+
+        // Check HT-root and the sibling hash at level MT_HEIGHT - batching_rate
+        assert_eq!(
+            account.next_hashing_state(two_pow!(batching_rate) - 1),
+            BinarySpongeHashingState::new(
+                u64_to_scalar(0),
+                u64_to_scalar(MT_HEIGHT as u64 - batching_rate as u64),
+                (ordering >> batching_rate) & 1 == 1
+            )
+        );
+
+        // Check above hash states
+        for index in 1..MT_HEIGHT - batching_rate as usize {
+            let mt_level = batching_rate as usize + index;
+            assert_eq!(
+                account.next_hashing_state(two_pow!(batching_rate) - 1 + index),
+                BinarySpongeHashingState::new(
+                    u64_to_scalar(index as u64 - 1),
+                    u64_to_scalar(MT_HEIGHT as u64 - batching_rate as u64 - index as u64),
+                    (ordering >> mt_level) & 1 == 1
+                )
+            )
+        }
+    }
+
+    #[test]
+    fn test_save_finished_hash() {
+        let mut data = vec![0; CommitmentHashingAccount::SIZE];
+        let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
+
+        let batching_rate = 4;
+        account.set_batching_rate(&batching_rate);
+
+        // Set hashes
+        for hash_index in 0..hash_count_per_batch(batching_rate) {
+            account.save_finished_hash(
+                hash_index,
+                &BinarySpongeHashingState(
+                    [
+                        u64_to_scalar(hash_index as u64),
+                        Fr::zero(),
+                        Fr::zero()
+                    ]
+                )
+            );
+        }
+
+        // HT hashes
+        let commitment_count = two_pow!(batching_rate);
+        let ht_hash_count = two_pow!(batching_rate) - 1;
+        for hash_index in 0..ht_hash_count {
+            assert_eq!(
+                account.get_hash_tree(commitment_count + hash_index),
+                u64_to_u256(hash_index as u64)
+            )
+        }
+
+        // Above hashes
+        for index in 0..(MT_HEIGHT - batching_rate as usize) {
+            assert_eq!(
+                account.get_above_hashes(index),
+                u64_to_u256(index as u64 + ht_hash_count as u64)
+            )
+        }
+    }
+
+    #[test]
+    fn test_update_mt() {
+        let mut data = vec![0; CommitmentHashingAccount::SIZE];
+        let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
+        storage_account!(mut storage_account);
+
+        let batching_rates = [0, 1, 2, 3, 4, 5];
+
+        for (i, &batching_rate) in batching_rates.iter().enumerate() {
+            storage_account.modifications.clear();
+
+            // Set hashing account
+            let ordering = storage_account.get_next_commitment_ptr();
+            account.set_ordering(&ordering);
+            account.set_batching_rate(&batching_rate);
+            let commitments_count = commitments_per_batch(batching_rate);
+            for commitment in 0..commitments_count {
+                account.set_hash_tree(
+                    commitment,
+                    &u64_to_u256(commitment as u64)
+                );
+            }
+            for hash_index in 0..hash_count_per_batch(batching_rate) {
+                account.save_finished_hash(
+                    hash_index,
+                    &BinarySpongeHashingState(
+                        [
+                            u64_to_scalar((hash_index + commitments_count) as u64),
+                            Fr::zero(),
+                            Fr::zero(),
+                        ]
+                    )
+                );
+            }
+
+            // Update
+            account.update_mt(&mut storage_account);
+
+            // Check that storage account has been updated
+            for mt_level in (0..=MT_HEIGHT).rev() {
+                for index in 0..(commitments_count >> (MT_HEIGHT - mt_level)) {
+                    let mt_index = mt_array_index(index + (ordering >> (MT_HEIGHT - mt_level)) as usize, mt_level);
+                    assert!(storage_account.modifications.contains_key(&mt_index));
+                }
+            }
+            assert_eq!(storage_account.get_next_commitment_ptr(), ordering + commitments_count as u32);
+            assert_eq!(storage_account.get_mt_roots_count(), i as u32 + 1);
+        }
+    }
+
+    #[test]
+    fn test_base_commitment_hash_computation() {
+        let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
+        let mut account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
+
+        let requests = [
+            base_commitment_request(
+                "8337064132573119120838379738103457054645361649757131991036638108422638197362",
+                "139214303935475888711984321184227760578793579443975701453971046059378311483",
+                LAMPORTS_PER_SOL, 0,
+                0,
+            ),
+        ];
+
+        for request in requests {
+            account.reset(request.clone(), [0; 32]).unwrap();
+
+            while account.get_instruction() < BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32 {
+                compute_base_commitment_hash_partial(&mut account).unwrap();
+            }
+
+            assert_matches!(compute_base_commitment_hash_partial(&mut account), Err(_));
+            assert_eq!(account.get_state().result(), u256_to_fr(&request.commitment));
+        }
+    }
+
+    struct CommitmentBatchHashRequest<'a> {
+        batching_rate: u32,
+        commitments: &'a [U256],
+        siblings: &'a [U256],
+        valid_root: U256,
+    }
+
+    #[test]
+    fn test_commitment_hash_computation() {
+        let mut data = vec![0; CommitmentHashingAccount::SIZE];
+        let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
+        let empty_siblings: Vec<U256> = EMPTY_TREE.iter().take(MT_HEIGHT).map(fr_to_u256_le).collect();
+
+        let requests = [
+            CommitmentBatchHashRequest {
+                batching_rate: 0,
+                commitments: &[
+                    u256_from_str("139214303935475888711984321184227760578793579443975701453971046059378311483"),
+                ],
+                siblings: &empty_siblings,
+                valid_root: u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575"),
+            }
+        ];
+
+        for request in requests {
+            let batching_rate = request.batching_rate;
+            let mut commitments = [[0; 32]; MAX_HT_COMMITMENTS];
+            for (i, &commitment) in request.commitments.iter().enumerate() {
+                commitments[i] = commitment;
+            }
+            account.reset(
+                batching_rate,
+                commitments,
+                0,
+                request.siblings.try_into().unwrap(),
+                0
+            ).unwrap();
+            
+            let instructions = commitment_hash_computation_instructions(batching_rate).len() as u32;
+            while account.get_instruction() < instructions {
+                compute_commitment_hash_partial(&mut account).unwrap();
+            }
+
+            assert_matches!(compute_commitment_hash_partial(&mut account), Err(_));
+            assert_eq!(account.get_state().result(), u256_to_fr(&request.valid_root));
+        }
     }
 
     #[test]
@@ -142,31 +707,34 @@ mod tests {
         let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
         let mut account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
 
-        let mut base_commitment = [0; 32];
-        for (i, b) in base_commitment.iter_mut().enumerate() { *b = i as u8 }
+        let request = BaseCommitmentHashRequest {
+            base_commitment: [1; 32],
+            amount: 333,
+            commitment: [2; 32],
+            fee_version: 444,
+            min_batching_rate: 555,
+        };
+        let fee_payer = [6; 32];
 
-        let amount = 123456789;
+        account.reset(request.clone(), fee_payer).unwrap();
 
-        let mut commitment = [0; 32];
-        for (i, b) in commitment.iter_mut().enumerate() { *b = i as u8 * 2 }
-
-        let fee_payer = [9; 32];
-
-        account.reset(BaseCommitmentHashRequest {
-            base_commitment,
-            amount,
-            commitment,
-            fee_version: 0,
-        }, fee_payer).unwrap();
-
-        assert_eq!(account.get_state(0), [0; 32]);
-        assert_eq!(account.get_state(1), base_commitment);
-        assert_eq!(account.get_state(2), fr_to_u256_le(&u64_to_scalar(amount)));
-
-        assert_eq!(fee_payer, account.get_fee_payer());
-        assert_eq!(0, account.get_fee_version());
-
+        assert_eq!(account.get_state().0, [
+            Fr::zero(),
+            u256_to_fr(&request.base_commitment),
+            u64_to_scalar(request.amount),
+        ]);
+        assert_eq!(account.get_fee_payer(), fee_payer);
+        assert_eq!(account.get_fee_version(), request.fee_version);
+        assert_eq!(account.get_min_batching_rate(), request.min_batching_rate);
         assert_eq!(account.get_instruction(), 0);
+        assert!(account.get_is_active());
+
+        // Second reset should fail
+        assert_matches!(account.reset(request.clone(), fee_payer), Err(_));
+
+        // Second reset now allowed
+        account.set_is_active(&false);
+        account.reset(request, fee_payer).unwrap();
     }
     
     #[test]
@@ -175,30 +743,35 @@ mod tests {
         let mut data = vec![0; CommitmentHashingAccount::SIZE];
         let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
 
-        let mut commitment = [0; 32];
-        for (i, b) in commitment.iter_mut().enumerate() { *b = i as u8 }
+        let mut commitments = [[0; 32]; MAX_HT_COMMITMENTS];
+        for i in 0..MAX_HT_COMMITMENTS { commitments[i] = u64_to_u256(i as u64 + 1); }
 
-        let ordering = 123456789;
+        let mut siblings = [[0; 32]; MT_HEIGHT];
+        for i in 0..MT_HEIGHT { siblings[i] = u64_to_u256(666 + i as u64); }
 
-        let mut siblings = [Fr::zero(); MT_HEIGHT as usize];
-        for (i, sibling) in siblings.iter_mut().enumerate() {
-            *sibling = u64_to_scalar(i as u64);
+        let fee_version = 222;
+        let batching_rate = 5;
+        let ordering = 555;
+
+        account.reset(batching_rate, commitments, ordering, siblings, fee_version).unwrap();
+
+        for i in 0..MAX_HT_COMMITMENTS {
+            assert_eq!(account.get_hash_tree(i), u64_to_u256(i as u64 + 1));
         }
-
-        account.reset(commitment, ordering, siblings, 0).unwrap();
-
-        assert_eq!(account.get_state(0), [0; 32]);
-        assert_eq!(account.get_state(1), fr_to_u256_le(&siblings[0]));
-        assert_eq!(account.get_state(2), commitment);
-
+        for i in 0..MT_HEIGHT {
+            assert_eq!(account.get_siblings(i), u64_to_u256(666 + i as u64));
+        }
+        assert_eq!(account.get_fee_version(), fee_version);
+        assert_eq!(account.get_batching_rate(), batching_rate);
+        assert_eq!(account.get_ordering(), ordering);
         assert_eq!(account.get_instruction(), 0);
+        assert!(account.get_is_active());
 
-        assert_eq!(commitment, account.get_commitment());
-        assert_eq!(ordering, account.get_ordering());
-        //assert_eq!(fee_payer, account.get_fee_payer());
-        assert_eq!(0, account.get_fee_version());
-        for i in 0..MT_HEIGHT as usize {
-            assert_eq!(siblings[i], account.get_siblings(i).0);
-        }
+        // Second reset should fail
+        assert_matches!(account.reset(batching_rate, commitments, ordering, siblings, fee_version), Err(_));
+
+        // Second reset now allowed
+        account.set_is_active(&false);
+        account.reset(batching_rate, commitments, ordering, siblings, fee_version).unwrap();
     }
 }
