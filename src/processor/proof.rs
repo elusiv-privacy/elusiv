@@ -310,10 +310,12 @@ pub fn finalize_proof<'a>(
     // If the proof is invalid, the verification_account closing funds flow to the fee_collector as slashing
     if !verification_account.get_is_verified() {
         close_account(fee_collector, verification_account_info)?;
-        solana_program::msg!(
-            "Invalid proof, fee_payer {:?} is getting slashed",
-            original_fee_payer.key
-        );
+        if cfg!(extended_logging) {
+            solana_program::msg!(
+                "Invalid proof, fee_payer {:?} is getting slashed",
+                original_fee_payer.key
+            );
+        }
         return Ok(())
     }
 
@@ -376,6 +378,13 @@ pub fn finalize_proof<'a>(
 
             todo!("NSTM archivation system not implemented")
         }
+    }
+
+    if cfg!(extended_logging) {
+        solana_program::msg!(
+            "Valid proof, fee_payer {:?} is getting rewarded",
+            original_fee_payer.key
+        );
     }
 
     // Repay and reward relayer

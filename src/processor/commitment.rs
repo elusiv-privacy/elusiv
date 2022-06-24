@@ -238,15 +238,17 @@ pub fn compute_commitment_hash<'a>(
 
     compute_commitment_hash_partial(hashing_account)?;
 
-    let batching_rate = hashing_account.get_batching_rate();
-    let instruction = hashing_account.get_instruction();
-    let instructions = commitment_hash_computation_instructions(batching_rate);
-    solana_program::msg!(
-        "Commitment hash computation {} / {} for {} commitments",
-        instruction + 1,
-        instructions.len(),
-        commitments_per_batch(batching_rate),
-    );
+    if cfg!(extended_logging) {
+        let batching_rate = hashing_account.get_batching_rate();
+        let instruction = hashing_account.get_instruction();
+        let instructions = commitment_hash_computation_instructions(batching_rate);
+        solana_program::msg!(
+            "Commitment hash computation {} / {} for {} commitments",
+            instruction + 1,
+            instructions.len(),
+            commitments_per_batch(batching_rate),
+        );
+    }
 
     send_from_pool(pool, fee_payer, fee.hash_tx_compensation())
 }

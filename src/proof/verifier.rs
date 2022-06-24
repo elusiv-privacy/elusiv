@@ -931,8 +931,7 @@ mod tests {
         assert_eq!(
             prepare_public_inputs_instructions::<VK>(&vec![BigInteger256::new([0,0,0,0]); VK::PUBLIC_INPUTS_COUNT]),
             vec![VK::PREPARE_PUBLIC_INPUTS_ROUNDS as u32]
-        );
-        panic!("{:?}", prepare_public_inputs_instructions::<VK>(&vec![BigInteger256::new([u64::MAX,u64::MAX,u64::MAX,u64::MAX]); VK::PUBLIC_INPUTS_COUNT]).len());
+        )
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59

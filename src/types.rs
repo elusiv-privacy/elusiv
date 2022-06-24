@@ -12,7 +12,7 @@ pub type U256 = [u8; 32];
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Copy, Clone, PartialEq, PartialOrd)]
 pub struct U256Limbed4(pub [u64; 4]);
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Copy, Clone, PartialEq, PartialOrd, std::hash::Hash, Eq, Ord)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Copy, Clone, PartialEq, PartialOrd, std::hash::Hash, Eq, Ord)]
 pub struct U256Limbed2(pub [u128; 2]);
 
 impl From<U256> for U256Limbed4 {

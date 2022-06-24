@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
-use crate::macros::{elusiv_account, two_pow};
-use solana_program::{entrypoint::ProgramResult, program_error::ProgramError::InvalidAccountData};
+use crate::macros::{elusiv_account, two_pow, guard};
+use solana_program::entrypoint::ProgramResult;
 use crate::types::{U256, U256Limbed2};
 use crate::bytes::*;
-use crate::error::ElusivError::{NullifierAlreadyExists};
+use crate::error::ElusivError::NullifierAlreadyExists;
 use super::program_account::{SizedAccount, MAX_PERMITTED_DATA_LENGTH, get_multi_accounts_count, MultiAccountAccount, HeterogenMultiAccountAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// The count of nullifiers is the count of leaves in the MT
 const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
 
-/// We store nullifiers with the `NullifierMap` data structure for searching and later N-SMT construction
+/// We store nullifiers with the `NullifierMap` data structure for efficient searching and later N-SMT construction
 pub type NullifierMap = BTreeMap<U256Limbed2, ()>;
 
 const NULLIFIER_MAP_STATIC_SIZE: usize = 4; // 4 bytes to store the u32 tree map size
@@ -66,12 +66,11 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
     pub fn can_insert_nullifier_hash(&self, nullifier: U256) -> bool {
         if let Some(nmap_index) = self.nullifier_map_index() {
             let repr = U256Limbed2::from(nullifier);
-            for i in 0..nmap_index {
+            for i in 0..=nmap_index {
                 let account = self.get_account(i);
                 let mut data = &account.data.borrow()[..];
                 let map = NullifierMap::deserialize(&mut data).unwrap();
-
-                if map.contains_key(&repr) { return true }
+                if map.contains_key(&repr) { return false }
             }
             return true
         }
@@ -79,69 +78,127 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
     }
 
     pub fn insert_nullifier_hash(&mut self, nullifier: U256) -> ProgramResult {
+        guard!(self.can_insert_nullifier_hash(nullifier), NullifierAlreadyExists);
         let account_index = match self.nullifier_map_index() {
             Some(i) => i,
             None => return Err(NullifierAlreadyExists.into())
         };
 
-        // TODO: check if can be inserted?
         let count = self.get_nullifiers_count();
         self.set_nullifiers_count(&(count + 1));
 
         let account = self.get_account(account_index);
-        let mut data = &account.data.borrow()[..];
-        let mut map = NullifierMap::deserialize(&mut data).unwrap();
-        map.insert(U256Limbed2::from(nullifier), ());
-        let new_data = map.try_to_vec().unwrap();
+        let data = &mut account.data.borrow_mut()[..];
 
-        account.serialize_data(&new_data).or(Err(InvalidAccountData))
+        let size = u32::try_from_slice(&data[..4])?;
+        let mut map = NullifierMap::try_from_slice(&data[..size as usize * 32 + 4])?;
+        map.insert(U256Limbed2::from(nullifier), ());
+
+        let new_data = map.try_to_vec().unwrap();
+        data[..new_data.len()].copy_from_slice(&new_data[..]);
+
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use borsh::BorshSerialize;
-    use crate::types::U256Limbed2;
-    use super::NullifierMap;
-    /*use super::*;
-    use crate::macros::account;
-    use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
-    use crate::state::{program_account::{MultiAccountAccount, MultiAccountProgramAccount}};
-    use std::collections::BTreeMap;*/
+    use super::*;
+    use assert_matches::assert_matches;
+    use solana_program::pubkey::Pubkey;
+    use super::super::program_account::MultiAccountProgramAccount;
 
     #[allow(unused_macros)]
     macro_rules! nullifier_account {
-        ($id: ident) => {
+        (acc $accounts: ident) => {
+            nullifier_account!(acc $accounts, [
+                vec![0; NullifierAccount::INTERMEDIARY_ACCOUNT_SIZE],
+                vec![0; NullifierAccount::INTERMEDIARY_ACCOUNT_SIZE],
+                vec![0; NullifierAccount::INTERMEDIARY_ACCOUNT_SIZE],
+                vec![0; NullifierAccount::LAST_ACCOUNT_SIZE],
+            ])
+        };
+        (acc $accounts: ident, $data: expr) => {
             let mut pks = Vec::new();
             for _ in 0..NullifierAccount::COUNT { pks.push(Pubkey::new_unique()); }
 
-            account!(a0, pks[0], vec![0; NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE]);
-            account!(a1, pks[1], vec![0; NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE]);
-            account!(a2, pks[2], vec![0; NULLIFIER_ACCOUNT_INTERMEDIARY_ACCOUNT_SIZE]);
-            account!(a3, pks[3], vec![0; NULLIFIER_ACCOUNT_LAST_ACCOUNT_SIZE]);
+            crate::macros::account!(a0, pks[0], $data[0].clone());
+            crate::macros::account!(a1, pks[1], $data[1].clone());
+            crate::macros::account!(a2, pks[2], $data[2].clone());
+            crate::macros::account!(a3, pks[3], $data[3].clone());
 
-            let accounts = [a0, a1, a2, a3]; 
+            let $accounts = vec![&a0, &a1, &a2, &a3]; 
+        };
+
+        ($id: ident) => {
+            nullifier_account!(acc accounts);
             let mut data = vec![0; NullifierAccount::SIZE];
-            let $id = NullifierAccount::new(&mut data, &accounts[..]).unwrap();
+            let $id = NullifierAccount::new(&mut data, accounts).unwrap();
+        };
+        (mut $id: ident, $data: expr) => {
+            nullifier_account!(acc accounts, [
+                $data[0].try_to_vec().unwrap(),
+                $data[1].try_to_vec().unwrap(),
+                $data[2].try_to_vec().unwrap(),
+                $data[3].try_to_vec().unwrap(),
+            ]);
+            let mut data = vec![0; NullifierAccount::SIZE];
+            let mut $id = NullifierAccount::new(&mut data, accounts).unwrap();
+        };
+        (mut $id: ident) => {
+            nullifier_account!(acc accounts);
+            let mut data = vec![0; NullifierAccount::SIZE];
+            let mut $id = NullifierAccount::new(&mut data, accounts).unwrap();
         };
     }
 
     #[test]
     fn test_nullifier_map_index() {
-        //nullifier_account!(nullifier_account);
+        nullifier_account!(mut nullifier_account);
+        assert_eq!(nullifier_account.nullifier_map_index().unwrap(), 0);
+
+        nullifier_account.set_nullifiers_count(&(MAX_NULLIFIERS_PER_ACCOUNT as u64));
+        assert_eq!(nullifier_account.nullifier_map_index().unwrap(), 1);
+
+        nullifier_account.set_nullifiers_count(&(2 * MAX_NULLIFIERS_PER_ACCOUNT as u64));
+        assert_eq!(nullifier_account.nullifier_map_index().unwrap(), 2);
+
+        nullifier_account.set_nullifiers_count(&(3 * MAX_NULLIFIERS_PER_ACCOUNT as u64));
+        assert_eq!(nullifier_account.nullifier_map_index().unwrap(), 3);
+
+        nullifier_account.set_nullifiers_count(&(NULLIFIERS_COUNT as u64));
+        assert_matches!(nullifier_account.nullifier_map_index(), None);
+    }
+
+    #[test]
+    fn test_can_insert_nullifier_hash() {
+        nullifier_account!(nullifier_account);
+        assert!(nullifier_account.can_insert_nullifier_hash([0; 32]));
+
         let mut map = NullifierMap::new();
-        map.insert(U256Limbed2([0; 2]), ());
-        map.insert(U256Limbed2([1; 2]), ());
-        println!("{:?}", map.try_to_vec().unwrap().len());
+        map.insert([0; 32].into(), ());
+
+        let mut map1 = NullifierMap::new();
+        map1.insert([1; 32].into(), ());
+        map1.insert([2; 32].into(), ());
+
+        nullifier_account!(mut nullifier_account, [
+            map.clone(),
+            map1.clone(),
+            NullifierMap::new(),
+            NullifierMap::new(),
+        ]);
+        nullifier_account.set_nullifiers_count(&(2 * MAX_NULLIFIERS_PER_ACCOUNT as u64));
+        assert!(!nullifier_account.can_insert_nullifier_hash([0; 32]));
+        assert!(!nullifier_account.can_insert_nullifier_hash([1; 32]));
+        assert!(!nullifier_account.can_insert_nullifier_hash([2; 32]));
+        assert!(nullifier_account.can_insert_nullifier_hash([3; 32]));
     }
 
     #[test]
     fn test_insert_nullifier() {
-        panic!()
-    }
-
-    #[test]
-    fn test_insert_duplicate_nullifier() {
-        panic!()
+        nullifier_account!(mut nullifier_account);
+        nullifier_account.insert_nullifier_hash([0; 32]).unwrap();
+        assert_eq!(nullifier_account.get_nullifiers_count(), 1);
     }
 }
