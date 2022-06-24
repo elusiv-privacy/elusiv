@@ -91,7 +91,6 @@ pub enum ElusivInstruction {
         nonce: u64,
     },
 
-    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     #[pda(storage_account, Storage, { multi_accounts, writable })]
     FinalizeCommitmentHash,

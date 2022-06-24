@@ -965,25 +965,4 @@ mod tests {
         if !Parameters::X_IS_NEGATIVE { f.conjugate(); }
         f
     }
-
-    #[test]
-    fn test_abx() {
-        let mut rounds = Vec::new();
-
-        let public_input = &BigInteger256([0, 0, 0, u64::MAX]);
-            let skip = find_first_non_zero(public_input);
-            rounds.extend(vec![0; skip]);
-
-            for b in skip..256 {
-                if get_bit(public_input, b) {
-                    rounds.push(DOUBLE_IN_PLACE_COST + ADD_ASSIGN_MIXED_COST);
-                } else {
-                    rounds.push(DOUBLE_IN_PLACE_COST);
-                }
-            }
-
-            rounds.push(0);
-
-        panic!("{}", compute_unit_instructions(rounds).len());
-    }
 }

@@ -76,7 +76,7 @@ queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240
 
 impl<'a, 'b> CommitmentQueue<'a, 'b> {
     /// Returns the next batch of commitments to be hashed together
-    pub fn next_batch(&self) -> Result<Vec<CommitmentHashRequest>, ProgramError> {
+    pub fn next_batch(&self) -> Result<(Vec<CommitmentHashRequest>, u32), ProgramError> {
         let mut requests = Vec::new();
         let mut highest_batching_rate = 0;
         let mut commitment_count: usize = u32::MAX as usize;
@@ -98,7 +98,7 @@ impl<'a, 'b> CommitmentQueue<'a, 'b> {
             requests.push(request);
         }
 
-        Ok(requests)
+        Ok((requests, highest_batching_rate))
     }
 }
 
@@ -359,9 +359,13 @@ mod tests {
 
         }
 
-        for _ in 0..=MAX_COMMITMENT_BATCHING_RATE {
-            let batch = q.next_batch().unwrap();
+        for b in 0..=MAX_COMMITMENT_BATCHING_RATE {
+            let (batch, batching_rate) = q.next_batch().unwrap();
+            for _ in 0..commitments_per_batch(batching_rate) {
+                q.dequeue_first().unwrap();
+            }
 
+            assert_eq!(batching_rate as usize, b);
             for (i, c) in batch.iter().enumerate() {
                 assert_eq!(c.commitment, fr_to_u256_le(&u64_to_scalar(i as u64)));
             }
