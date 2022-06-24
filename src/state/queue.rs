@@ -3,7 +3,7 @@
 use borsh::{BorshSerialize, BorshDeserialize};
 use solana_program::program_error::ProgramError;
 use crate::commitment::commitments_per_batch;
-use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty};
+use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty, InvalidFeeVersion, InvalidQueueAccess};
 use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
@@ -80,19 +80,20 @@ impl<'a, 'b> CommitmentQueue<'a, 'b> {
         let mut requests = Vec::new();
         let mut highest_batching_rate = 0;
         let mut commitment_count: usize = u32::MAX as usize;
-        let mut fee_version = 0;
+        let mut fee_version = None;
 
         while requests.len() < commitment_count {
             let request = self.view(requests.len())?;
-            highest_batching_rate = std::cmp::max(
-                highest_batching_rate,
-                request.min_batching_rate
-            );
-            fee_version = std::cmp::min(
-                fee_version,
-                request.fee_version
-            );
+
+            highest_batching_rate = std::cmp::max(highest_batching_rate, request.min_batching_rate);
             commitment_count = commitments_per_batch(highest_batching_rate);
+
+            // Just a (hopefully always) redundant fee-check (depends on the fee upgrade logic)
+            match fee_version {
+                Some(f) => guard!(f == request.fee_version, InvalidFeeVersion),
+                None => {}
+            };
+            fee_version = Some(request.fee_version);
 
             requests.push(request);
         }
@@ -144,6 +145,7 @@ pub trait RingQueue {
         let head = self.get_head();
         let tail = self.get_tail();
         guard!(head != tail, QueueIsEmpty);
+        guard!((offset as u64) < self.len(), InvalidQueueAccess);
 
         Ok(self.get_data((u64_as_usize_safe(head) + offset) % (u64_as_usize_safe(Self::SIZE))))
     }
@@ -152,7 +154,6 @@ pub trait RingQueue {
     fn dequeue_first(&mut self) -> Result<Self::N, ProgramError> {
         let head = self.get_head();
         let tail = self.get_tail();
-
         guard!(head != tail, QueueIsEmpty);
 
         let value = self.get_data(u64_as_usize_safe(head));
@@ -191,10 +192,20 @@ pub trait RingQueue {
     fn empty_slots(&self) -> u64 {
         Self::CAPACITY - self.len()
     }
+
+    #[cfg(test)]
+    fn clear(&mut self) {
+        self.set_head(&0);
+        self.set_tail(&0);
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
+
+    use crate::{commitment::MAX_COMMITMENT_BATCHING_RATE, fields::{u64_to_scalar, fr_to_u256_le}};
+
     use super::*;
 
     struct TestQueue<const S: usize> {
@@ -248,7 +259,7 @@ mod tests {
             assert_eq!(queue.len(), i as u64 + 1);
         }
 
-        assert!(matches!(queue.enqueue(2), Err(_)));
+        assert_matches!(queue.enqueue(2), Err(_));
 
         // Remove and insert one
         for i in 0..queue.capacity() {
@@ -260,14 +271,14 @@ mod tests {
     #[test]
     fn test_max_size() {
         test_queue!(full_queue, 3, 1, 0);
-        assert!(matches!(full_queue.enqueue(1), Err(_)));
+        assert_matches!(full_queue.enqueue(1), Err(_));
 
         full_queue.dequeue_first().unwrap();
-        assert!(matches!(full_queue.enqueue(1), Ok(())));
-        assert!(matches!(full_queue.enqueue(2), Err(_)));
+        assert_matches!(full_queue.enqueue(1), Ok(()));
+        assert_matches!(full_queue.enqueue(2), Err(_));
 
         full_queue.dequeue_first().unwrap();
-        assert!(matches!(full_queue.enqueue(2), Ok(())));
+        assert_matches!(full_queue.enqueue(2), Ok(()));
     }
 
     #[test]
@@ -297,11 +308,69 @@ mod tests {
             assert_eq!(i as u32, queue.view_first().unwrap());
             queue.dequeue_first().unwrap();
         }
-        assert!(matches!(queue.dequeue_first(), Err(_)));
+        assert_matches!(queue.dequeue_first(), Err(_));
+    }
+
+    #[test]
+    fn test_view() {
+        test_queue!(queue, 13, 0, 0); 
+
+        assert_matches!(queue.view(0), Err(_));
+
+        queue.enqueue(0).unwrap();
+
+        queue.view(0).unwrap();
+        assert_matches!(queue.view(1), Err(_));
+    }
+
+    #[test]
+    fn test_clear_queue() {
+        test_queue!(queue, 13, 0, 0);
+        queue.enqueue(0).unwrap();
+        queue.clear();
+        assert!(queue.is_empty());
     }
 
     #[test]
     fn test_next_batch() {
-        panic!()
+        let mut data = vec![0; CommitmentQueueAccount::SIZE];
+        let mut q = CommitmentQueueAccount::new(&mut data).unwrap();
+        let mut q = CommitmentQueue::new(&mut q);
+
+        // Incomplete batch
+        for _ in 0..3 {
+            q.enqueue(CommitmentHashRequest { commitment: [0; 32], fee_version: 0, min_batching_rate: 2 }).unwrap();
+        }
+        assert_matches!(q.next_batch(), Err(_));
+
+        // Complete batches (with variing batching rates)
+        q.clear();
+        for b in 0..=MAX_COMMITMENT_BATCHING_RATE {
+            let c = commitments_per_batch(b as u32);
+            for i in 0..c {
+                q.enqueue(
+                    CommitmentHashRequest {
+                        commitment: fr_to_u256_le(&u64_to_scalar(i as u64)),
+                        fee_version: 0,
+                        min_batching_rate: if i == 0 { b as u32 } else { 0 },
+                    }
+                ).unwrap();
+            }
+
+        }
+
+        for _ in 0..=MAX_COMMITMENT_BATCHING_RATE {
+            let batch = q.next_batch().unwrap();
+
+            for (i, c) in batch.iter().enumerate() {
+                assert_eq!(c.commitment, fr_to_u256_le(&u64_to_scalar(i as u64)));
+            }
+        }
+
+        // Mismatching fee
+        q.clear();
+        q.enqueue(CommitmentHashRequest { commitment: [0; 32], fee_version: 0, min_batching_rate: 1 }).unwrap();
+        q.enqueue(CommitmentHashRequest { commitment: [0; 32], fee_version: 1, min_batching_rate: 1 }).unwrap();
+        assert_matches!(q.next_batch(), Err(_));
     }
 }
