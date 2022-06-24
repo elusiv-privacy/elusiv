@@ -2,6 +2,7 @@
 
 use crate::macros::*;
 use crate::bytes::BorshSerDeSized;
+use crate::state::fee::ProgramFee;
 use super::processor;
 use super::processor::{BaseCommitmentHashRequest};
 use crate::processor::{SingleInstancePDAAccountKind, ProofRequest, MultiInstancePDAAccountKind};
@@ -204,26 +205,18 @@ pub enum ElusivInstruction {
     #[sys(system_program, key = system_program::ID, { ignore })]
     InitNewFeeVersion {
         fee_version: u64,
-        lamports_per_tx: u64,
-        base_commitment_network_fee: u64,
-        proof_network_fee: u64,
-        relayer_hash_tx_fee: u64,
-        relayer_proof_tx_fee: u64,
-        relayer_proof_reward: u64,
+        program_fee: ProgramFee,
     },
 }
 
 #[cfg(feature = "instruction-abi")]
-pub fn open_all_initial_accounts(payer: Pubkey, lamports_per_tx: u64) -> Vec<solana_program::instruction::Instruction> {
+pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {
     vec![
         // Governor
         ElusivInstruction::setup_governor_account_instruction(
             SignerAccount(payer),
             WritableUserAccount(GovernorAccount::find(None).0)
         ),
-
-        // Genesis Fee
-        init_genesis_fee_account(payer, lamports_per_tx),
 
         // SOL pool
         ElusivInstruction::open_single_instance_account_instruction(
@@ -261,22 +254,6 @@ pub fn open_all_initial_accounts(payer: Pubkey, lamports_per_tx: u64) -> Vec<sol
             WritableUserAccount(BaseCommitmentQueueAccount::find(Some(0)).0)
         ),
     ]
-}
-
-#[cfg(feature = "instruction-abi")]
-pub fn init_genesis_fee_account(payer: Pubkey, lamports_per_tx: u64) -> solana_program::instruction::Instruction {
-    use crate::state::fee::{MAX_BASE_COMMITMENT_NETWORK_FEE, MAX_PROOF_NETWORK_FEE, MAX_RELAYER_HASH_TX_FEE, MAX_RELAYER_PROOF_TX_FEE, MAX_RELAYER_PROOF_REWARD};
-
-    ElusivInstruction::init_new_fee_version_instruction(
-        0,
-        lamports_per_tx,
-        MAX_BASE_COMMITMENT_NETWORK_FEE,
-        MAX_PROOF_NETWORK_FEE,
-        MAX_RELAYER_HASH_TX_FEE,
-        MAX_RELAYER_PROOF_TX_FEE,
-        MAX_RELAYER_PROOF_REWARD,
-        SignerAccount(payer),
-    )
 }
 
 #[cfg(feature = "instruction-abi")]

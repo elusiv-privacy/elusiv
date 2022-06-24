@@ -151,21 +151,6 @@ pub const fn commitments_per_batch(batching_rate: u32) -> usize {
 /// - the commitments in a batch form a hash-sub-tree (HT) of height `batching_rate`
 /// - there are additional `MT_HEIGHT - batching_rate` hashes from the HT-root to the MT-root
 /// - the HT contains the commitments and has `2ˆ{batching_rate + 1} - 1` hashes
-/// 
-/// ### Example
-/// Hash-sub-tree for batching_rate `2` with `n := MT_HEIGHT`:
-/// ```
-///                  ...                
-///                 ┌─┴──┐  
-/// n-2       ┌─────┤ h2 ├─────┐        ...
-///           │     └────┘     │
-///         ┌─┴──┐          ┌──┴─┐
-/// n-1   ┌─┤ h0 ├─┐      ┌─┤ h1 ├─┐    ...
-///       │ └────┘ │      │ └────┘ │
-///     ┌─┴──┐  ┌──┴─┐  ┌─┴──┐  ┌──┴─┐
-/// n   │ c0 │  │ c1 │  │ c2 │  │ c3 │  ...
-///     └────┘  └────┘  └────┘  └────┘
-/// ```
 pub const fn hash_count_per_batch(batching_rate: u32) -> usize {
     // batching_rate - 1 is the height of the sub-tree without commitments
     two_pow!(batching_rate) - 1 + MT_HEIGHT as usize - batching_rate as usize

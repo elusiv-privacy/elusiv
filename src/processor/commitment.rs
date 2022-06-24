@@ -96,15 +96,18 @@ pub fn store_base_commitment<'a>(
     guard!(request.min_batching_rate == governor.get_commitment_batching_rate(), InvalidBatchingRate);
 
     // Take amount + fee from sender
+    let fee = fee.get_program_fee();
     let compensation_fee = fee.base_commitment_hash_fee(request.min_batching_rate);
-    let network_fee = fee.get_base_commitment_network_fee();
+    let network_fee = fee.base_commitment_network_fee;
+    let subvention = fee.base_commitment_subvention;
     guard!(sender.lamports() >= compensation_fee + request.amount, InvalidAmount);
     send_with_system_program(
         sender,
         pool,
         system_program,
-        request.amount + compensation_fee - network_fee
+        request.amount + compensation_fee - network_fee - subvention
     )?;
+    assert!(fee_collector.lamports() >= subvention);
     send_with_system_program(
         sender,
         fee_collector,
@@ -151,7 +154,7 @@ pub fn compute_base_commitment_hash<'a>(
     guard!(hashing_account.get_fee_version() == fee_version, InvalidFeeVersion);
 
     compute_base_commitment_hash_partial(hashing_account)?;
-    send_from_pool(pool, fee_payer, fee.hash_tx_compensation())
+    send_from_pool(pool, fee_payer, fee.get_program_fee().hash_tx_compensation())
 }
 
 pub fn finalize_base_commitment_hash<'a>(
@@ -250,7 +253,7 @@ pub fn compute_commitment_hash<'a>(
         );
     }
 
-    send_from_pool(pool, fee_payer, fee.hash_tx_compensation())
+    send_from_pool(pool, fee_payer, fee.get_program_fee().hash_tx_compensation())
 }
 
 pub fn finalize_commitment_hash(

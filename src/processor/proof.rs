@@ -71,6 +71,16 @@ pub enum ProofRequest {
     Migrate{ request: MigrateProofRequest }
 }
 
+macro_rules! proof_request {
+    ($self: ident, $path: ident) => {
+        match $self {
+            Self::Send { request } => request.public_inputs.join_split.$path,
+            Self::Merge { request } => request.public_inputs.join_split.$path,
+            Self::Migrate { request } => request.public_inputs.join_split.$path,
+        }
+    };
+}
+
 impl ProofRequest {
     pub fn raw_proof(&self) -> RawProof {
         match self {
@@ -81,7 +91,7 @@ impl ProofRequest {
     }
 
     pub fn fee_version(&self) -> u64 {
-        panic!()
+        proof_request!(self, fee_version)
     }
 
     pub fn batching_rate(&self) -> u32 {
@@ -189,6 +199,8 @@ pub fn init_proof<'a, 'b, 'c, 'd>(
     // Check for expected nullifier duplicates
     // - we need to allow for two verifications having the same nullifiers, since a bad relayer could attempt block users from accessing their funds
     // - but every request receives a short time-frame in which it can be completed with a guarantee of no duplicates
+
+    todo!("Add subvention support");
 
     // Also: Only storage account PDA required here
     todo!();

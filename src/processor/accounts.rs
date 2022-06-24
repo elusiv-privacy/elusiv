@@ -11,7 +11,7 @@ use crate::{state::{
     program_account::{MultiAccountAccount, ProgramAccount, HeterogenMultiAccountAccount},
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
-    fee::FeeAccount, NullifierAccount, MT_COMMITMENT_COUNT,
+    fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
 }, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe};
 use crate::commitment::{CommitmentHashingAccount};
 use crate::error::ElusivError::{
@@ -175,11 +175,11 @@ pub fn setup_governor_account<'a>(
 /// Changes the state of the `GovernorAccount`
 pub fn upgrade_governor_state(
     authority: &AccountInfo,
-    governor_account: &mut GovernorAccount,
-    commitment_queue: &mut CommitmentQueueAccount,
+    _governor_account: &mut GovernorAccount,
+    _commitment_queue: &mut CommitmentQueueAccount,
 
-    fee_version: u64,
-    batching_rate: u32,
+    _fee_version: u64,
+    _batching_rate: u32,
 ) -> ProgramResult {
     guard!(*authority.key == GOVERNOR_UPGRADE_AUTHORITY, InvalidAccount);
     todo!("Not implemented yet");
@@ -196,28 +196,15 @@ pub fn init_new_fee_version<'a>(
     new_fee: &AccountInfo<'a>,
 
     fee_version: u64,
-
-    lamports_per_tx: u64,
-    base_commitment_network_fee: u64,
-    proof_network_fee: u64,
-    relayer_hash_tx_fee: u64,
-    relayer_proof_tx_fee: u64,
-    relayer_proof_reward: u64,
+    program_fee: ProgramFee,
 ) -> ProgramResult {
     guard!(fee_version == governor.get_fee_version(), InvalidFeeVersion);
     open_pda_account_with_offset::<FeeAccount>(payer, new_fee, fee_version)?;
 
     let mut data = new_fee.data.borrow_mut();
     let mut fee = FeeAccount::new(&mut data[..])?;
-
-    fee.setup(
-        lamports_per_tx,
-        base_commitment_network_fee,
-        proof_network_fee,
-        relayer_hash_tx_fee,
-        relayer_proof_tx_fee,
-        relayer_proof_reward
-    )
+    fee.set_program_fee(&program_fee);
+    Ok(())
 }
 
 fn setup_multi_account_account<'a, T: MultiAccountAccount<'a>>(

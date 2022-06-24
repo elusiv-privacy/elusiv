@@ -160,23 +160,57 @@ pub fn close_account<'a>(
 
 #[cfg(test)]
 mod tests {
-    /*#[test]
-    fn test_public_inputs_commitment_duplicate() {
-        panic!()
+    use super::*;
+    use crate::{macros::{test_account_info, account}, proof::VerificationAccount};
+    use assert_matches::assert_matches;
+    use solana_program::pubkey::Pubkey;
+
+    #[test]
+    fn test_send_with_system_program() {
+        test_account_info!(sender, 0);
+        test_account_info!(recipient, 0);
+
+        let invalid_id =  Pubkey::new_unique();
+        account!(invalid_system_program, invalid_id, vec![]);
+
+        let valid_id = system_program::ID;
+        account!(system_program, valid_id, vec![]);
+
+        assert_matches!(send_with_system_program(&sender, &recipient, &invalid_system_program, 1), Err(_));
+        send_with_system_program(&sender, &recipient, &system_program, 1).unwrap();
     }
 
     #[test]
-    fn test_public_inputs_different_roots_same_tree() {
-        panic!()
+    fn test_open_pda_account_with_offset() {
+        test_account_info!(payer, 0);
+        let correct_pda = VerificationAccount::find(Some(3)).0;
+        account!(pda_account, correct_pda, vec![]);
+        open_pda_account_with_offset::<VerificationAccount>(&payer, &pda_account, 3).unwrap();
     }
 
     #[test]
-    fn test_public_inputs_different_nullifiers() {
-        panic!()
+    fn test_open_pda_account_with_offset_invalid_pda() {
+        test_account_info!(payer, 0);
+        let correct_pda = VerificationAccount::find(Some(3)).0;
+        account!(pda_account, correct_pda, vec![]);
+
+        assert_matches!(open_pda_account_with_offset::<VerificationAccount>(&payer, &pda_account, 2), Err(_));
     }
 
     #[test]
-    fn test_public_inputs_valid() {
-        panic!()
-    }*/
+    fn test_open_pda_account_without_offset() {
+        test_account_info!(payer, 0);
+        let correct_pda = VerificationAccount::find(None).0;
+        account!(pda_account, correct_pda, vec![]);
+        open_pda_account_without_offset::<VerificationAccount>(&payer, &pda_account).unwrap();
+    }
+
+    #[test]
+    fn test_open_pda_account_without_offset_invalid_pda() {
+        test_account_info!(payer, 0);
+        let wrong_pda = VerificationAccount::find(Some(0)).0;
+        account!(pda_account, wrong_pda, vec![]);
+
+        assert_matches!(open_pda_account_without_offset::<VerificationAccount>(&payer, &pda_account), Err(_));
+    }
 }
