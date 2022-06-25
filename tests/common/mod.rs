@@ -16,7 +16,7 @@ use ark_bn254::Fr;
 use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}, state::{STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT, NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT}};
 use elusiv::fields::{fr_to_u256_le};
 use elusiv::processor::{BaseCommitmentHashRequest};
-use elusiv::state::{StorageAccount, NullifierAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountFields}};
+use elusiv::state::{StorageAccount, NullifierAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountData}};
 
 const DEFAULT_START_BALANCE: u64 = LAMPORTS_PER_SOL;
 
@@ -146,7 +146,7 @@ macro_rules! storage_account {
     ($id: ident, $prg: ident) => {
         let mut data = get_data(&mut $prg, StorageAccount::find(None).0).await;
 
-        let pks = elusiv::state::program_account::MultiAccountAccountFields::<{StorageAccount::COUNT}>::new(&data).unwrap();
+        let pks = elusiv::state::program_account::MultiAccountAccountData::<{StorageAccount::COUNT}>::new(&data).unwrap();
         let keys = pks.pubkeys;
 
         account_info!(acc0, &keys[0], $prg);

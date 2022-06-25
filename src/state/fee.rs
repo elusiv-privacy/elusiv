@@ -3,11 +3,12 @@ use crate::macros::{elusiv_account};
 use crate::bytes::{BorshSerDeSized, div_ceiling};
 use crate::proof::{prepare_public_inputs_instructions, CombinedMillerLoop, FinalExponentiation};
 use crate::proof::vkey::VerificationKey;
+use crate::state::program_account::SizedAccount;
+use super::program_account::PDAAccountData;
 use ark_ff::BigInteger256;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;
 use elusiv_derive::BorshSerDeSized;
-use crate::state::program_account::SizedAccount;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct ProgramFee {
@@ -33,9 +34,7 @@ pub struct ProgramFee {
 /// - each one has it's own version as its pda-offset
 /// - the `GovernorAccount` defines the most-recent version
 pub struct FeeAccount {
-    bump_seed : u8,
-    version: u8,
-    initialized: bool,
+    pda_data: PDAAccountData,
 
     program_fee: ProgramFee,
 }

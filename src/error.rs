@@ -10,6 +10,7 @@ pub enum ElusivError {
     InvalidAccountSize,
     InvalidAccountBalance,
     NonScalarValue,
+    MissingSubAccount,
 
     SenderIsNotSigner,
     SenderIsNotWritable,
@@ -57,6 +58,10 @@ pub enum ElusivError {
     // Fee
     InvalidFee,
     InvalidFeeVersion,
+
+    // Accounts
+    SubAccountAlreadyExists,
+    SubAccouttDoesNotExists,
 }
 
 #[cfg(not(tarpaulin_include))]

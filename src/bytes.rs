@@ -1,12 +1,20 @@
+use std::collections::BTreeMap;
+use std::cmp::Ord;
+use std::hash::Hash;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
     const SIZE: usize;
 
-    fn override_slice(value: &Self, slice: &mut [u8]) {
-        let vec = Self::try_to_vec(value).unwrap();
+    fn override_slice(value: &Self, slice: &mut [u8]) -> Result<(), std::io::Error> {
+        let vec = Self::try_to_vec(value)?;
         slice[..vec.len()].copy_from_slice(&vec[..]);
+        Ok(())
     }
+}
+
+impl<T: BorshSerDeSized> BorshSerDeSized for Option<T> {
+    const SIZE: usize = 1 + T::SIZE;
 }
 
 pub const fn max(a: usize, b: usize) -> usize {

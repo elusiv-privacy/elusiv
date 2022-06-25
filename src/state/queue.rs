@@ -8,16 +8,14 @@ use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
 use crate::processor::{BaseCommitmentHashRequest, CommitmentHashRequest};
-use super::program_account::{SizedAccount, ProgramAccount, PDAAccountFields, MultiInstancePDAAccount};
+use super::program_account::{SizedAccount, ProgramAccount, PDAAccountData, MultiInstancePDAAccount};
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
     ($id: ident, $id_account: ident, $seed: literal, $size: literal, $ty_element: ty, $max_instances: literal) => {
         #[elusiv_account(pda_seed = $seed)]
         pub struct $id_account {
-            bump_seed: u8,
-            version: u8,
-            initialized: bool,
+            pda_data: PDAAccountData,
 
             head: u64,
             tail: u64,
@@ -26,7 +24,7 @@ macro_rules! queue_account {
 
         const_assert_eq!(
             <$id_account>::SIZE,
-            PDAAccountFields::SIZE + (8 + 8) + <$ty_element>::SIZE * ($size)
+            PDAAccountData::SIZE + (8 + 8) + <$ty_element>::SIZE * ($size)
         );
 
         const_assert_eq!(
@@ -356,7 +354,6 @@ mod tests {
                     }
                 ).unwrap();
             }
-
         }
 
         for b in 0..=MAX_COMMITMENT_BATCHING_RATE {

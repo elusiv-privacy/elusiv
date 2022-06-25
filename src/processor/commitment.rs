@@ -30,7 +30,6 @@ use crate::error::ElusivError::{
     NoRoomForCommitment,
     InvalidFeeVersion,
     InvalidBatchingRate,
-    MerkleTreeIsNotInitialized,
     QueueIsEmpty,
 };
 use crate::fields::{try_scalar_montgomery, u256_to_big_uint, u256_to_fr};
@@ -99,7 +98,7 @@ pub fn store_base_commitment<'a>(
     let fee = fee.get_program_fee();
     let compensation_fee = fee.base_commitment_hash_fee(request.min_batching_rate);
     let network_fee = fee.base_commitment_network_fee;
-    let subvention = fee.base_commitment_subvention;
+    let subvention = if fee_collector.lamports() >= fee.base_commitment_subvention { fee.base_commitment_subvention } else { 0 };
     guard!(sender.lamports() >= compensation_fee + request.amount, InvalidAmount);
     send_with_system_program(
         sender,
@@ -107,7 +106,6 @@ pub fn store_base_commitment<'a>(
         system_program,
         request.amount + compensation_fee - network_fee - subvention
     )?;
-    assert!(fee_collector.lamports() >= subvention);
     send_with_system_program(
         sender,
         fee_collector,
@@ -194,7 +192,6 @@ pub fn init_commitment_hash(
     storage_account: &StorageAccount,
 ) -> ProgramResult {
     guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
-    guard!(storage_account.get_initialized(), MerkleTreeIsNotInitialized);
 
     let mut queue = CommitmentQueue::new(queue);
     let (batch, batching_rate) = queue.next_batch()?;
@@ -260,7 +257,6 @@ pub fn finalize_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
     storage_account: &mut StorageAccount,
 ) -> ProgramResult {
-    guard!(storage_account.get_initialized(), MerkleTreeIsNotInitialized);
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
     let instruction = hashing_account.get_instruction();
@@ -285,7 +281,7 @@ mod tests {
     use crate::commitment::u256_from_str;
     use crate::fields::{big_uint_to_u256, SCALAR_MODULUS};
     use crate::state::{MT_HEIGHT, EMPTY_TREE, mt_array_index};
-    use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountAccount, MultiAccountProgramAccount, HeterogenMultiAccountAccount};
+    use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::{zero_account, account, test_account_info, storage_account};
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
@@ -481,8 +477,7 @@ mod tests {
 
     #[test]
     fn test_init_commitment_hash_empty_queue() {
-        storage_account!(mut storage_account);
-        storage_account.set_initialized(&true);
+        storage_account!(storage_account);
         zero_account!(mut queue, CommitmentQueueAccount);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -491,8 +486,7 @@ mod tests {
 
     #[test]
     fn test_init_commitment_hash_active_computation() {
-        storage_account!(mut storage_account);
-        storage_account.set_initialized(&true);
+        storage_account!(storage_account);
         zero_account!(mut queue, CommitmentQueueAccount);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -506,7 +500,6 @@ mod tests {
     #[test]
     fn test_init_commitment_hash_full_storage() {
         storage_account!(mut storage_account);
-        storage_account.set_initialized(&true);
         zero_account!(mut queue, CommitmentQueueAccount);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -519,8 +512,7 @@ mod tests {
 
     #[test]
     fn test_init_commitment_hash_incomplete_batch() {
-        storage_account!(mut storage_account);
-        storage_account.set_initialized(&true);
+        storage_account!(storage_account);
         zero_account!(mut queue, CommitmentQueueAccount);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -534,7 +526,6 @@ mod tests {
     #[test]
     fn test_init_commitment_hash_batch_too_big() {
         storage_account!(mut storage_account);
-        storage_account.set_initialized(&true);
         zero_account!(mut queue, CommitmentQueueAccount);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -548,8 +539,7 @@ mod tests {
     #[test]
     #[allow(clippy::needless_range_loop)]
     fn test_init_commitment_hash_valid() {
-        storage_account!(mut storage_account);
-        storage_account.set_initialized(&true);
+        storage_account!(storage_account);
         zero_account!(mut queue, CommitmentQueueAccount);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -600,7 +590,6 @@ mod tests {
     #[test]
     fn test_finalize_commitment_hash() {
         storage_account!(mut storage_account);
-        storage_account.set_initialized(&true);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
         // Computation not finished
@@ -625,7 +614,6 @@ mod tests {
     #[test]
     fn test_finalize_commitment_hash_valid() {
         storage_account!(mut storage_account);
-        storage_account.set_initialized(&true);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
         let batching_rate = 5;

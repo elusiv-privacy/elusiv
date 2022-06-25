@@ -436,7 +436,7 @@ pub fn check_join_split_public_inputs<const N: usize>(
         }
 
         // Check that nullifier_hashes can be inserted
-        guard!(nullifier_account.can_insert_nullifier_hash(public_inputs.nullifier_hashes[i]), NullifierAlreadyExists);
+        guard!(nullifier_account.can_insert_nullifier_hash(public_inputs.nullifier_hashes[i])?, NullifierAlreadyExists);
     }
 
     // Check that nullifier_hashes for the same tree are different

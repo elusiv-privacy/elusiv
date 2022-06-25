@@ -17,7 +17,7 @@ use crate::error::ElusivError::{
 };
 use crate::macros::guard;
 use crate::state::program_account::{
-    PDAAccountFields,
+    PDAAccountData,
     PDAAccount,
     SizedAccount
 };
@@ -141,11 +141,14 @@ pub fn create_pda_account<'a>(
 
     // Assign default fields
     let data = &mut pda_account.data.borrow_mut()[..];
-    let mut fields = PDAAccountFields::new(data)?;
-    fields.bump_seed = bump;
-    fields.version = 0;
-    fields.initialized = false;
-    PDAAccountFields::override_slice(&fields, data);
+    PDAAccountData::override_slice(
+        &PDAAccountData {
+            bump_seed: bump,
+            version: 0,
+            initialized: false,
+        },
+        data
+    )?;
 
     Ok(())
 }

@@ -11,12 +11,11 @@ use crate::processor::BaseCommitmentHashRequest;
 use crate::state::{StorageAccount, HISTORY_ARRAY_COUNT};
 use crate::types::U256;
 use crate::bytes::{BorshSerDeSized, usize_as_u32_safe};
-use crate::state::program_account::SizedAccount;
+use crate::state::program_account::{SizedAccount, PDAAccountData};
 use crate::fields::{u64_to_scalar, u256_to_fr, fr_to_u256_le};
 use solana_program::program_error::ProgramError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::{PartialComputation, PartialComputationInstruction};
-
 use self::poseidon_hash::BinarySpongeHashingState;
 
 /// Partial computation resulting in `commitment = h(base_commitment, amount)`
@@ -30,9 +29,7 @@ const_assert_eq!(BaseCommitmentHashComputation::INSTRUCTIONS.len(), 2);
 /// - multiple of these accounts can exist
 #[elusiv_account(pda_seed = b"base_commitment", partial_computation)]
 pub struct BaseCommitmentHashingAccount {
-    bump_seed: u8,
-    version: u8,
-    initialized: bool,
+    pda_data: PDAAccountData,
 
     is_active: bool,
     instruction: u32,
@@ -167,9 +164,7 @@ const_assert_eq!(MAX_HT_COMMITMENTS, 32);
 /// - only one of these accounts can exist per MT
 #[elusiv_account(pda_seed = b"commitment", partial_computation)]
 pub struct CommitmentHashingAccount {
-    bump_seed: u8,
-    version: u8,
-    initialized: bool,
+    pda_data: PDAAccountData,
 
     is_active: bool,
     instruction: u32,
@@ -391,7 +386,7 @@ pub fn u256_from_str(str: &str) -> U256 {
 mod tests {
     use super::*;
     use crate::state::{mt_array_index, EMPTY_TREE};
-    use crate::state::program_account::{ProgramAccount, MultiAccountAccount, HeterogenMultiAccountAccount, MultiAccountProgramAccount};
+    use crate::state::program_account::{ProgramAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::storage_account;
     use ark_bn254::Fr;
     use ark_ff::Zero;

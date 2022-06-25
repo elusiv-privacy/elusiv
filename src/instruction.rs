@@ -11,7 +11,7 @@ use crate::state::{
     program_account::{
         PDAAccount,
         MultiAccountAccount,
-        MultiAccountAccountFields,
+        MultiAccountAccountData,
         ProgramAccount,
         MultiAccountProgramAccount,
     },
@@ -144,15 +144,8 @@ pub enum ElusivInstruction {
     // Set the next MT as the active MT
     #[pda(storage_account, Storage, { writable, multi_accounts })]
     #[pda(active_nullifier_account, Nullifier, pda_offset = Some(active_mt_index), { writable, multi_accounts })]
-    #[pda(next_nullifier_account, Nullifier, pda_offset = Some(active_mt_index + 1), { writable, multi_accounts })]
     ResetActiveMerkleTree {
         active_mt_index: u64,
-    },
-
-    // Creates a new `NullifierAccount`
-    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { multi_accounts, no_sub_account_check, writable })]
-    OpenNewMerkleTree {
-        mt_index: u64,
     },
 
     // Archives a `NullifierAccount` into a N-SMT (Nullifier-Sparse-Merkle-Tree)
@@ -182,9 +175,18 @@ pub enum ElusivInstruction {
         pda_offset: u64,
     },
 
-    // Can be called once, setups all sub-accounts for the storage account
-    #[pda(storage_account, Storage, { multi_accounts, no_sub_account_check, writable })]
-    SetupStorageAccount,
+    #[pda(storage_account, Storage, { account_info })]
+    #[acc(sub_account, { owned })]
+    EnableStorageSubAccount {
+        sub_account_index: u32,
+    },
+
+    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { account_info })]
+    #[acc(sub_account, { owned })]
+    EnableNullifierSubAccount {
+        mt_index: u64,
+        sub_account_index: u32,
+    },
 
     #[acc(payer, { writable, signer })]
     #[acc(governor, { writable })]
@@ -272,6 +274,7 @@ pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
 #[derive(Debug)]
 pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,4 +289,4 @@ mod tests {
     fn test_instruction_tag() {
         assert_eq!(2, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 0, fee_version: 0 }));
     }
-}
+}*/

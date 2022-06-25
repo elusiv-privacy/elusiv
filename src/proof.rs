@@ -11,7 +11,7 @@ use ark_ff::{Zero, BigInteger256};
 use vkey::VerificationKey;
 use crate::error::ElusivError;
 use crate::processor::ProofRequest;
-use crate::state::program_account::SizedAccount;
+use crate::state::program_account::{SizedAccount, PDAAccountData};
 use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof, Lazy};
 use crate::fields::{Wrap, G1A, G2A, G2HomProjective};
 use crate::macros::{elusiv_account, guard};
@@ -27,9 +27,7 @@ pub type RAMG2A<'a> = LazyRAM<'a, G2A, 1>;
 /// - exists only for verifying a single proof, closed afterwards
 #[elusiv_account(pda_seed = b"proof", partial_computation)]
 pub struct VerificationAccount {
-    bump_seed: u8,
-    version: u8,
-    initialized: bool,
+    pda_data: PDAAccountData,
 
     is_active: bool,
     instruction: u32,

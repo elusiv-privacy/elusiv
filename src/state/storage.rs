@@ -6,7 +6,7 @@ use crate::bytes::*;
 use super::program_account::*;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ark_bn254::Fr;
-use ark_ff::{BigInteger256};
+use ark_ff::BigInteger256;
 
 /// Height of the active MT
 /// - we define the height using the amount of leaves
@@ -29,8 +29,11 @@ pub const MT_COMMITMENT_START: usize = two_pow!(MT_HEIGHT) - 1;
 /// Since before submitting a proof request the current root can change, we store the previous ones
 pub const HISTORY_ARRAY_COUNT: usize = 100;
 
-pub const STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT: usize = big_array_accounts_count(MT_SIZE, U256::SIZE);
-const_assert_eq!(STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT, 7);
+const ACCOUNT_SIZE: usize = MIN_ACCOUNT_SIZE * 2; // 2 MiB
+const VALUES_PER_ACCOUNT: usize = ACCOUNT_SIZE / U256::SIZE;
+
+const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling((MT_SIZE * U256::SIZE) as u64, ACCOUNT_SIZE as u64));
+const_assert_eq!(ACCOUNTS_COUNT, 32);
 
 /// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes
 pub const EMPTY_TREE: [Fr; MT_HEIGHT as usize + 1] = [
@@ -62,17 +65,10 @@ const ZERO: Fr = Fr::new(BigInteger256::new([0, 0, 0, 0]));
 // The `StorageAccount` contains the active MT that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
-#[elusiv_account(pda_seed = b"storage", multi_account = (
-    U256;
-    STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT;
-    max_account_size(U256::SIZE);
-))]
+#[elusiv_account(pda_seed = b"storage", multi_account = (U256; ACCOUNTS_COUNT; ACCOUNT_SIZE))]
 pub struct StorageAccount {
-    bump_seed: u8,
-    version: u8,
-    initialized: bool,
-
-    pubkeys: [U256; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],
+    pda_data: PDAAccountData,
+    multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
 
     // Points to the next commitment in the active MT
     next_commitment_ptr: u32,
@@ -88,12 +84,13 @@ pub struct StorageAccount {
     mt_roots_count: u32, // required since we batch insert commitments
 }
 
-impl<'a, 'b, 't> BigArrayAccount<'t> for StorageAccount<'a, 'b, 't> {
-    const VALUES_COUNT: usize = MT_SIZE;
-}
-
-impl<'a, 'b, 't> MultiInstancePDAAccount for StorageAccount<'a, 'b, 't> {
-    const MAX_INSTANCES: u64 = 1;
+macro_rules! data_slice {
+    ($id: ident, $self: ident, $index: ident) => {
+        let (account_index, local_index) = $self.account_and_local_index($index);
+        let account = $self.get_account(account_index).unwrap();
+        let data = &mut account.data.borrow_mut()[..];
+        let $id = &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE];
+    };
 }
 
 impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
@@ -111,6 +108,11 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         ptr >= MT_COMMITMENT_COUNT
     }
 
+    fn account_and_local_index(&self, index: usize) -> (usize, usize) {
+        let account_index = index / VALUES_PER_ACCOUNT;
+        (account_index, index % VALUES_PER_ACCOUNT)
+    }
+
     /// `level`: 0 is the root level, `MT_HEIGHT` the commitment level
     pub fn get_node(&self, index: usize, level: usize) -> Fr {
         assert!(level <= MT_HEIGHT as usize);
@@ -121,14 +123,25 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         if use_default_value(index, level, ptr) {
             EMPTY_TREE[MT_HEIGHT as usize - level]
         } else {
-            u256_to_fr(&self.get(mt_array_index(index, level)))
+            let mt_index = mt_array_index(index, level);
+            data_slice!(data, self, mt_index);
+            u256_to_fr(&U256::try_from_slice(data).unwrap())
         }
     }
 
     pub fn set_node(&mut self, value: &U256, index: usize, level: usize) {
         assert!(level <= MT_HEIGHT as usize);
         assert!(index < two_pow!(usize_as_u32_safe(level)));
-        self.set(mt_array_index(index, level), *value);
+
+        let mt_index = mt_array_index(index, level);
+        {
+            data_slice!(data, self, mt_index);
+            U256::override_slice(value, data).unwrap();
+        }
+
+        if cfg!(test) {
+            self.modify(mt_index, *value);
+        }
     }
 
     pub fn get_root(&self) -> U256 {
@@ -170,14 +183,8 @@ fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
 mod tests {
     use super::*;
     use crate::{macros::storage_account, commitment::poseidon_hash::full_poseidon2_hash};
-    use super::super::program_account::{MultiAccountAccount};
     use std::str::FromStr;
     use ark_ff::Zero;
-
-    #[test]
-    fn test_storage_account() {
-        assert_eq!(STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT, 7);
-    }
 
     #[test]
     fn test_mt_array_index() {
