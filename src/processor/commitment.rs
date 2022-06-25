@@ -41,7 +41,7 @@ use crate::commitment::{
 use elusiv_computation::PartialComputation;
 use crate::fields::fr_to_u256_le;
 use borsh::{BorshDeserialize, BorshSerialize};
-use crate::bytes::BorshSerDeSized;
+use crate::bytes::{BorshSerDeSized, u64_as_u32_safe};
 use crate::macros::BorshSerDeSized;
 
 pub const MIN_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
@@ -61,7 +61,7 @@ pub struct BaseCommitmentHashRequest {
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 pub struct CommitmentHashRequest {
     pub commitment: U256,
-    pub fee_version: u64,
+    pub fee_version: u32,
     pub min_batching_rate: u32,
 }
 
@@ -176,7 +176,7 @@ pub fn finalize_base_commitment_hash<'a>(
     commitment_queue.enqueue(
         CommitmentHashRequest {
             commitment: fr_to_u256_le(&commitment),
-            fee_version: hashing_account.get_fee_version(),
+            fee_version: u64_as_u32_safe(hashing_account.get_fee_version()),
             min_batching_rate: hashing_account.get_min_batching_rate(),
         }
     )?;
@@ -220,7 +220,7 @@ pub fn init_commitment_hash(
         commitments,
         ordering,
         siblings,
-        fee_version,
+        fee_version as u64,
     )
 }
 

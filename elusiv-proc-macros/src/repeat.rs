@@ -1,7 +1,7 @@
 use quote::quote;
 use proc_macro2::{TokenStream, TokenTree, Delimiter};
 
-pub fn impl_for_loop(input: TokenStream) -> TokenStream {
+pub fn impl_repeat(input: TokenStream) -> TokenStream {
     let input: Vec<TokenTree> = input.into_iter().collect();
     let mut output = quote! {};
 
@@ -14,7 +14,7 @@ pub fn impl_for_loop(input: TokenStream) -> TokenStream {
             let expr = g.stream().to_string();
             for i in 0..rounds {
                 let i = i.to_string();
-                let e: TokenStream = expr.replace("$i", &i).parse().unwrap();
+                let e: TokenStream = expr.clone().replace("_index", &i).parse().unwrap();
                 output.extend(e);
             }
         }

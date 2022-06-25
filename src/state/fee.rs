@@ -10,7 +10,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;
 use elusiv_derive::BorshSerDeSized;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, PartialEq, Clone)]
 pub struct ProgramFee {
     /// consists of `lamports_per_signature` and possible additional compute units costs
     /// hard cap until we find a better solution (also depends on the future changed made to the Solana fee model)

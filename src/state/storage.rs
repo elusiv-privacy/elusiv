@@ -29,11 +29,11 @@ pub const MT_COMMITMENT_START: usize = two_pow!(MT_HEIGHT) - 1;
 /// Since before submitting a proof request the current root can change, we store the previous ones
 pub const HISTORY_ARRAY_COUNT: usize = 100;
 
-const ACCOUNT_SIZE: usize = MIN_ACCOUNT_SIZE * 2; // 2 MiB
-const VALUES_PER_ACCOUNT: usize = ACCOUNT_SIZE / U256::SIZE;
+const VALUES_PER_ACCOUNT: usize = 83_887;
+const ACCOUNT_SIZE: usize = VALUES_PER_ACCOUNT * U256::SIZE;
 
 const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling((MT_SIZE * U256::SIZE) as u64, ACCOUNT_SIZE as u64));
-const_assert_eq!(ACCOUNTS_COUNT, 32);
+const_assert_eq!(ACCOUNTS_COUNT, 25);
 
 /// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes
 pub const EMPTY_TREE: [Fr; MT_HEIGHT as usize + 1] = [

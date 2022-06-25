@@ -5,8 +5,7 @@ use solana_program::account_info::AccountInfo;
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 use crate::macros::BorshSerDeSized;
-use crate::bytes::BorshSerDeSized;
-use crate::types::U256;
+use crate::bytes::{BorshSerDeSized, ElusivOption};
 
 pub trait SizedAccount {
     const SIZE: usize;
@@ -87,16 +86,26 @@ impl PDAAccountData {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[derive(BorshDeserialize, BorshSerialize)]
 pub struct MultiAccountAccountData<const COUNT: usize> {
     // ... PDAAccountData always before MultiAccountAccountData, since it's a PDA
      
-    pub pubkeys: [Option<U256>; COUNT],
+    pub pubkeys: [ElusivOption<Pubkey>; COUNT],
+}
+
+impl<const COUNT: usize> BorshSerDeSized for MultiAccountAccountData<COUNT> {
+    const SIZE: usize = COUNT * <ElusivOption<Pubkey>>::SIZE;
+
+    fn override_slice(value: &Self, slice: &mut [u8]) -> Result<(), std::io::Error> {
+        let vec = Self::try_to_vec(value)?;
+        slice[PDAAccountData::SIZE..PDAAccountData::SIZE + vec.len()].copy_from_slice(&vec[..]);
+        Ok(())
+    }
 }
 
 impl<const COUNT: usize> MultiAccountAccountData<COUNT> {
     pub fn new(data: &[u8]) -> Result<Self, std::io::Error> {
-        MultiAccountAccountData::try_from_slice(&data[PDAAccountData::SIZE..Self::SIZE])
+        MultiAccountAccountData::try_from_slice(&data[PDAAccountData::SIZE..PDAAccountData::SIZE + Self::SIZE])
     }
 }
 
@@ -131,4 +140,21 @@ pub trait MultiAccountAccount<'t>: PDAAccount {
 
     /// Can be used to track modifications (just important for test functions)
     fn modify(&mut self, index: usize, value: Self::T);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct PDATest { }
+
+    impl PDAAccount for PDATest {
+        const SEED: &'static [u8] = b"ABC";
+    }
+
+    #[test]
+    fn test_pda_account() {
+        assert_ne!(PDATest::find(None), PDATest::find(Some(0)));
+        assert_ne!(PDATest::find(Some(0)), PDATest::find(Some(1)));
+    }
 }

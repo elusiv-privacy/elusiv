@@ -13,7 +13,7 @@ use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer}
 use assert_matches::assert_matches;
 use std::{str::FromStr};
 use ark_bn254::Fr;
-use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}, state::{STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT, NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT}};
+use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}};
 use elusiv::fields::{fr_to_u256_le};
 use elusiv::processor::{BaseCommitmentHashRequest};
 use elusiv::state::{StorageAccount, NullifierAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountData}};
@@ -124,13 +124,12 @@ macro_rules! pda_account {
 }
 
 macro_rules! account_info {
-    ($id: ident, $pk: expr, $prg: ident) => {
-        let pk = solana_program::pubkey::Pubkey::new($pk);
-        let mut a = $prg.banks_client.get_account(pk).await.unwrap().unwrap();
+    ($id: ident, $pk: expr, $context: expr) => {
+        let mut a = $context.banks_client.get_account($pk).await.unwrap().unwrap();
         let (mut lamports, mut d, owner, executable, epoch) = a.get();
 
         let $id = solana_program::account_info::AccountInfo::new(
-            &pk,
+            &$pk,
             false,
             false,
             &mut lamports,
@@ -142,43 +141,47 @@ macro_rules! account_info {
     };
 }
 
-macro_rules! storage_account {
-    ($id: ident, $prg: ident) => {
-        let mut data = get_data(&mut $prg, StorageAccount::find(None).0).await;
+pub async fn storage_account<F>(
+    context: &mut ProgramTestContext,
+    f: F,
+) where F: Fn(&StorageAccount) {
+    use solana_program::account_info::Account;
+    use elusiv::state::program_account::MultiAccountProgramAccount;
 
-        let pks = elusiv::state::program_account::MultiAccountAccountData::<{StorageAccount::COUNT}>::new(&data).unwrap();
-        let keys = pks.pubkeys;
+    let mut data = get_data(context, StorageAccount::find(None).0).await;
+    let pks = elusiv::state::program_account::MultiAccountAccountData::<{StorageAccount::COUNT}>::new(&data).unwrap();
+    let keys = pks.pubkeys.iter().map(|p| p.option().unwrap()).collect::<Vec<Pubkey>>();
+    let mut sub_accounts = std::collections::HashMap::new();
 
-        account_info!(acc0, &keys[0], $prg);
-        account_info!(acc1, &keys[1], $prg);
-        account_info!(acc2, &keys[2], $prg);
-        account_info!(acc3, &keys[3], $prg);
-        account_info!(acc4, &keys[4], $prg);
-        account_info!(acc5, &keys[5], $prg);
-        account_info!(acc6, &keys[6], $prg);
+    elusiv_proc_macros::repeat!({
+        account_info!(acc_index, keys[_index], context);
+        sub_accounts.insert(_index, &acc_index);
+    }, 25);
 
-        let sub_accounts = vec![&acc0, &acc1, &acc2, &acc3, &acc4, &acc5, &acc6];
-
-        let $id = StorageAccount::new(&mut data[..], sub_accounts).unwrap();
-    };
+    let storage_account = StorageAccount::new(&mut data, sub_accounts).unwrap();
+    f(&storage_account)
 }
 
-macro_rules! nullifier_account {
-    ($id: ident, $index: expr, $prg: ident) => {
-        let mut data = get_data(&mut $prg, NullifierAccount::find(Some($index)).0).await;
+pub async fn nullifier_account<F>(
+    mt_index: u64,
+    context: &mut ProgramTestContext,
+    f: F,
+) where F: Fn(&NullifierAccount) {
+    use solana_program::account_info::Account;
+    use elusiv::state::program_account::MultiAccountProgramAccount;
 
-        let pks = elusiv::state::program_account::MultiAccountAccountFields::<{NullifierAccount::COUNT}>::new(&data).unwrap();
-        let keys = pks.pubkeys;
+    let mut data = get_data(context, NullifierAccount::find(Some(mt_index)).0).await;
+    let pks = elusiv::state::program_account::MultiAccountAccountData::<{NullifierAccount::COUNT}>::new(&data).unwrap();
+    let keys = pks.pubkeys.iter().map(|p| p.option().unwrap()).collect::<Vec<Pubkey>>();
+    let mut sub_accounts = std::collections::HashMap::new();
 
-        account_info!(acc0, &keys[0], $prg);
-        account_info!(acc1, &keys[1], $prg);
-        account_info!(acc2, &keys[2], $prg);
-        account_info!(acc3, &keys[3], $prg);
+    elusiv_proc_macros::repeat!({
+        account_info!(acc_index, keys[_index], context);
+        sub_accounts.insert(_index, &acc_index);
+    }, 4);
 
-        let sub_accounts = vec![&acc0, &acc1, &acc2, &acc3];
-
-        let $id = NullifierAccount::new(&mut data[..], sub_accounts).unwrap();
-    };
+    let storage_account = NullifierAccount::new(&mut data, sub_accounts).unwrap();
+    f(&storage_account)
 }
 
 #[allow(unused_imports)] pub(crate) use queue;
@@ -186,37 +189,36 @@ macro_rules! nullifier_account {
 #[allow(unused_imports)] pub(crate) use pda_account;
 #[allow(unused_imports)] pub(crate) use sized_account;
 #[allow(unused_imports)] pub(crate) use account_info;
-#[allow(unused_imports)] pub(crate) use storage_account;
-#[allow(unused_imports)] pub(crate) use nullifier_account;
 
-pub async fn storage_accounts(
-    context: &mut ProgramTestContext,
-) ->
+const STORAGE_SUB_ACCOUNT_SIZE: usize = StorageAccount::COUNT;
+
+pub async fn storage_accounts(context: &mut ProgramTestContext) ->
 (
     Vec<Pubkey>,
-    [UserAccount; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],
-    [WritableUserAccount; STORAGE_ACCOUNT_SUB_ACCOUNTS_COUNT],
+    [UserAccount; STORAGE_SUB_ACCOUNT_SIZE],
+    [WritableUserAccount; STORAGE_SUB_ACCOUNT_SIZE],
 )
 {
     let data = get_data(context, StorageAccount::find(None).0).await;
-    let pubkeys = MultiAccountAccountFields::<{StorageAccount::COUNT}>::new(&data).unwrap().all_pubkeys();
+    let pubkeys: Vec<Pubkey> = MultiAccountAccountData::<{StorageAccount::COUNT}>::new(&data).unwrap()
+        .pubkeys.iter().map(|x| x.option().unwrap()).collect();
     let (read_only, writeable) = multi_account_pubkeys(&pubkeys);
 
     (pubkeys, read_only.try_into().unwrap(), writeable.try_into().unwrap())
 }
 
-pub async fn nullifier_accounts(
-    mt_index: u64,
-    context: &mut ProgramTestContext,
-) ->
+const NULLIFIER_SUB_ACCOUNT_SIZE: usize = NullifierAccount::COUNT;
+
+pub async fn nullifier_accounts(mt_index: u64, context: &mut ProgramTestContext) ->
 (
     Vec<Pubkey>,
-    [UserAccount; NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT],
-    [WritableUserAccount; NULLIFIER_ACCOUNT_SUB_ACCOUNTS_COUNT],
+    [UserAccount; NULLIFIER_SUB_ACCOUNT_SIZE],
+    [WritableUserAccount; NULLIFIER_SUB_ACCOUNT_SIZE],
 )
 {
     let data = get_data(context, NullifierAccount::find(Some(mt_index)).0).await;
-    let pubkeys = MultiAccountAccountFields::<{NullifierAccount::COUNT}>::new(&data).unwrap().all_pubkeys();
+    let pubkeys: Vec<Pubkey> = MultiAccountAccountData::<{NullifierAccount::COUNT}>::new(&data).unwrap()
+        .pubkeys.iter().map(|x| x.option().unwrap()).collect();
     let (read_only, writeable) = multi_account_pubkeys(&pubkeys);
 
     (pubkeys, read_only.try_into().unwrap(), writeable.try_into().unwrap())
@@ -353,6 +355,12 @@ pub fn u256_from_str(str: &str) -> U256 {
     fr_to_u256_le(&Fr::from_str(str).unwrap())
 }
 
-pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u64) -> BaseCommitmentHashRequest {
-    BaseCommitmentHashRequest { base_commitment: u256_from_str(bc), commitment: u256_from_str(c), amount, fee_version }
+pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u64, min_batching_rate: u32) -> BaseCommitmentHashRequest {
+    BaseCommitmentHashRequest {
+        base_commitment: u256_from_str(bc),
+        commitment: u256_from_str(c),
+        amount,
+        fee_version,
+        min_batching_rate,
+    }
 }

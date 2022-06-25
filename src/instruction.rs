@@ -27,7 +27,7 @@ use solana_program::{
     account_info::{next_account_info, AccountInfo},
     pubkey::Pubkey,
     entrypoint::ProgramResult,
-    program_error::ProgramError::{InvalidArgument, InvalidInstructionData},
+    program_error::ProgramError::{InvalidArgument, InvalidInstructionData, IllegalOwner},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -143,6 +143,7 @@ pub enum ElusivInstruction {
 
     // Set the next MT as the active MT
     #[pda(storage_account, Storage, { writable, multi_accounts })]
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(active_nullifier_account, Nullifier, pda_offset = Some(active_mt_index), { writable, multi_accounts })]
     ResetActiveMerkleTree {
         active_mt_index: u64,
@@ -175,13 +176,13 @@ pub enum ElusivInstruction {
         pda_offset: u64,
     },
 
-    #[pda(storage_account, Storage, { account_info })]
+    #[pda(storage_account, Storage, { account_info, writable })]
     #[acc(sub_account, { owned })]
     EnableStorageSubAccount {
         sub_account_index: u32,
     },
 
-    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { account_info })]
+    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { account_info, writable })]
     #[acc(sub_account, { owned })]
     EnableNullifierSubAccount {
         mt_index: u64,
@@ -274,7 +275,6 @@ pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
 #[derive(Debug)]
 pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,4 +289,4 @@ mod tests {
     fn test_instruction_tag() {
         assert_eq!(2, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 0, fee_version: 0 }));
     }
-}*/
+}

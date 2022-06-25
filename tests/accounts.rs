@@ -1,40 +1,46 @@
 //! Tests the account setup process
-/*
+
 #[cfg(not(tarpaulin_include))]
 mod common;
+use std::collections::HashMap;
+
+use borsh::BorshSerialize;
 use common::*;
 use common::program_setup::*;
 
 use elusiv::fields::fr_to_u256_le;
-use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT, HISTORY_ARRAY_COUNT, EMPTY_TREE};
+use elusiv::state::queue::{RingQueue, BaseCommitmentQueueAccount};
+use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT, EMPTY_TREE};
 use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
-use elusiv::processor::SingleInstancePDAAccountKind;
-use solana_program::account_info::Account;
+use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, CommitmentHashRequest};
+use solana_program::instruction::{Instruction, AccountMeta};
+use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use elusiv::state::{
-    queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
-    program_account::{PDAAccount, SizedAccount, MultiAccountAccount, ProgramAccount, MultiAccountProgramAccount},
+    queue::{CommitmentQueue, CommitmentQueueAccount, Queue},
+    program_account::{PDAAccount, SizedAccount, ProgramAccount, MultiAccountProgramAccount, PDAAccountData},
     fee::FeeAccount,
     NullifierAccount,
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
     MT_HEIGHT,
 };
+use solana_sdk::signer::Signer;
 
 macro_rules! assert_account {
     ($ty: ty, $context: expr, $offset: expr) => {
         {
-            let mut data = get_data(&mut $context, <$ty>::find($offset).0).await;
+            let data = get_data(&mut $context, <$ty>::find($offset).0).await;
 
             // Check balance and data size
             assert!(get_balance(<$ty>::find($offset).0, &mut $context).await > 0);
             assert_eq!(data.len(), <$ty>::SIZE);
 
             // Check pda account fields
-            let account = <$ty>::new(&mut data).unwrap();
-            assert_eq!(account.get_bump_seed(), <$ty>::find($offset).1);
-            assert_eq!(account.get_version(), 0);
-            assert_eq!(account.get_initialized(), false);
+            let data = PDAAccountData::new(&data).unwrap();
+            assert_eq!(data.bump_seed, <$ty>::find($offset).1);
+            assert_eq!(data.version, 0);
+            assert_eq!(data.initialized, false);
         }
     };
 }
@@ -74,42 +80,33 @@ async fn test_setup_fee_account() {
         ), &mut payer, &mut context
     ).await;
 
-    let ix = ElusivInstruction::init_new_fee_version_instruction(
-        0,
-        9999,
-        111,
-        222,
-        1,
-        2,
-        333,
-        SignerAccount(payer.pubkey),
-    );
-
-    ix_should_succeed(ix.clone(), &mut payer, &mut context).await;
+    let genesis_fee = genesis_fee(lamports_per_signature(&mut context).await);
+    setup_fee_account(&mut context).await;
 
     // Second time will fail
-    ix_should_fail(ix.clone(), &mut payer, &mut context).await;
+    ix_should_fail(
+        ElusivInstruction::init_new_fee_version_instruction(0, genesis_fee.clone(), SignerAccount(payer.pubkey)),
+        &mut payer, &mut context
+    ).await;
     
     pda_account!(fee, FeeAccount, Some(0), context);
-    assert_eq!(fee.get_lamports_per_tx(), 9999);
-    assert_eq!(fee.get_base_commitment_network_fee(), 111);
-    assert_eq!(fee.get_proof_network_fee(), 222);
-    assert_eq!(fee.get_relayer_hash_tx_fee(), 1);
-    assert_eq!(fee.get_relayer_proof_tx_fee(), 2);
-    assert_eq!(fee.get_relayer_proof_reward(), 333);
+    assert_eq!(fee.get_program_fee(), genesis_fee);
 
     // Attempting to set a version higher than genesis (0) will fail
-    let ix = ElusivInstruction::init_new_fee_version_instruction(
-        1,
-        9999,
-        111,
-        222,
-        1,
-        2,
-        333,
-        SignerAccount(payer.pubkey),
-    );
-    ix_should_fail(ix.clone(), &mut payer, &mut context).await;
+    ix_should_fail(
+        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee.clone(), SignerAccount(payer.pubkey)),
+        &mut payer, &mut context
+    ).await;
+
+    // But after governor allows it, fee_version 1 can be set
+    set_single_pda_account!(GovernorAccount, &mut context, None, |account: &mut GovernorAccount| {
+        account.set_fee_version(&1);
+    });
+
+    ix_should_succeed(
+        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee, SignerAccount(payer.pubkey)),
+        &mut payer, &mut context
+    ).await;
 }
 
 #[tokio::test]
@@ -132,19 +129,32 @@ async fn test_setup_storage_account() {
     let mut context = start_program_solana_program_test().await;
     let keys = setup_storage_account(&mut context).await;
 
-    storage_account!(storage_account, context);
-    assert!(storage_account.get_initialized());
-    for (i, &key) in keys.iter().enumerate() {
-        assert_eq!(storage_account.get_pubkeys(i), key.to_bytes());
-    }
+    storage_account(&mut context, |storage_account| {
+        let pks: Vec<Pubkey> = storage_account.get_multi_account_data().pubkeys.iter().map(|p| p.option().unwrap()).collect();
+        assert_eq!(keys, pks);
+    }).await;
 }
 
 #[tokio::test]
-#[should_panic]
 async fn test_setup_storage_account_duplicate() {
     let mut context = start_program_solana_program_test().await;
     setup_storage_account(&mut context).await;
-    setup_storage_account(&mut context).await;
+    let mut client = Actor::new(&mut context).await;
+
+    // Cannot set a sub-account twice
+    let k = create_account(&mut context).await;
+    tx_should_fail(&[
+        ElusivInstruction::enable_storage_sub_account_instruction(1, UserAccount(k.pubkey()))
+    ], &mut client, &mut context).await;
+
+    // Cannot init storage PDA twice
+    tx_should_fail(&[
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::StorageAccount,
+            SignerAccount(client.pubkey),
+            WritableUserAccount(StorageAccount::find(None).0),
+        )
+    ], &mut client, &mut context).await;
 }
 
 #[tokio::test]
@@ -155,103 +165,110 @@ async fn test_open_new_merkle_tree() {
     for mt_index in 0..3 {
         let keys = create_merkle_tree(&mut context, mt_index).await;
 
-        nullifier_account!(nullifier_account, mt_index, context);
-        assert!(nullifier_account.get_initialized());
-        for (i, &key) in keys.iter().enumerate() {
-            assert_eq!(nullifier_account.get_pubkeys(i), key.to_bytes());
-        }
+        nullifier_account(mt_index, &mut context, |nullfier_account: &NullifierAccount| {
+            let pks: Vec<Pubkey> = nullfier_account.get_multi_account_data().pubkeys.iter().map(|p| p.option().unwrap()).collect();
+            assert_eq!(keys, pks);
+        }).await;
     }
 }
 
 #[tokio::test]
-#[should_panic]
 async fn test_open_new_merkle_tree_duplicate() {
     let mut context = start_program_solana_program_test().await;
+    let mut client = Actor::new(&mut context).await;
     create_merkle_tree(&mut context, 0).await;
-    create_merkle_tree(&mut context, 0).await;
+
+    // Cannot init MT twice
+    tx_should_fail(&[
+        ElusivInstruction::open_multi_instance_account_instruction(
+            MultiInstancePDAAccountKind::NullifierAccount,
+            0,
+            SignerAccount(client.pubkey),
+            WritableUserAccount(StorageAccount::find(Some(0)).0),
+        )
+    ], &mut client, &mut context).await;
+
+    // Cannot set sub-account twice
+    let k = create_account(&mut context).await;
+    tx_should_fail(&[
+        ElusivInstruction::enable_nullifier_sub_account_instruction(0, 1, UserAccount(k.pubkey()))
+    ], &mut client, &mut context).await;
 }
 
 #[tokio::test]
 async fn test_close_merkle_tree() {
     let mut context = start_program_solana_program_test().await;
     let mut client = Actor::new(&mut context).await;
+    setup_pda_accounts(&mut context).await;
     setup_storage_account(&mut context).await;
-
-    let (_, _, storage_account) = storage_accounts(&mut context).await;
 
     create_merkle_tree(&mut context, 0).await;
     create_merkle_tree(&mut context, 1).await;
-    create_merkle_tree(&mut context, 2).await;
-
-    let (_, _, nullifier_0_w)= nullifier_accounts(0, &mut context).await;
-    let (_, _, nullifier_1_w)= nullifier_accounts(1, &mut context).await;
-    let (_, _, nullifier_2_w)= nullifier_accounts(2, &mut context).await;
 
     // Failure since active MT is not full
     ix_should_fail(
-        ElusivInstruction::reset_active_merkle_tree_instruction(
-            0,
-            &storage_account,
-            &nullifier_0_w,
-            &nullifier_1_w,
-        ),
-        &mut client,
-        &mut context
+        ElusivInstruction::reset_active_merkle_tree_instruction(0, &[], &[]),
+        &mut client, &mut context
     ).await;
 
     // Set active MT as full
     set_pda_account::<StorageAccount, _>(&mut context, None, |data| {
-        let mut storage_account = StorageAccount::new(data, vec![]).unwrap();
+        let mut storage_account = StorageAccount::new(data, HashMap::new()).unwrap();
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
-        for i in 0..HISTORY_ARRAY_COUNT {
-            storage_account.set_active_mt_root_history(i, &[1; 32]);
-        }
     }).await;
 
     // Failure since active_nullifier_account is invalid
     ix_should_fail(
-        ElusivInstruction::reset_active_merkle_tree_instruction(
-            0,
-            &storage_account,
-            &nullifier_1_w,
-            &nullifier_2_w,
+        Instruction::new_with_bytes(
+            elusiv::id(),
+            &ElusivInstruction::ResetActiveMerkleTree { active_mt_index: 0 }.try_to_vec().unwrap()[..],
+            vec![
+                AccountMeta::new(StorageAccount::find(None).0, false),
+                AccountMeta::new(CommitmentQueueAccount::find(None).0, false),
+                AccountMeta::new(NullifierAccount::find(Some(1)).0, false),
+            ]
         ),
-        &mut client,
-        &mut context
-    ).await;
-
-    // Failure since next_nullifier_account index is mismatched
-    ix_should_fail(
-        ElusivInstruction::reset_active_merkle_tree_instruction(
-            0,
-            &storage_account,
-            &nullifier_0_w,
-            &nullifier_2_w,
-        ),
-        &mut client,
-        &mut context
+        &mut client, &mut context
     ).await;
 
     // Success
     ix_should_succeed(
-        ElusivInstruction::reset_active_merkle_tree_instruction(
-            0,
-            &storage_account,
-            &nullifier_0_w,
-            &nullifier_1_w,
+        Instruction::new_with_bytes(
+            elusiv::id(),
+            &ElusivInstruction::ResetActiveMerkleTree { active_mt_index: 0 }.try_to_vec().unwrap()[..],
+            vec![
+                AccountMeta::new(StorageAccount::find(None).0, false),
+                AccountMeta::new(CommitmentQueueAccount::find(None).0, false),
+                AccountMeta::new(NullifierAccount::find(Some(0)).0, false),
+            ]
         ),
-        &mut client,
-        &mut context
+        &mut client, &mut context
     ).await;
 
-    // TODO: Check root in closed tree
-    nullifier_account!(nullifier_account, 0, context);
-    assert_eq!(nullifier_account.get_root(), fr_to_u256_le(&EMPTY_TREE[MT_HEIGHT as usize]));
+    nullifier_account(0, &mut context, |n: &NullifierAccount| {
+        assert_eq!(n.get_root(), fr_to_u256_le(&EMPTY_TREE[MT_HEIGHT as usize]));
+    }).await;
 
     // Check active index
-    storage_account!(storage_account, context);
-    assert_eq!(storage_account.get_trees_count(), 1);
-    for i in 0..HISTORY_ARRAY_COUNT {
-        assert_eq!(storage_account.get_active_mt_root_history(i), [0; 32]);
-    }
-}*/
+    storage_account(&mut context, |s: &StorageAccount| {
+        assert_eq!(s.get_trees_count(), 1);
+        assert_eq!(s.get_next_commitment_ptr(), 0);
+        assert_eq!(s.get_mt_roots_count(), 0);
+    }).await;
+
+    // Too big batch will also allow for closing of MT
+    set_pda_account::<StorageAccount, _>(&mut context, None, |data| {
+        let mut storage_account = StorageAccount::new(data, HashMap::new()).unwrap();
+        storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32 - 1));
+    }).await;
+    set_single_pda_account!(CommitmentQueueAccount, &mut context, None, |account: &mut CommitmentQueueAccount| {
+        let mut queue = CommitmentQueue::new(account);
+        queue.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();
+        queue.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();
+    });
+
+    ix_should_succeed(
+        ElusivInstruction::reset_active_merkle_tree_instruction(1, &[], &[]),
+        &mut client, &mut context
+    ).await;
+}

@@ -217,9 +217,9 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 quote!{ }
                             } else {
                                 quote!{
-                                    match fields_check.pubkeys[i] {
-                                        Some(pk) => if account.key.to_bytes() != pk { continue },
-                                        None => continue
+                                    match fields_check.pubkeys[j] {
+                                        crate::bytes::ElusivOption::Some(pk) => if *account.key != pk { continue },
+                                        crate::bytes::ElusivOption::None => continue
                                     }
                                 }
                             };
@@ -232,18 +232,30 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                     Err(_) => return Err(InvalidArgument)
                                 };
                                 let mut accounts = std::collections::HashMap::new();
-                                for i in 0..<#ty>::COUNT {
+                                let mut iter_before = account_info_iter.clone();
+
+                                let mut i = 0;
+                                while i < <#ty>::COUNT {
+                                    // Get next account
                                     match next_account_info(account_info_iter) {
                                         Ok(account) => {
-                                            #sub_account_check
-                                            #write_check
+                                            // Find matching pubkey
+                                            for j in i..<#ty>::COUNT {
+                                                #sub_account_check
+                                                #write_check
 
-                                            if account.owner != program_id { return Err(InvalidArgument) }
-                                            accounts.insert(i, next_account_info(account_info_iter)?);
+                                                i = j;
+                                                if account.owner != program_id { return Err(IllegalOwner) }
+                                                accounts.insert(i, account);
+                                            }
+
+                                            i += 1;
                                         }
-                                        Err(_) => { break }
+                                        Err(_) => { break; }
                                     }
                                 }
+
+                                let account_info_iter = &mut iter_before.skip(accounts.len());
                             });
 
                             user_accounts.extend(quote!{ #account: &[#user_account_type], });
