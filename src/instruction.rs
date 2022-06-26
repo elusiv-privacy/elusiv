@@ -2,6 +2,7 @@
 
 use crate::macros::*;
 use crate::bytes::BorshSerDeSized;
+use crate::state::fee::ProgramFee;
 use super::processor;
 use super::processor::{BaseCommitmentHashRequest};
 use crate::processor::{SingleInstancePDAAccountKind, ProofRequest, MultiInstancePDAAccountKind};
@@ -10,7 +11,7 @@ use crate::state::{
     program_account::{
         PDAAccount,
         MultiAccountAccount,
-        MultiAccountAccountFields,
+        MultiAccountAccountData,
         ProgramAccount,
         MultiAccountProgramAccount,
     },
@@ -26,7 +27,7 @@ use solana_program::{
     account_info::{next_account_info, AccountInfo},
     pubkey::Pubkey,
     entrypoint::ProgramResult,
-    program_error::ProgramError::{InvalidArgument, InvalidInstructionData},
+    program_error::ProgramError::{InvalidArgument, InvalidInstructionData, IllegalOwner},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -77,9 +78,12 @@ pub enum ElusivInstruction {
     },
 
     // Hashes 1-N commitments in a new MT-root (Merkle-Tree-root)
-    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     #[pda(storage_account, Storage, { multi_accounts })]
+    InitCommitmentHashSetup,
+
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
+    #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     InitCommitmentHash,
 
     #[acc(fee_payer, { writable, signer })]
@@ -91,7 +95,6 @@ pub enum ElusivInstruction {
         nonce: u64,
     },
 
-    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     #[pda(storage_account, Storage, { multi_accounts, writable })]
     FinalizeCommitmentHash,
@@ -143,16 +146,10 @@ pub enum ElusivInstruction {
 
     // Set the next MT as the active MT
     #[pda(storage_account, Storage, { writable, multi_accounts })]
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(active_nullifier_account, Nullifier, pda_offset = Some(active_mt_index), { writable, multi_accounts })]
-    #[pda(next_nullifier_account, Nullifier, pda_offset = Some(active_mt_index + 1), { writable, multi_accounts })]
     ResetActiveMerkleTree {
         active_mt_index: u64,
-    },
-
-    // Creates a new `NullifierAccount`
-    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { multi_accounts, no_sub_account_check, writable })]
-    OpenNewMerkleTree {
-        mt_index: u64,
     },
 
     // Archives a `NullifierAccount` into a N-SMT (Nullifier-Sparse-Merkle-Tree)
@@ -182,14 +179,31 @@ pub enum ElusivInstruction {
         pda_offset: u64,
     },
 
-    // Can be called once, setups all sub-accounts for the storage account
-    #[pda(storage_account, Storage, { multi_accounts, no_sub_account_check, writable })]
-    SetupStorageAccount,
+    #[pda(storage_account, Storage, { account_info, writable })]
+    #[acc(sub_account, { owned })]
+    EnableStorageSubAccount {
+        sub_account_index: u32,
+    },
+
+    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { account_info, writable })]
+    #[acc(sub_account, { owned })]
+    EnableNullifierSubAccount {
+        mt_index: u64,
+        sub_account_index: u32,
+    },
 
     #[acc(payer, { writable, signer })]
     #[acc(governor, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     SetupGovernorAccount,
+
+    #[acc(authority, { signer })]
+    #[pda(governor, Governor, { writable })]
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
+    UpgradeGovernorState {
+        fee_version: u64,
+        batching_rate: u32,
+    },
 
     #[acc(payer, { writable, signer })]
     #[pda(governor, Governor)]
@@ -197,26 +211,18 @@ pub enum ElusivInstruction {
     #[sys(system_program, key = system_program::ID, { ignore })]
     InitNewFeeVersion {
         fee_version: u64,
-        lamports_per_tx: u64,
-        base_commitment_network_fee: u64,
-        proof_network_fee: u64,
-        relayer_hash_tx_fee: u64,
-        relayer_proof_tx_fee: u64,
-        relayer_proof_reward: u64,
+        program_fee: ProgramFee,
     },
 }
 
 #[cfg(feature = "instruction-abi")]
-pub fn open_all_initial_accounts(payer: Pubkey, lamports_per_tx: u64) -> Vec<solana_program::instruction::Instruction> {
+pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {
     vec![
         // Governor
         ElusivInstruction::setup_governor_account_instruction(
             SignerAccount(payer),
             WritableUserAccount(GovernorAccount::find(None).0)
         ),
-
-        // Genesis Fee
-        init_genesis_fee_account(payer, lamports_per_tx),
 
         // SOL pool
         ElusivInstruction::open_single_instance_account_instruction(
@@ -254,22 +260,6 @@ pub fn open_all_initial_accounts(payer: Pubkey, lamports_per_tx: u64) -> Vec<sol
             WritableUserAccount(BaseCommitmentQueueAccount::find(Some(0)).0)
         ),
     ]
-}
-
-#[cfg(feature = "instruction-abi")]
-pub fn init_genesis_fee_account(payer: Pubkey, lamports_per_tx: u64) -> solana_program::instruction::Instruction {
-    use crate::state::fee::{MAX_BASE_COMMITMENT_NETWORK_FEE, MAX_PROOF_NETWORK_FEE, MAX_RELAYER_HASH_TX_FEE, MAX_RELAYER_PROOF_TX_FEE, MAX_RELAYER_PROOF_REWARD};
-
-    ElusivInstruction::init_new_fee_version_instruction(
-        0,
-        lamports_per_tx,
-        MAX_BASE_COMMITMENT_NETWORK_FEE,
-        MAX_PROOF_NETWORK_FEE,
-        MAX_RELAYER_HASH_TX_FEE,
-        MAX_RELAYER_PROOF_TX_FEE,
-        MAX_RELAYER_PROOF_REWARD,
-        SignerAccount(payer),
-    )
 }
 
 #[cfg(feature = "instruction-abi")]

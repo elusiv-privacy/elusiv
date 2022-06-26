@@ -54,8 +54,6 @@ pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
     });
 
     quote! {
-        pub struct #id { }
-
         impl elusiv_computation::PartialComputation<#size> for #id {
             const INSTRUCTIONS: [elusiv_computation::PartialComputationInstruction; #size] = [
                 #instructions

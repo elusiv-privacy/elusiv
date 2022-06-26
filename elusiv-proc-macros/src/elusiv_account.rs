@@ -4,10 +4,11 @@ use proc_macro2::TokenStream;
 use super::utils::*;
 
 macro_rules! assert_field {
+    // $e is whitespace-sensitive
     ($id: ident, $iter: ident, $e: expr) => {
-        let $id = $iter.next().expect(&format!("First field has to be `{}`", $e));
+        let $id = $iter.next().expect(&format!("Field has to be `{}`", $e));
         if $id.to_token_stream().to_string() != $e {
-            panic!("Could not find field has to be `{}`", $e);
+            panic!("Could not find: `{}` in {:?}", $e, $id.to_token_stream().to_string());
         }
     };
 }
@@ -53,22 +54,13 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         let attr_ident = attr.split('=').next().unwrap();
         match attr_ident {
             "pda_seed" => { // PDA based account
-                assert_field!(first_field, fields_iter, "bump_seed : u8");
-                assert_field!(first_field, fields_iter, "version : u8");
-                assert_field!(second_field, fields_iter, "initialized : bool");
+                assert_field!(field0, fields_iter, "pda_data : PDAAccountData");
 
                 is_pda = true;
                 let seed: TokenStream = named_sub_attribute("pda_seed", attr).parse().unwrap();
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::PDAAccount for #name<#lifetimes> {
                         const SEED: &'static [u8] = #seed;
-
-                        fn pda_bump_seed(&self) -> u8 { self.get_bump_seed() }
-                        fn pda_version(&self) -> u8 { self.get_version() }
-                        fn pda_initialized(&self) -> bool { self.get_initialized() }
-                        fn set_pda_initialized(&mut self, initialized: bool) {
-                            self.set_initialized(&initialized);
-                        }
                     }
                 });
             },
@@ -77,51 +69,50 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 let multi_account: String = named_sub_attribute("multi_account", attr).parse().unwrap();
                 let multi_account = (&multi_account[1..multi_account.len() - 1]).split(';').collect::<Vec<&str>>();
-                let count: TokenStream = multi_account[0].parse().unwrap();
-                let max_account_size: TokenStream = multi_account[1].parse().unwrap();
 
-                assert_field!(first_field, fields_iter, format!("pubkeys : [U256 ; {}]", multi_account[0]));
+                let ty: TokenStream = multi_account[0].parse().unwrap();
+                let count: TokenStream = multi_account[1].parse().unwrap();
+                let account_size: TokenStream = multi_account[2].parse().unwrap();
+
+                assert_field!(field0, fields_iter, format!("multi_account_data : MultiAccountAccountData < {} >", multi_account[1]));
 
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'t> for #name<#lifetimes> {
+                        type T = #ty;
                         const COUNT: usize = #count;
-                        const INTERMEDIARY_ACCOUNT_SIZE: usize = #max_account_size;
+                        const ACCOUNT_SIZE: usize = #account_size;
 
-                        fn get_all_pubkeys(&self) -> Vec<U256> {
-                            let mut res = Vec::new();
-                            for i in 0..Self::COUNT {
-                                res.push(self.get_pubkeys(i));
-                            }
-                            res
-                        }
-
-                        fn set_all_pubkeys(&mut self, pubkeys: &[U256]) {
-                            assert!(pubkeys.len() == Self::COUNT);
-                            for i in 0..Self::COUNT {
-                                self.set_pubkeys(i, &pubkeys[i]);
+                        fn get_account(&self, account_index: usize) -> Result<&solana_program::account_info::AccountInfo<'t>, solana_program::program_error::ProgramError> {
+                            match self.accounts.get(&account_index) {
+                                Some(&m) => Ok(m),
+                                None => panic!()
                             }
                         }
 
-                        fn get_account(&self, account_index: usize) -> &solana_program::account_info::AccountInfo<'t> {
-                            &self.accounts[account_index]
+                        fn modify(&mut self, index: usize, value: Self::T) {
+                            self.modifications.insert(index, value);
                         }
                     }
                 });
 
                 // Add accounts field (IMPORTANT: no verification happens here, caller needs to make sure that the accounts match the pubkeys)
-                fields.extend(quote! { accounts, });
+                fields.extend(quote! { accounts, modifications, });
                 definition.extend(quote! {
-                    accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>,
+                    accounts: std::collections::HashMap<usize, &'b solana_program::account_info::AccountInfo<'t>>,
+                    pub modifications: std::collections::HashMap<usize, #ty>,
                 });
                 signature.extend(quote! {
-                    accounts: Vec<&'b solana_program::account_info::AccountInfo<'t>>,
+                    accounts: std::collections::HashMap<usize, &'b solana_program::account_info::AccountInfo<'t>>,
+                });
+                init.extend(quote! {
+                    let modifications = std::collections::HashMap::new();
                 });
             },
             "partial_computation" => {
-                assert_field!(first_field, fields_iter, "is_active : bool");
-                assert_field!(second_field, fields_iter, "instruction : u32");
-                assert_field!(third_field, fields_iter, "fee_payer : U256");
-                assert_field!(fourth_field, fields_iter, "fee_version : u64");
+                assert_field!(field0, fields_iter, "is_active : bool");
+                assert_field!(field1, fields_iter, "instruction : u32");
+                assert_field!(field3, fields_iter, "fee_payer : U256");
+                assert_field!(field4, fields_iter, "fee_version : u64");
             },
             _ => { }
         }
@@ -168,9 +159,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                         pub fn #setter_name(&mut self, value: &#ty) {
                             let v = <#ty>::try_to_vec(value).unwrap();
-                            for i in 0..v.len() {
-                                self.#field_name[i] = v[i];
-                            }
+                            self.#field_name[..v.len()].copy_from_slice(&v[..]);
                         }
                     });
                 } else {
@@ -209,9 +198,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     pub fn #setter_name(&mut self, index: usize, value: &#ty) {
                         let offset = index * <#ty>::SIZE;
                         let v = <#ty>::try_to_vec(value).unwrap();
-                        for i in 0..v.len() {
-                            self.#field_name[offset..][i] = v[i];
-                        }
+                        self.#field_name[offset..][..v.len()].copy_from_slice(&v[..]);
                     }
 
                     pub fn #all_setter_name(&mut self, v: &[u8]) {

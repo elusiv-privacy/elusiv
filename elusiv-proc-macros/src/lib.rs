@@ -2,11 +2,13 @@ extern crate proc_macro;
 
 mod elusiv_account;
 mod elusiv_hash_compute_units;
+mod repeat;
 mod utils;
 
 use syn::{ parse_macro_input, DeriveInput };
 use elusiv_account::impl_elusiv_account;
 use elusiv_hash_compute_units::impl_elusiv_hash_compute_units;
+use repeat::impl_repeat;
 
 /// Just-in-time mutable-byte-slice-backed serialization account
 /// - every field is represented by a `&mut [u8]`
@@ -40,4 +42,14 @@ pub fn elusiv_account(args: proc_macro::TokenStream, input: proc_macro::TokenStr
 #[proc_macro]
 pub fn elusiv_hash_compute_units(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     impl_elusiv_hash_compute_units(input.into()).into()
+}
+
+/// Repeates an expression count times
+/// 
+/// ### Usage
+/// - `repeat!({<<expr>>}, <<count>>)`
+/// - use `_index` inside of `<<expr>>` to get the current index of the loop
+#[proc_macro]
+pub fn repeat(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    impl_repeat(input.into()).into()
 }

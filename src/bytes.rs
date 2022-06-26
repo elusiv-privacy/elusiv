@@ -3,14 +3,87 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
     const SIZE: usize;
 
-    fn override_slice(value: &Self, slice: &mut [u8]) {
-        let vec = Self::try_to_vec(value).unwrap();
+    fn override_slice(value: &Self, slice: &mut [u8]) -> Result<(), std::io::Error> {
+        let vec = Self::try_to_vec(value)?;
         slice[..vec.len()].copy_from_slice(&vec[..]);
+        Ok(())
     }
+}
+
+#[derive(Copy, Clone)]
+/// The advantage of ElusivOption over Option is fixed serialization length
+pub enum ElusivOption<N> {
+    Some(N),
+    None,
+}
+
+impl<N> From<Option<N>> for ElusivOption<N> {
+    fn from(o: Option<N>) -> Self {
+        match o {
+            Some(v) => ElusivOption::Some(v),
+            None => ElusivOption::None
+        }
+    }
+}
+
+impl<N: Clone> ElusivOption<N> {
+    pub fn option(&self) -> Option<N> {
+        match self {
+            ElusivOption::Some(v) => Option::Some(v.clone()),
+            ElusivOption::None => Option::None
+        }
+    }
+}
+
+impl<T: BorshSerDeSized> BorshDeserialize for ElusivOption<T> {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        if buf[0] == 0 {
+            *buf = &buf[<ElusivOption<T>>::SIZE..];
+            Ok(ElusivOption::None)
+        } else {
+            *buf = &buf[1..];
+            let v = T::deserialize(buf)?;
+            Ok(ElusivOption::Some(v))
+        }
+    }
+}
+
+impl<T: BorshSerDeSized> BorshSerialize for ElusivOption<T> {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        match self {
+            ElusivOption::Some(v) => {
+                writer.write_all(&[1])?;
+                v.serialize(writer)
+            }
+            ElusivOption::None => {
+                writer.write_all(&[0])?;
+                writer.write_all(&vec![0; T::SIZE])?;
+                Ok(())
+            }
+        }
+    }
+}
+
+impl<T> Default for ElusivOption<T> {
+    fn default() -> Self { ElusivOption::None }
+}
+
+impl<T: BorshSerDeSized> BorshSerDeSized for ElusivOption<T> {
+    const SIZE: usize = 1 + T::SIZE;
+}
+
+impl BorshSerDeSized for Pubkey {
+    const SIZE: usize = 32;
 }
 
 pub const fn max(a: usize, b: usize) -> usize {
     [a, b][if a < b { 1 } else { 0 }]
+}
+
+/// Rounds a integer division up
+pub const fn div_ceiling(divident: u64, divisor: u64) -> u64 {
+    if divisor == 0 { panic!() }
+    (divident + divisor - 1) / divisor
 }
 
 pub const fn u64_as_usize_safe(u: u64) -> usize {
@@ -39,6 +112,7 @@ impl<E: BorshSerDeSized + Default + Copy, const N: usize> BorshSerDeSized for [E
 }
 
 pub(crate) use impl_borsh_sized;
+use solana_program::pubkey::Pubkey;
 
 impl_borsh_sized!(u8, 1);
 impl_borsh_sized!(u16, 2);
@@ -105,6 +179,24 @@ mod tests {
     }
 
     #[test]
+    fn test_div_ceiling() {
+        assert_eq!(div_ceiling(3, 2), 2);
+        assert_eq!(div_ceiling(4, 3), 2);
+        assert_eq!(div_ceiling(7, 3), 3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_div_ceiling_zero() {
+        div_ceiling(0, 0);
+    }
+
+    #[test]
+    fn test_pubkey_ser_de() {
+        assert_eq!(Pubkey::SIZE, Pubkey::new_unique().try_to_vec().unwrap().len());
+    }
+
+    #[test]
     fn test_u64_as_usize_safe() {
         assert_eq!(u64_as_usize_safe(u32::MAX as u64), u32::MAX as usize);
     }
@@ -161,7 +253,7 @@ mod tests {
     #[test]
     fn test_override_slice() {
         let mut slice = vec![0; 256];
-        U256::override_slice(&[1; 32], &mut slice[32..64]);
+        U256::override_slice(&[1; 32], &mut slice[32..64]).unwrap();
 
         for &v in slice.iter().take(64).skip(32) {
             assert_eq!(v, 1);

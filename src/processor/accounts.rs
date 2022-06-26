@@ -4,26 +4,25 @@ use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
     sysvar::Sysvar,
-    rent::Rent,
+    rent::Rent, pubkey::Pubkey,
 };
-use crate::state::{
-    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount, DEFAULT_COMMITMENT_BATCHING_RATE},
-    program_account::{MultiAccountAccount, ProgramAccount, HeterogenMultiAccountAccount},
+use crate::{state::{
+    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount, GOVERNOR_UPGRADE_AUTHORITY},
+    program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData},
     StorageAccount,
-    queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount},
-    fee::FeeAccount, NullifierAccount, MT_COMMITMENT_COUNT,
-};
+    queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount, CommitmentQueue, Queue},
+    fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
+}, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe};
 use crate::commitment::{CommitmentHashingAccount};
 use crate::error::ElusivError::{
     InvalidInstructionData,
     InvalidFeeVersion,
     InvalidAccount,
     MerkleTreeIsNotFullYet,
-    MerkleTreeIsNotInitialized,
+    SubAccountAlreadyExists
 };
 use crate::macros::*;
-use crate::bytes::{BorshSerDeSized, is_zero};
-use crate::types::U256;
+use crate::bytes::{BorshSerDeSized, ElusivOption, is_zero};
 use super::utils::*;
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
@@ -85,33 +84,44 @@ pub fn open_multi_instance_account<'a>(
     }
 }
 
-/// Setup the StorageAccount with it's 7 sub-accounts
-pub fn setup_storage_account(
-    storage_account: &mut StorageAccount,
+/// Enables the supplied sub-account for the `StorageAccount`
+pub fn enable_storage_sub_account(
+    storage_account: &AccountInfo,
+    sub_account: &AccountInfo,
+
+    sub_account_index: u32,
 ) -> ProgramResult {
     // Note: we don't zero-check these accounts, since we will never access data that has not been set by the program
-    verify_heterogen_sub_accounts(storage_account, false)?;
-    setup_multi_account_account(storage_account)
+    setup_sub_account::<StorageAccount, {StorageAccount::COUNT}>(
+        storage_account,
+        sub_account,
+        sub_account_index as usize,
+        false
+    )
 }
 
-/// Opens a new MT (aka creates a new `NullifierAccount`)
+/// Enables the supplied sub-account for a `NullifierAccount`
 /// - Note: requires a prior call to `open_multi_instance_account`
 /// - Note: the `NullifierAccount` will be useless until the MT with `index = merkle_tree_index - 1` is closed
-pub fn open_new_merkle_tree(
-    nullifier_account: &mut NullifierAccount,
+pub fn enable_nullifier_sub_account(
+    nullifier_account: &AccountInfo,
+    sub_account: &AccountInfo,
+
     _merkle_tree_index: u64,
+    sub_account_index: u32,
 ) -> ProgramResult {
     // Note: we don't zero-check these accounts, BUT we need to manipulate the maps we store in each account and set the size to zero 
-    verify_heterogen_sub_accounts(nullifier_account, false)?;
-    setup_multi_account_account(nullifier_account)?;
+    setup_sub_account::<NullifierAccount, {NullifierAccount::COUNT}>(
+        nullifier_account,
+        sub_account,
+        sub_account_index as usize,
+        false
+    )?;
 
-    // Set all map sizes to zero (leading u32)
-    for i in 0..NullifierAccount::COUNT {
-        let account = nullifier_account.get_account(i);
-        let data = &mut account.data.borrow_mut()[..];
-        for b in data.iter_mut().take(4) {
-            *b = 0;
-        }        
+    // Set map size to zero (leading u32)
+    let data = &mut sub_account.data.borrow_mut()[..];
+    for b in data.iter_mut().take(4) {
+        *b = 0;
     }
 
     Ok(())
@@ -123,18 +133,20 @@ pub fn open_new_merkle_tree(
 ///     2. the active MT is not full but the remaining places in the MT are < than the batching rate of the next commitment in the commitment queue
 pub fn reset_active_merkle_tree(
     storage_account: &mut StorageAccount,
+    queue: &mut CommitmentQueueAccount,
     active_nullifier_account: &mut NullifierAccount,
-    next_nullifier_account: &mut NullifierAccount,
 
     active_merkle_tree_index: u64,
 ) -> ProgramResult {
     guard!(storage_account.get_trees_count() == active_merkle_tree_index, InvalidInstructionData);
-    guard!(storage_account.get_initialized(), MerkleTreeIsNotInitialized);
-    guard!(active_nullifier_account.get_initialized(), MerkleTreeIsNotInitialized);
-    guard!(next_nullifier_account.get_initialized(), MerkleTreeIsNotInitialized);
 
-    // Note: since batching is not yet implemented, we only close a MT when it's full
-    guard!(storage_account.get_next_commitment_ptr() as usize >= MT_COMMITMENT_COUNT, MerkleTreeIsNotFullYet);
+    let commitments = storage_account.get_next_commitment_ptr() as usize;
+    if commitments < MT_COMMITMENT_COUNT {
+        let queue = CommitmentQueue::new(queue);
+        if commitments + queue.next_batch()?.0.len() < MT_COMMITMENT_COUNT {
+            return Err(MerkleTreeIsNotFullYet.into())
+        }
+    }
 
     storage_account.reset();
     storage_account.set_trees_count(&(active_merkle_tree_index + 1));
@@ -147,7 +159,7 @@ pub fn reset_active_merkle_tree(
 pub fn archive_closed_merkle_tree<'a>(
     _payer: &AccountInfo<'a>,
     storage_account: &mut StorageAccount,
-    _next_nullifier_account: &mut NullifierAccount,
+    _nullifier_account: &mut NullifierAccount,
     _archived_tree_account: &AccountInfo<'a>,
 
     closed_merkle_tree_index: u64,
@@ -167,82 +179,70 @@ pub fn setup_governor_account<'a>(
     let data = &mut governor_account.data.borrow_mut()[..];
     let mut governor = GovernorAccount::new(data)?;
 
-    governor.set_commitment_batching_rate(&DEFAULT_COMMITMENT_BATCHING_RATE);
+    governor.set_commitment_batching_rate(&usize_as_u32_safe(DEFAULT_COMMITMENT_BATCHING_RATE));
 
     Ok(())
 }
 
+/// Changes the state of the `GovernorAccount`
+pub fn upgrade_governor_state(
+    authority: &AccountInfo,
+    _governor_account: &mut GovernorAccount,
+    _commitment_queue: &mut CommitmentQueueAccount,
+
+    _fee_version: u64,
+    _batching_rate: u32,
+) -> ProgramResult {
+    guard!(*authority.key == GOVERNOR_UPGRADE_AUTHORITY, InvalidAccount);
+    todo!("Not implemented yet");
+    // TODO: changes in the batching rate are only possible when checking the commitment queue
+    // TODO: fee changes require empty queues
+}
+
 /// Setup a new `FeeAccount`
 /// - Note: there is no way of upgrading the program fees atm
-#[allow(clippy::too_many_arguments)]
 pub fn init_new_fee_version<'a>(
     payer: &AccountInfo<'a>,
     governor: &GovernorAccount,
     new_fee: &AccountInfo<'a>,
 
     fee_version: u64,
-
-    lamports_per_tx: u64,
-    base_commitment_network_fee: u64,
-    proof_network_fee: u64,
-    relayer_hash_tx_fee: u64,
-    relayer_proof_tx_fee: u64,
-    relayer_proof_reward: u64,
+    program_fee: ProgramFee,
 ) -> ProgramResult {
+    // Note: we have no upgrade-authroity check here since with the current setup it's impossible to have a fee version higher to zero, so will be added once that changes
     guard!(fee_version == governor.get_fee_version(), InvalidFeeVersion);
     open_pda_account_with_offset::<FeeAccount>(payer, new_fee, fee_version)?;
 
     let mut data = new_fee.data.borrow_mut();
     let mut fee = FeeAccount::new(&mut data[..])?;
-
-    fee.setup(
-        lamports_per_tx,
-        base_commitment_network_fee,
-        proof_network_fee,
-        relayer_hash_tx_fee,
-        relayer_proof_tx_fee,
-        relayer_proof_reward
-    )
-}
-
-fn setup_multi_account_account<'a, T: MultiAccountAccount<'a>>(
-    account: &mut T,
-) -> ProgramResult {
-    guard!(!account.pda_initialized(), InvalidAccount);
-
-    // Set all pubkeys
-    let mut pks = Vec::new();
-    for i in 0..T::COUNT {
-        pks.push(account.get_account(i).key.to_bytes());
-    }
-    account.set_all_pubkeys(&pks);
-
-    // Check for account duplicates
-    let set: HashSet<U256> = account.get_all_pubkeys().drain(..).collect();
-    guard!(set.len() == T::COUNT, InvalidInstructionData);
-
-    account.set_pda_initialized(true);
-    guard!(account.pda_initialized(), InvalidAccount);
-
+    fee.set_program_fee(&program_fee);
     Ok(())
 }
 
-// Verifies the user-supplied sub-accounts
-fn verify_heterogen_sub_accounts<'a, T: HeterogenMultiAccountAccount<'a>>(
-    storage_account: &T,
+/// Verifies a single user-supplied sub-account and then saves it's pubkey in the `main_account`
+fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
+    main_account: &AccountInfo,
+    sub_account: &AccountInfo,
+    sub_account_index: usize,
     check_zeroness: bool,
 ) -> ProgramResult {
-    for i in 0..T::COUNT {
-        verify_extern_data_account(
-            storage_account.get_account(i),
-            if i < T::COUNT - 1 {
-                T::INTERMEDIARY_ACCOUNT_SIZE
-            } else {
-                T::LAST_ACCOUNT_SIZE
-            },
-            check_zeroness
-        )?;
+    let data = &mut main_account.data.borrow_mut()[..];
+    let mut account_data = <MultiAccountAccountData<{COUNT}>>::new(data)?;
+
+    if account_data.pubkeys[sub_account_index].option().is_some() {
+        return Err(SubAccountAlreadyExists.into())
     }
+
+    verify_extern_data_account(sub_account, T::ACCOUNT_SIZE, check_zeroness)?;
+    account_data.pubkeys[sub_account_index] = ElusivOption::Some(*sub_account.key);
+
+    // Check for pubkey duplicates
+    let a: Vec<Pubkey> = account_data.pubkeys.iter().filter_map(|&x| x.option()).collect();
+    let b: HashSet<Pubkey> = a.clone().drain(..).collect();
+    guard!(a.len() == b.len(), InvalidInstructionData);
+
+    MultiAccountAccountData::override_slice(&account_data, data)?;
+
     Ok(())
 }
 
@@ -268,37 +268,4 @@ fn verify_extern_data_account(
     guard!(*account.owner == crate::id(), InvalidInstructionData);
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::program_account::{SizedAccount, MultiAccountProgramAccount};
-
-    #[test]
-    fn test_storage_account_valid() {
-        let mut data = vec![0; StorageAccount::SIZE];
-        generate_storage_accounts_valid_size!(accounts);
-        let storage_account = StorageAccount::new(&mut data, accounts).unwrap();
-        verify_heterogen_sub_accounts(&storage_account, false).unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_storage_account_invalid_size() {
-        let mut data = vec![0; StorageAccount::SIZE];
-
-        generate_storage_accounts!(accounts, [
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::LAST_ACCOUNT_SIZE - 1,
-        ]);
-
-        let storage_account = StorageAccount::new(&mut data, accounts).unwrap();
-        verify_heterogen_sub_accounts(&storage_account, false).unwrap();
-    }
 }

@@ -24,13 +24,16 @@ macro_rules! two_pow {
 #[cfg(test)]
 macro_rules! account {
     ($id: ident, $pubkey: expr, $data: expr) => {
+        crate::macros::account!($id, $pubkey, data, $data);
+    };
+    ($id: ident, $pubkey: expr, $data_id: ident, $data: expr) => {
         let mut lamports = u64::MAX / 2;
-        let mut data = $data;
+        let mut $data_id = $data;
         let owner = crate::id();
-        let $id = AccountInfo::new(
+        let $id = solana_program::account_info::AccountInfo::new(
             &$pubkey,
             false, false, &mut lamports,
-            &mut data,
+            &mut $data_id,
             &owner,
             false,
             0
@@ -42,40 +45,27 @@ macro_rules! account {
 macro_rules! test_account_info {
     ($id: ident, $data_size: expr) => {
         let pk = solana_program::pubkey::Pubkey::new_unique();
-        account!($id, pk, vec![0; $data_size]) 
+        crate::macros::account!($id, pk, vec![0; $data_size]) 
     };
 }
 
 #[cfg(test)]
-macro_rules! generate_storage_accounts {
-    ($arr: ident, $s: expr) => {
-        let mut pks = Vec::new();
-        for _ in 0..StorageAccount::COUNT { pks.push(solana_program::pubkey::Pubkey::new_unique()); }
+macro_rules! storage_account {
+    (setup $id: ident, $id_data: ident) => {
+        // Note: for testing we only use one AccountInfo, since without a ledger they cannot be modified
+        crate::macros::test_account_info!(account, StorageAccount::ACCOUNT_SIZE);
 
-        account!(a0, pks[0], vec![0; $s[0]]);
-        account!(a1, pks[1], vec![0; $s[1]]);
-        account!(a2, pks[2], vec![0; $s[2]]);
-        account!(a3, pks[3], vec![0; $s[3]]);
-        account!(a4, pks[4], vec![0; $s[4]]);
-        account!(a5, pks[5], vec![0; $s[5]]);
-        account!(a6, pks[6], vec![0; $s[6]]);
-
-        let $arr = vec![&a0, &a1, &a2, &a3, &a4, &a5, &a6];
+        let mut $id = std::collections::HashMap::new();
+        let mut $id_data = vec![0; StorageAccount::SIZE];
+        for i in 0..StorageAccount::COUNT { $id.insert(i, &account); }
     };
-}
-
-#[cfg(test)]
-macro_rules! generate_storage_accounts_valid_size {
-    ($arr: ident) => {
-        generate_storage_accounts!($arr, [
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::INTERMEDIARY_ACCOUNT_SIZE,
-            StorageAccount::LAST_ACCOUNT_SIZE,
-        ]);
+    ($id: ident) => {
+        crate::macros::storage_account!(setup map, data);
+        let $id = StorageAccount::new(&mut data, map).unwrap();
+    };
+    (mut $id: ident) => {
+        crate::macros::storage_account!(setup map, data);
+        let mut $id = StorageAccount::new(&mut data, map).unwrap();
     };
 }
 
@@ -97,5 +87,4 @@ pub(crate) use two_pow;
 #[cfg(test)] pub(crate) use account;
 #[cfg(test)] pub(crate) use test_account_info;
 #[cfg(test)] pub(crate) use zero_account;
-#[cfg(test)] pub(crate) use generate_storage_accounts;
-#[cfg(test)] pub(crate) use generate_storage_accounts_valid_size;
+#[cfg(test)] pub(crate) use storage_account;

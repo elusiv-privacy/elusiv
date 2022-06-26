@@ -10,6 +10,7 @@ pub enum ElusivError {
     InvalidAccountSize,
     InvalidAccountBalance,
     NonScalarValue,
+    MissingSubAccount,
 
     SenderIsNotSigner,
     SenderIsNotWritable,
@@ -30,6 +31,7 @@ pub enum ElusivError {
     NoRoomForCommitment,
     Commitment,
     HashingIsAlreadyComplete,
+    InvalidBatchingRate,
 
     // Proof
     InvalidProof,
@@ -41,6 +43,7 @@ pub enum ElusivError {
     // Queue
     QueueIsEmpty,
     QueueIsFull,
+    InvalidQueueAccess,
 
     // Archiving
     UnableToArchiveNullifierAccount,
@@ -55,6 +58,10 @@ pub enum ElusivError {
     // Fee
     InvalidFee,
     InvalidFeeVersion,
+
+    // Accounts
+    SubAccountAlreadyExists,
+    SubAccouttDoesNotExists,
 }
 
 #[cfg(not(tarpaulin_include))]
