@@ -163,7 +163,7 @@ mod tests {
     fn test_mt_default_values() {
         let mut a = full_poseidon2_hash(Fr::zero(), Fr::zero());
         for empty_value in EMPTY_TREE {
-            assert_eq!(a, empty_value);
+            assert_eq!(a, u256_to_fr(&empty_value));
             a = full_poseidon2_hash(a, a);
         }
     }

@@ -8,7 +8,6 @@ use borsh::BorshSerialize;
 use common::*;
 use common::program_setup::*;
 
-use elusiv::fields::fr_to_u256_le;
 use elusiv::state::queue::{RingQueue, BaseCommitmentQueueAccount};
 use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT, EMPTY_TREE};
 use elusiv::commitment::CommitmentHashingAccount;
@@ -246,7 +245,7 @@ async fn test_close_merkle_tree() {
     ).await;
 
     nullifier_account(0, &mut context, |n: &NullifierAccount| {
-        assert_eq!(n.get_root(), fr_to_u256_le(&EMPTY_TREE[MT_HEIGHT as usize]));
+        assert_eq!(n.get_root(), EMPTY_TREE[MT_HEIGHT as usize]);
     }).await;
 
     // Check active index

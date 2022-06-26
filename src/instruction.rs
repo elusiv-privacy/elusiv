@@ -78,9 +78,12 @@ pub enum ElusivInstruction {
     },
 
     // Hashes 1-N commitments in a new MT-root (Merkle-Tree-root)
-    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
     #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     #[pda(storage_account, Storage, { multi_accounts })]
+    InitCommitmentHashSetup,
+
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
+    #[pda(commitment_hashing_account, CommitmentHashing, { writable })]
     InitCommitmentHash,
 
     #[acc(fee_payer, { writable, signer })]

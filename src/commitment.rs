@@ -91,7 +91,7 @@ pub fn compute_base_commitment_hash_partial(
 }
 
 pub const DEFAULT_COMMITMENT_BATCHING_RATE: usize = 0;
-pub const MAX_COMMITMENT_BATCHING_RATE: usize = 5;
+pub const MAX_COMMITMENT_BATCHING_RATE: usize = 4;
 
 /// Commitment hashing computations with batches
 /// - all commitments in a batch are hashed together in order to reduce hashing costs
@@ -113,7 +113,6 @@ commitment_batch_hashing!(1, 20);
 commitment_batch_hashing!(2, 21);
 commitment_batch_hashing!(3, 24);
 commitment_batch_hashing!(4, 31);
-commitment_batch_hashing!(5, 46);
 
 macro_rules! commitment_hash_computation {
     ($batching_rate: ident, $field: ident) => {
@@ -123,7 +122,6 @@ macro_rules! commitment_hash_computation {
             2 => &CommitmentHashComputation::<2>::$field,
             3 => &CommitmentHashComputation::<3>::$field,
             4 => &CommitmentHashComputation::<4>::$field,
-            5 => &CommitmentHashComputation::<5>::$field,
             _ => { panic!() }
         }
     };
@@ -157,8 +155,8 @@ pub const fn hash_count_per_batch(batching_rate: u32) -> usize {
 const MAX_HT_SIZE: usize = two_pow!(usize_as_u32_safe(MAX_COMMITMENT_BATCHING_RATE) + 1) - 1;
 pub const MAX_HT_COMMITMENTS: usize = commitments_per_batch(usize_as_u32_safe(MAX_COMMITMENT_BATCHING_RATE));
 
-const_assert_eq!(MAX_HT_SIZE, 63);
-const_assert_eq!(MAX_HT_COMMITMENTS, 32);
+const_assert_eq!(MAX_HT_SIZE, 31);
+const_assert_eq!(MAX_HT_COMMITMENTS, 16);
 
 /// Account used for computing the hashes of a MT
 /// - only one of these accounts can exist per MT
@@ -171,6 +169,7 @@ pub struct CommitmentHashingAccount {
     fee_payer: U256, // fee_payer is null and has no meaning for commitment hashing
     fee_version: u64,
 
+    setup: bool,
     batching_rate: u32,
     state: BinarySpongeHashingState,
     ordering: u32,
@@ -221,29 +220,41 @@ pub fn compute_commitment_hash_partial(
 }
 
 impl<'a> CommitmentHashingAccount<'a> {
-    pub fn reset(
+    /// Called before reset, sets the siblings
+    pub fn setup(
         &mut self,
-        batching_rate: u32,
-        commitments: [U256; MAX_HT_COMMITMENTS],
         ordering: u32,
-        siblings: [U256; MT_HEIGHT],
-        fee_version: u64,
+        siblings: &[U256],
     ) -> Result<(), ProgramError> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
-
-        self.set_is_active(&true);
+        self.set_setup(&true);
         self.set_instruction(&0);
-        self.set_fee_version(&fee_version);
-        
-        self.set_batching_rate(&batching_rate);
         self.set_ordering(&ordering);
-
-        for (i, commitment) in commitments.iter().enumerate() {
-            self.set_hash_tree(i, commitment);
-        }
 
         for (i, sibling) in siblings.iter().enumerate() {
             self.set_siblings(i, sibling);
+        }
+
+        Ok(())
+    }
+
+    /// Called after setup, sets the commitments and batching rate
+    pub fn reset(
+        &mut self,
+        batching_rate: u32,
+        fee_version: u64,
+        commitments: &[U256],
+    ) -> Result<(), ProgramError> {
+        guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
+        guard!(self.get_setup(), ElusivError::AccountCannotBeReset);
+
+        self.set_is_active(&true);
+        self.set_fee_version(&fee_version);
+        self.set_batching_rate(&batching_rate);
+
+        assert!(commitments.len() <= MAX_HT_SIZE);
+        for (i, commitment) in commitments.iter().enumerate() {
+            self.set_hash_tree(i, commitment);
         }
 
         self.set_state(&self.next_hashing_state(0));
@@ -301,11 +312,7 @@ impl<'a> CommitmentHashingAccount<'a> {
             let a = u256_to_fr(&self.get_above_hashes(index - 1));
             let b = u256_to_fr(&self.get_siblings(batching_rate as usize + index));
 
-            BinarySpongeHashingState::new(
-                a,
-                b,
-                ordering & 1 == 1,
-            )
+            BinarySpongeHashingState::new(a, b, ordering & 1 == 1)
         }
     }
 
@@ -443,7 +450,8 @@ mod tests {
         }
         let fee_version = 0;
 
-        account.reset(batching_rate, commitments, ordering, siblings, fee_version).unwrap();
+        account.setup(ordering, &siblings).unwrap();
+        account.reset(batching_rate, fee_version, &commitments).unwrap();
 
         // Init HT value to: 100 * level + index_in_layer
         let mut offset = 0;
@@ -564,7 +572,7 @@ mod tests {
         let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
         storage_account!(mut storage_account);
 
-        let batching_rates = [0, 1, 2, 3, 4, 5];
+        let batching_rates = [0, 1, 2, 3, 4];
 
         for (i, &batching_rate) in batching_rates.iter().enumerate() {
             storage_account.modifications.clear();
@@ -645,7 +653,7 @@ mod tests {
     fn test_commitment_hash_computation() {
         let mut data = vec![0; CommitmentHashingAccount::SIZE];
         let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
-        let empty_siblings: Vec<U256> = EMPTY_TREE.iter().take(MT_HEIGHT).map(fr_to_u256_le).collect();
+        let empty_siblings: Vec<U256> = EMPTY_TREE.iter().take(MT_HEIGHT).copied().collect();
 
         let requests = [
             CommitmentBatchHashRequest {
@@ -664,13 +672,8 @@ mod tests {
             for (i, &commitment) in request.commitments.iter().enumerate() {
                 commitments[i] = commitment;
             }
-            account.reset(
-                batching_rate,
-                commitments,
-                0,
-                request.siblings.try_into().unwrap(),
-                0
-            ).unwrap();
+            account.setup(0, request.siblings).unwrap();
+            account.reset(batching_rate, 0, &commitments).unwrap();
             
             let instructions = commitment_hash_computation_instructions(batching_rate).len() as u32;
             while account.get_instruction() < instructions {
@@ -730,10 +733,11 @@ mod tests {
         for i in 0..MT_HEIGHT { siblings[i] = u64_to_u256(666 + i as u64); }
 
         let fee_version = 222;
-        let batching_rate = 5;
+        let batching_rate = 4;
         let ordering = 555;
 
-        account.reset(batching_rate, commitments, ordering, siblings, fee_version).unwrap();
+        account.setup(ordering, &siblings).unwrap();
+        account.reset(batching_rate, fee_version, &commitments).unwrap();
 
         for i in 0..MAX_HT_COMMITMENTS {
             assert_eq!(account.get_hash_tree(i), u64_to_u256(i as u64 + 1));
@@ -748,10 +752,11 @@ mod tests {
         assert!(account.get_is_active());
 
         // Second reset should fail
-        assert_matches!(account.reset(batching_rate, commitments, ordering, siblings, fee_version), Err(_));
+        assert_matches!(account.setup(ordering, &siblings), Err(_));
 
         // Second reset now allowed
         account.set_is_active(&false);
-        account.reset(batching_rate, commitments, ordering, siblings, fee_version).unwrap();
+        account.setup(ordering, &siblings).unwrap();
+        account.reset(batching_rate, fee_version, &commitments).unwrap();
     }
 }

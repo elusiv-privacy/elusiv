@@ -96,6 +96,7 @@ impl<'a, 'b> CommitmentQueue<'a, 'b> {
             requests.push(request);
         }
 
+        if requests.is_empty() { return Err(QueueIsEmpty.into()) }
         Ok((requests, highest_batching_rate))
     }
 }
@@ -158,6 +159,13 @@ pub trait RingQueue {
         self.set_head(&((head + 1) % Self::SIZE));
 
         Ok(value)
+    }
+
+    fn remove(&mut self, count: u64) -> Result<(), ProgramError> {
+        let head = self.get_head();
+        guard!(self.len() >= count, InvalidQueueAccess);
+        self.set_head(&((head + count) % Self::SIZE));
+        Ok(())
     }
 
     fn contains(&self, value: &Self::N) -> bool {
@@ -319,6 +327,18 @@ mod tests {
 
         queue.view(0).unwrap();
         assert_matches!(queue.view(1), Err(_));
+    }
+
+    #[test]
+    fn test_remove() {
+        test_queue!(queue, 13, 0, 0);
+        
+        queue.enqueue(0).unwrap();
+        queue.enqueue(1).unwrap();
+        queue.enqueue(2).unwrap();
+        queue.remove(2).unwrap();
+
+        assert_eq!(queue.view_first().unwrap(), 2);
     }
 
     #[test]

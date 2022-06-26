@@ -159,9 +159,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                         pub fn #setter_name(&mut self, value: &#ty) {
                             let v = <#ty>::try_to_vec(value).unwrap();
-                            for i in 0..v.len() {
-                                self.#field_name[i] = v[i];
-                            }
+                            self.#field_name[..v.len()].copy_from_slice(&v[..]);
                         }
                     });
                 } else {
@@ -200,9 +198,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     pub fn #setter_name(&mut self, index: usize, value: &#ty) {
                         let offset = index * <#ty>::SIZE;
                         let v = <#ty>::try_to_vec(value).unwrap();
-                        for i in 0..v.len() {
-                            self.#field_name[offset..][i] = v[i];
-                        }
+                        self.#field_name[offset..][..v.len()].copy_from_slice(&v[..]);
                     }
 
                     pub fn #all_setter_name(&mut self, v: &[u8]) {

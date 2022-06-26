@@ -62,10 +62,8 @@ pub trait PDAAccount {
     }
 
     fn is_valid_pubkey(account: &AccountInfo, offset: Option<u64>, pubkey: &Pubkey) -> Result<bool, ProgramError> {
-        match PDAAccountData::new(&account.data.borrow()) {
-            Ok(a) => Ok(Self::pubkey(offset, a.bump_seed)? == *pubkey),
-            Err(_) => Err(ProgramError::InvalidAccountData)
-        }
+        let bump = account.data.borrow()[0];
+        Ok(Self::pubkey(offset, bump)? == *pubkey)
     }
 } 
 

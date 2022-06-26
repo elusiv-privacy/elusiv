@@ -30,7 +30,6 @@ use crate::error::ElusivError::{
     NoRoomForCommitment,
     InvalidFeeVersion,
     InvalidBatchingRate,
-    QueueIsEmpty,
 };
 use crate::fields::{try_scalar_montgomery, u256_to_big_uint, u256_to_fr};
 use crate::commitment::{
@@ -185,43 +184,46 @@ pub fn finalize_base_commitment_hash<'a>(
     close_account(original_fee_payer, hashing_account_info)
 }
 
-/// Places the next batch from the commitment queue in the `CommitmentHashingAccount`
-pub fn init_commitment_hash(
-    queue: &mut CommitmentQueueAccount,
+/// Places the hash siblings into the hashing account
+pub fn init_commitment_hash_setup(
     hashing_account: &mut CommitmentHashingAccount,
     storage_account: &StorageAccount,
 ) -> ProgramResult {
     guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
+    let ordering = storage_account.get_next_commitment_ptr();
+    let siblings = storage_account.get_mt_opening(ordering as usize);
+
+    hashing_account.setup(ordering, &siblings)
+}
+
+/// Places the next batch from the commitment queue in the `CommitmentHashingAccount`
+pub fn init_commitment_hash(
+    queue: &mut CommitmentQueueAccount,
+    hashing_account: &mut CommitmentHashingAccount,
+) -> ProgramResult {
+    guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
+    guard!(hashing_account.get_setup(), ComputationIsNotYetFinished);
+
     let mut queue = CommitmentQueue::new(queue);
     let (batch, batching_rate) = queue.next_batch()?;
-    guard!(!batch.is_empty(), QueueIsEmpty);
-    for _ in 0..batch.len() { queue.dequeue_first().unwrap(); }
+    queue.remove(batch.len() as u64)?;
 
     // The fee/batch-upgrader logic has to guarantee that there are no lower fees in a batch
     let fee_version = batch.first().unwrap().fee_version;
 
     // Check for room for the commitment batch
     guard!(
-        storage_account.get_next_commitment_ptr() as usize + batch.len() <= MT_COMMITMENT_COUNT,
+        hashing_account.get_ordering() as usize + batch.len() <= MT_COMMITMENT_COUNT,
         NoRoomForCommitment
     );
 
-    let ordering = storage_account.get_next_commitment_ptr();
-    let siblings = storage_account.get_mt_opening(ordering as usize);
-    let siblings = siblings.iter().map(fr_to_u256_le).collect::<Vec<U256>>().try_into().unwrap();
-    let mut commitments: [U256; MAX_HT_COMMITMENTS] = [[0; 32]; MAX_HT_COMMITMENTS];
-    for (i, commitment) in batch.iter().map(|r| r.commitment).enumerate() {
-        commitments[i] = commitment;
+    let mut commitments = [[0; 32]; MAX_HT_COMMITMENTS];
+    for i in 0..batch.len() {
+        commitments[i] = batch[i].commitment;
     }
 
-    hashing_account.reset(
-        batching_rate,
-        commitments,
-        ordering,
-        siblings,
-        fee_version as u64,
-    )
+    hashing_account.reset(batching_rate, fee_version as u64, &commitments)
 }
 
 pub fn compute_commitment_hash<'a>(
@@ -300,7 +302,7 @@ mod tests {
         let sys_program_pk = solana_program::system_program::ID;
         account!(system_program, sys_program_pk, vec![]);
 
-        governor.set_commitment_batching_rate(&5);
+        governor.set_commitment_batching_rate(&4);
         governor.set_fee_version(&1);
 
         let valid_request = BaseCommitmentHashRequest {
@@ -308,7 +310,7 @@ mod tests {
             amount: LAMPORTS_PER_SOL,
             commitment: u256_from_str("1"),
             fee_version: 1,
-            min_batching_rate: 5,
+            min_batching_rate: 4,
         };
 
         let mut requests = Vec::new();
@@ -385,7 +387,7 @@ mod tests {
                 amount: LAMPORTS_PER_SOL,
                 commitment: u256_from_str("1"),
                 fee_version: 1,
-                min_batching_rate: 5,
+                min_batching_rate: 4,
             }
         ).unwrap();
 
@@ -481,12 +483,12 @@ mod tests {
         zero_account!(mut queue, CommitmentQueueAccount);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, &storage_account), Err(_));
+        init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
     }
 
     #[test]
     fn test_init_commitment_hash_active_computation() {
-        storage_account!(storage_account);
         zero_account!(mut queue, CommitmentQueueAccount);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -494,7 +496,8 @@ mod tests {
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 0, fee_version: 0 }).unwrap();
 
         hashing_account.set_is_active(&true);
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, &storage_account), Err(_));
+        hashing_account.set_setup(&true);
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
     }
 
     #[test]
@@ -507,7 +510,8 @@ mod tests {
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 0, fee_version: 0 }).unwrap();
 
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, &storage_account), Err(_));
+        init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
     }
 
     #[test]
@@ -520,7 +524,8 @@ mod tests {
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();
         println!("{}", q.len());
 
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, &storage_account), Err(_));
+        init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
     }
 
     #[test]
@@ -533,7 +538,8 @@ mod tests {
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();
 
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32 - 1));
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, &storage_account), Err(_));
+        init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
     }
 
     #[test]
@@ -549,13 +555,14 @@ mod tests {
         q.enqueue(CommitmentHashRequest { commitment: [3; 32], min_batching_rate: 0, fee_version: 0 }).unwrap();
         q.enqueue(CommitmentHashRequest { commitment: [4; 32], min_batching_rate: 0, fee_version: 0 }).unwrap();
 
-        init_commitment_hash(&mut queue, &mut hashing_account, &storage_account).unwrap();
+        init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
+        init_commitment_hash(&mut queue, &mut hashing_account).unwrap();
 
         assert_eq!(hashing_account.get_batching_rate(), 2);
 
         // Check correct siblings
         for i in 0..MT_HEIGHT as usize {
-            assert_eq!(hashing_account.get_siblings(i), fr_to_u256_le(&EMPTY_TREE[i]));
+            assert_eq!(hashing_account.get_siblings(i), EMPTY_TREE[i]);
         }
 
         // Check correct commitments
@@ -616,7 +623,7 @@ mod tests {
         storage_account!(mut storage_account);
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
-        let batching_rate = 5;
+        let batching_rate = 4;
         hashing_account.set_is_active(&true);
         hashing_account.set_batching_rate(&batching_rate);
         hashing_account.set_instruction(&(commitment_hash_computation_instructions(batching_rate).len() as u32));

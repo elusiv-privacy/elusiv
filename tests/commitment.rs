@@ -1,24 +1,25 @@
 //! Tests the base commitment and commitment hashing
-/*
+
 #[cfg(not(tarpaulin_include))]
 mod common;
+
+use std::collections::HashMap;
 
 use common::*;
 use common::program_setup::*;
 
-use elusiv::commitment::poseidon_hash::full_poseidon2_hash;
+use elusiv::commitment::poseidon_hash::{full_poseidon2_hash, BinarySpongeHashingState};
 use elusiv::fields::{SCALAR_MODULUS, big_uint_to_u256, u256_to_fr, fr_to_u256_le, u64_to_scalar};
 use elusiv::processor::{BaseCommitmentHashRequest, MIN_STORE_AMOUNT, MAX_STORE_AMOUNT, CommitmentHashRequest};
 use elusiv::state::{StorageAccount, MT_HEIGHT, MT_COMMITMENT_COUNT, EMPTY_TREE};
-use elusiv::state::governor::{PoolAccount, FeeCollectorAccount};
-use elusiv::state::program_account::{SizedAccount, MultiAccountAccount, MultiAccountProgramAccount};
+use elusiv::state::governor::{PoolAccount, FeeCollectorAccount, GovernorAccount};
+use elusiv::state::program_account::{SizedAccount, MultiAccountProgramAccount};
 use elusiv::state::queue::{BaseCommitmentQueue, BaseCommitmentQueueAccount};
 use elusiv::instruction::*;
 use elusiv::types::U256;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
-use solana_program::account_info::Account;
 use elusiv::state::{
     queue::{
         CommitmentQueueAccount, CommitmentQueue,
@@ -31,20 +32,22 @@ use elusiv::state::{
     },
     fee::FeeAccount,
 };
-use elusiv::commitment::{BaseCommitmentHashComputation, BaseCommitmentHashingAccount, CommitmentHashingAccount, CommitmentHashComputation};
+use elusiv::commitment::{BaseCommitmentHashComputation, BaseCommitmentHashingAccount, CommitmentHashingAccount, commitment_hash_computation_instructions};
 use elusiv_computation::PartialComputation;
+use ark_bn254::Fr;
+use ark_ff::Zero;
 
-fn requests() -> Vec<BaseCommitmentHashRequest> {
+fn requests(batching_rate: u32) -> Vec<BaseCommitmentHashRequest> {
     vec![
         base_commitment_request(
             "8337064132573119120838379738103457054645361649757131991036638108422638197362",
             "139214303935475888711984321184227760578793579443975701453971046059378311483",
-            LAMPORTS_PER_SOL, 0,
+            LAMPORTS_PER_SOL, 0, batching_rate,
         ),
         base_commitment_request(
             "8337064132573119120838379738103457054645361649757131991036638108422638197362",
             "21186803555845400161937398579081414146527572885637089779856221229551142844794",
-            20 * LAMPORTS_PER_SOL, 0,
+            20 * LAMPORTS_PER_SOL, 0, batching_rate,
         ),
     ]
 }
@@ -60,10 +63,11 @@ async fn setup_commitment_tests() -> (ProgramTestContext, Actor) {
 #[tokio::test]
 async fn test_base_commitment() {
     let (mut context, mut client) = setup_commitment_tests().await;
-    let requests = requests();
+    let requests = requests(1);
     let lamports_per_tx = lamports_per_signature(&mut context).await;
 
     pda_account!(fee, FeeAccount, Some(0), context);
+    let fee = fee.get_program_fee();
 
     let sol_pool = PoolAccount::find(None).0;
     let sol_pool_start_balance = get_balance(sol_pool, &mut context).await;
@@ -72,24 +76,43 @@ async fn test_base_commitment() {
     let fee_collector_start_balance = get_balance(fee_collector, &mut context).await;
 
     let mut relayer_a = Actor::new(&mut context).await; 
-    let mut relayer_b = Actor::new(&mut context).await; 
+    let mut relayer_b = Actor::new(&mut context).await;
 
-    // Request should fail: client has not enough funds
+    // Request should fail: batching rate mismatch
     let store_ix = ElusivInstruction::store_base_commitment_instruction(
         0,
         requests[0].clone(),
         SignerAccount(client.pubkey),
     );
     ix_should_fail(store_ix.clone(), &mut client, &mut context).await;
+
+    set_single_pda_account!(GovernorAccount, &mut context, None, |account: &mut GovernorAccount| {
+        account.set_commitment_batching_rate(&1);
+    });
+
+    // Request should fail: client has not enough funds
+    ix_should_fail(store_ix.clone(), &mut client, &mut context).await;
     assert_eq!(0, client.balance(&mut context).await);
 
-    // Client has enough funds
-    let base_commitment_hash_fee = fee.base_commitment_hash_fee();
-    let network_fee = fee.get_base_commitment_network_fee();
+    let min_batching_rate = 1;
+    let base_commitment_hash_fee = fee.base_commitment_hash_fee(min_batching_rate);
+    let network_fee = fee.base_commitment_network_fee;
     let amount = requests[0].amount + base_commitment_hash_fee + lamports_per_tx;
     client.airdrop(amount, &mut context).await;
     assert_eq!(amount, client.balance(&mut context).await);
 
+    set_single_pda_account!(GovernorAccount, &mut context, None, |account: &mut GovernorAccount| {
+        account.set_commitment_batching_rate(&0);
+    });
+
+    // Request should fail: batching rate mismatch
+    ix_should_fail(store_ix.clone(), &mut client, &mut context).await;
+
+    set_single_pda_account!(GovernorAccount, &mut context, None, |account: &mut GovernorAccount| {
+        account.set_commitment_batching_rate(&1);
+    });
+
+    // Correct batching rate and client has enough funds
     ix_should_succeed(store_ix, &mut client, &mut context).await;
 
     // client has: zero-balance
@@ -201,7 +224,7 @@ async fn test_base_commitment() {
     );
 
     // Compute each base_commitment_hash
-    let hash_reward = fee.get_relayer_hash_tx_fee();
+    let hash_reward = fee.relayer_hash_tx_fee;
     for i in 0..BaseCommitmentHashComputation::INSTRUCTIONS.len() {
         // Finalization will always fail before completion
         ix_should_fail(finalize_ix.clone(), &mut relayer_a, &mut context).await;
@@ -277,7 +300,7 @@ async fn test_base_commitment() {
     // - amounts of the two requests
     // - for the first request the cost for hashing the commitment
     // - for the second request the cost for hashing base commitment + commitment
-    let commitment_hash_fee = fee.commitment_hash_fee();
+    let commitment_hash_fee = fee.commitment_hash_fee(min_batching_rate);
     assert_eq!(
         requests[0].amount + requests[1].amount + commitment_hash_fee + base_commitment_hash_fee - network_fee + sol_pool_start_balance,
         get_balance(sol_pool, &mut context).await
@@ -291,9 +314,15 @@ async fn test_base_commitment() {
 }
 
 #[tokio::test]
+#[ignore]
+async fn test_base_commitment_batching_rates() {
+    panic!()
+}
+
+#[tokio::test]
 async fn test_base_commitment_store_invalid_inputs() {
     let (mut context, mut client) = setup_commitment_tests().await;
-    let request = &requests()[0];
+    let request = &requests(0)[0];
 
     client.airdrop(MAX_STORE_AMOUNT / 1000, &mut context).await;
 
@@ -313,6 +342,20 @@ async fn test_base_commitment_store_invalid_inputs() {
                 commitment: request.commitment,
                 amount: MIN_STORE_AMOUNT,
                 fee_version: 1,
+                min_batching_rate: 0,
+            },
+            SignerAccount(client.pubkey),
+        ),
+
+        // Invalid min_batching_rate
+        ElusivInstruction::store_base_commitment_instruction(
+            0,
+            BaseCommitmentHashRequest {
+                base_commitment: request.base_commitment,
+                commitment: request.commitment,
+                amount: MIN_STORE_AMOUNT,
+                fee_version: 0,
+                min_batching_rate: 1,
             },
             SignerAccount(client.pubkey),
         ),
@@ -325,6 +368,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 commitment: request.commitment,
                 amount: MIN_STORE_AMOUNT - 1,
                 fee_version: 0,
+                min_batching_rate: 0,
             },
             SignerAccount(client.pubkey),
         ),
@@ -337,6 +381,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 commitment: request.commitment,
                 amount: MAX_STORE_AMOUNT + 1,
                 fee_version: 0,
+                min_batching_rate: 0,
             },
             SignerAccount(client.pubkey),
         ),
@@ -349,6 +394,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 commitment: request.commitment,
                 amount: MIN_STORE_AMOUNT,
                 fee_version: 0,
+                min_batching_rate: 0,
             },
             SignerAccount(client.pubkey),
         ),
@@ -361,6 +407,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 commitment: big_uint_to_u256(&SCALAR_MODULUS),
                 amount: MIN_STORE_AMOUNT,
                 fee_version: 0,
+                min_batching_rate: 0,
             },
             SignerAccount(client.pubkey),
         ),
@@ -383,7 +430,7 @@ async fn test_base_commitment_store_invalid_inputs() {
 #[tokio::test]
 async fn test_base_commitment_accounts_fuzzing() {
     let (mut context, mut client) = setup_commitment_tests().await;
-    let request = &requests()[0];
+    let request = &requests(0)[0];
     let mut relayer_a = Actor::new(&mut context).await;
 
     // Store fuzzing
@@ -446,7 +493,7 @@ async fn test_base_commitment_accounts_fuzzing() {
 #[tokio::test]
 async fn test_base_commitment_full_queue() {
     let (mut context, mut client) = setup_commitment_tests().await;
-    let requests = &requests();
+    let requests = &requests(0);
 
     // Enqueue all but one
     set_pda_account::<BaseCommitmentQueueAccount, _>(&mut context, Some(0), |data| {
@@ -484,10 +531,11 @@ async fn test_base_commitment_full_queue() {
 async fn test_single_commitment() {
     let (mut context, _) = setup_commitment_tests().await;
     setup_storage_account(&mut context).await;
-    let requests = requests();
+    let requests = requests(0);
     let lamports_per_tx = lamports_per_signature(&mut context).await;
 
     pda_account!(fee, FeeAccount, Some(0), context);
+    let fee = fee.get_program_fee();
 
     let sol_pool = PoolAccount::find(None).0;
     let sol_pool_start_balance = get_balance(sol_pool, &mut context).await;
@@ -495,13 +543,7 @@ async fn test_single_commitment() {
     let mut relayer_a = Actor::new(&mut context).await;
     let mut relayer_b = Actor::new(&mut context).await;
 
-    let (_, storage, storage_writable) = storage_accounts(&mut context).await;
-
-    // Init fails, since queue is empty
-    ix_should_fail(
-        ElusivInstruction::init_commitment_hash_instruction(&storage),
-        &mut relayer_a, &mut context
-    ).await;
+    let (_, _, storage_writable) = storage_accounts(&mut context).await;
 
     // Add requests to commitment queue
     set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
@@ -509,22 +551,24 @@ async fn test_single_commitment() {
         queue.enqueue(
             CommitmentHashRequest {
                 commitment: requests[0].commitment,
-                fee_version: 0
+                fee_version: 0,
+                min_batching_rate: 0,
             }
         ).unwrap();
 
         queue.enqueue(
             CommitmentHashRequest {
                 commitment: requests[1].commitment,
-                fee_version: 0
+                fee_version: 0,
+                min_batching_rate: 0,
             }
         ).unwrap();
     }).await;
 
     // Add funds: 
-    let hash_tx_count = CommitmentHashComputation::INSTRUCTIONS.len();
+    let hash_tx_count = commitment_hash_computation_instructions(0).len();
     let amounts = requests[0].amount + requests[1].amount;
-    let hash_fee = fee.commitment_hash_fee();
+    let hash_fee = fee.commitment_hash_fee(0);
     let pool_lamports = 2 * hash_fee + amounts;
     airdrop(&sol_pool, pool_lamports, &mut context).await;
 
@@ -536,8 +580,11 @@ async fn test_single_commitment() {
 
     // Init succeeds
     relayer_a.airdrop(lamports_per_tx, &mut context).await;
-    ix_should_succeed(
-        ElusivInstruction::init_commitment_hash_instruction(&storage),
+    tx_should_succeed(
+        &[
+            ElusivInstruction::init_commitment_hash_setup_instruction(&[]),
+            ElusivInstruction::init_commitment_hash_instruction(),
+        ],
         &mut relayer_a, &mut context
     ).await;
 
@@ -545,23 +592,23 @@ async fn test_single_commitment() {
     assert!(hashing_account.get_is_active());
     assert_eq!(hashing_account.get_fee_payer(), [0; 32]);   // has no role atm
     assert_eq!(hashing_account.get_fee_version(), 0);
-    assert_eq!(hashing_account.get_commitment(), requests[0].commitment);
+    assert_eq!(hashing_account.get_hash_tree(0), requests[0].commitment);
     assert_eq!(hashing_account.get_ordering(), 0);
     // The empty tree values are the siblings
     for i in 0..MT_HEIGHT as usize {
-        assert_eq!(
-            hashing_account.get_siblings(i).0,
-            elusiv::state::EMPTY_TREE[i]
-        );
+        assert_eq!(hashing_account.get_siblings(i), elusiv::state::EMPTY_TREE[i]);
     }
 
-    // Queue remains unchanged
+    // Queue size is reduced
     queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, context);
-    assert_eq!(queue.len(), 2);
+    assert_eq!(queue.len(), 1);
 
     // Second init fails, since a hashing is already active
-    ix_should_fail(
-        ElusivInstruction::init_commitment_hash_instruction(&storage),
+    tx_should_fail(
+        &[
+            ElusivInstruction::init_commitment_hash_setup_instruction(&[]),
+            ElusivInstruction::init_commitment_hash_instruction(),
+        ],
         &mut relayer_a, &mut context
     ).await;
 
@@ -576,13 +623,13 @@ async fn test_single_commitment() {
     );
 
     // Computation
-    let single_tx_reward = fee.get_relayer_hash_tx_fee();
+    let single_tx_reward = fee.relayer_hash_tx_fee;
     for i in 0..hash_tx_count {
         // Finalization will always fail before completion
         ix_should_fail(finalize_ix.clone(), &mut relayer_b, &mut context).await;
 
         // Fail due to too low compute budget
-        let required_compute_budget = CommitmentHashComputation::INSTRUCTIONS[i].compute_units;
+        let required_compute_budget = commitment_hash_computation_instructions(0)[i].compute_units;
         if required_compute_budget > 300_000 { // include the 100k compute unit padding
             ix_should_fail(compute_ix.clone(), &mut relayer_b, &mut context).await;
         }
@@ -613,12 +660,6 @@ async fn test_single_commitment() {
     relayer_a.airdrop(lamports_per_tx, &mut context).await;
     ix_should_succeed(finalize_ix.clone(), &mut relayer_a, &mut context).await;
 
-    // Changes in the queue
-    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, context);
-    let request = queue.view_first().unwrap();
-    assert_eq!(queue.len(), 1);
-    assert_eq!(request.commitment, requests[1].commitment);
-
     // Hashing account is now inactive
     pda_account!(hashing_account, CommitmentHashingAccount, None, context);
     assert!(!hashing_account.get_is_active());
@@ -630,28 +671,23 @@ async fn test_single_commitment() {
     );
 
     // Check updated MT
-    storage_account!(storage_account, context);
-    assert_eq!(
-        storage_account.get_root(),
-        u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575")
-    );
-    assert_eq!(
-        storage_account.get_node(0, MT_HEIGHT as usize),
-        u256_to_fr(&requests[0].commitment)
-    );
-    assert_eq!(
-        storage_account.get_next_commitment_ptr(),
-        1
-    );
-    let mut hash = u256_to_fr(&requests[0].commitment);
-    for i in 0..MT_HEIGHT as usize {
+    storage_account(&mut context, |s: &StorageAccount| {
         assert_eq!(
-            hash,
-            storage_account.get_node(0, MT_HEIGHT as usize - i)
+            s.get_root(),
+            u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575")
         );
-        hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
-    }
-    assert_eq!(fr_to_u256_le(&hash), storage_account.get_root());
+        assert_eq!(s.get_node(0, MT_HEIGHT as usize), requests[0].commitment);
+        assert_eq!(s.get_next_commitment_ptr(), 1);
+        let mut hash = u256_to_fr(&requests[0].commitment);
+        for i in 0..MT_HEIGHT as usize {
+            assert_eq!(
+                fr_to_u256_le(&hash),
+                s.get_node(0, MT_HEIGHT as usize - i)
+            );
+            hash = full_poseidon2_hash(hash, u256_to_fr(&EMPTY_TREE[i]));
+        }
+        assert_eq!(fr_to_u256_le(&hash), s.get_root());
+    }).await;
 }
 
 async fn set_finished_base_commitment_hash(
@@ -666,7 +702,7 @@ async fn set_finished_base_commitment_hash(
     {
         let mut hashing_account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
         hashing_account.set_instruction(&(BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32));
-        hashing_account.set_state(0, commitment);
+        hashing_account.set_state(&BinarySpongeHashingState([u256_to_fr(commitment), Fr::zero(), Fr::zero()]));
         hashing_account.set_fee_payer(&original_fee_payer.to_bytes());
     }
     set_account(
@@ -682,8 +718,9 @@ async fn test_commitment_full_queue() {
     let (mut context, mut client) = setup_commitment_tests().await;
 
     let request = CommitmentHashRequest {
-        commitment: requests()[0].commitment,
-        fee_version: 0
+        commitment: requests(0)[0].commitment,
+        fee_version: 0,
+        min_batching_rate: 0,
     };
 
     // Enqueue all
@@ -720,7 +757,7 @@ async fn test_commitment_full_mt() {
     let (mut context, mut client) = setup_commitment_tests().await;
     setup_storage_account(&mut context).await;
     set_pda_account::<StorageAccount, _>(&mut context, None, |data| {
-        let mut storage_account = StorageAccount::new(data, vec![]).unwrap();
+        let mut storage_account = StorageAccount::new(data, HashMap::new()).unwrap();
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
     }).await;
 
@@ -728,8 +765,9 @@ async fn test_commitment_full_mt() {
         queue_mut!(queue, CommitmentQueue, CommitmentQueueAccount, data);
         queue.enqueue(
             CommitmentHashRequest {
-                commitment: requests()[0].commitment,
-                fee_version: 0
+                commitment: requests(0)[0].commitment,
+                fee_version: 0,
+                min_batching_rate: 0,
             }
         ).unwrap();
     }).await;
@@ -737,19 +775,25 @@ async fn test_commitment_full_mt() {
     let (_, storage_accounts, _) = storage_accounts(&mut context).await;
 
     // Init should fail, since MT is full
-    ix_should_fail(
-        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+    tx_should_fail(
+        &[
+            ElusivInstruction::init_commitment_hash_setup_instruction(&storage_accounts),
+            ElusivInstruction::init_commitment_hash_instruction(),
+        ],
         &mut client, &mut context
     ).await;
 
     set_pda_account::<StorageAccount, _>(&mut context, None, |data| {
-        let mut storage_account = StorageAccount::new(data, vec![]).unwrap();
+        let mut storage_account = StorageAccount::new(data, HashMap::new()).unwrap();
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32 - 1));
     }).await;
 
     // Init should succeed now
-    ix_should_succeed(
-        ElusivInstruction::init_commitment_hash_instruction(&storage_accounts),
+    tx_should_succeed(
+        &[
+            ElusivInstruction::init_commitment_hash_setup_instruction(&storage_accounts),
+            ElusivInstruction::init_commitment_hash_instruction(),
+        ],
         &mut client, &mut context
     ).await;
 }
@@ -761,27 +805,16 @@ async fn test_commitment_correct_storage_account_insertion() {
     setup_storage_account(&mut context).await;
 
     let (_, _, storage_writable) = storage_accounts(&mut context).await;
-    let len = CommitmentHashComputation::INSTRUCTIONS.len() as u32;
+    let len = commitment_hash_computation_instructions(0).len() as u32;
     let commitment_count = 33;
-
-    set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
-        queue_mut!(queue, CommitmentQueue, CommitmentQueueAccount, data);
-        for i in 0..commitment_count {
-            queue.enqueue(
-                CommitmentHashRequest {
-                    commitment: fr_to_u256_le(&u64_to_scalar(i as u64)),
-                    fee_version: 0,
-                }
-            ).unwrap();
-        }
-    }).await;
 
     for i in 0..commitment_count {
         set_pda_account::<CommitmentHashingAccount, _>(&mut context, None, |data| {
             let mut account = CommitmentHashingAccount::new(data).unwrap();
             account.set_is_active(&true);
             account.set_instruction(&len);
-            account.set_commitment(&fr_to_u256_le(&u64_to_scalar(i as u64)));
+            account.set_ordering(&i);
+            account.set_hash_tree(0, &fr_to_u256_le(&u64_to_scalar(i as u64)));
         }).await;
 
         ix_should_succeed(
@@ -790,20 +823,20 @@ async fn test_commitment_correct_storage_account_insertion() {
         ).await;
     }
 
-    storage_account!(storage_account, context);
-
     // Check that each commitment is at the correct position
-    for i in 0..commitment_count {
-        assert_eq!(
-            storage_account.get_node(i, MT_HEIGHT as usize),
-            u64_to_scalar(i as u64)
-        );
-    }
+    storage_account(&mut context, |s: &StorageAccount| {
+        for i in 0..commitment_count {
+            assert_eq!(
+                s.get_node(i as usize, MT_HEIGHT as usize),
+                fr_to_u256_le(&u64_to_scalar(i as u64))
+            );
+        }
+    }).await;
 }
 
 #[tokio::test]
 #[allow(clippy::needless_range_loop)]
-async fn test_commitment_hash_multiple_commitments() {
+async fn test_commitment_hash_multiple_commitments_zero_batch() {
     let (mut context, mut client) = setup_commitment_tests().await;
     setup_storage_account(&mut context).await;
 
@@ -825,6 +858,7 @@ async fn test_commitment_hash_multiple_commitments() {
         .map(|c| CommitmentHashRequest {
             commitment: *c,
             fee_version: 0,
+            min_batching_rate: 0,
         })
         .collect();
 
@@ -849,15 +883,18 @@ async fn test_commitment_hash_multiple_commitments() {
 
     // Init, compute, finalize every commitment
     for i in 0..requests.len() {
-        ix_should_succeed(
-            ElusivInstruction::init_commitment_hash_instruction(&storage),
+        tx_should_succeed(
+            &[
+                ElusivInstruction::init_commitment_hash_setup_instruction(&storage),
+                ElusivInstruction::init_commitment_hash_instruction(),
+            ],
             &mut client, &mut context
         ).await;
 
-        for c in 0..CommitmentHashComputation::INSTRUCTIONS.len() {
+        for instruction in commitment_hash_computation_instructions(0).iter() {
             tx_should_succeed(
                 &[
-                    request_compute_units(CommitmentHashComputation::INSTRUCTIONS[c].compute_units),
+                    request_compute_units(instruction.compute_units),
                     ElusivInstruction::compute_commitment_hash_instruction(
                         0,
                         0,
@@ -873,27 +910,41 @@ async fn test_commitment_hash_multiple_commitments() {
             &mut client, &mut context
         ).await;
 
-        storage_account!(storage_account, context);
-
-        // Verify commitment
-        assert_eq!(
-            storage_account.get_node(i, MT_HEIGHT as usize),
-            u256_to_fr(&requests[i].commitment)
-        );
-
-        // Verify root
-        assert_eq!(
-            storage_account.get_root(),
-            correct_roots_afterwards[i]
-        );
+        // Verify commitment and root
+        storage_account(&mut context, |s: &StorageAccount| {
+            assert_eq!(s.get_node(i, MT_HEIGHT as usize), requests[i].commitment);
+            assert_eq!(s.get_root(), correct_roots_afterwards[i]);
+        }).await;
     }
 
     // Verify all commitments
-    storage_account!(storage_account, context);
-    for i in 0..requests.len() {
-        assert_eq!(
-            storage_account.get_node(i, MT_HEIGHT as usize),
-            u256_to_fr(&requests[i].commitment)
-        );
-    }
-}*/
+    storage_account(&mut context, |s: &StorageAccount| {
+        for i in 0..requests.len() {
+            assert_eq!(s.get_node(i, MT_HEIGHT as usize), requests[i].commitment);
+        }
+    }).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_commitment_hash_batching_rate_one() {
+    panic!()
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_commitment_hash_batching_rate_two() {
+    panic!()
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_commitment_hash_batching_rate_three() {
+    panic!()
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_commitment_hash_batching_rate_four() {
+    panic!()
+}

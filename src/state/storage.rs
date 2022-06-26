@@ -1,12 +1,8 @@
-use crate::fields::fr_to_u256_le;
-use crate::fields::u256_to_fr;
 use crate::macros::{elusiv_account, two_pow};
 use crate::types::U256;
 use crate::bytes::*;
 use super::program_account::*;
 use borsh::{BorshDeserialize, BorshSerialize};
-use ark_bn254::Fr;
-use ark_ff::BigInteger256;
 
 /// Height of the active MT
 /// - we define the height using the amount of leaves
@@ -34,33 +30,6 @@ const ACCOUNT_SIZE: usize = VALUES_PER_ACCOUNT * U256::SIZE;
 
 const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling((MT_SIZE * U256::SIZE) as u64, ACCOUNT_SIZE as u64));
 const_assert_eq!(ACCOUNTS_COUNT, 25);
-
-/// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes
-pub const EMPTY_TREE: [Fr; MT_HEIGHT as usize + 1] = [
-    Fr::new(BigInteger256::new([3162363550698150530, 9486080942857866267, 15374008727889305678, 621823773387469172])),
-    Fr::new(BigInteger256::new([16524436797946508368, 5663459082060437627, 4786453218948112063, 1780966499111310984])),
-    Fr::new(BigInteger256::new([18120511978754371573, 206215742733117120, 9749843034257160914, 3297229344299070194])),
-    Fr::new(BigInteger256::new([3374525873845327982, 8842951786222469347, 14628822357859034252, 2329128191974466333])),
-    Fr::new(BigInteger256::new([16314769355260462117, 327129018270864341, 11408471150400527423, 2297888125986573548])),
-    Fr::new(BigInteger256::new([17311028596387249094, 10845365150759738931, 17445412932997959742, 48033258554112463])),
-    Fr::new(BigInteger256::new([5817658827105621581, 11059894328710668944, 9229044364542587538, 2062834750464334044])),
-    Fr::new(BigInteger256::new([16529257223091242829, 15078715808286425477, 14973738173337342358, 1311755140402558240])),
-    Fr::new(BigInteger256::new([13017598453810020150, 5751567870812522253, 14128703922746499357, 1640897934100003677])),
-    Fr::new(BigInteger256::new([11638450640257199038, 7595865483997155469, 13070293587080331272, 1693899333659075201])),
-    Fr::new(BigInteger256::new([7568814144423326948, 7756902877083136468, 2643112947961160356, 2381594894185361981])),
-    Fr::new(BigInteger256::new([5490509226410727857, 11094896903217897359, 12299135231088992513, 424172748035087377])),
-    Fr::new(BigInteger256::new([15545935430856831981, 6995399324906788259, 7975302095956667197, 278329136157021172])),
-    Fr::new(BigInteger256::new([3756085570044973516, 9536957579284113805, 2409437860359384358, 1444172494927843072])),
-    Fr::new(BigInteger256::new([13328230243323890297, 11128679064958937924, 9357000335258360483, 2104290745598804102])),
-    Fr::new(BigInteger256::new([15436988243663142679, 3814774368829636446, 13365591614313630306, 1576186299059485553])),
-    Fr::new(BigInteger256::new([2920096157871139096, 13060020165704901188, 12943162699953729247, 2234479897611199809])),
-    Fr::new(BigInteger256::new([4698931903603764972, 15338172196201026259, 845461366581210430, 2490130590646071464])),
-    Fr::new(BigInteger256::new([1468893897005136691, 4638128118315565334, 13680790228231065622, 1299508272559288457])),
-    Fr::new(BigInteger256::new([5691611937644566852, 17620820813181493991, 11578659137028816515, 2914824457222516369])),
-    Fr::new(BigInteger256::new([9148453604387573975, 1305394973545476317, 5622541637850933077, 679291737183423090])),
-];
-
-const ZERO: Fr = Fr::new(BigInteger256::new([0, 0, 0, 0]));
 
 // The `StorageAccount` contains the active MT that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
@@ -113,8 +82,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         (account_index, index % VALUES_PER_ACCOUNT)
     }
 
-    /// `level`: 0 is the root level, `MT_HEIGHT` the commitment level
-    pub fn get_node(&self, index: usize, level: usize) -> Fr {
+    /// `level`: `0` is the root level, `MT_HEIGHT` the commitment level
+    pub fn get_node(&self, index: usize, level: usize) -> U256 {
         assert!(level <= MT_HEIGHT as usize);
 
         let ptr = self.get_next_commitment_ptr() as usize;
@@ -125,7 +94,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         } else {
             let mt_index = mt_array_index(index, level);
             data_slice!(data, self, mt_index);
-            u256_to_fr(&U256::try_from_slice(data).unwrap())
+            U256::try_from_slice(data).unwrap()
         }
     }
 
@@ -145,7 +114,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     }
 
     pub fn get_root(&self) -> U256 {
-        fr_to_u256_le(&self.get_node(0, 0))
+        self.get_node(0, 0)
     }
 
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
@@ -155,8 +124,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     }
 
     #[allow(clippy::needless_range_loop)]
-    pub fn get_mt_opening(&self, index: usize) -> [Fr; MT_HEIGHT as usize] {
-        let mut opening = [ZERO; MT_HEIGHT as usize];
+    pub fn get_mt_opening(&self, index: usize) -> [U256; MT_HEIGHT as usize] {
+        let mut opening = [[0; 32]; MT_HEIGHT as usize];
         let mut index = index;
 
         for i in 0..MT_HEIGHT as usize {
@@ -179,12 +148,38 @@ fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
     next_leaf_ptr == 0 || index > (next_leaf_ptr - 1) >> level_inv
 }
 
+
+/// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes
+pub const EMPTY_TREE: [U256; MT_HEIGHT as usize + 1] = [
+    [130, 154, 1, 250, 228, 248, 226, 43, 27, 76, 165, 173, 91, 84, 165, 131, 78, 224, 152, 167, 123, 115, 91, 213, 116, 49, 167, 101, 109, 41, 161, 8],
+    [80, 180, 254, 174, 183, 151, 82, 229, 123, 24, 44, 98, 7, 166, 152, 78, 191, 94, 109, 201, 215, 229, 108, 66, 136, 150, 102, 80, 152, 67, 183, 24],
+    [245, 111, 221, 89, 163, 253, 120, 251, 192, 102, 179, 28, 32, 160, 220, 2, 210, 250, 182, 48, 149, 102, 78, 135, 242, 178, 240, 129, 158, 28, 194, 45],
+    [110, 88, 234, 59, 103, 185, 212, 46, 227, 64, 178, 47, 204, 121, 184, 122, 140, 228, 122, 122, 109, 4, 4, 203, 29, 99, 252, 22, 192, 185, 82, 32],
+    [37, 132, 186, 12, 74, 180, 105, 226, 213, 211, 193, 225, 27, 50, 138, 4, 63, 92, 234, 13, 17, 8, 83, 158, 236, 140, 4, 107, 19, 189, 227, 31],
+    [198, 123, 74, 104, 202, 32, 61, 240, 51, 94, 111, 182, 36, 122, 130, 150, 62, 80, 89, 255, 161, 142, 26, 242, 207, 185, 133, 129, 254, 165, 170, 0],
+    [77, 214, 11, 70, 225, 121, 188, 80, 144, 34, 40, 76, 75, 163, 124, 153, 146, 178, 225, 180, 243, 38, 20, 128, 220, 24, 194, 179, 70, 169, 160, 28],
+    [77, 199, 105, 95, 222, 183, 99, 229, 133, 193, 250, 29, 35, 92, 66, 209, 150, 145, 122, 205, 136, 103, 205, 207, 32, 181, 252, 167, 89, 74, 52, 18],
+    [54, 63, 5, 212, 210, 204, 167, 180, 13, 135, 84, 97, 129, 172, 209, 79, 29, 33, 249, 83, 92, 61, 19, 196, 93, 251, 179, 42, 250, 163, 197, 22],
+    [190, 171, 114, 180, 49, 21, 132, 161, 141, 16, 77, 191, 105, 239, 105, 105, 8, 64, 253, 159, 196, 2, 99, 181, 129, 34, 5, 36, 120, 240, 129, 23],
+    [228, 244, 77, 241, 92, 212, 9, 105, 212, 241, 190, 161, 17, 14, 166, 107, 164, 226, 117, 236, 56, 57, 174, 36, 61, 114, 205, 34, 240, 31, 13, 33],
+    [177, 89, 55, 44, 13, 53, 50, 76, 143, 95, 226, 63, 243, 253, 248, 153, 1, 33, 141, 61, 84, 78, 175, 170, 17, 92, 8, 242, 221, 246, 226, 5],
+    [237, 115, 97, 145, 232, 65, 190, 215, 163, 149, 19, 111, 159, 166, 20, 97, 61, 235, 236, 85, 0, 247, 173, 110, 244, 211, 71, 235, 223, 210, 220, 3],
+    [204, 81, 128, 228, 236, 75, 32, 52, 141, 233, 50, 175, 99, 20, 90, 132, 38, 45, 25, 223, 247, 10, 112, 33, 0, 79, 144, 138, 59, 187, 10, 20],
+    [121, 74, 240, 81, 202, 98, 247, 184, 68, 43, 52, 182, 165, 2, 113, 154, 163, 26, 73, 186, 58, 190, 218, 129, 134, 0, 143, 187, 72, 241, 51, 29],
+    [23, 63, 108, 217, 4, 51, 59, 214, 94, 255, 90, 176, 19, 205, 240, 52, 98, 138, 26, 96, 194, 30, 124, 185, 113, 59, 71, 135, 22, 189, 223, 21],
+    [24, 105, 228, 247, 251, 67, 134, 40, 68, 98, 71, 80, 37, 131, 62, 181, 223, 238, 211, 88, 230, 89, 159, 179, 65, 229, 221, 202, 160, 119, 2, 31],
+    [236, 110, 13, 154, 171, 245, 53, 65, 211, 210, 85, 234, 88, 34, 220, 212, 62, 173, 99, 42, 162, 174, 187, 11, 168, 240, 202, 51, 148, 184, 142, 34],
+    [51, 251, 186, 127, 55, 143, 98, 20, 22, 65, 243, 34, 243, 240, 93, 64, 22, 16, 89, 136, 58, 238, 219, 189, 137, 240, 147, 136, 227, 199, 8, 18],
+    [68, 89, 173, 222, 230, 170, 252, 78, 231, 34, 126, 164, 43, 187, 137, 244, 131, 254, 238, 133, 35, 169, 175, 160, 145, 110, 94, 131, 102, 137, 115, 40],
+    [215, 208, 169, 37, 21, 214, 245, 126, 221, 48, 194, 233, 207, 177, 29, 18, 85, 167, 242, 130, 212, 71, 7, 78, 114, 10, 173, 101, 60, 84, 109, 9],
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{macros::storage_account, commitment::poseidon_hash::full_poseidon2_hash};
+    use crate::{macros::storage_account, commitment::{poseidon_hash::full_poseidon2_hash, u256_from_str}, fields::u256_to_fr};
+    use ark_bn254::Fr;
     use std::str::FromStr;
-    use ark_ff::Zero;
 
     #[test]
     fn test_mt_array_index() {
@@ -258,11 +253,11 @@ mod tests {
         // No commitments -> default values
         assert_eq!(
             storage_account.get_node(0, 0),
-            Fr::from_str("11702828337982203149177882813338547876343922920234831094975924378932809409969").unwrap()
+            u256_from_str("11702828337982203149177882813338547876343922920234831094975924378932809409969")
         );
         assert_eq!(
             storage_account.get_node(0, MT_HEIGHT as usize),
-            Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap()
+            u256_from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156")
         );
         for level in 0..=MT_HEIGHT {
             assert_eq!(
@@ -277,7 +272,7 @@ mod tests {
             for level in 0..=MT_HEIGHT as usize {
                 assert_eq!(
                     storage_account.get_node(i >> (MT_HEIGHT as usize - level), level),
-                    Fr::zero()
+                    u256_from_str("0")
                 );
 
                 // Default values right of commitment
@@ -311,7 +306,7 @@ mod tests {
         let b = Fr::from_str("10325823052538184185762853738620713863393182243594528391700012489616960720113").unwrap();
         let mut hash = full_poseidon2_hash(a, b);
         for i in 1..MT_HEIGHT as usize {
-            hash = full_poseidon2_hash(hash, EMPTY_TREE[i]);
+            hash = full_poseidon2_hash(hash, u256_to_fr(&EMPTY_TREE[i]));
         }
         assert_eq!(hash, Fr::from_str("2405070960812791252603303680410822171263982421393937538616415344325138142909").unwrap());
     }
