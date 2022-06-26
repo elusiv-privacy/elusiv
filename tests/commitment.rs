@@ -2,12 +2,10 @@
 
 #[cfg(not(tarpaulin_include))]
 mod common;
-
-use std::collections::HashMap;
-
 use common::*;
 use common::program_setup::*;
 
+use std::collections::HashMap;
 use elusiv::commitment::poseidon_hash::{full_poseidon2_hash, BinarySpongeHashingState};
 use elusiv::fields::{SCALAR_MODULUS, big_uint_to_u256, u256_to_fr, fr_to_u256_le, u64_to_scalar};
 use elusiv::processor::{BaseCommitmentHashRequest, MIN_STORE_AMOUNT, MAX_STORE_AMOUNT, CommitmentHashRequest};
@@ -32,7 +30,7 @@ use elusiv::state::{
     },
     fee::FeeAccount,
 };
-use elusiv::commitment::{BaseCommitmentHashComputation, BaseCommitmentHashingAccount, CommitmentHashingAccount, commitment_hash_computation_instructions};
+use elusiv::commitment::{BaseCommitmentHashComputation, BaseCommitmentHashingAccount, CommitmentHashingAccount, commitment_hash_computation_instructions, commitments_per_batch};
 use elusiv_computation::PartialComputation;
 use ark_bn254::Fr;
 use ark_ff::Zero;
@@ -278,7 +276,7 @@ async fn test_base_commitment() {
     // Check that hash_account has been closed
     assert!(account_does_not_exist(BaseCommitmentHashingAccount::find(Some(0)).0, &mut context).await);
 
-    // Second finalize will fail
+    // Additional finalize will fail
     ix_should_fail(compute_ix.clone(), &mut relayer_a, &mut context).await;
 
     // Check commitment queue for the correct hash
@@ -311,12 +309,6 @@ async fn test_base_commitment() {
         2 * network_fee + fee_collector_start_balance,
         get_balance(fee_collector, &mut context).await
     );
-}
-
-#[tokio::test]
-#[ignore]
-async fn test_base_commitment_batching_rates() {
-    panic!()
 }
 
 #[tokio::test]
@@ -800,7 +792,7 @@ async fn test_commitment_full_mt() {
 
 #[tokio::test]
 async fn test_commitment_correct_storage_account_insertion() {
-    // tests correct insertion into storage account
+    // Tests correct insertion into storage account
     let (mut context, mut client) = setup_commitment_tests().await;
     setup_storage_account(&mut context).await;
 
@@ -814,6 +806,8 @@ async fn test_commitment_correct_storage_account_insertion() {
             account.set_is_active(&true);
             account.set_instruction(&len);
             account.set_ordering(&i);
+            account.set_finalization_ix(&0);
+
             account.set_hash_tree(0, &fr_to_u256_le(&u64_to_scalar(i as u64)));
         }).await;
 
@@ -925,26 +919,159 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
     }).await;
 }
 
+async fn test_commitment_hash_with_batching_rate(
+    batching_rate: u32,
+    commitments: &[U256],
+    root: Option<U256>,
+) {
+    assert_eq!(commitments.len(), commitments_per_batch(batching_rate));
+
+    let (mut context, mut client) = setup_commitment_tests().await;
+    setup_storage_account(&mut context).await;
+
+    // Transfer enough fees
+    let sol_pool = PoolAccount::find(None).0;
+    airdrop(&sol_pool, LAMPORTS_PER_SOL * 100, &mut context).await;
+
+    let requests: Vec<CommitmentHashRequest> = commitments.iter()
+        .map(|c| CommitmentHashRequest {
+            commitment: *c,
+            fee_version: 0,
+            min_batching_rate: batching_rate,
+        })
+        .collect();
+
+    set_pda_account::<CommitmentQueueAccount, _>(&mut context, None, |data| {
+        queue_mut!(queue, CommitmentQueue, CommitmentQueueAccount, data);
+        for request in &requests {
+            queue.enqueue(request.clone()).unwrap();
+        }
+    }).await;
+
+    let (_, storage, storage_writable) = storage_accounts(&mut context).await;
+
+    // Init, compute, finalize every commitment
+    tx_should_succeed(
+        &[
+            ElusivInstruction::init_commitment_hash_setup_instruction(&storage),
+            ElusivInstruction::init_commitment_hash_instruction(),
+        ],
+        &mut client, &mut context
+    ).await;
+
+    for instruction in commitment_hash_computation_instructions(batching_rate).iter() {
+        tx_should_succeed(
+            &[
+                request_compute_units(instruction.compute_units),
+                ElusivInstruction::compute_commitment_hash_instruction(
+                    0,
+                    0,
+                    SignerAccount(client.pubkey)
+                ),
+            ],
+            &mut client, &mut context
+        ).await;
+    }
+
+    for _ in 0..=batching_rate {
+        ix_should_succeed(
+            ElusivInstruction::finalize_commitment_hash_instruction(&storage_writable),
+            &mut client, &mut context
+        ).await;
+    }
+
+    // Verify all commitments and root
+    storage_account(&mut context, |s: &StorageAccount| {
+        for (i, request) in requests.iter().enumerate() {
+            assert_eq!(s.get_node(i, MT_HEIGHT as usize), request.commitment);
+        }
+        if let Some(root) = root {
+            assert_eq!(s.get_root(), root);
+        }
+        assert_eq!(s.get_next_commitment_ptr(), commitments.len() as u32);
+    }).await;
+
+    // Queue should be empty
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, context);
+    assert_eq!(queue.len(), 0);
+}
+
 #[tokio::test]
-#[ignore]
 async fn test_commitment_hash_batching_rate_one() {
-    panic!()
+    test_commitment_hash_with_batching_rate(
+        1,
+        &[
+            u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+            u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+        ],
+        Some(u256_from_str("15301892188911160449341837174902405446602050384096489477117140364841430914614")),
+    ).await;
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_commitment_hash_batching_rate_two() {
-    panic!()
+    let commitments = vec![
+        u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+        u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+        u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+        u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+    ];
+    let root = u256_from_str("6543817352315114290363106811223879539017599496237896578152011659905900001939");
+    test_commitment_hash_with_batching_rate(2, &commitments, Some(root)).await;
+
+    // Verify the const value
+    let a = full_poseidon2_hash(u256_to_fr(&commitments[0]), u256_to_fr(&commitments[1]));
+    let b = full_poseidon2_hash(u256_to_fr(&commitments[2]), u256_to_fr(&commitments[3]));
+
+    let mut hash = full_poseidon2_hash(a, b);
+    for i in 2..MT_HEIGHT {
+        hash = full_poseidon2_hash(hash, u256_to_fr(&EMPTY_TREE[i as usize]))
+    }
+    assert_eq!(fr_to_u256_le(&hash), root);
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_commitment_hash_batching_rate_three() {
-    panic!()
+    // TODO: add correct root (atm just ignored)
+    test_commitment_hash_with_batching_rate(
+        3,
+        &[
+            u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+            u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+            u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+            u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+            u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+            u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+            u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+            u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+        ],
+        None,
+    ).await;
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_commitment_hash_batching_rate_four() {
-    panic!()
+    // TODO: add correct root (atm just ignored)
+    test_commitment_hash_with_batching_rate(
+        4,
+        &[
+            u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+            u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+            u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+            u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+            u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+            u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+            u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+            u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+            u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+            u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+            u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+            u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+            u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+            u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+            u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+            u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+        ],
+        None,
+    ).await;
 }

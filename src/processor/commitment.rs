@@ -239,41 +239,35 @@ pub fn compute_commitment_hash<'a>(
     guard!(hashing_account.get_fee_version() == fee_version, InvalidFeeVersion);
 
     compute_commitment_hash_partial(hashing_account)?;
-
-    if cfg!(extended_logging) {
-        let batching_rate = hashing_account.get_batching_rate();
-        let instruction = hashing_account.get_instruction();
-        let instructions = commitment_hash_computation_instructions(batching_rate);
-        solana_program::msg!(
-            "Commitment hash computation {} / {} for {} commitments",
-            instruction + 1,
-            instructions.len(),
-            commitments_per_batch(batching_rate),
-        );
-    }
-
     send_from_pool(pool, fee_payer, fee.get_program_fee().hash_tx_compensation())
 }
 
+/// Requires batching_rate + 1 calls
 pub fn finalize_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
     storage_account: &mut StorageAccount,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
+    let finalization_ix = hashing_account.get_finalization_ix();
+    let batching_rate = hashing_account.get_batching_rate();
+    guard!(finalization_ix <= batching_rate, ComputationIsAlreadyFinished);
+
     let instruction = hashing_account.get_instruction();
     let instructions = commitment_hash_computation_instructions(hashing_account.get_batching_rate());
     guard!((instruction as usize) >= instructions.len(), ComputationIsAlreadyFinished);
 
-    let batching_rate = hashing_account.get_batching_rate();
     guard!(
         storage_account.get_next_commitment_ptr() as usize + commitments_per_batch(batching_rate) <= MT_COMMITMENT_COUNT,
         NoRoomForCommitment
     );
 
-    hashing_account.update_mt(storage_account);
-    hashing_account.set_is_active(&false);
-
+    hashing_account.update_mt(storage_account, finalization_ix);
+    hashing_account.set_finalization_ix(&(finalization_ix + 1));
+    if finalization_ix == batching_rate {
+        hashing_account.set_is_active(&false);
+        hashing_account.set_setup(&false);
+    }
     Ok(())
 }
 
@@ -522,7 +516,6 @@ mod tests {
 
         let mut q = CommitmentQueue::new(&mut queue);
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();
-        println!("{}", q.len());
 
         init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
         assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
@@ -627,7 +620,10 @@ mod tests {
         hashing_account.set_is_active(&true);
         hashing_account.set_batching_rate(&batching_rate);
         hashing_account.set_instruction(&(commitment_hash_computation_instructions(batching_rate).len() as u32));
-        finalize_commitment_hash(&mut hashing_account, &mut storage_account).unwrap();
+
+        for _ in 0..=batching_rate {
+            finalize_commitment_hash(&mut hashing_account, &mut storage_account).unwrap();
+        }
 
         let commitment_count = commitments_per_batch(batching_rate);
         assert!(!hashing_account.get_is_active());

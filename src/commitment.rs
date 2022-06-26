@@ -170,6 +170,8 @@ pub struct CommitmentHashingAccount {
     fee_version: u64,
 
     setup: bool,
+    finalization_ix: u32,
+
     batching_rate: u32,
     state: BinarySpongeHashingState,
     ordering: u32,
@@ -208,7 +210,7 @@ pub fn compute_commitment_hash_partial(
             hashing_account.save_finished_hash(hash_index as usize, &state);
 
             // Reset state for next hash
-            if hash_index < super::state::MT_HEIGHT - 1 {
+            if (hash_index as usize) < hash_count_per_batch(batching_rate) - 1 {
                 state = hashing_account.next_hashing_state(hash_index as usize + 1);
             }
         }
@@ -230,6 +232,7 @@ impl<'a> CommitmentHashingAccount<'a> {
         self.set_setup(&true);
         self.set_instruction(&0);
         self.set_ordering(&ordering);
+        self.set_finalization_ix(&0);
 
         for (i, sibling) in siblings.iter().enumerate() {
             self.set_siblings(i, sibling);
@@ -338,13 +341,20 @@ impl<'a> CommitmentHashingAccount<'a> {
     pub fn update_mt(
         &self,
         storage_account: &mut StorageAccount,
+        finalization_ix: u32,
     ) {
         let batching_rate = self.get_batching_rate();
         let ordering = self.get_ordering();
 
         // Insert values from the HT
-        let mut nodes_below = 0;
-        for ht_level in (0..=batching_rate).rev() {
+        if finalization_ix <= batching_rate {
+            let ht_level = batching_rate - finalization_ix;
+
+            let mut nodes_below = 0;
+            if finalization_ix > 0 {
+                for i in (ht_level + 1..=batching_rate).rev() { nodes_below += two_pow!(i); }
+            }
+
             let mt_level = MT_HEIGHT - batching_rate as usize + ht_level as usize;
             let ht_level_size = two_pow!(ht_level);
             let ordering = ordering >> (MT_HEIGHT - mt_level);
@@ -356,25 +366,25 @@ impl<'a> CommitmentHashingAccount<'a> {
                     mt_level,
                 )
             }
-
-            nodes_below += ht_level_size;
         }
 
-        // Insert above hashes (including new MT)
-        for i in 0..MT_HEIGHT - batching_rate as usize {
-            let mt_layer = MT_HEIGHT - batching_rate as usize - i - 1;
-            let ordering = ordering as usize >> (batching_rate as usize + i + 1);
+        if finalization_ix == batching_rate {
+            // Insert above hashes (including new MT)
+            for i in 0..MT_HEIGHT - batching_rate as usize {
+                let mt_layer = MT_HEIGHT - batching_rate as usize - i - 1;
+                let ordering = ordering as usize >> (batching_rate as usize + i + 1);
 
-            storage_account.set_node(
-                &self.get_above_hashes(i),
-                ordering as usize,
-                mt_layer,
-            )
+                storage_account.set_node(
+                    &self.get_above_hashes(i),
+                    ordering as usize,
+                    mt_layer,
+                )
+            }
+
+            storage_account.set_active_mt_root_history(ordering as usize % HISTORY_ARRAY_COUNT, &storage_account.get_root());
+            storage_account.set_mt_roots_count(&(storage_account.get_mt_roots_count() + 1));
+            storage_account.set_next_commitment_ptr(&(ordering + usize_as_u32_safe(commitments_per_batch(batching_rate))));
         }
-
-        storage_account.set_active_mt_root_history(ordering as usize % HISTORY_ARRAY_COUNT, &storage_account.get_root());
-        storage_account.set_mt_roots_count(&(storage_account.get_mt_roots_count() + 1));
-        storage_account.set_next_commitment_ptr(&(ordering + usize_as_u32_safe(commitments_per_batch(batching_rate))));
     }
 }
 
@@ -572,7 +582,7 @@ mod tests {
         let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
         storage_account!(mut storage_account);
 
-        let batching_rates = [0, 1, 2, 3, 4];
+        let batching_rates: Vec<u32> = (0..MAX_COMMITMENT_BATCHING_RATE as u32).collect();
 
         for (i, &batching_rate) in batching_rates.iter().enumerate() {
             storage_account.modifications.clear();
@@ -602,7 +612,9 @@ mod tests {
             }
 
             // Update
-            account.update_mt(&mut storage_account);
+            for i in 0..=batching_rate {
+                account.update_mt(&mut storage_account, i);
+            }
 
             // Check that storage account has been updated
             for mt_level in (0..=MT_HEIGHT).rev() {
@@ -651,8 +663,6 @@ mod tests {
 
     #[test]
     fn test_commitment_hash_computation() {
-        let mut data = vec![0; CommitmentHashingAccount::SIZE];
-        let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
         let empty_siblings: Vec<U256> = EMPTY_TREE.iter().take(MT_HEIGHT).copied().collect();
 
         let requests = [
@@ -663,17 +673,27 @@ mod tests {
                 ],
                 siblings: &empty_siblings,
                 valid_root: u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575"),
+            },
+            CommitmentBatchHashRequest {
+                batching_rate: 2,
+                commitments: &[
+                    u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
+                    u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
+                    u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
+                    u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
+                ],
+                siblings: &empty_siblings,
+                valid_root: u256_from_str("6543817352315114290363106811223879539017599496237896578152011659905900001939"),
             }
         ];
 
         for request in requests {
+            let mut data = vec![0; CommitmentHashingAccount::SIZE];
+            let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
+
             let batching_rate = request.batching_rate;
-            let mut commitments = [[0; 32]; MAX_HT_COMMITMENTS];
-            for (i, &commitment) in request.commitments.iter().enumerate() {
-                commitments[i] = commitment;
-            }
             account.setup(0, request.siblings).unwrap();
-            account.reset(batching_rate, 0, &commitments).unwrap();
+            account.reset(batching_rate, 0, request.commitments).unwrap();
             
             let instructions = commitment_hash_computation_instructions(batching_rate).len() as u32;
             while account.get_instruction() < instructions {
