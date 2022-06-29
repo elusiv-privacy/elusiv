@@ -4,20 +4,19 @@ use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
     sysvar::Sysvar,
-    rent::Rent, pubkey::Pubkey,
+    rent::Rent, pubkey::Pubkey, program_error::ProgramError,
 };
 use crate::{state::{
-    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount, GOVERNOR_UPGRADE_AUTHORITY},
+    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
     program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData},
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount, CommitmentQueue, Queue},
     fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
-}, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe};
+}, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe, processor::MATH_ERR};
 use crate::commitment::{CommitmentHashingAccount};
 use crate::error::ElusivError::{
     InvalidInstructionData,
     InvalidFeeVersion,
-    InvalidAccount,
     MerkleTreeIsNotFullYet,
     SubAccountAlreadyExists
 };
@@ -140,19 +139,30 @@ pub fn reset_active_merkle_tree(
 ) -> ProgramResult {
     guard!(storage_account.get_trees_count() == active_merkle_tree_index, InvalidInstructionData);
 
-    let commitments = storage_account.get_next_commitment_ptr() as usize;
-    if commitments < MT_COMMITMENT_COUNT {
-        let queue = CommitmentQueue::new(queue);
-        if commitments + queue.next_batch()?.0.len() < MT_COMMITMENT_COUNT {
-            return Err(MerkleTreeIsNotFullYet.into())
-        }
-    }
+    let queue = CommitmentQueue::new(queue);
+    guard!(is_mt_full(storage_account, &queue)?, MerkleTreeIsNotFullYet);
 
     storage_account.reset();
-    storage_account.set_trees_count(&(active_merkle_tree_index + 1));
+    storage_account.set_trees_count(&(active_merkle_tree_index.checked_add(1).ok_or(MATH_ERR)?));
     active_nullifier_account.set_root(&storage_account.get_root());
 
     Ok(())
+}
+
+fn is_mt_full(
+    storage_account: &StorageAccount,
+    queue: &CommitmentQueue,
+) -> Result<bool, ProgramError> {
+    let commitments = storage_account.get_next_commitment_ptr() as usize;
+    if commitments >= MT_COMMITMENT_COUNT {
+        return Ok(true)
+    }
+
+    if commitments + queue.next_batch()?.0.len() >= MT_COMMITMENT_COUNT {
+        return Ok(true)
+    }
+
+    Ok(false)
 }
 
 /// Archives a closed MT by creating creating a N-SMT in an `ArchivedTreeAccount`
@@ -186,14 +196,13 @@ pub fn setup_governor_account<'a>(
 
 /// Changes the state of the `GovernorAccount`
 pub fn upgrade_governor_state(
-    authority: &AccountInfo,
+    _authority: &AccountInfo,
     _governor_account: &mut GovernorAccount,
-    _commitment_queue: &mut CommitmentQueueAccount,
+    _commitment_queue: &CommitmentQueueAccount,
 
     _fee_version: u64,
     _batching_rate: u32,
 ) -> ProgramResult {
-    guard!(*authority.key == GOVERNOR_UPGRADE_AUTHORITY, InvalidAccount);
     todo!("Not implemented yet");
     // TODO: changes in the batching rate are only possible when checking the commitment queue
     // TODO: fee changes require empty queues
@@ -209,13 +218,15 @@ pub fn init_new_fee_version<'a>(
     fee_version: u64,
     program_fee: ProgramFee,
 ) -> ProgramResult {
-    // Note: we have no upgrade-authroity check here since with the current setup it's impossible to have a fee version higher to zero, so will be added once that changes
+    // Note: we have no upgrade-authroity check here since with the current setup it's impossible to have a fee version higher than zero, so will be added once that changes
     guard!(fee_version == governor.get_fee_version(), InvalidFeeVersion);
+    guard!(program_fee.is_valid(), InvalidInstructionData);
     open_pda_account_with_offset::<FeeAccount>(payer, new_fee, fee_version)?;
 
     let mut data = new_fee.data.borrow_mut();
     let mut fee = FeeAccount::new(&mut data[..])?;
     fee.set_program_fee(&program_fee);
+
     Ok(())
 }
 
@@ -268,4 +279,173 @@ fn verify_extern_data_account(
     guard!(*account.owner == crate::id(), InvalidInstructionData);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use assert_matches::assert_matches;
+    use solana_program::pubkey::Pubkey;
+    use crate::{macros::account, state::{program_account::{PDAAccount, SizedAccount, MultiAccountProgramAccount}, queue::RingQueue}, processor::CommitmentHashRequest};
+
+    #[test]
+    fn test_open_single_instance_account() {
+        let valid_pda = PoolAccount::find(None).0;
+        let invalid_pda = PoolAccount::find(Some(0)).0;
+
+        let payer_pk = Pubkey::new_unique();
+        account!(payer, payer_pk, vec![]);
+
+        // Invalid PDA
+        account!(pda_account, invalid_pda, vec![]);
+        assert_matches!(
+            open_single_instance_account(&payer, &pda_account, SingleInstancePDAAccountKind::PoolAccount),
+            Err(_)
+        );
+
+        // Valid PDA
+        account!(pda_account, valid_pda, vec![]);
+        assert_matches!(
+            open_single_instance_account(&payer, &pda_account, SingleInstancePDAAccountKind::PoolAccount),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn test_open_multi_instance_account() {
+        let valid_pda = BaseCommitmentQueueAccount::find(Some(0)).0;
+        account!(pda_account, valid_pda, vec![]);
+
+        let payer_pk = Pubkey::new_unique();
+        account!(payer, payer_pk, vec![]);
+
+        // Invalid offset
+        assert_matches!(
+            open_multi_instance_account(&payer, &pda_account, MultiInstancePDAAccountKind::BaseCommitmentQueueAccount, 1),
+            Err(_)
+        );
+
+        // Valid offset
+        account!(pda_account, valid_pda, vec![]);
+        assert_matches!(
+            open_multi_instance_account(&payer, &pda_account, MultiInstancePDAAccountKind::BaseCommitmentQueueAccount, 0),
+            Ok(_)
+        );
+    }
+
+    #[test]
+    fn test_enable_storage_sub_account() {
+        let mut data = vec![0; StorageAccount::SIZE];
+        let mut storage_account = StorageAccount::new(&mut data, HashMap::new()).unwrap();
+        let mut d = storage_account.get_multi_account_data();
+        d.pubkeys[0] = ElusivOption::Some(Pubkey::new_unique());
+        storage_account.set_multi_account_data(&d);
+
+        let pk = StorageAccount::find(None).0;
+        account!(storage, pk, data);
+
+        // Account has invalid size
+        let pk = Pubkey::new_unique();
+        account!(sub_account, pk, vec![0; StorageAccount::ACCOUNT_SIZE - 1]);
+        assert_matches!(enable_storage_sub_account(&storage, &sub_account, 0), Err(_));
+
+        // Account has already been setup
+        let pk = Pubkey::new_unique();
+        account!(sub_account, pk, vec![0; StorageAccount::ACCOUNT_SIZE]);
+        assert_matches!(enable_storage_sub_account(&storage, &sub_account, 0), Err(_));
+
+        // Success at different index
+        assert_matches!(enable_storage_sub_account(&storage, &sub_account, 3), Ok(()));
+    }
+
+    #[test]
+    fn test_enable_nullifier_sub_account() {
+        let mut data = vec![0; NullifierAccount::SIZE];
+        let mut nullifier_account = NullifierAccount::new(&mut data, HashMap::new()).unwrap();
+        let mut d = nullifier_account.get_multi_account_data();
+        d.pubkeys[0] = ElusivOption::Some(Pubkey::new_unique());
+        nullifier_account.set_multi_account_data(&d);
+
+        let pk = NullifierAccount::find(Some(0)).0;
+        account!(nullifier, pk, data);
+
+        // Account has invalid size
+        let pk = Pubkey::new_unique();
+        account!(sub_account, pk, vec![0; NullifierAccount::ACCOUNT_SIZE - 1]);
+        assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 0), Err(_));
+
+        // Account has already been setup
+        let pk = Pubkey::new_unique();
+        account!(sub_account, pk, vec![0; NullifierAccount::ACCOUNT_SIZE]);
+        assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 0), Err(_));
+
+        // Success at different index
+        assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 3), Ok(()));
+    }
+
+    #[test]
+    fn test_is_mt_full() {
+        let mut data = vec![0; StorageAccount::SIZE];
+        let mut storage_account = StorageAccount::new(&mut data, HashMap::new()).unwrap();
+        storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
+
+        let mut q_data = vec![0; CommitmentQueueAccount::SIZE];
+        let mut queue = CommitmentQueueAccount::new(&mut q_data).unwrap();
+        let mut queue = CommitmentQueue::new(&mut queue);
+        queue.enqueue(CommitmentHashRequest { min_batching_rate: 1, commitment: [0; 32], fee_version: 0 }).unwrap();
+        queue.enqueue(CommitmentHashRequest { min_batching_rate: 1, commitment: [0; 32], fee_version: 0 }).unwrap();
+
+        assert!(is_mt_full(&storage_account, &queue).unwrap());
+
+        storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32 - 3));
+        assert!(!is_mt_full(&storage_account, &queue).unwrap());
+
+        storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32 - 2));
+        assert!(is_mt_full(&storage_account, &queue).unwrap());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_archive_closed_merkle_tree() {
+        test_account_info!(payer, 0);
+        let mut data = vec![0; StorageAccount::SIZE];
+        let mut storage_account = StorageAccount::new(&mut data, HashMap::new()).unwrap();
+        let mut data = vec![0; NullifierAccount::SIZE];
+        let mut nullifier_account = NullifierAccount::new(&mut data, HashMap::new()).unwrap();
+        test_account_info!(archived_tree_account, 0);
+
+        archive_closed_merkle_tree(&payer, &mut storage_account, &mut nullifier_account, &archived_tree_account, 0).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_upgrade_governor_state() {
+        test_account_info!(authority, 0);
+        zero_account!(mut governor_account, GovernorAccount);
+        zero_account!(commitment_queue, CommitmentQueueAccount);
+
+        upgrade_governor_state(&authority, &mut governor_account, &commitment_queue, 1, 1).unwrap();
+    }
+
+    #[test]
+    fn test_verify_extern_data_account() {
+        let pk = Pubkey::new_unique();
+
+        // Mismatched size
+        account!(account, pk, vec![0; 100]);
+        assert_matches!(verify_extern_data_account(&account, 99, true), Err(_));
+
+        // Non-zero
+        account!(account, pk, vec![1; 100]);
+        assert_matches!(verify_extern_data_account(&account, 100, true), Err(_));
+
+        // Ignore zero
+        assert_matches!(verify_extern_data_account(&account, 100, false), Ok(()));
+
+        // Check zero
+        account!(account, pk, vec![0; 100]);
+        assert_matches!(verify_extern_data_account(&account, 100, true), Ok(()));
+    }
 }

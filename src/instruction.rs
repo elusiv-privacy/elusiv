@@ -5,7 +5,7 @@ use crate::bytes::BorshSerDeSized;
 use crate::state::fee::ProgramFee;
 use super::processor;
 use super::processor::{BaseCommitmentHashRequest};
-use crate::processor::{SingleInstancePDAAccountKind, ProofRequest, MultiInstancePDAAccountKind};
+use crate::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind};
 use crate::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount};
 use crate::state::{
     program_account::{
@@ -20,7 +20,6 @@ use crate::state::{
     NullifierAccount,
     fee::FeeAccount,
 };
-use crate::proof::VerificationAccount;
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use solana_program::{
     system_program,
@@ -100,7 +99,7 @@ pub enum ElusivInstruction {
     FinalizeCommitmentHash,
 
     // Proof verification initialization for Send/Merge
-    #[acc(fee_payer, { writable, signer })]
+    /*#[acc(fee_payer, { writable, signer })]
     #[pda(fee, Fee, pda_offset = Some(request.fee_version()))]
     #[pda(governor, Governor)]
     #[pda(sol_pool, Pool, { writable, account_info })]
@@ -142,7 +141,7 @@ pub enum ElusivInstruction {
         verification_account_index: u64,
         fee_version: u64,
         tree_indices: [u64; 2],
-    },
+    },*/
 
     // Set the next MT as the active MT
     #[pda(storage_account, Storage, { writable, multi_accounts })]
@@ -199,7 +198,7 @@ pub enum ElusivInstruction {
 
     #[acc(authority, { signer })]
     #[pda(governor, Governor, { writable })]
-    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
+    #[pda(commitment_hash_queue, CommitmentQueue)]
     UpgradeGovernorState {
         fee_version: u64,
         batching_rate: u32,

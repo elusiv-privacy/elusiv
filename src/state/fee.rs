@@ -1,11 +1,9 @@
-use crate::commitment::{BaseCommitmentHashComputation, commitment_hash_computation_instructions, commitments_per_batch};
+use crate::commitment::{BaseCommitmentHashComputation, commitment_hash_computation_instructions, commitments_per_batch, MAX_COMMITMENT_BATCHING_RATE};
 use crate::macros::{elusiv_account};
 use crate::bytes::{BorshSerDeSized, div_ceiling};
-use crate::proof::{prepare_public_inputs_instructions, CombinedMillerLoop, FinalExponentiation};
-use crate::proof::vkey::VerificationKey;
+use crate::proof::{CombinedMillerLoop, FinalExponentiation};
 use crate::state::program_account::SizedAccount;
 use super::program_account::PDAAccountData;
-use ark_ff::BigInteger256;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;
 use elusiv_derive::BorshSerDeSized;
@@ -26,6 +24,23 @@ pub struct ProgramFee {
     pub relayer_hash_tx_fee: u64,
     pub relayer_proof_tx_fee: u64,
     pub relayer_proof_reward: u64,
+}
+
+impl ProgramFee {
+    /// Verifies that possible subventions are not too high
+    pub fn is_valid(&self) -> bool {
+        for min_batching_rate in 0..MAX_COMMITMENT_BATCHING_RATE as u32 {
+            if self.base_commitment_hash_fee(min_batching_rate) < self.base_commitment_network_fee + self.base_commitment_subvention {
+                return false
+            }
+
+            // For proof verification we assume the cheapest scenario to be 20 TX
+            if 20 * (self.lamports_per_tx + self.relayer_proof_tx_fee) + self.commitment_hash_fee(min_batching_rate) < self.proof_subvention {
+                return false
+            }
+        }
+        true
+    }
 }
 
 #[elusiv_account(pda_seed = b"fee")]
@@ -69,23 +84,12 @@ impl ProgramFee {
     }
 
     /// tx_count * (lamports_per_tx + relayer_proof_tx_fee) + relayer_proof_reward + commitment_hash_fee + proof_network_fee
-    pub fn proof_verification_fee<VKey: VerificationKey>(
-        &self,
-        public_inputs: &[BigInteger256],
-        min_batching_rate: u32,
-    ) -> u64 {
-        Self::proof_tx_count::<VKey>(public_inputs) as u64 * (self.lamports_per_tx + self.relayer_proof_tx_fee)
+    pub fn proof_verification_fee(&self, input_preparation_tx_count: usize, min_batching_rate: u32) -> u64 {
+        let tx_count = input_preparation_tx_count + CombinedMillerLoop::INSTRUCTIONS.len() + FinalExponentiation::INSTRUCTIONS.len();
+        tx_count as u64 * (self.lamports_per_tx + self.relayer_proof_tx_fee)
             + self.relayer_proof_reward
             + self.commitment_hash_fee(min_batching_rate)
             + self.proof_network_fee
-    }
-
-    fn proof_tx_count<VKey: VerificationKey>(public_inputs: &[BigInteger256]) -> u64 {
-        let input_preparation_tx_count = prepare_public_inputs_instructions::<VKey>(public_inputs).len();
-
-        (input_preparation_tx_count
-            + CombinedMillerLoop::INSTRUCTIONS.len()
-            + FinalExponentiation::INSTRUCTIONS.len()) as u64
     }
 
     pub fn proof_tx_compensation(&self) -> u64 {
@@ -96,7 +100,8 @@ impl ProgramFee {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proof::vkey::SendBinaryVKey;
+    use crate::proof::{vkey::{SendBinaryVKey, VerificationKey}, prepare_public_inputs_instructions};
+    use ark_ff::BigInteger256;
 
     impl Default for ProgramFee {
         fn default() -> Self {
@@ -141,9 +146,10 @@ mod tests {
 
         type VK = SendBinaryVKey;
         let public_inputs = vec![BigInteger256::new([0,0,0,0]); VK::PUBLIC_INPUTS_COUNT];
+        let input_preparation_tx_count = prepare_public_inputs_instructions::<VK>(&public_inputs).len();
 
         assert_eq!(
-            fee.proof_verification_fee::<VK>(&public_inputs, 0),
+            fee.proof_verification_fee(input_preparation_tx_count, 0),
             (777 + 11) * (
                 1
                 + CombinedMillerLoop::INSTRUCTIONS.len() as u64
@@ -152,6 +158,25 @@ mod tests {
             + 33
             + 888
             + fee.commitment_hash_fee(0)
+        );
+    }
+
+    #[test]
+    fn test_fee_is_valid() {
+        assert!(
+            !ProgramFee {
+                lamports_per_tx: 1000,
+
+                base_commitment_network_fee: 0,
+                proof_network_fee: 0,
+
+                base_commitment_subvention: 100_000,
+                proof_subvention: 0,
+
+                relayer_hash_tx_fee: 0,
+                relayer_proof_tx_fee: 0,
+                relayer_proof_reward: 0,
+            }.is_valid()
         );
     }
 }

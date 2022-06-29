@@ -1,5 +1,6 @@
 use ark_bn254::Fr;
 use ark_ff::BigInteger256;
+use solana_program::program_error::ProgramError;
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
@@ -21,6 +22,7 @@ use crate::state::{
     governor::GovernorAccount,
 };
 use crate::error::ElusivError::{
+    InsufficientFunds,
     InvalidAmount,
     InvalidAccount,
     InvalidInstructionData,
@@ -45,6 +47,7 @@ use crate::macros::BorshSerDeSized;
 
 pub const MIN_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
 pub const MAX_STORE_AMOUNT: u64 = u64::MAX / 100;
+pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 pub struct BaseCommitmentHashRequest {
@@ -93,24 +96,25 @@ pub fn store_base_commitment<'a>(
     guard!(request.fee_version == governor.get_fee_version(), InvalidFeeVersion);
     guard!(request.min_batching_rate == governor.get_commitment_batching_rate(), InvalidBatchingRate);
 
-    // Take amount + fee from sender
+    // Take amount and fee from sender
     let fee = fee.get_program_fee();
     let compensation_fee = fee.base_commitment_hash_fee(request.min_batching_rate);
     let network_fee = fee.base_commitment_network_fee;
     let subvention = if fee_collector.lamports() >= fee.base_commitment_subvention { fee.base_commitment_subvention } else { 0 };
-    guard!(sender.lamports() >= compensation_fee + request.amount, InvalidAmount);
-    send_with_system_program(
-        sender,
-        pool,
-        system_program,
-        request.amount + compensation_fee - network_fee - subvention
-    )?;
-    send_with_system_program(
-        sender,
-        fee_collector,
-        system_program,
-        network_fee
-    )?;
+
+    // final_amount = request.amount + compensation_fee - subvention - network_fee;
+    let due_amount = request.amount
+        .checked_add(compensation_fee).ok_or(MATH_ERR)?;
+    guard!(sender.lamports() >= due_amount, InsufficientFunds);
+    let final_amount = due_amount
+        .checked_sub(network_fee).ok_or(MATH_ERR)?
+        .checked_sub(subvention).ok_or(MATH_ERR)?;
+
+    send_with_system_program(sender, pool, system_program, final_amount)?;
+    send_with_system_program(sender, fee_collector, system_program, network_fee)?;
+    if subvention > 0 {
+        send_with_system_program(fee_collector, pool, system_program, subvention)?;
+    }
 
     let mut queue = BaseCommitmentQueue::new(base_commitment_queue);
     queue.enqueue(request)

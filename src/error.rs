@@ -5,6 +5,7 @@ use solana_program::program_error::ProgramError;
 pub enum ElusivError {
     InvalidInstructionData,
     InvalidAmount,
+    InsufficientFunds,
     InvalidRecipient,
     InvalidAccount,
     InvalidAccountSize,
