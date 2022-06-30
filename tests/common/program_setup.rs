@@ -1,10 +1,7 @@
 use elusiv::state::fee::ProgramFee;
 use elusiv::state::{StorageAccount, NullifierAccount};
 use solana_program::pubkey::Pubkey;
-use solana_program::{
-    instruction::Instruction,
-    hash::Hash,
-};
+use solana_program::instruction::Instruction;
 use solana_program_test::*;
 use solana_sdk::signature::Keypair;
 use elusiv::entrypoint::process_instruction;
@@ -76,7 +73,7 @@ pub async fn setup_storage_account<'a>(context: &mut ProgramTestContext) -> Vec<
     let pubkeys = create_multi_account::<StorageAccount>(context).await;
     for (i, p) in pubkeys.iter().enumerate() {
         instructions.push(
-            ElusivInstruction::enable_storage_sub_account_instruction(i as u32, UserAccount(*p))
+            ElusivInstruction::enable_storage_sub_account_instruction(i as u32, WritableUserAccount(*p))
         );
     }
     send_tx(&instructions, context).await;
@@ -100,7 +97,7 @@ pub async fn create_merkle_tree(
     let pubkeys = create_multi_account::<NullifierAccount>(context).await;
     for (i, p) in pubkeys.iter().enumerate() {
         instructions.push(
-            ElusivInstruction::enable_nullifier_sub_account_instruction(mt_index, i as u32, UserAccount(*p))
+            ElusivInstruction::enable_nullifier_sub_account_instruction(mt_index, i as u32, WritableUserAccount(*p))
         );
     }
     send_tx(&instructions, context).await;
@@ -114,12 +111,7 @@ async fn create_multi_account<'a, T: MultiAccountAccount<'a>>(
     let mut result = Vec::new();
 
     for _ in 0..T::COUNT {
-        let pk = create_account_rent_exepmt(
-            &mut context.banks_client,
-            &context.payer,
-            context.last_blockhash,
-            T::ACCOUNT_SIZE,
-        ).await.pubkey();
+        let pk = create_account_rent_exepmt(context, T::ACCOUNT_SIZE).await.pubkey();
         result.push(pk);
     }
 
@@ -127,21 +119,19 @@ async fn create_multi_account<'a, T: MultiAccountAccount<'a>>(
 }
 
 pub async fn create_account_rent_exepmt(
-    banks_client: &mut BanksClient,
-    payer: &Keypair,
-    recent_blockhash: Hash,
+    context: &mut ProgramTestContext,
     account_size: usize,
 ) -> Keypair {
-    let amount = banks_client.get_rent().await.unwrap().minimum_balance(account_size);
+    let amount = context.banks_client.get_rent().await.unwrap().minimum_balance(account_size);
 
-    let (ix, keypair) = elusiv_utils::create_account(payer, &elusiv::id(), account_size, amount).unwrap();
+    let (ix, keypair) = elusiv_utils::create_account(&context.payer, &elusiv::id(), account_size, amount).unwrap();
     let transaction = Transaction::new_signed_with_payer(
         &[ix],
-        Some(&payer.pubkey()),
-        &[payer, &keypair],
-        recent_blockhash,
+        Some(&context.payer.pubkey()),
+        &[&context.payer, &keypair],
+        context.last_blockhash,
     );
-    assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+    assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
 
     keypair
 }

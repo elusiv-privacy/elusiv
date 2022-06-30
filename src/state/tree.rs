@@ -5,7 +5,7 @@ use solana_program::program_error::ProgramError;
 use crate::types::{U256, U256Limbed2};
 use crate::bytes::*;
 use crate::error::ElusivError::NullifierAlreadyExists;
-use super::program_account::{SizedAccount, PDAAccountData, MultiAccountAccountData, MultiAccountAccount};
+use super::program_account::{SizedAccount, PDAAccountData, MultiAccountAccountData, MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// The count of nullifiers is the count of leaves in the MT
@@ -15,7 +15,7 @@ const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
 pub type NullifierMap = BTreeMap<U256Limbed2, ()>;
 
 const NULLIFIERS_PER_ACCOUNT: usize = two_pow!(18);
-const ACCOUNT_SIZE: usize = 4 + NULLIFIERS_PER_ACCOUNT * U256::SIZE;
+const ACCOUNT_SIZE: usize = SUB_ACCOUNT_ADDITIONAL_SIZE + 4 + NULLIFIERS_PER_ACCOUNT * U256::SIZE;
 const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling(NULLIFIERS_COUNT as u64, NULLIFIERS_PER_ACCOUNT as u64));
 const_assert_eq!(ACCOUNTS_COUNT, 4);
 
@@ -52,10 +52,15 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
         if let Some(nmap_index) = self.nullifier_map_index() {
             let repr = U256Limbed2::from(nullifier);
             for i in 0..=nmap_index {
-                let account = self.get_account(i)?;
-                let mut data = &account.data.borrow()[..];
-                let map = NullifierMap::deserialize(&mut data).unwrap();
-                if map.contains_key(&repr) { return Ok(false) }
+                match self.execute_on_sub_account::<_, _, ProgramError>(i, |data| {
+                    let size = u32::try_from_slice(&data[..4])?;
+                    let map = NullifierMap::try_from_slice(&data[..size as usize * 32 + 4])?;
+                    if map.contains_key(&repr) { return Ok(Some(false)) }
+                    Ok(None)
+                })? {
+                    Some(v) => return Ok(v),
+                    None => {}
+                }
             }
             return Ok(true)
         }
@@ -72,17 +77,16 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
         let count = self.get_nullifiers_count();
         self.set_nullifiers_count(&(count + 1));
 
-        let account = self.get_account(account_index)?;
-        let data = &mut account.data.borrow_mut()[..];
+        self.execute_on_sub_account::<_, _, ProgramError>(account_index, |data| {
+            let size = u32::try_from_slice(&data[..4])?;
+            let mut map = NullifierMap::try_from_slice(&data[..size as usize * 32 + 4])?;
+            map.insert(U256Limbed2::from(nullifier), ());
 
-        let size = u32::try_from_slice(&data[..4])?;
-        let mut map = NullifierMap::try_from_slice(&data[..size as usize * 32 + 4])?;
-        map.insert(U256Limbed2::from(nullifier), ());
+            let new_data = map.try_to_vec().unwrap();
+            data[..new_data.len()].copy_from_slice(&new_data[..]);
 
-        let new_data = map.try_to_vec().unwrap();
-        data[..new_data.len()].copy_from_slice(&new_data[..]);
-
-        Ok(())
+            Ok(())
+        })
     }
 }
 
@@ -92,6 +96,12 @@ mod tests {
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
     use super::super::program_account::MultiAccountProgramAccount;
+
+    fn turn_into_sub_account(data: &[u8]) -> Vec<u8> {
+        let mut v = data.to_vec();
+        v.insert(0, 1);
+        v
+    }
 
     #[allow(unused_macros)]
     macro_rules! nullifier_account {
@@ -127,10 +137,10 @@ mod tests {
         };
         (mut $id: ident, $data: expr) => {
             nullifier_account!(acc accounts, [
-                $data[0].try_to_vec().unwrap(),
-                $data[1].try_to_vec().unwrap(),
-                $data[2].try_to_vec().unwrap(),
-                $data[3].try_to_vec().unwrap(),
+                turn_into_sub_account(&$data[0].try_to_vec().unwrap()),
+                turn_into_sub_account(&$data[1].try_to_vec().unwrap()),
+                turn_into_sub_account(&$data[2].try_to_vec().unwrap()),
+                turn_into_sub_account(&$data[3].try_to_vec().unwrap()),
             ]);
             let mut data = vec![0; NullifierAccount::SIZE];
             let mut $id = NullifierAccount::new(&mut data, accounts).unwrap();

@@ -184,9 +184,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         // Multi account account
                         let multi_account = sub_attrs.contains(&"multi_accounts");
 
-                        // (For multi accounts): SKIPS THE PUBKEY VERIFICATION of the sub-accounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)
-                        let no_sub_account_check = sub_attrs.contains(&"no_sub_account_check");
-
                         // PDA verification
                         let find_pda = sub_attrs.contains(&"find_pda"); // does not read the bump byte from the account data
                         if find_pda {
@@ -209,20 +206,9 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             };
 
                             // Checks sub-accounts
-                            // - no_sub_account_check will only be enabled for account-setup ixs
                             // - the sub-accounts need to be supplied in the correct order
                             // - we iterate over the pubkeys of the main-account
                             // - if a pubkey has not been activated yet, it's skipped
-                            let sub_account_check = if no_sub_account_check {
-                                quote!{ }
-                            } else {
-                                quote!{
-                                    match fields_check.pubkeys[j] {
-                                        crate::bytes::ElusivOption::Some(pk) => if *account.key != pk { continue },
-                                        crate::bytes::ElusivOption::None => continue
-                                    }
-                                }
-                            };
 
                             // Sub-accounts with PDA and ownership check for each
                             accounts.extend(quote!{
@@ -241,7 +227,12 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                         Ok(account) => {
                                             // Find matching pubkey
                                             for j in i..<#ty>::COUNT {
-                                                #sub_account_check
+                                                // Compare pubkeys
+                                                match fields_check.pubkeys[j] {
+                                                    crate::bytes::ElusivOption::Some(pk) => if *account.key != pk { continue },
+                                                    crate::bytes::ElusivOption::None => continue
+                                                }
+
                                                 #write_check
 
                                                 i = j;

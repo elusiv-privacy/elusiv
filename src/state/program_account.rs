@@ -124,7 +124,8 @@ pub const MIN_ACCOUNT_SIZE: usize = 1048576;
 
 /// Allows for storing data across multiple accounts (needed for data sized >10 MiB)
 /// - these accounts can be PDAs, but will most likely be data accounts (size > 10 KiB)
-/// - by default all these accounts are assumed to have the same size = `INTERMEDIARY_ACCOUNT_SIZE`
+/// - by default all these accounts are assumed to have the same size = `ACCOUNT_SIZE`
+/// - important: `ACCOUNT_SIZE` needs to contain `SUB_ACCOUNT_ADDITIONAL_SIZE`
 pub trait MultiAccountAccount<'t>: PDAAccount {
     type T: BorshSerDeSized;
 
@@ -134,10 +135,42 @@ pub trait MultiAccountAccount<'t>: PDAAccount {
     /// The size of subsidiary accounts
     const ACCOUNT_SIZE: usize;
 
+    #[deprecated(note="Never call this function. Use `execute_on_sub_account` instead.")]
     fn get_account(&self, account_index: usize) -> Result<&AccountInfo<'t>, ProgramError>;
+
+    /// Ensures that the fields of `SubAccount` are not manipulated on a sub-account
+    #[allow(deprecated)]
+    fn execute_on_sub_account<F, T, E>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> Result<T, E> {
+        let account = self.get_account(account_index)?;
+        let data = &mut account.data.borrow_mut()[..];
+        let account = SubAccount::new(data);
+        f(account.data).or(Err(ProgramError::InvalidAccountData))
+    }
 
     /// Can be used to track modifications (just important for test functions)
     fn modify(&mut self, index: usize, value: Self::T);
+}
+
+/// Size required for the `is_in_use` boolean
+pub const SUB_ACCOUNT_ADDITIONAL_SIZE: usize = 1;
+
+pub struct SubAccount<'a> {
+    is_in_use: &'a mut [u8],
+    pub data: &'a mut [u8],
+}
+
+impl<'a> SubAccount<'a> {
+    pub fn new(data: &'a mut [u8]) -> Self {
+        let (is_in_use, data) = data.split_at_mut(1);
+        Self { is_in_use, data }
+    }
+
+    pub fn get_is_in_use(&self) -> bool {
+        self.is_in_use[0] == 1
+    }
+    pub fn set_is_in_use(&mut self, value: bool) {
+        self.is_in_use[0] = if value { 1 } else { 0 };
+    }
 }
 
 #[cfg(test)]
@@ -154,5 +187,19 @@ mod tests {
     fn test_pda_account() {
         assert_ne!(PDATest::find(None), PDATest::find(Some(0)));
         assert_ne!(PDATest::find(Some(0)), PDATest::find(Some(1)));
+    }
+
+    #[test]
+    fn test_sub_account() {
+        let mut data = vec![0; 100];
+        let mut acc = SubAccount::new(&mut data);
+
+        assert!(!acc.get_is_in_use());
+        acc.set_is_in_use(true);
+        assert!(acc.get_is_in_use());
+        acc.set_is_in_use(false);
+        assert!(!acc.get_is_in_use());
+
+        assert_eq!(acc.data.len(), 99);
     }
 }

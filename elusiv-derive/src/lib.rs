@@ -30,7 +30,6 @@ use borsh_serde_sized::*;
 ///         - `writable`
 ///         - `multi_accounts`: the `Type` has to implement the `crate::state::program_account::MultiAccountAccount` trait and `Type::COUNT + 1` accounts will be required
 ///         - `account_info`: returns an `AccountInfo` object (only relevant for PDAs)
-///         - `no_sub_account_check`: **SKIPS THE PUBKEY VERIFICATION of the sub-accounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)**
 /// 
 /// # Usage
 /// ```

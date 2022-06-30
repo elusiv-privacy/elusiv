@@ -179,13 +179,13 @@ pub enum ElusivInstruction {
     },
 
     #[pda(storage_account, Storage, { account_info, writable })]
-    #[acc(sub_account, { owned })]
+    #[acc(sub_account, { owned, writable })]
     EnableStorageSubAccount {
         sub_account_index: u32,
     },
 
     #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { account_info, writable })]
-    #[acc(sub_account, { owned })]
+    #[acc(sub_account, { owned, writable })]
     EnableNullifierSubAccount {
         mt_index: u64,
         sub_account_index: u32,

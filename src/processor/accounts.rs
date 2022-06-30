@@ -1,20 +1,20 @@
-use std::collections::HashSet;
 use borsh::{BorshSerialize, BorshDeserialize};
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
     sysvar::Sysvar,
-    rent::Rent, pubkey::Pubkey, program_error::ProgramError,
+    rent::Rent, program_error::ProgramError,
 };
 use crate::{state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
-    program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData},
+    program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData, SubAccount},
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount, CommitmentQueue, Queue},
     fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
 }, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe, processor::MATH_ERR};
 use crate::commitment::{CommitmentHashingAccount};
 use crate::error::ElusivError::{
+    InvalidAccount,
     InvalidInstructionData,
     InvalidFeeVersion,
     MerkleTreeIsNotFullYet,
@@ -119,7 +119,8 @@ pub fn enable_nullifier_sub_account(
 
     // Set map size to zero (leading u32)
     let data = &mut sub_account.data.borrow_mut()[..];
-    for b in data.iter_mut().take(4) {
+    let acc = SubAccount::new(data);
+    for b in acc.data.iter_mut().take(4) {
         *b = 0;
     }
 
@@ -246,13 +247,13 @@ fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
 
     verify_extern_data_account(sub_account, T::ACCOUNT_SIZE, check_zeroness)?;
     account_data.pubkeys[sub_account_index] = ElusivOption::Some(*sub_account.key);
-
-    // Check for pubkey duplicates
-    let a: Vec<Pubkey> = account_data.pubkeys.iter().filter_map(|&x| x.option()).collect();
-    let b: HashSet<Pubkey> = a.clone().drain(..).collect();
-    guard!(a.len() == b.len(), InvalidInstructionData);
-
     MultiAccountAccountData::override_slice(&account_data, data)?;
+
+    // Check that the sub-account is not already in use (=> global duplicate check)
+    let data = &mut sub_account.data.borrow_mut()[..];
+    let mut acc = SubAccount::new(data);
+    guard!(!acc.get_is_in_use(), InvalidAccount);
+    acc.set_is_in_use(true);
 
     Ok(())
 }

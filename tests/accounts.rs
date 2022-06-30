@@ -8,6 +8,7 @@ use borsh::BorshSerialize;
 use common::*;
 use common::program_setup::*;
 
+use elusiv::state::program_account::MultiAccountAccount;
 use elusiv::state::queue::{RingQueue, BaseCommitmentQueueAccount};
 use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT, EMPTY_TREE};
 use elusiv::commitment::CommitmentHashingAccount;
@@ -143,7 +144,7 @@ async fn test_setup_storage_account_duplicate() {
     // Cannot set a sub-account twice
     let k = create_account(&mut context).await;
     tx_should_fail(&[
-        ElusivInstruction::enable_storage_sub_account_instruction(1, UserAccount(k.pubkey()))
+        ElusivInstruction::enable_storage_sub_account_instruction(1, WritableUserAccount(k.pubkey()))
     ], &mut client, &mut context).await;
 
     // Cannot init storage PDA twice
@@ -190,12 +191,12 @@ async fn test_open_new_merkle_tree_duplicate() {
     // Cannot set sub-account twice
     let k = create_account(&mut context).await;
     tx_should_fail(&[
-        ElusivInstruction::enable_nullifier_sub_account_instruction(0, 1, UserAccount(k.pubkey()))
+        ElusivInstruction::enable_nullifier_sub_account_instruction(0, 1, WritableUserAccount(k.pubkey()))
     ], &mut client, &mut context).await;
 }
 
 #[tokio::test]
-async fn test_close_merkle_tree() {
+async fn test_reset_merkle_tree() {
     let mut context = start_program_solana_program_test().await;
     let mut client = Actor::new(&mut context).await;
     setup_pda_accounts(&mut context).await;
@@ -270,4 +271,108 @@ async fn test_close_merkle_tree() {
         ElusivInstruction::reset_active_merkle_tree_instruction(1, &[], &[]),
         &mut client, &mut context
     ).await;
+}
+
+#[tokio::test]
+async fn test_global_sub_account_duplicates() {
+    let mut context = start_program_solana_program_test().await;
+    let mut client = Actor::new(&mut context).await;
+    setup_pda_accounts(&mut context).await;
+
+    // Open storage account
+    ix_should_succeed(
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::StorageAccount,
+            SignerAccount(client.pubkey),
+            WritableUserAccount(StorageAccount::find(None).0)
+        ), &mut client, &mut context
+    ).await;
+
+    fn open_mt(mt_index: u64, pk: Pubkey) -> Instruction {
+        ElusivInstruction::open_multi_instance_account_instruction(
+            MultiInstancePDAAccountKind::NullifierAccount,
+            mt_index,
+            SignerAccount(pk),
+            WritableUserAccount(NullifierAccount::find(Some(mt_index)).0)
+        )
+    }
+
+    // Open two MTs
+    ix_should_succeed(open_mt(0, client.pubkey), &mut client, &mut context).await;
+    ix_should_succeed(open_mt(1, client.pubkey), &mut client, &mut context).await;
+
+    // Setting in first MT should succeed
+    let account = create_account_rent_exepmt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
+    ix_should_succeed(
+        ElusivInstruction::enable_nullifier_sub_account_instruction(
+            0,
+            0,
+            WritableUserAccount(account.pubkey()),
+        ), &mut client, &mut context
+    ).await;
+
+    // Setting twice at same index
+    ix_should_fail(
+        ElusivInstruction::enable_nullifier_sub_account_instruction(
+            0,
+            0,
+            WritableUserAccount(account.pubkey()),
+        ), &mut client, &mut context
+    ).await;
+
+    // Setting twice in same account (different index)
+    ix_should_fail(
+        ElusivInstruction::enable_nullifier_sub_account_instruction(
+            0,
+            1,
+            WritableUserAccount(account.pubkey()),
+        ), &mut client, &mut context
+    ).await;
+
+    // Setting in different account
+    ix_should_fail(
+        ElusivInstruction::enable_nullifier_sub_account_instruction(
+            1,
+            0,
+            WritableUserAccount(account.pubkey()),
+        ), &mut client, &mut context
+    ).await;
+
+    // Setting in storage-account
+    ix_should_fail(
+        ElusivInstruction::enable_storage_sub_account_instruction(
+            0,
+            WritableUserAccount(account.pubkey()),
+        ), &mut client, &mut context
+    ).await;
+
+    // Setting a different account at same index should fail
+    let account2 = create_account_rent_exepmt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
+    ix_should_fail(
+        ElusivInstruction::enable_nullifier_sub_account_instruction(
+            0,
+            0,
+            WritableUserAccount(account2.pubkey()),
+        ), &mut client, &mut context
+    ).await;
+
+    // Manipulate map size
+    let mut data = vec![1; NullifierAccount::ACCOUNT_SIZE];
+    data[0] = 0;
+    let lamports = get_balance(account2.pubkey(), &mut context).await;
+    set_account(&mut context, &account2.pubkey(), data, lamports).await;
+
+    // Setting a different account a a different index should succeed
+    ix_should_succeed(
+        ElusivInstruction::enable_nullifier_sub_account_instruction(
+            0,
+            1,
+            WritableUserAccount(account2.pubkey()),
+        ), &mut client, &mut context
+    ).await;
+
+    // Check map size
+    let data = get_data(&mut context, account2.pubkey()).await;
+    assert_eq!(data[0], 1);
+    assert_eq!(&data[1..5], &[0,0,0,0]);
 }

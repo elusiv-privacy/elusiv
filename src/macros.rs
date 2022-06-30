@@ -7,7 +7,7 @@ macro_rules! guard {
     ($assertion: expr, $error: expr) => {
         if !$assertion {
             return Err($error.into())
-        } 
+        }
     };
 }
 

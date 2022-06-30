@@ -26,7 +26,7 @@ pub const MT_COMMITMENT_START: usize = two_pow!(MT_HEIGHT) - 1;
 pub const HISTORY_ARRAY_COUNT: usize = 100;
 
 const VALUES_PER_ACCOUNT: usize = 83_887;
-const ACCOUNT_SIZE: usize = VALUES_PER_ACCOUNT * U256::SIZE;
+const ACCOUNT_SIZE: usize = SUB_ACCOUNT_ADDITIONAL_SIZE + VALUES_PER_ACCOUNT * U256::SIZE;
 
 const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling((MT_SIZE * U256::SIZE) as u64, ACCOUNT_SIZE as u64));
 const_assert_eq!(ACCOUNTS_COUNT, 25);
@@ -51,15 +51,6 @@ pub struct StorageAccount {
     // Stores the last HISTORY_ARRAY_COUNT roots of the active tree
     active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
     mt_roots_count: u32, // required since we batch insert commitments
-}
-
-macro_rules! data_slice {
-    ($id: ident, $self: ident, $index: ident) => {
-        let (account_index, local_index) = $self.account_and_local_index($index);
-        let account = $self.get_account(account_index).unwrap();
-        let data = &mut account.data.borrow_mut()[..];
-        let $id = &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE];
-    };
 }
 
 impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
@@ -92,9 +83,12 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         if use_default_value(index, level, ptr) {
             EMPTY_TREE[MT_HEIGHT as usize - level]
         } else {
-            let mt_index = mt_array_index(index, level);
-            data_slice!(data, self, mt_index);
-            U256::try_from_slice(data).unwrap()
+            let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
+            self.execute_on_sub_account(account_index, |data| {
+                U256::try_from_slice(
+                    &data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
+                )
+            }).unwrap()
         }
     }
 
@@ -103,10 +97,13 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         assert!(index < two_pow!(usize_as_u32_safe(level)));
 
         let mt_index = mt_array_index(index, level);
-        {
-            data_slice!(data, self, mt_index);
-            U256::override_slice(value, data).unwrap();
-        }
+        let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
+        self.execute_on_sub_account(account_index, |data| {
+            U256::override_slice(
+                value,
+                &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
+            )
+        }).unwrap();
 
         if cfg!(test) {
             self.modify(mt_index, *value);
