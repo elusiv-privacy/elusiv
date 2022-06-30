@@ -268,11 +268,11 @@ async fn test_base_commitment() {
         &[
             ElusivInstruction::finalize_base_commitment_hash_instruction(
                 0,
-                WritableUserAccount(relayer_b.pubkey)
+                WritableUserAccount(relayer_a.pubkey)
             ),
             ElusivInstruction::finalize_base_commitment_hash_instruction(
                 0,
-                WritableUserAccount(relayer_b.pubkey)
+                WritableUserAccount(relayer_a.pubkey)
             ),
         ],
         &mut relayer_b, &mut context

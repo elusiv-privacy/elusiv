@@ -185,7 +185,7 @@ pub fn finalize_base_commitment_hash<'a>(
     )?;
     
     // Close hashing account
-    hashing_account.set_is_active(&true);
+    hashing_account.set_is_active(&false);
     close_account(original_fee_payer, hashing_account_info)
 }
 
