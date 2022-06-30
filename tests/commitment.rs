@@ -263,6 +263,21 @@ async fn test_base_commitment() {
         &mut relayer_b, &mut context
     ).await;
 
+    // Finalize fails: two finalize ix in a single tx
+    tx_should_fail(
+        &[
+            ElusivInstruction::finalize_base_commitment_hash_instruction(
+                0,
+                WritableUserAccount(relayer_b.pubkey)
+            ),
+            ElusivInstruction::finalize_base_commitment_hash_instruction(
+                0,
+                WritableUserAccount(relayer_b.pubkey)
+            ),
+        ],
+        &mut relayer_b, &mut context
+    ).await;
+
     // Finalize succeeds: B supplies A as original_fee_payer
     relayer_b.airdrop(lamports_per_tx, &mut context).await;
     ix_should_succeed(

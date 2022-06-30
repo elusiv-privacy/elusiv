@@ -120,7 +120,7 @@ pub fn store_base_commitment<'a>(
     queue.enqueue(request)
 }
 
-/// Initialized a base commitment hash by opening a BaseCommitmentHashingAccount
+/// Initialized a base commitment hash by opening a `BaseCommitmentHashingAccount`
 pub fn init_base_commitment_hash<'a>(
     fee_payer: &AccountInfo<'a>,
     base_commitment_queue: &mut BaseCommitmentQueueAccount,
@@ -129,7 +129,7 @@ pub fn init_base_commitment_hash<'a>(
     _base_commitment_queue_index: u64,
     hash_account_index: u64,
 ) -> ProgramResult {
-    // fee_payer rents hashing_account
+    // `fee_payer` rents `hashing_account`
     open_pda_account_with_offset::<BaseCommitmentHashingAccount>(fee_payer, hashing_account, hash_account_index)?;
 
     let mut queue = BaseCommitmentQueue::new(base_commitment_queue);
@@ -166,7 +166,7 @@ pub fn finalize_base_commitment_hash<'a>(
     _hash_account_index: u64,
 ) -> ProgramResult {
     let data = &mut hashing_account_info.data.borrow_mut()[..];
-    let hashing_account = BaseCommitmentHashingAccount::new(data)?;
+    let mut hashing_account = BaseCommitmentHashingAccount::new(data)?;
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(hashing_account.get_fee_payer() == original_fee_payer.key.to_bytes(), InvalidAccount);
     guard!(
@@ -185,6 +185,7 @@ pub fn finalize_base_commitment_hash<'a>(
     )?;
     
     // Close hashing account
+    hashing_account.set_is_active(&true);
     close_account(original_fee_payer, hashing_account_info)
 }
 
