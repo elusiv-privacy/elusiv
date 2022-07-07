@@ -22,7 +22,7 @@ pub struct ProgramFee {
     pub proof_subvention: u64,
 
     pub relayer_hash_tx_fee: u64,
-    pub relayer_proof_tx_fee: u64,
+    pub relayer_proof_tx_fee: u64,  // this fee is ignored atm by the proof-processor and forced to be zero (only here for possible future use)
     pub relayer_proof_reward: u64,
 }
 
@@ -38,6 +38,9 @@ impl ProgramFee {
             if 20 * (self.lamports_per_tx + self.relayer_proof_tx_fee) + self.commitment_hash_fee(min_batching_rate) < self.proof_subvention {
                 return false
             }
+
+            // Make sure that `relayer_proof_tx_fee` is zero
+            if self.relayer_proof_tx_fee != 0 { return false }
         }
         true
     }

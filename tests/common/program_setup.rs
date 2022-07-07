@@ -55,7 +55,7 @@ pub fn genesis_fee(lamports_per_tx: u64) -> ProgramFee {
         base_commitment_subvention: 0,
         proof_subvention: 0,
         relayer_hash_tx_fee: 300,
-        relayer_proof_tx_fee: 400,
+        relayer_proof_tx_fee: 0,
         relayer_proof_reward: 555,
     }
 }

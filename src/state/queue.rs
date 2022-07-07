@@ -105,7 +105,7 @@ impl<'a, 'b> CommitmentQueue<'a, 'b> {
 /// - works by having two pointers, `head` and `tail` and a some data storage with getter, setter
 /// - `head` points to the first element (first according to the FIFO definition)
 /// - `tail` points to the location to insert the next element
-/// - `head == tail - 1` => queue is full
+/// - `head == (tail - 1) mod SIZE` => queue is full
 /// - `head == tail` => queue is empty
 pub trait RingQueue {
     type N: PartialEq + BorshSerDeSized + Clone;
@@ -173,7 +173,7 @@ pub trait RingQueue {
         let tail = self.get_tail();
 
         while ptr != tail {
-            if self.get_data(u64_as_usize_safe(ptr)) == *value { return true; }
+            if self.get_data(u64_as_usize_safe(ptr)) == *value { return true }
             ptr = (ptr + 1) % Self::SIZE;
         }
 
@@ -184,10 +184,10 @@ pub trait RingQueue {
         let head = self.get_head();
         let tail = self.get_tail();
 
-        if tail < head {
-            head + tail
-        } else {
+        if tail >= head {
             tail - head
+        } else {
+            Self::SIZE - head + tail
         }
     }
 
@@ -289,17 +289,44 @@ mod tests {
 
     #[test]
     fn test_len() {
-        test_queue!(queue, 4, 0, 0);
-        assert_eq!(queue.len(), 0);
-        assert_eq!(queue.empty_slots(), 3);
+        test_queue!(queue, 10, 0, 0);
 
-        queue.enqueue(0).unwrap();
+        for start in 0..9 {
+            queue.set_head(&start);
+            queue.set_tail(&start);
+
+            assert_eq!(queue.len(), 0);
+
+            for i in 1..10 {
+                queue.enqueue(1).unwrap();
+                assert_eq!(queue.len(), i);
+            }
+
+            for i in (0..9).rev() {
+                queue.dequeue_first().unwrap();
+                assert_eq!(queue.len(), i);
+            }
+        }
+
+        test_queue!(queue, 3, 0, 0);
+        queue.set_head(&2);
+        queue.set_tail(&2);
+
+        assert_eq!(queue.len(), 0);
+
+        queue.enqueue(1).unwrap();
         assert_eq!(queue.len(), 1);
-        assert_eq!(queue.empty_slots(), 2);
-
         queue.dequeue_first().unwrap();
+
+        queue.enqueue(1).unwrap();
+        assert_eq!(queue.len(), 1);
+        queue.dequeue_first().unwrap();
+
+        queue.enqueue(1).unwrap();
+        assert_eq!(queue.len(), 1);
+        queue.dequeue_first().unwrap();
+
         assert_eq!(queue.len(), 0);
-        assert_eq!(queue.empty_slots(), 3);
     }
 
     #[test]
@@ -330,6 +357,16 @@ mod tests {
     }
 
     #[test]
+    fn test_view_invalid() {
+        test_queue!(queue, 10, 0, 0);
+        queue.head = 9;
+        queue.tail = 9;
+        queue.enqueue(1).unwrap();
+
+        assert_matches!(queue.view(2), Err(_));
+    }
+
+    #[test]
     fn test_remove() {
         test_queue!(queue, 13, 0, 0);
         
@@ -339,6 +376,25 @@ mod tests {
         queue.remove(2).unwrap();
 
         assert_eq!(queue.view_first().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_remove_invalid() {
+        test_queue!(queue, 10, 0, 0);
+        assert_matches!(queue.remove(1), Err(_));
+
+        queue.enqueue(1).unwrap();
+        assert_matches!(queue.remove(2), Err(_));
+        queue.remove(1).unwrap();
+
+        test_queue!(queue, 10, 0, 0);
+        queue.head = 9;
+        queue.tail = 9;
+
+        queue.enqueue(1).unwrap();
+
+        assert_matches!(queue.remove(2), Err(_));
+        queue.remove(1).unwrap();
     }
 
     #[test]
