@@ -340,21 +340,26 @@ impl Stmt {
                 let size = previous_computation_rounds[fn_id];
 
                 let child_result = child.to_stream(start_round, previous_computation_rounds);
-                let child_body = child_result.stream;
+                let mut child_body = child_result.stream;
 
                 let bound = size - 1;
 
+                if child_body.to_string().contains("round") {
+                    child_body = quote!{
+                        let round = round - #bound;
+                        #child_body
+                    };
+                }
+
                 StmtResult { stream: quote!{
                     if round < #bound {
-                        match #fn_call {
-                            Ok(_) => {},
-                            Err(_) => { return Err(PartialComputationError) }
-                        }
+                        #fn_call.or(Err(PartialComputationError))?;
                     } else if round == #bound {
                         let #ident = match #fn_call {
                             Ok(Some(v)) => v,
                             _ => { return Err(PartialComputationError) }
                         };
+
                         #child_body
                     }
                 }, rounds: size + child_result.rounds }

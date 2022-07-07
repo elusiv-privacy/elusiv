@@ -36,7 +36,6 @@ impl From<U256> for U256Limbed2 {
 }
 
 pub struct Lazy<'a, N: BorshSerDeSized + Clone> {
-    modified: bool,
     value: Option<N>,
     data: &'a mut [u8],
 }
@@ -45,7 +44,7 @@ impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
     pub const SIZE: usize = N::SIZE;
 
     pub fn new(data: &'a mut [u8]) -> Self {
-        Lazy { modified: false, value: None, data }
+        Lazy { value: None, data }
     }
 
     pub fn get(&mut self) -> N {
@@ -58,13 +57,8 @@ impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
         }
     }
 
-    pub fn set(&mut self, value: &N) {
+    pub fn set_serialize(&mut self, value: &N) {
         self.value = Some(value.clone());
-        self.modified = true;
-    }
-
-    pub fn serialize(&mut self) {
-        if !self.modified { return }
         let v = self.value.clone().unwrap().try_to_vec().unwrap();
         assert!(self.data.len() >= v.len());
         self.data[..v.len()].copy_from_slice(&v[..]);
@@ -121,7 +115,7 @@ pub trait PublicInputs {
     }
 }
 
-pub const MAX_PUBLIC_INPUTS_COUNT: usize = 8;
+pub const MAX_PUBLIC_INPUTS_COUNT: usize = 28;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
 /// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_deca.circom

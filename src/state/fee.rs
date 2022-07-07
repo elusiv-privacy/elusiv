@@ -68,7 +68,7 @@ impl ProgramFee {
         &self,
         min_batching_rate: u32,
     ) -> u64 {
-        BaseCommitmentHashComputation::INSTRUCTIONS.len() as u64 * self.hash_tx_compensation()
+        BaseCommitmentHashComputation::COUNT as u64 * self.hash_tx_compensation()
             + self.base_commitment_network_fee
             + self.commitment_hash_fee(min_batching_rate)
     }
@@ -88,7 +88,7 @@ impl ProgramFee {
 
     /// tx_count * (lamports_per_tx + relayer_proof_tx_fee) + relayer_proof_reward + commitment_hash_fee + proof_network_fee
     pub fn proof_verification_fee(&self, input_preparation_tx_count: usize, min_batching_rate: u32) -> u64 {
-        let tx_count = input_preparation_tx_count + CombinedMillerLoop::INSTRUCTIONS.len() + FinalExponentiation::INSTRUCTIONS.len();
+        let tx_count = input_preparation_tx_count + CombinedMillerLoop::COUNT + FinalExponentiation::COUNT;
         tx_count as u64 * (self.lamports_per_tx + self.relayer_proof_tx_fee)
             + self.relayer_proof_reward
             + self.commitment_hash_fee(min_batching_rate)
@@ -103,7 +103,7 @@ impl ProgramFee {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proof::{vkey::{SendBinaryVKey, VerificationKey}, prepare_public_inputs_instructions};
+    use crate::proof::{vkey::{TestVKey, VerificationKey}, prepare_public_inputs_instructions};
     use ark_ff::BigInteger256;
 
     impl Default for ProgramFee {
@@ -127,7 +127,7 @@ mod tests {
 
         assert_eq!(
             fee.base_commitment_hash_fee(0),
-            (666 + 11) * BaseCommitmentHashComputation::INSTRUCTIONS.len() as u64
+            (666 + 11) * BaseCommitmentHashComputation::COUNT as u64
             + fee.commitment_hash_fee(0)
             + 22
         )
@@ -147,16 +147,15 @@ mod tests {
     fn test_proof_verification_fee() {
         let fee = ProgramFee::default();
 
-        type VK = SendBinaryVKey;
-        let public_inputs = vec![BigInteger256::new([0,0,0,0]); VK::PUBLIC_INPUTS_COUNT];
-        let input_preparation_tx_count = prepare_public_inputs_instructions::<VK>(&public_inputs).len();
+        let public_inputs = vec![BigInteger256::new([0,0,0,0]); TestVKey::PUBLIC_INPUTS_COUNT];
+        let input_preparation_tx_count = prepare_public_inputs_instructions::<TestVKey>(&public_inputs).len();
 
         assert_eq!(
             fee.proof_verification_fee(input_preparation_tx_count, 0),
             (777 + 11) * (
                 1
-                + CombinedMillerLoop::INSTRUCTIONS.len() as u64
-                + FinalExponentiation::INSTRUCTIONS.len() as u64
+                + CombinedMillerLoop::COUNT as u64
+                + FinalExponentiation::COUNT as u64
             )
             + 33
             + 888

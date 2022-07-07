@@ -109,10 +109,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 });
             },
             "partial_computation" => {
-                assert_field!(field0, fields_iter, "is_active : bool");
                 assert_field!(field1, fields_iter, "instruction : u32");
-                assert_field!(field3, fields_iter, "fee_payer : U256");
-                assert_field!(field4, fields_iter, "fee_version : u64");
+                assert_field!(field1, fields_iter, "round : u32");
             },
             _ => { }
         }

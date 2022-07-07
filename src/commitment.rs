@@ -15,14 +15,14 @@ use crate::state::program_account::{SizedAccount, PDAAccountData};
 use crate::fields::{u64_to_scalar, u256_to_fr, fr_to_u256_le};
 use solana_program::program_error::ProgramError;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_computation::{PartialComputation, PartialComputationInstruction};
+use elusiv_computation::PartialComputation;
 use self::poseidon_hash::BinarySpongeHashingState;
 
 /// Partial computation resulting in `commitment = h(base_commitment, amount)`
 pub struct BaseCommitmentHashComputation {}
 
 elusiv_hash_compute_units!(BaseCommitmentHashComputation, 1);
-const_assert_eq!(BaseCommitmentHashComputation::INSTRUCTIONS.len(), 2);
+const_assert_eq!(BaseCommitmentHashComputation::COUNT, 2);
 
 /// Account used for computing `commitment = h(base_commitment, amount)`
 /// - https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/commitment.circom#L7
@@ -31,17 +31,19 @@ const_assert_eq!(BaseCommitmentHashComputation::INSTRUCTIONS.len(), 2);
 pub struct BaseCommitmentHashingAccount {
     pda_data: PDAAccountData,
 
-    is_active: bool,
     instruction: u32,
-    fee_payer: U256,
+    round: u32,
+
     fee_version: u64,
+    fee_payer: U256,
+    is_active: bool,
 
     state: BinarySpongeHashingState,
     min_batching_rate: u32,
 }
 
 impl<'a> BaseCommitmentHashingAccount<'a> {
-    pub fn reset(
+    pub fn setup(
         &mut self,
         request: BaseCommitmentHashRequest,
         fee_payer: U256,
@@ -50,6 +52,7 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
 
         self.set_is_active(&true);
         self.set_instruction(&0);
+        self.set_round(&0);
         self.set_fee_payer(&fee_payer);
         self.set_fee_version(&request.fee_version);
 
@@ -71,11 +74,11 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
 pub fn compute_base_commitment_hash_partial(
     hashing_account: &mut BaseCommitmentHashingAccount,
 ) -> Result<(), ProgramError> {
-    let instructions = BaseCommitmentHashComputation::INSTRUCTIONS;
     let instruction = hashing_account.get_instruction();
-    guard!((instruction as usize) < instructions.len(), ComputationIsAlreadyFinished);
-    let start_round = instructions[instruction as usize].start_round;
-    let rounds = instructions[instruction as usize].rounds;
+    guard!((instruction as usize) < BaseCommitmentHashComputation::COUNT, ComputationIsAlreadyFinished);
+
+    let start_round = hashing_account.get_round();
+    let rounds = BaseCommitmentHashComputation::INSTRUCTION_ROUNDS[instruction as usize] as u32;
 
     let mut state = hashing_account.get_state();
 
@@ -86,6 +89,7 @@ pub fn compute_base_commitment_hash_partial(
 
     hashing_account.set_state(&state);
     hashing_account.set_instruction(&(instruction + 1));
+    hashing_account.set_round(&(start_round + rounds));
 
     Ok(())
 }
@@ -127,8 +131,10 @@ macro_rules! commitment_hash_computation {
     };
 }
 
-pub fn commitment_hash_computation_instructions<'a>(batching_rate: u32) -> &'a [PartialComputationInstruction] {
-    commitment_hash_computation!(batching_rate, INSTRUCTIONS)
+pub const COMMITMENT_HASH_COMPUTE_BUDGET: u32 = <CommitmentHashComputation<0>>::COMPUTE_BUDGET_PER_IX;
+
+pub fn commitment_hash_computation_instructions<'a>(batching_rate: u32) -> &'a [u8] {
+    commitment_hash_computation!(batching_rate, INSTRUCTION_ROUNDS)
 }
 
 pub fn commitment_hash_computation_rounds(batching_rate: u32) -> u32 {
@@ -164,10 +170,11 @@ const_assert_eq!(MAX_HT_COMMITMENTS, 16);
 pub struct CommitmentHashingAccount {
     pda_data: PDAAccountData,
 
-    is_active: bool,
     instruction: u32,
-    fee_payer: U256, // fee_payer is null and has no meaning for commitment hashing
+    round: u32,
+
     fee_version: u64,
+    is_active: bool,
 
     setup: bool,
     finalization_ix: u32,
@@ -191,15 +198,15 @@ pub fn compute_commitment_hash_partial(
     let instruction = hashing_account.get_instruction();
     let instructions = commitment_hash_computation_instructions(batching_rate);
     guard!((instruction as usize) < instructions.len(), ComputationIsAlreadyFinished);
-    let start_round = instructions[instruction as usize].start_round;
-    let rounds = instructions[instruction as usize].rounds;
+
+    let start_round = hashing_account.get_round();
+    let rounds = instructions[instruction as usize] as u32;
     let total_rounds = commitment_hash_computation_rounds(batching_rate);
+    guard!(start_round + rounds <= total_rounds, ComputationIsAlreadyFinished);
 
     let mut state = hashing_account.get_state();
 
     for round in start_round..start_round + rounds {
-        guard!(round < total_rounds, ComputationIsAlreadyFinished);
-
         binary_poseidon_hash_partial(round % TOTAL_POSEIDON_ROUNDS, &mut state);
 
         // A single hash is finished
@@ -218,6 +225,8 @@ pub fn compute_commitment_hash_partial(
 
     hashing_account.set_state(&state);
     hashing_account.set_instruction(&(instruction + 1));
+    hashing_account.set_round(&(start_round + rounds));
+
     Ok(())
 }
 
@@ -231,6 +240,7 @@ impl<'a> CommitmentHashingAccount<'a> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
         self.set_setup(&true);
         self.set_instruction(&0);
+        self.set_round(&0);
         self.set_ordering(&ordering);
         self.set_finalization_ix(&0);
 
@@ -643,9 +653,9 @@ mod tests {
         ];
 
         for request in requests {
-            account.reset(request.clone(), [0; 32]).unwrap();
+            account.setup(request.clone(), [0; 32]).unwrap();
 
-            while account.get_instruction() < BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32 {
+            while account.get_instruction() < BaseCommitmentHashComputation::COUNT as u32 {
                 compute_base_commitment_hash_partial(&mut account).unwrap();
             }
 
@@ -719,7 +729,7 @@ mod tests {
         };
         let fee_payer = [6; 32];
 
-        account.reset(request.clone(), fee_payer).unwrap();
+        account.setup(request.clone(), fee_payer).unwrap();
 
         assert_eq!(account.get_state().0, [
             Fr::zero(),
@@ -733,11 +743,11 @@ mod tests {
         assert!(account.get_is_active());
 
         // Second reset should fail
-        assert_matches!(account.reset(request.clone(), fee_payer), Err(_));
+        assert_matches!(account.setup(request.clone(), fee_payer), Err(_));
 
         // Second reset now allowed
         account.set_is_active(&false);
-        account.reset(request, fee_payer).unwrap();
+        account.setup(request, fee_payer).unwrap();
     }
     
     #[test]

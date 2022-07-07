@@ -101,6 +101,11 @@ pub const fn usize_as_u32_safe(u: usize) -> u32 {
     u as u32
 }
 
+pub const fn usize_as_u8_safe(u: usize) -> u8 {
+    if u > u8::MAX as usize { panic!() }
+    u as u8
+}
+
 macro_rules! impl_borsh_sized {
     ($ty: ty, $size: expr) => {
         impl BorshSerDeSized for $ty { const SIZE: usize = $size; }
@@ -227,6 +232,17 @@ mod tests {
     #[should_panic]
     fn test_usize_as_u32_safe_panic() {
         assert_eq!(usize_as_u32_safe(u32::MAX as usize + 1), u32::MAX);
+    }
+
+    #[test]
+    fn test_usize_as_u8_safe() {
+        assert_eq!(usize_as_u8_safe(u8::MAX as usize), u8::MAX);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_usize_as_u8_safe_panic() {
+        assert_eq!(usize_as_u8_safe(u8::MAX as usize + 1), u8::MAX);
     }
 
     #[test]

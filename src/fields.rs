@@ -203,6 +203,15 @@ pub struct G1A(pub G1Affine);
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct G2A(pub G2Affine);
+impl G2A {
+    pub fn set(&mut self, v: G2Affine) {
+        self.0 = v;
+    }
+
+    pub fn get(&self) -> &G2Affine {
+        &self.0
+    }
+}
 
 // G1A
 impl BorshSerDeSized for G1A { const SIZE: usize = 65; }

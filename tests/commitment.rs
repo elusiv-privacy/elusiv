@@ -30,7 +30,7 @@ use elusiv::state::{
     },
     fee::FeeAccount,
 };
-use elusiv::commitment::{BaseCommitmentHashComputation, BaseCommitmentHashingAccount, CommitmentHashingAccount, commitment_hash_computation_instructions, commitments_per_batch};
+use elusiv::commitment::{BaseCommitmentHashComputation, BaseCommitmentHashingAccount, CommitmentHashingAccount, commitment_hash_computation_instructions, commitments_per_batch, COMMITMENT_HASH_COMPUTE_BUDGET};
 use elusiv_computation::PartialComputation;
 use ark_bn254::Fr;
 use ark_ff::Zero;
@@ -223,12 +223,12 @@ async fn test_base_commitment() {
 
     // Compute each base_commitment_hash
     let hash_reward = fee.relayer_hash_tx_fee;
-    for i in 0..BaseCommitmentHashComputation::INSTRUCTIONS.len() {
+    for i in 0..BaseCommitmentHashComputation::COUNT {
         // Finalization will always fail before completion
         ix_should_fail(finalize_ix.clone(), &mut relayer_a, &mut context).await;
 
         // Fail due to too low compute budget
-        let required_compute_budget = BaseCommitmentHashComputation::INSTRUCTIONS[i].compute_units;
+        let required_compute_budget = BaseCommitmentHashComputation::COMPUTE_BUDGET_PER_IX;
         if required_compute_budget > 300_000 { // include the 100k compute unit padding
             ix_should_fail(compute_ix.clone(), &mut relayer_a, &mut context).await;
         }
@@ -305,7 +305,7 @@ async fn test_base_commitment() {
     // - in the real world the relayer will combine the finalize tx with some other ix (like init commitment + hash)
     // - check that rent has been sent to A and not B, since B called finalize
     assert_eq!(
-        hash_reward * BaseCommitmentHashComputation::INSTRUCTIONS.len() as u64 + rent,
+        hash_reward * BaseCommitmentHashComputation::COUNT as u64 + rent,
         relayer_a.balance(&mut context).await
     );
 
@@ -597,7 +597,6 @@ async fn test_single_commitment() {
 
     pda_account!(hashing_account, CommitmentHashingAccount, None, context);
     assert!(hashing_account.get_is_active());
-    assert_eq!(hashing_account.get_fee_payer(), [0; 32]);   // has no role atm
     assert_eq!(hashing_account.get_fee_version(), 0);
     assert_eq!(hashing_account.get_hash_tree(0), requests[0].commitment);
     assert_eq!(hashing_account.get_ordering(), 0);
@@ -636,7 +635,7 @@ async fn test_single_commitment() {
         ix_should_fail(finalize_ix.clone(), &mut relayer_b, &mut context).await;
 
         // Fail due to too low compute budget
-        let required_compute_budget = commitment_hash_computation_instructions(0)[i].compute_units;
+        let required_compute_budget = COMMITMENT_HASH_COMPUTE_BUDGET;
         if required_compute_budget > 300_000 { // include the 100k compute unit padding
             ix_should_fail(compute_ix.clone(), &mut relayer_b, &mut context).await;
         }
@@ -708,7 +707,7 @@ async fn set_finished_base_commitment_hash(
     let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
     {
         let mut hashing_account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
-        hashing_account.set_instruction(&(BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32));
+        hashing_account.set_instruction(&(BaseCommitmentHashComputation::COUNT as u32));
         hashing_account.set_state(&BinarySpongeHashingState([u256_to_fr(commitment), Fr::zero(), Fr::zero()]));
         hashing_account.set_fee_payer(&original_fee_payer.to_bytes());
     }
@@ -900,10 +899,10 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
             &mut client, &mut context
         ).await;
 
-        for instruction in commitment_hash_computation_instructions(0).iter() {
+        for _ in commitment_hash_computation_instructions(0).iter() {
             tx_should_succeed(
                 &[
-                    request_compute_units(instruction.compute_units),
+                    request_compute_units(COMMITMENT_HASH_COMPUTE_BUDGET),
                     ElusivInstruction::compute_commitment_hash_instruction(
                         0,
                         0,
@@ -974,10 +973,10 @@ async fn test_commitment_hash_with_batching_rate(
         &mut client, &mut context
     ).await;
 
-    for instruction in commitment_hash_computation_instructions(batching_rate).iter() {
+    for _ in commitment_hash_computation_instructions(batching_rate).iter() {
         tx_should_succeed(
             &[
-                request_compute_units(instruction.compute_units),
+                request_compute_units(COMMITMENT_HASH_COMPUTE_BUDGET),
                 ElusivInstruction::compute_commitment_hash_instruction(
                     0,
                     0,

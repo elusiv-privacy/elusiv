@@ -138,7 +138,7 @@ pub fn init_base_commitment_hash<'a>(
     // Hashing account setup
     let data = &mut hashing_account.data.borrow_mut()[..];
     let mut hashing_account = BaseCommitmentHashingAccount::new(data)?;
-    hashing_account.reset(request, fee_payer.key.to_bytes())
+    hashing_account.setup(request, fee_payer.key.to_bytes())
 }
 
 pub fn compute_base_commitment_hash<'a>(
@@ -170,7 +170,7 @@ pub fn finalize_base_commitment_hash<'a>(
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(hashing_account.get_fee_payer() == original_fee_payer.key.to_bytes(), InvalidAccount);
     guard!(
-        (hashing_account.get_instruction() as usize) == BaseCommitmentHashComputation::INSTRUCTIONS.len(),
+        (hashing_account.get_instruction() as usize) == BaseCommitmentHashComputation::COUNT,
         ComputationIsNotYetFinished
     );
 
@@ -441,14 +441,14 @@ mod tests {
         // Inactive hashing account
         pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
             hashing_account.set_fee_payer(&fee_payer_pk.to_bytes());
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32));
+            hashing_account.set_instruction(&(BaseCommitmentHashComputation::COUNT as u32));
         });
         assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
 
         // Invalid original fee payer
         pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
             hashing_account.set_is_active(&true);
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32));
+            hashing_account.set_instruction(&(BaseCommitmentHashComputation::COUNT as u32));
         });
         assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
 
@@ -462,7 +462,7 @@ mod tests {
         pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
             hashing_account.set_fee_payer(&fee_payer_pk.to_bytes());
             hashing_account.set_is_active(&true);
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32));
+            hashing_account.set_instruction(&(BaseCommitmentHashComputation::COUNT as u32));
         });
         
         // Commitment queue is full
