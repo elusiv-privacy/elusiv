@@ -92,6 +92,9 @@ async fn test_setup_fee_account() {
     pda_account!(fee, FeeAccount, Some(0), context);
     assert_eq!(fee.get_program_fee(), genesis_fee);
 
+    pda_account!(governor, GovernorAccount, None, context);
+    assert_eq!(governor.get_program_fee(), genesis_fee);
+
     // Attempting to set a version higher than genesis (0) will fail
     ix_should_fail(
         ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee.clone(), SignerAccount(payer.pubkey)),

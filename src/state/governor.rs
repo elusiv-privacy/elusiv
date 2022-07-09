@@ -2,16 +2,19 @@ use crate::macros::elusiv_account;
 use crate::bytes::BorshSerDeSized;
 use borsh::{BorshDeserialize, BorshSerialize};
 use crate::state::program_account::SizedAccount;
-use super::program_account::PDAAccountData;
+use super::{program_account::PDAAccountData, fee::ProgramFee};
 
 #[elusiv_account(pda_seed = b"governor")]
 pub struct GovernorAccount {
     pda_data: PDAAccountData,
 
-    /// the current fee-version (new requests are forced to use this version)
+    /// The current fee-version (new requests are forced to use this version)
     fee_version: u64,
 
-    /// the number of commitments in a MT-root hashing batch
+    /// The `ProgramFee` for the `FeeAccount` with the offset `fee_version`
+    program_fee: ProgramFee,
+
+    /// The number of commitments in a MT-root hashing batch
     commitment_batching_rate: u32,
 }
 

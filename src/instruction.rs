@@ -38,7 +38,6 @@ use solana_program::instruction::AccountMeta;
 pub enum ElusivInstruction {
     // Client sends base_commitment and amount to be stored in the Elusiv program
     #[acc(sender, { writable, signer })]
-    #[pda(fee, Fee, pda_offset = Some(request.fee_version))]
     #[pda(governor, Governor)]
     #[pda(sol_pool, Pool, { writable, account_info })]
     #[pda(fee_collector, FeeCollector, { writable, account_info })]
@@ -192,6 +191,14 @@ pub enum ElusivInstruction {
     },
 
     #[acc(payer, { writable, signer })]
+    #[pda(nullifier_account, Nullifier, pda_offset = Some(mt_index), { account_info, writable })]
+    #[acc(sub_account, { owned, writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    OpenPendingNullifierHashesAccount {
+        mt_index: u64,
+    },
+
+    #[acc(payer, { writable, signer })]
     #[acc(governor, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     SetupGovernorAccount,
@@ -205,7 +212,7 @@ pub enum ElusivInstruction {
     },
 
     #[acc(payer, { writable, signer })]
-    #[pda(governor, Governor)]
+    #[pda(governor, Governor, { writable })]
     #[pda(fee, Fee, pda_offset = Some(fee_version), { writable, account_info, find_pda })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     InitNewFeeVersion {

@@ -226,7 +226,7 @@ pub fn upgrade_governor_state(
 /// - Note: there is no way of upgrading the program fees atm
 pub fn init_new_fee_version<'a>(
     payer: &AccountInfo<'a>,
-    governor: &GovernorAccount,
+    governor: &mut GovernorAccount,
     new_fee: &AccountInfo<'a>,
 
     fee_version: u64,
@@ -240,6 +240,7 @@ pub fn init_new_fee_version<'a>(
     let mut data = new_fee.data.borrow_mut();
     let mut fee = FeeAccount::new(&mut data[..])?;
     fee.set_program_fee(&program_fee);
+    governor.set_program_fee(&program_fee);
 
     Ok(())
 }

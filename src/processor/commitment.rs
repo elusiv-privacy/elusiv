@@ -74,7 +74,6 @@ const ZERO_BASE_COMMITMENT: Fr = Fr::new(BigInteger256::new([3162363550698150530
 #[allow(clippy::too_many_arguments)]
 pub fn store_base_commitment<'a>(
     sender: &AccountInfo<'a>,
-    fee: &FeeAccount,
     governor: &GovernorAccount,
     pool: &AccountInfo<'a>,
     fee_collector: &AccountInfo<'a>,
@@ -97,7 +96,7 @@ pub fn store_base_commitment<'a>(
     guard!(request.min_batching_rate == governor.get_commitment_batching_rate(), InvalidBatchingRate);
 
     // Take amount and fee from sender
-    let fee = fee.get_program_fee();
+    let fee = governor.get_program_fee();
     let compensation_fee = fee.base_commitment_hash_fee(request.min_batching_rate);
     let network_fee = fee.base_commitment_network_fee;
     let subvention = if fee_collector.lamports() >= fee.base_commitment_subvention { fee.base_commitment_subvention } else { 0 };
@@ -247,7 +246,7 @@ pub fn compute_commitment_hash<'a>(
     send_from_pool(pool, fee_payer, fee.get_program_fee().hash_tx_compensation())
 }
 
-/// Requires batching_rate + 1 calls
+/// Requires `batching_rate + 1` calls
 pub fn finalize_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
     storage_account: &mut StorageAccount,
@@ -292,7 +291,6 @@ mod tests {
     #[test]
     #[allow(clippy::vec_init_then_push)]
     fn test_store_base_commitment() {
-        zero_account!(fee, FeeAccount);
         zero_account!(mut governor, GovernorAccount);
         test_account_info!(sender, 0);
         test_account_info!(pool, 0);
@@ -344,7 +342,7 @@ mod tests {
 
         for request in requests {
             assert_matches!(
-                store_base_commitment(&sender, &fee, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, request),
+                store_base_commitment(&sender, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, request),
                 Err(_)
             );
         }
@@ -358,12 +356,12 @@ mod tests {
             }
 
             assert_matches!(
-                store_base_commitment(&sender, &fee, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request.clone()),
+                store_base_commitment(&sender, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request.clone()),
                 Err(_)
             );
         }
 
-        store_base_commitment(&sender, &fee, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request).unwrap();
+        store_base_commitment(&sender, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request).unwrap();
     }
 
     #[test]
