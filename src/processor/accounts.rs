@@ -11,7 +11,7 @@ use crate::{state::{
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount, CommitmentQueue, Queue},
     fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
-}, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe, processor::MATH_ERR};
+}, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe, processor::MATH_ERR, proof::PendingNullifierHashesAccount};
 use crate::commitment::{CommitmentHashingAccount};
 use crate::error::ElusivError::{
     InvalidAccount,
@@ -117,12 +117,8 @@ pub fn enable_nullifier_sub_account(
         false
     )?;
 
-    // Set map size to zero (leading u32)
-    let data = &mut sub_account.data.borrow_mut()[..];
-    let acc = SubAccount::new(data);
-    for b in acc.data.iter_mut().take(4) {
-        *b = 0;
-    }
+    // Set map size to zero
+    reset_map_sub_account(sub_account);
 
     Ok(())
 }
@@ -146,6 +142,23 @@ pub fn reset_active_merkle_tree(
     storage_account.reset();
     storage_account.set_trees_count(&(active_merkle_tree_index.checked_add(1).ok_or(MATH_ERR)?));
     active_nullifier_account.set_root(&storage_account.get_root());
+
+    Ok(())
+}
+
+/// Opens a `PendingNullifierHashesAccount` and activates the single sub-account for a specific MT
+pub fn open_pending_nullifier_hashes_account<'a>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+    data_account: &AccountInfo,
+
+    mt_index: u64,
+) -> ProgramResult {
+    open_pda_account_with_offset::<PendingNullifierHashesAccount>(payer, pda_account, mt_index)?;
+    setup_sub_account::<PendingNullifierHashesAccount, 1>(pda_account, data_account, 0, false)?;
+
+    // Set map size to zero
+    reset_map_sub_account(data_account);
 
     Ok(())
 }
@@ -176,7 +189,7 @@ pub fn archive_closed_merkle_tree<'a>(
     closed_merkle_tree_index: u64,
 ) -> ProgramResult {
     guard!(storage_account.get_trees_count() > closed_merkle_tree_index, InvalidInstructionData);
-    todo!("N-SMT not implemented yet");
+    panic!("N-SMT not implemented yet");
 }
 
 /// Setup the `GovernorAccount` with the default values
@@ -256,6 +269,12 @@ fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
     acc.set_is_in_use(true);
 
     Ok(())
+}
+
+fn reset_map_sub_account(sub_account: &AccountInfo) {
+    let data = &mut sub_account.data.borrow_mut()[..];
+    let acc = SubAccount::new(data);
+    for b in acc.data.iter_mut().take(4) { *b = 0 }
 }
 
 /// Verifies that an account with `data_len` > 10 KiB (non PDA) is formatted correctly
@@ -384,6 +403,35 @@ mod tests {
 
         // Success at different index
         assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 3), Ok(()));
+    }
+
+    #[test]
+    fn test_open_pending_nullifier_hashes_account() {
+        let payer_pk = Pubkey::new_unique();
+        let sub_account_pk = Pubkey::new_unique();
+        let pk = PendingNullifierHashesAccount::find(Some(0)).0;
+
+        account!(payer, payer_pk, vec![]);
+
+        // Sub-Account has invalid size
+        account!(account, pk, vec![0; PendingNullifierHashesAccount::SIZE]);
+        account!(sub_account, sub_account_pk, vec![0; PendingNullifierHashesAccount::ACCOUNT_SIZE - 1]);
+        assert_matches!(open_pending_nullifier_hashes_account(&payer, &account, &sub_account, 0), Err(_));
+
+        // Account has already been setup
+        let mut data = vec![0; PendingNullifierHashesAccount::SIZE];
+        let mut account = PendingNullifierHashesAccount::new(&mut data, HashMap::new()).unwrap();
+        let mut d = account.get_multi_account_data();
+        d.pubkeys[0] = ElusivOption::Some(Pubkey::new_unique());
+        account.set_multi_account_data(&d);
+        account!(account, pk, data);
+        account!(sub_account, sub_account_pk, vec![0; PendingNullifierHashesAccount::ACCOUNT_SIZE]);
+        assert_matches!(open_pending_nullifier_hashes_account(&payer, &account, &sub_account, 0), Err(_));
+
+        // Success if empty
+        let data = vec![0; PendingNullifierHashesAccount::SIZE];
+        account!(account, pk, data);
+        assert_matches!(open_pending_nullifier_hashes_account(&payer, &account, &sub_account, 0), Ok(()));
     }
 
     #[test]

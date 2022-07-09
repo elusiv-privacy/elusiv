@@ -1,4 +1,3 @@
-#[cfg(not(tarpaulin_include))]
 pub mod vkey;
 pub mod verifier;
 #[cfg(test)] mod test_proofs;
@@ -13,11 +12,11 @@ use ark_ff::BigInteger256;
 use vkey::VerificationKey;
 use crate::error::ElusivError;
 use crate::processor::ProofRequest;
-use crate::state::program_account::{SizedAccount, PDAAccountData};
-use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof, Lazy, RawProof};
+use crate::state::program_account::{SizedAccount, PDAAccountData, SUB_ACCOUNT_ADDITIONAL_SIZE, MultiAccountAccountData};
+use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof, Lazy, RawProof, U256Limbed2};
 use crate::fields::{Wrap, G1A, G2A, G2HomProjective};
 use crate::macros::{elusiv_account, guard};
-use crate::bytes::{BorshSerDeSized, ElusivOption, usize_as_u32_safe};
+use crate::bytes::{BorshSerDeSized, ElusivOption, usize_as_u32_safe, ElusivBTreeMap};
 
 pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
 pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
@@ -224,6 +223,18 @@ where Wrap<N>: BorshSerDeSized
         }
         Ok(())
     }
+}
+
+type PendingNullifierHashesMap = ElusivBTreeMap<U256Limbed2, u64, 4096>;
+const PENDING_NULLIFIER_ACCOUNT_SIZE: usize = PendingNullifierHashesMap::SIZE + SUB_ACCOUNT_ADDITIONAL_SIZE;
+
+/// All `nullifier_hashes` that are currently being verifyied for a MT with with same `pda_offset` are mapped to the according verification account `pda_offset`
+/// - Note: this `multi_account` only uses one pubkey
+/// - the role of this account is to protect relayers against attacks done by submitting multiple identical proofs
+#[elusiv_account(pda_seed = b"active_proofs", multi_account = (U256; 1; PENDING_NULLIFIER_ACCOUNT_SIZE))]
+pub struct PendingNullifierHashesAccount {
+    pda_data: PDAAccountData,
+    multi_account_data: MultiAccountAccountData<1>,
 }
 
 #[cfg(test)]

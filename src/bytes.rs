@@ -1,4 +1,7 @@
+use std::{collections::BTreeMap, hash::Hash};
 use borsh::{BorshDeserialize, BorshSerialize};
+use crate::error::{ElusivError, ElusivResult};
+use solana_program::pubkey::Pubkey;
 
 pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
     const SIZE: usize;
@@ -11,7 +14,7 @@ pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
 }
 
 #[derive(Copy, Clone)]
-/// The advantage of ElusivOption over Option is fixed serialization length
+/// The advantage of `ElusivOption` over `Option` is fixed serialization length
 pub enum ElusivOption<N> {
     Some(N),
     None,
@@ -117,7 +120,6 @@ impl<E: BorshSerDeSized + Default + Copy, const N: usize> BorshSerDeSized for [E
 }
 
 pub(crate) use impl_borsh_sized;
-use solana_program::pubkey::Pubkey;
 
 impl_borsh_sized!(u8, 1);
 impl_borsh_sized!(u16, 2);
@@ -172,10 +174,66 @@ pub fn slice_to_array<N: Default + Copy, const SIZE: usize>(s: &[N]) -> [N; SIZE
     a
 }
 
+/// `BTreeMap` that serializes to a fixed size (`SIZE`) with a maximum entry count (`COUNT`)
+pub struct ElusivBTreeMap<K, V, const COUNT: usize>(BTreeMap<K, V>) where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized;
+
+impl<K, V, const COUNT: usize> BorshSerDeSized for ElusivBTreeMap<K, V, COUNT>
+where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized {
+    const SIZE: usize = (K::SIZE + V::SIZE) * COUNT + 4;
+}
+
+impl<K, V, const COUNT: usize> BorshDeserialize for ElusivBTreeMap<K, V, COUNT>
+where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized {
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        assert_eq!(buf.len(), Self::SIZE);
+        
+        let len = 4 + u32::try_from_slice(&buf[..4])? as usize * (K::SIZE + V::SIZE);
+        let map = <BTreeMap<K, V>>::try_from_slice(&buf[..len])?;
+        *buf = &buf[Self::SIZE..];
+
+        Ok(Self(map))
+    }
+}
+
+impl<K, V, const COUNT: usize> BorshSerialize for ElusivBTreeMap<K, V, COUNT>
+where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        let v = self.0.try_to_vec()?;
+        writer.write_all(&v)?;
+        writer.write_all(&vec![0; Self::SIZE - v.len()])?;
+        Ok(())
+    }
+}
+
+impl<K, V, const COUNT: usize> ElusivBTreeMap<K, V, COUNT>
+where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    pub fn try_insert(&mut self, k: K, v: V) -> ElusivResult {
+        if self.0.len() >= COUNT {
+            return Err(ElusivError::NoRoomForNullifier)
+        }
+        self.0.insert(k, v);
+        Ok(())
+    }
+
+    pub fn remove(&mut self, k: &K) {
+        self.0.remove(k);
+    }
+
+    pub fn contains_key(&self, k: &K) -> bool {
+        self.0.contains_key(k)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{macros::BorshSerDeSized, types::U256};
+    use assert_matches::assert_matches;
 
     #[test]
     fn test_max() {
@@ -295,5 +353,36 @@ mod tests {
         assert_eq!(A::SIZE, 11);
         assert_eq!(B::SIZE, 33);
         assert_eq!(C::SIZE, 11 + 33 + 1);
+    }
+
+    #[test]
+    fn test_elusiv_map_ser_de() {
+        type T = ElusivBTreeMap<U256, u64, 100>;
+
+        assert_eq!(T::SIZE, 100 * (32 + 8) + 4);
+
+        let mut map = T::new();
+        assert_eq!(map.try_to_vec().unwrap().len(), T::SIZE);
+
+        map.try_insert([1; 32], 22).unwrap();
+        map.try_insert([3; 32], 444).unwrap();
+        let v = map.try_to_vec().unwrap();
+
+        assert_eq!(v.len(), T::SIZE);
+        assert_eq!(T::try_from_slice(&v[..]).unwrap().0, map.0);
+    }
+
+    #[test]
+    fn test_elusiv_map() {
+        let mut map: ElusivBTreeMap<[u32; 32], u32, 10> = ElusivBTreeMap::new();
+
+        map.try_insert([1; 32], 123).unwrap();
+        assert_eq!(*map.0.get(&[1; 32]).unwrap(), 123);
+
+        for i in 0..10 {
+            map.try_insert([i; 32], i).unwrap();
+        } 
+
+        assert_matches!(map.try_insert([10; 32], 123), Err(_));
     }
 }
