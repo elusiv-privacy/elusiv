@@ -410,6 +410,13 @@ pub fn u256_from_str(str: &str) -> U256 {
 }
 
 #[cfg(test)]
+pub fn u256_from_str_repr(str: &str) -> U256 {
+    use std::str::FromStr;
+    use crate::fields::fr_to_u256_le_repr;
+    fr_to_u256_le_repr(&ark_bn254::Fr::from_str(str).unwrap())
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::{mt_array_index, EMPTY_TREE};

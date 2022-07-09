@@ -309,6 +309,18 @@ pub fn fr_to_u256_le(fr: &Fr) -> U256 {
     slice_to_array::<u8, 32>(&s)
 }
 
+pub fn fr_to_u256_le_repr(fr: &Fr) -> U256 {
+    let b = fr.into_repr().0;
+    let mut v = [0; 32];
+    for i in 0..4 {
+        let b = u64::to_le_bytes(b[i]);
+        for j in 0..8 {
+            v[i * 8 + j] = b[j];
+        }
+    }
+    v
+}
+
 pub fn u256_to_big_uint(v: &U256) -> BigInteger256 {
     BigInteger256(u256_to_le_limbs(*v))
 }
@@ -320,6 +332,10 @@ pub fn big_uint_to_u256(v: &BigInteger256) -> U256 {
 
 pub fn u64_to_scalar(v: u64) -> Fr {
     Fr::from_repr(BigInteger256::from(v)).unwrap()
+}
+
+pub fn u64_to_u256(v: u64) -> U256 {
+    fr_to_u256_le(&u64_to_scalar(v))
 }
 
 #[cfg(test)]
