@@ -48,6 +48,7 @@ pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
 
     quote! {
         impl elusiv_computation::PartialComputation<#size> for #id {
+            const TX_COUNT: usize = #size;
             const INSTRUCTION_ROUNDS: [u8; #size] = [ #instructions ];
             const TOTAL_ROUNDS: u32 = #total_rounds;
             const TOTAL_COMPUTE_UNITS: u32 = #total_compute_units;

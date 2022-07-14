@@ -13,7 +13,7 @@ pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 /// The advantage of `ElusivOption` over `Option` is fixed serialization length
 pub enum ElusivOption<N> {
     Some(N),
@@ -77,6 +77,10 @@ impl<T: BorshSerDeSized> BorshSerDeSized for ElusivOption<T> {
 
 impl BorshSerDeSized for Pubkey {
     const SIZE: usize = 32;
+}
+
+impl BorshSerDeSized for () {
+    const SIZE: usize = 0;
 }
 
 pub const fn max(a: usize, b: usize) -> usize {
@@ -175,6 +179,7 @@ pub fn slice_to_array<N: Default + Copy, const SIZE: usize>(s: &[N]) -> [N; SIZE
 }
 
 /// `BTreeMap` that serializes to a fixed size (`SIZE`) with a maximum entry count (`COUNT`)
+#[derive(Clone)]
 pub struct ElusivBTreeMap<K, V, const COUNT: usize>(BTreeMap<K, V>) where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized;
 
 impl<K, V, const COUNT: usize> BorshSerDeSized for ElusivBTreeMap<K, V, COUNT>
@@ -207,6 +212,8 @@ where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized {
 
 impl<K, V, const COUNT: usize> ElusivBTreeMap<K, V, COUNT>
 where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized {
+    pub const MAX_ELEMENTS_COUNT: usize = COUNT;
+
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self(BTreeMap::new())
@@ -226,6 +233,15 @@ where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized {
 
     pub fn contains_key(&self, k: &K) -> bool {
         self.0.contains_key(k)
+    }
+
+    pub fn get(&self, k: &K) -> Option<&V> {
+        self.0.get(k)
+    }
+
+    #[allow(clippy::len_without_is_empty)] 
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 }
 

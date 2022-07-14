@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use crate::macros::{elusiv_account, two_pow, guard};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
@@ -12,10 +11,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
 
 /// We store nullifiers with the `NullifierMap` data structure for efficient searching and later N-SMT construction
-pub type NullifierMap = BTreeMap<U256Limbed2, ()>;
+pub type NullifierMap = ElusivBTreeMap<U256Limbed2, (), NULLIFIERS_PER_ACCOUNT>;
 
 const NULLIFIERS_PER_ACCOUNT: usize = two_pow!(18);
-const ACCOUNT_SIZE: usize = SUB_ACCOUNT_ADDITIONAL_SIZE + 4 + NULLIFIERS_PER_ACCOUNT * U256::SIZE;
+const ACCOUNT_SIZE: usize = NullifierMap::SIZE + SUB_ACCOUNT_ADDITIONAL_SIZE;
 const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling(NULLIFIERS_COUNT as u64, NULLIFIERS_PER_ACCOUNT as u64));
 const_assert_eq!(ACCOUNTS_COUNT, 4);
 
@@ -53,8 +52,7 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
             let repr = U256Limbed2::from(nullifier);
             for i in 0..=nmap_index {
                 match self.execute_on_sub_account::<_, _, ProgramError>(i, |data| {
-                    let size = u32::try_from_slice(&data[..4])?;
-                    let map = NullifierMap::try_from_slice(&data[..size as usize * 32 + 4])?;
+                    let map = NullifierMap::try_from_slice(data)?;
                     if map.contains_key(&repr) { return Ok(Some(false)) }
                     Ok(None)
                 })? {
@@ -78,9 +76,8 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
         self.set_nullifiers_count(&(count + 1));
 
         self.execute_on_sub_account::<_, _, ProgramError>(account_index, |data| {
-            let size = u32::try_from_slice(&data[..4])?;
-            let mut map = NullifierMap::try_from_slice(&data[..size as usize * 32 + 4])?;
-            map.insert(U256Limbed2::from(nullifier), ());
+            let mut map = NullifierMap::try_from_slice(data)?;
+            map.try_insert(U256Limbed2::from(nullifier), ())?;
 
             let new_data = map.try_to_vec().unwrap();
             data[..new_data.len()].copy_from_slice(&new_data[..]);
@@ -176,11 +173,11 @@ mod tests {
         assert!(nullifier_account.can_insert_nullifier_hash([0; 32]).unwrap());
 
         let mut map = NullifierMap::new();
-        map.insert([0; 32].into(), ());
+        map.try_insert([0; 32].into(), ()).unwrap();
 
         let mut map1 = NullifierMap::new();
-        map1.insert([1; 32].into(), ());
-        map1.insert([2; 32].into(), ());
+        map1.try_insert([1; 32].into(), ()).unwrap();
+        map1.try_insert([2; 32].into(), ()).unwrap();
 
         nullifier_account!(mut nullifier_account, [
             map.clone(),

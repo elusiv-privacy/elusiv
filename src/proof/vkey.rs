@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn test_vkeys() {
-        test_vkey::<SendDecaVKey>();
+        test_vkey::<SendQuadraVKey>();
         test_vkey::<MigrateUnaryVKey>();
     }
 

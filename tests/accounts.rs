@@ -46,9 +46,9 @@ macro_rules! assert_account {
 }
 
 #[tokio::test]
-async fn test_setup_pda_accounts() {
+async fn test_setup_initial_accounts() {
     let mut context = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
 
     assert_account!(GovernorAccount, context, None);
     assert_account!(FeeAccount, context, Some(0));
@@ -62,10 +62,10 @@ async fn test_setup_pda_accounts() {
 
 #[tokio::test]
 #[should_panic]
-async fn test_setup_pda_accounts_duplicate() {
+async fn test_setup_initial_accounts_duplicate() {
     let mut context = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut context).await;
-    setup_pda_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
 }
 
 #[tokio::test]
@@ -75,7 +75,7 @@ async fn test_setup_fee_account() {
 
     ix_should_succeed(
         ElusivInstruction::setup_governor_account_instruction(
-            SignerAccount(payer.pubkey),
+            WritableSignerAccount(payer.pubkey),
             WritableUserAccount(GovernorAccount::find(None).0)
         ), &mut payer, &mut context
     ).await;
@@ -85,7 +85,7 @@ async fn test_setup_fee_account() {
 
     // Second time will fail
     ix_should_fail(
-        ElusivInstruction::init_new_fee_version_instruction(0, genesis_fee.clone(), SignerAccount(payer.pubkey)),
+        ElusivInstruction::init_new_fee_version_instruction(0, genesis_fee.clone(), WritableSignerAccount(payer.pubkey)),
         &mut payer, &mut context
     ).await;
     
@@ -97,7 +97,7 @@ async fn test_setup_fee_account() {
 
     // Attempting to set a version higher than genesis (0) will fail
     ix_should_fail(
-        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee.clone(), SignerAccount(payer.pubkey)),
+        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee.clone(), WritableSignerAccount(payer.pubkey)),
         &mut payer, &mut context
     ).await;
 
@@ -107,7 +107,7 @@ async fn test_setup_fee_account() {
     });
 
     ix_should_succeed(
-        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee, SignerAccount(payer.pubkey)),
+        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee, WritableSignerAccount(payer.pubkey)),
         &mut payer, &mut context
     ).await;
 }
@@ -120,7 +120,7 @@ async fn test_setup_pda_accounts_invalid_pda() {
     ix_should_fail(
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::CommitmentQueueAccount,
-            SignerAccount(payer.pubkey),
+            WritableSignerAccount(payer.pubkey),
             WritableUserAccount(BaseCommitmentQueueAccount::find(None).0)
         ),
         &mut payer, &mut context
@@ -154,7 +154,7 @@ async fn test_setup_storage_account_duplicate() {
     tx_should_fail(&[
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::StorageAccount,
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
             WritableUserAccount(StorageAccount::find(None).0),
         )
     ], &mut client, &mut context).await;
@@ -172,6 +172,8 @@ async fn test_open_new_merkle_tree() {
             let pks: Vec<Pubkey> = nullfier_account.get_multi_account_data().pubkeys.iter().map(|p| p.option().unwrap()).collect();
             assert_eq!(keys, pks);
         }).await;
+
+        // TODO: Check that nullifier map has been setup
     }
 }
 
@@ -186,7 +188,7 @@ async fn test_open_new_merkle_tree_duplicate() {
         ElusivInstruction::open_multi_instance_account_instruction(
             MultiInstancePDAAccountKind::NullifierAccount,
             0,
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
             WritableUserAccount(StorageAccount::find(Some(0)).0),
         )
     ], &mut client, &mut context).await;
@@ -202,7 +204,7 @@ async fn test_open_new_merkle_tree_duplicate() {
 async fn test_reset_merkle_tree() {
     let mut context = start_program_solana_program_test().await;
     let mut client = Actor::new(&mut context).await;
-    setup_pda_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
     setup_storage_account(&mut context).await;
 
     create_merkle_tree(&mut context, 0).await;
@@ -280,13 +282,13 @@ async fn test_reset_merkle_tree() {
 async fn test_global_sub_account_duplicates() {
     let mut context = start_program_solana_program_test().await;
     let mut client = Actor::new(&mut context).await;
-    setup_pda_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
 
     // Open storage account
     ix_should_succeed(
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::StorageAccount,
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
             WritableUserAccount(StorageAccount::find(None).0)
         ), &mut client, &mut context
     ).await;
@@ -295,7 +297,7 @@ async fn test_global_sub_account_duplicates() {
         ElusivInstruction::open_multi_instance_account_instruction(
             MultiInstancePDAAccountKind::NullifierAccount,
             mt_index,
-            SignerAccount(pk),
+            WritableSignerAccount(pk),
             WritableUserAccount(NullifierAccount::find(Some(mt_index)).0)
         )
     }

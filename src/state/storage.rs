@@ -116,8 +116,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: U256) -> bool {
-        let max_history_roots = max(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
-        root == self.get_root() || contains(root, &self.active_mt_root_history[..max_history_roots * 32])
+        let max_history_roots = std::cmp::min(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
+        root == self.get_root() || (max_history_roots > 0 && contains(root, &self.active_mt_root_history[..max_history_roots * 32]))
     }
 
     #[allow(clippy::needless_range_loop)]
@@ -145,8 +145,7 @@ fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
     next_leaf_ptr == 0 || index > (next_leaf_ptr - 1) >> level_inv
 }
 
-
-/// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes
+/// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes (`EMPTY_TREE[MT_HEIGHT]` is the root)
 pub const EMPTY_TREE: [U256; MT_HEIGHT as usize + 1] = [
     [130, 154, 1, 250, 228, 248, 226, 43, 27, 76, 165, 173, 91, 84, 165, 131, 78, 224, 152, 167, 123, 115, 91, 213, 116, 49, 167, 101, 109, 41, 161, 8],
     [80, 180, 254, 174, 183, 151, 82, 229, 123, 24, 44, 98, 7, 166, 152, 78, 191, 94, 109, 201, 215, 229, 108, 66, 136, 150, 102, 80, 152, 67, 183, 24],
@@ -306,5 +305,12 @@ mod tests {
             hash = full_poseidon2_hash(hash, u256_to_fr(&EMPTY_TREE[i]));
         }
         assert_eq!(hash, Fr::from_str("2405070960812791252603303680410822171263982421393937538616415344325138142909").unwrap());
+    }
+
+    #[test]
+    fn test_is_root_valid() {
+        storage_account!(storage_account);
+        assert!(storage_account.is_root_valid(EMPTY_TREE[MT_HEIGHT as usize]));
+        assert!(!storage_account.is_root_valid([0; 32]));
     }
 }

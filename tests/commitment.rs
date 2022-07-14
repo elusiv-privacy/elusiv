@@ -52,7 +52,7 @@ fn requests(batching_rate: u32) -> Vec<BaseCommitmentHashRequest> {
 
 async fn setup_commitment_tests() -> (ProgramTestContext, Actor) {
     let mut context = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
     let client = Actor::new(&mut context).await;
 
     (context, client)
@@ -80,7 +80,7 @@ async fn test_base_commitment() {
     let store_ix = ElusivInstruction::store_base_commitment_instruction(
         0,
         requests[0].clone(),
-        SignerAccount(client.pubkey),
+        WritableSignerAccount(client.pubkey),
     );
     ix_should_fail(store_ix.clone(), &mut client, &mut context).await;
 
@@ -139,7 +139,7 @@ async fn test_base_commitment() {
     ix_should_succeed(ElusivInstruction::store_base_commitment_instruction(
         0,
         requests[1].clone(),
-        SignerAccount(client.pubkey),
+        WritableSignerAccount(client.pubkey),
     ), &mut client, &mut context).await;
 
     assert_eq!(0, client.balance(&mut context).await);
@@ -165,7 +165,7 @@ async fn test_base_commitment() {
         ElusivInstruction::init_base_commitment_hash_instruction(
             0,
             0,
-            SignerAccount(relayer_a.pubkey)
+            WritableSignerAccount(relayer_a.pubkey)
         ),
         &mut relayer_a, &mut context,
     ).await;
@@ -183,7 +183,7 @@ async fn test_base_commitment() {
         ElusivInstruction::init_base_commitment_hash_instruction(
             0,
             0,
-            SignerAccount(relayer_b.pubkey)
+            WritableSignerAccount(relayer_b.pubkey)
         ),
         &mut relayer_b, &mut context,
     ).await;
@@ -193,7 +193,7 @@ async fn test_base_commitment() {
         ElusivInstruction::init_base_commitment_hash_instruction(
             0,
             1,
-            SignerAccount(relayer_b.pubkey)
+            WritableSignerAccount(relayer_b.pubkey)
         ),
         &mut relayer_b, &mut context,
     ).await;
@@ -214,7 +214,7 @@ async fn test_base_commitment() {
         0,
         0,
         0,
-        SignerAccount(relayer_a.pubkey),
+        WritableSignerAccount(relayer_a.pubkey),
     );
     let finalize_ix = ElusivInstruction::finalize_base_commitment_hash_instruction(
         0,
@@ -223,7 +223,7 @@ async fn test_base_commitment() {
 
     // Compute each base_commitment_hash
     let hash_reward = fee.relayer_hash_tx_fee;
-    for i in 0..BaseCommitmentHashComputation::COUNT {
+    for i in 0..BaseCommitmentHashComputation::IX_COUNT {
         // Finalization will always fail before completion
         ix_should_fail(finalize_ix.clone(), &mut relayer_a, &mut context).await;
 
@@ -305,7 +305,7 @@ async fn test_base_commitment() {
     // - in the real world the relayer will combine the finalize tx with some other ix (like init commitment + hash)
     // - check that rent has been sent to A and not B, since B called finalize
     assert_eq!(
-        hash_reward * BaseCommitmentHashComputation::COUNT as u64 + rent,
+        hash_reward * BaseCommitmentHashComputation::IX_COUNT as u64 + rent,
         relayer_a.balance(&mut context).await
     );
 
@@ -338,7 +338,7 @@ async fn test_base_commitment_store_invalid_inputs() {
         ElusivInstruction::store_base_commitment_instruction(
             1000,
             request.clone(),
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
         ),
 
         // Invalid fee-version
@@ -351,7 +351,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 1,
                 min_batching_rate: 0,
             },
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
         ),
 
         // Invalid min_batching_rate
@@ -364,7 +364,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 0,
                 min_batching_rate: 1,
             },
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
         ),
 
         // Amount too low
@@ -377,7 +377,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 0,
                 min_batching_rate: 0,
             },
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
         ),
 
         // Amount too high
@@ -390,7 +390,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 0,
                 min_batching_rate: 0,
             },
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
         ),
 
         // Non-scalar base-commitment
@@ -403,7 +403,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 0,
                 min_batching_rate: 0,
             },
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
         ),
         
         // Non-scalar commitment
@@ -416,7 +416,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 fee_version: 0,
                 min_batching_rate: 0,
             },
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
         ),
     ];
 
@@ -429,7 +429,7 @@ async fn test_base_commitment_store_invalid_inputs() {
         ElusivInstruction::store_base_commitment_instruction(
             0,
             request.clone(),
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
         ), &mut client, &mut context
     ).await;
 }
@@ -447,7 +447,7 @@ async fn test_base_commitment_accounts_fuzzing() {
         ElusivInstruction::store_base_commitment_instruction(
             0,
             request.clone(),
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
         ),
         &mut client, &mut context
     ).await;
@@ -458,7 +458,7 @@ async fn test_base_commitment_accounts_fuzzing() {
         ElusivInstruction::init_base_commitment_hash_instruction(
             0,
             1,
-            SignerAccount(relayer_a.pubkey),
+            WritableSignerAccount(relayer_a.pubkey),
         ),
         &mut relayer_a,
         &mut context
@@ -469,7 +469,7 @@ async fn test_base_commitment_accounts_fuzzing() {
         1,
         0,
         0,
-        SignerAccount(relayer_a.pubkey),
+        WritableSignerAccount(relayer_a.pubkey),
     );
     test_instruction_fuzzing(
         &[
@@ -518,7 +518,7 @@ async fn test_base_commitment_full_queue() {
     let ix = ElusivInstruction::store_base_commitment_instruction(
         0,
         requests[0].clone(),
-        SignerAccount(client.pubkey),
+        WritableSignerAccount(client.pubkey),
     );
 
     client.airdrop(LAMPORTS_PER_SOL * 2, &mut context).await;
@@ -625,7 +625,7 @@ async fn test_single_commitment() {
     let compute_ix = ElusivInstruction::compute_commitment_hash_instruction(
         0,
         0,
-        SignerAccount(relayer_b.pubkey),
+        WritableSignerAccount(relayer_b.pubkey),
     );
 
     // Computation
@@ -707,7 +707,7 @@ async fn set_finished_base_commitment_hash(
     let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
     {
         let mut hashing_account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
-        hashing_account.set_instruction(&(BaseCommitmentHashComputation::COUNT as u32));
+        hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
         hashing_account.set_state(&BinarySpongeHashingState([u256_to_fr(commitment), Fr::zero(), Fr::zero()]));
         hashing_account.set_fee_payer(&original_fee_payer.to_bytes());
     }
@@ -906,7 +906,7 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
                     ElusivInstruction::compute_commitment_hash_instruction(
                         0,
                         0,
-                        SignerAccount(client.pubkey)
+                        WritableSignerAccount(client.pubkey)
                     ),
                 ],
                 &mut client, &mut context
@@ -980,7 +980,7 @@ async fn test_commitment_hash_with_batching_rate(
                 ElusivInstruction::compute_commitment_hash_instruction(
                     0,
                     0,
-                    SignerAccount(client.pubkey)
+                    WritableSignerAccount(client.pubkey)
                 ),
             ],
             &mut client, &mut context

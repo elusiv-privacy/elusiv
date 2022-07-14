@@ -3,6 +3,7 @@ mod grammar;
 mod parser;
 mod storage;
 
+use elusiv_utils::batched_instructions_tx_count;
 use parser::try_parse_usize;
 use proc_macro::TokenStream;
 use proc_macro2::{ TokenTree, Delimiter, TokenTree::* };
@@ -126,11 +127,13 @@ fn impl_mult_step_computations(stream: proc_macro2::TokenStream) -> proc_macro2:
                     let rounds: proc_macro2::TokenStream = rounds.to_string().parse().unwrap();
                     quote! { #acc #rounds, }
                 });
+            let tx_count = batched_instructions_tx_count(optimization.instructions.len(), compute_budget);
 
             quote! {
                 pub struct #computation_name { }
 
                 impl elusiv_computation::PartialComputation<#size> for #computation_name {
+                    const TX_COUNT: usize = #tx_count;
                     const INSTRUCTION_ROUNDS: [u8; #size] = [ #instructions ];
                     const TOTAL_ROUNDS: u32 = #total_rounds;
                     const TOTAL_COMPUTE_UNITS: u32 = #total_compute_units;

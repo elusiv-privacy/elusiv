@@ -2,11 +2,13 @@ extern crate proc_macro;
 
 mod elusiv_instruction;
 mod borsh_serde_sized;
+mod enum_variant;
 mod utils;
 
 use syn::{ parse_macro_input, DeriveInput };
 use elusiv_instruction::*;
 use borsh_serde_sized::*;
+use enum_variant::*;
 
 /// Instructions account parsing
 /// 
@@ -25,11 +27,14 @@ use borsh_serde_sized::*;
 ///     - fields:
 ///         - `pda_offset`: you can specify fields contained in the data of previous account or the instruction itself
 ///         - `key`: address of the program (`sys`)
-///     - extra_attributes (always in the following order)
+///     - extra_attributes:
 ///         - `signer`
 ///         - `writable`
+///         - `find_pda`: does a PDA verification with a pda_offset but with unknown runtime, since no bump is supplied (used for reting new PDAs)
 ///         - `multi_accounts`: the `Type` has to implement the `crate::state::program_account::MultiAccountAccount` trait and `Type::COUNT + 1` accounts will be required
 ///         - `account_info`: returns an `AccountInfo` object (only relevant for PDAs)
+///         - `no_sub_account_check`: **SKIPS THE PUBKEY VERIFICATION of the sub-accounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)**
+///         - `ignore_sub_accounts`: ignores all sub-accounts of a multi-account
 /// 
 /// # Usage
 /// ```
@@ -51,4 +56,10 @@ pub fn elusiv_instruction(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 pub fn borsh_serde_sized(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     impl_borsh_serde_sized(&ast).into()
+}
+
+#[proc_macro_derive(EnumVariantIndex)]
+pub fn enum_variant_index(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    impl_enum_variant_index(&ast).into()
 }

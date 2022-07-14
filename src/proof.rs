@@ -4,16 +4,17 @@ pub mod verifier;
 
 use borsh::{BorshSerialize, BorshDeserialize};
 use elusiv_computation::RAM;
-use elusiv_derive::BorshSerDeSized;
+use elusiv_derive::{BorshSerDeSized, EnumVariantIndex};
 use solana_program::entrypoint::ProgramResult;
+use solana_program::program_error::ProgramError;
 pub use verifier::*;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12};
 use ark_ff::BigInteger256;
 use vkey::VerificationKey;
 use crate::error::ElusivError;
 use crate::processor::ProofRequest;
-use crate::state::program_account::{SizedAccount, PDAAccountData, SUB_ACCOUNT_ADDITIONAL_SIZE, MultiAccountAccountData};
-use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof, Lazy, RawProof, U256Limbed2};
+use crate::state::program_account::{SizedAccount, PDAAccountData, SUB_ACCOUNT_ADDITIONAL_SIZE, MultiAccountAccountData, MultiAccountAccount};
+use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, Proof, Lazy, U256Limbed2};
 use crate::fields::{Wrap, G1A, G2A, G2HomProjective};
 use crate::macros::{elusiv_account, guard};
 use crate::bytes::{BorshSerDeSized, ElusivOption, usize_as_u32_safe, ElusivBTreeMap};
@@ -25,6 +26,22 @@ pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 7>;
 pub type RAMG2A<'a> = LazyRAM<'a, G2A, 1>;
 
 const MAX_PREPARE_INPUTS_INSTRUCTIONS: usize = MAX_PUBLIC_INPUTS_COUNT * 10;
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, EnumVariantIndex, Debug)]
+/// Describes the state of the proof-verification setup
+/// - after the `PublicInputsSetup` state has been reached (`is_setup() == true`), the computation can start (but before the miller loop `ProofSetup` has to be reached)
+pub enum VerificationSetupState {
+    None,
+    NullifiersChecked,
+    PublicInputsSetup,
+    ProofSetup,
+}
+
+impl VerificationSetupState {
+    pub fn is_setup(&self) -> bool {
+        self.variant_index() >= Self::PublicInputsSetup.variant_index()
+    }
+}
 
 /// Account used for verifying proofs over the span of multiple transactions
 /// - exists only for verifying a single proof, closed afterwards
@@ -40,7 +57,7 @@ pub struct VerificationAccount {
 
     vkey: u8,
     step: VerificationStep,
-    is_setup: bool,
+    setup_state: VerificationSetupState,
 
     // Public inputs
     public_input: [Wrap<BigInteger256>; MAX_PUBLIC_INPUTS_COUNT],
@@ -83,7 +100,6 @@ impl<'a> VerificationAccount<'a> {
     pub fn setup(
         &mut self,
         public_inputs: &[U256],
-        proof: RawProof,
         instructions: &Vec<u32>,
         vkey: u8,
         data: VerificationAccountData,
@@ -91,18 +107,8 @@ impl<'a> VerificationAccount<'a> {
         self.set_other_data(&data);
         self.set_vkey(&vkey);
 
-        // Save proof
-        let proof: Proof = proof.into();
-
-        self.a.set_serialize(&proof.a);
-        self.b.set_serialize(&proof.b);
-        self.c.set_serialize(&proof.c);
-
         // Temporarily save raw prepared inputs
-        for (i, &public_input) in public_inputs.iter().enumerate() {
-            let offset = i * 32;
-            self.public_input[offset..(32 + offset)].copy_from_slice(&public_input[..32]);
-        }
+        self.save_raw_public_inputs(public_inputs);
 
         // Setup input preparation instructions
         self.setup_public_inputs_instructions(instructions)?;
@@ -110,6 +116,13 @@ impl<'a> VerificationAccount<'a> {
         self.serialize_rams()?;
 
         Ok(())
+    }
+
+    pub fn save_raw_public_inputs(&mut self, raw_public_inputs: &[U256]) {
+        for (i, &public_input) in raw_public_inputs.iter().enumerate() {
+            let offset = i * 32;
+            self.public_input[offset..(32 + offset)].copy_from_slice(&public_input[..32]);
+        }
     }
 
     pub fn setup_public_inputs_instructions(
@@ -225,22 +238,68 @@ where Wrap<N>: BorshSerDeSized
     }
 }
 
-type PendingNullifierHashesMap = ElusivBTreeMap<U256Limbed2, u64, 4096>;
+/// Maps a two-limb `nullifier_hash` onto the amount of additional active verifications using this `nullifier_hash`
+/// - in general the amount of additional verifications should always be 0
+/// - the pending-nullifier-hash functionality is introduced to eliminate the possibility of bad-clients to drain the balance of relayers
+pub type PendingNullifierHashesMap = ElusivBTreeMap<U256Limbed2, u8, 256>;
 const PENDING_NULLIFIER_ACCOUNT_SIZE: usize = PendingNullifierHashesMap::SIZE + SUB_ACCOUNT_ADDITIONAL_SIZE;
 
 /// All `nullifier_hashes` that are currently being verifyied for a MT with with same `pda_offset` are mapped to the according verification account `pda_offset`
 /// - Note: this `multi_account` only uses one pubkey
 /// - the role of this account is to protect relayers against attacks done by submitting multiple identical proofs
-#[elusiv_account(pda_seed = b"active_proofs", multi_account = (U256; 1; PENDING_NULLIFIER_ACCOUNT_SIZE))]
+#[elusiv_account(pda_seed = b"active_verifications", multi_account = (U256; 1; PENDING_NULLIFIER_ACCOUNT_SIZE))]
 pub struct PendingNullifierHashesAccount {
     pda_data: PDAAccountData,
     multi_account_data: MultiAccountAccountData<1>,
 }
 
+impl<'a, 'b, 't> PendingNullifierHashesAccount<'a, 'b, 't> {
+    pub fn try_insert(&mut self,
+        nullifier_hashes: &[U256],
+        ignore_duplicates: bool,
+    ) -> ProgramResult {
+        self.execute_on_sub_account::<_, _, ProgramError>(0, |data| {
+            let mut map = PendingNullifierHashesMap::try_from_slice(data)?;
+
+            for nullifier_hash in nullifier_hashes {
+                let key = U256Limbed2::from(*nullifier_hash);
+                match map.get(&key) {
+                    Some(&v) => {
+                        if !ignore_duplicates {
+                            return Err(ElusivError::NullifierAlreadyExists.into())
+                        }
+
+                        map.try_insert(key, v + 1).or(Err(ElusivError::NoRoomForNullifier))?;
+                    },
+                    None => {
+                        map.try_insert(key, 1).or(Err(ElusivError::NoRoomForNullifier))?;
+                    }
+                }
+            }
+
+            let new_data = map.try_to_vec().unwrap();
+            data[..new_data.len()].copy_from_slice(&new_data[..]);
+
+            Ok(())
+        })?;
+
+        if cfg!(test) {
+            for nullifier_hash in nullifier_hashes {
+                self.modify(self.modifications.len(), *nullifier_hash);
+            }
+        }
+        
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
+    use solana_program::pubkey::Pubkey;
+
     use super::*;
-    use crate::state::program_account::ProgramAccount;
+    use crate::{state::{program_account::{ProgramAccount, MultiAccountProgramAccount, SubAccount}}, macros::{account, hash_map}, commitment::u256_from_str};
 
     #[test]
     fn test_verification_account_setup() {
@@ -257,6 +316,12 @@ mod tests {
     #[test]
     #[ignore]
     fn test_setup_public_inputs_instructions() {
+        panic!()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_setup_proof() {
         panic!()
     }
 
@@ -311,5 +376,42 @@ mod tests {
         ram.check_vector_size(2);
         assert_eq!(ram.data.len(), 3);
         assert_eq!(ram.changes.len(), 3);
+    }
+
+    #[test]
+    fn test_try_insert() {
+        let pk = Pubkey::new_unique();
+        account!(pending_nullifier_map, pk, vec![0; PendingNullifierHashesAccount::ACCOUNT_SIZE]);
+        let mut data = vec![0; PendingNullifierHashesAccount::SIZE];
+        hash_map!(acc, (0usize, &pending_nullifier_map));
+        let mut pending_nullifier_hashes = PendingNullifierHashesAccount::new(&mut data, acc).unwrap();
+
+        assert_matches!(
+            pending_nullifier_hashes.try_insert(&[u256_from_str("0")], false),
+            Ok(())
+        );
+
+        // Duplicate nullifier hash
+        let mut data = vec![0; PendingNullifierHashesAccount::ACCOUNT_SIZE];
+        let sub_account = SubAccount::new(&mut data);
+        let mut map = PendingNullifierHashesMap::try_from_slice(sub_account.data).unwrap();
+        map.try_insert(U256Limbed2::from(u256_from_str("123")), 0).unwrap();
+        let mut data = vec![1];
+        map.serialize(&mut data).unwrap();
+        account!(pending_nullifier_map, pk, data);
+        hash_map!(acc, (0usize, &pending_nullifier_map));
+        let mut data = vec![0; PendingNullifierHashesAccount::SIZE];
+        let mut pending_nullifier_hashes = PendingNullifierHashesAccount::new(&mut data, acc).unwrap();
+
+        assert_matches!(
+            pending_nullifier_hashes.try_insert(&[u256_from_str("123")], false),
+            Err(_)
+        );
+
+        // Ignore duplicate
+        assert_matches!(
+            pending_nullifier_hashes.try_insert(&[u256_from_str("123")], true),
+            Ok(())
+        );
     }
 }

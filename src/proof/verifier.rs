@@ -16,7 +16,7 @@ use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWra
 use ark_ff::{Field, CubicExtParameters, One, Zero, biginteger::BigInteger256, field_new};
 use ark_ec::models::bn::BnParameters;
 use crate::bytes::usize_as_u8_safe;
-use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError, CouldNotProcessProof};
+use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError, CouldNotProcessProof, InvalidAccountState};
 use crate::error::ElusivResult;
 use crate::fields::G2HomProjective;
 use super::*;
@@ -42,6 +42,9 @@ pub fn verify_partial<VKey: VerificationKey>(
             verifier_account.serialize_rams().unwrap();
         }
         VerificationStep::CombinedMillerLoop => {
+            // Proof first has to be setup
+            guard!(matches!(verifier_account.get_setup_state(), VerificationSetupState::ProofSetup), InvalidAccountState);
+
             combined_miller_loop::<VKey>(verifier_account, instruction, round)?;
             verifier_account.serialize_rams().unwrap();
         }
@@ -132,7 +135,7 @@ pub fn final_exponentiation<VKey: VerificationKey>(
     instruction: usize,
     round: usize,
 ) -> Result<Option<bool>, ElusivError> {
-    guard!(instruction < FinalExponentiation::COUNT, ComputationIsAlreadyFinished);
+    guard!(instruction < FinalExponentiation::IX_COUNT, ComputationIsAlreadyFinished);
 
     let rounds = FinalExponentiation::INSTRUCTION_ROUNDS[instruction] as usize;
 
@@ -166,6 +169,7 @@ macro_rules! read_g1_p{
 pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 257;
 
 /// Public input preparation
+/// - `prepared_inputs = \sum_{i = 0}ˆ{N} input_{i} gamma_abc_g1_{i}`
 /// - reference implementation: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L22
 /// - N public inputs (elements of the scalar field)
 /// - the total rounds required for preparation of all inputs is `PREPARE_PUBLIC_INPUTS_ROUNDS` * N
@@ -187,7 +191,7 @@ fn prepare_public_inputs_partial<VKey: VerificationKey>(
         let round = round % PREPARE_PUBLIC_INPUTS_ROUNDS;
         if round == 0 { acc = G1Projective::zero(); }
 
-        if round < PREPARE_PUBLIC_INPUTS_ROUNDS - 1 { // Standard ec scalar multiplication
+        if round < PREPARE_PUBLIC_INPUTS_ROUNDS - 1 { // Ec scalar multiplication (`input_{i} gamma_abc_g1_{i}`)
             if round < first_non_zero { continue }
     
             // Multiplication core
@@ -277,8 +281,8 @@ const_assert_eq!(COMBINED_ELL_ROUNDS_COUNT, 13);
 
 pub const COMBINED_MILLER_LOOP_IXS: usize = 153;
 pub const FINAL_EXPONENTIATION_IXS: usize = 16;
-const_assert_eq!(CombinedMillerLoop::COUNT, COMBINED_MILLER_LOOP_IXS);
-const_assert_eq!(FinalExponentiation::COUNT, FINAL_EXPONENTIATION_IXS);
+const_assert_eq!(CombinedMillerLoop::IX_COUNT, COMBINED_MILLER_LOOP_IXS);
+const_assert_eq!(FinalExponentiation::IX_COUNT, FINAL_EXPONENTIATION_IXS);
 
 elusiv_computations!(
     // For the `combined_miller_loop` we use 4 instructions with each 350_000 compute units
@@ -908,6 +912,7 @@ mod tests {
         storage.a.set_serialize(&proof.a);
         storage.b.set_serialize(&proof.b);
         storage.c.set_serialize(&proof.c);
+        storage.set_setup_state(&VerificationSetupState::ProofSetup);
 
         for (i, &public_input) in public_inputs.iter().enumerate() {
             storage.set_public_input(i, &Wrap(public_input));
@@ -948,7 +953,6 @@ mod tests {
             Fr::from_str("3932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
             Fr::from_str("932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
             Fr::from_str("455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("93269045529448236888352783906317764044134926538780366070347507990829997699").unwrap(),
             Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
             Fr::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
             Fr::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
@@ -958,17 +962,6 @@ mod tests {
             Fr::from_str("455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
             Fr::from_str("93269045529448236888352783906317764044134926538780366070347507990829997699").unwrap(),
             Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-            Fr::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
-            Fr::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-            Fr::from_str("3932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("93269045529448236888352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("3932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("93269045529448236888352783906317764044134926538780366070347507990829997699").unwrap(),
         ];
 
         // First version

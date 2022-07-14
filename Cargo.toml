@@ -37,11 +37,10 @@ ark-ec = { version = "=0.3.0", default-features = false }
 
 [dev-dependencies]
 elusiv = { path = ".", features = ["instruction-abi", "testing", "logging"] }
-elusiv-utils = { path = "./elusiv-utils" }
+elusiv-utils = { path = "./elusiv-utils", features = ["sdk"] }
 
 solana-program-test = "=1.9.26"
 solana-sdk = "=1.9.26"
-base64 = "0.13.0"
 
 log = "0.4.17"
 log4rs = "1.1.1"

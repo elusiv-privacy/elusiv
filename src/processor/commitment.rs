@@ -67,10 +67,13 @@ pub struct CommitmentHashRequest {
     pub min_batching_rate: u32,
 }
 
+/// poseidon(0, 0)
 const ZERO_BASE_COMMITMENT: Fr = Fr::new(BigInteger256::new([3162363550698150530, 9486080942857866267, 15374008727889305678, 621823773387469172]));
+/// poseidon(poseidon(0, 0), 0)
+pub const ZERO_COMMITMENT: U256 = [29,226,44,239,152,247,24,127,109,7,41,61,125,1,193,123,69,104,37,230,178,56,26,51,102,9,129,182,119,238,153,4];
 
 /// Stores a base commitment hash and takes the funds from the sender
-/// - computation: `commitment = h(base_commitment, amount)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
+/// - computation: `commitment = poseidon(base_commitment, amount)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
 #[allow(clippy::too_many_arguments)]
 pub fn store_base_commitment<'a>(
     sender: &AccountInfo<'a>,
@@ -169,7 +172,7 @@ pub fn finalize_base_commitment_hash<'a>(
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(hashing_account.get_fee_payer() == original_fee_payer.key.to_bytes(), InvalidAccount);
     guard!(
-        (hashing_account.get_instruction() as usize) == BaseCommitmentHashComputation::COUNT,
+        (hashing_account.get_instruction() as usize) == BaseCommitmentHashComputation::IX_COUNT,
         ComputationIsNotYetFinished
     );
 
@@ -277,16 +280,38 @@ pub fn finalize_commitment_hash(
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
+    use crate::commitment::poseidon_hash::full_poseidon2_hash;
     use crate::commitment::u256_from_str;
     use crate::fields::{big_uint_to_u256, SCALAR_MODULUS};
     use crate::state::{MT_HEIGHT, EMPTY_TREE, mt_array_index};
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::{zero_account, account, test_account_info, storage_account};
+    use ark_ff::Zero;
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
 
     // TODO: Switch to custom Result type and assert correct Err values
+
+    #[test]
+    fn test_zero_commitment() {
+        assert_eq!(
+            fr_to_u256_le(&Fr::from_str("10550412122474489085186760340904980499891544584677836768300371073631951867242").unwrap()),
+            ZERO_COMMITMENT
+        );
+
+        assert_eq!(
+            full_poseidon2_hash(full_poseidon2_hash(Fr::zero(), Fr::zero()), Fr::zero()),
+            u256_to_fr(&ZERO_COMMITMENT)
+        );
+
+        assert_eq!(
+            full_poseidon2_hash(Fr::zero(), Fr::zero()),
+            ZERO_BASE_COMMITMENT
+        );
+    }
 
     #[test]
     #[allow(clippy::vec_init_then_push)]
@@ -439,14 +464,14 @@ mod tests {
         // Inactive hashing account
         pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
             hashing_account.set_fee_payer(&fee_payer_pk.to_bytes());
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::COUNT as u32));
+            hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
         });
         assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
 
         // Invalid original fee payer
         pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
             hashing_account.set_is_active(&true);
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::COUNT as u32));
+            hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
         });
         assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
 
@@ -460,7 +485,7 @@ mod tests {
         pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
             hashing_account.set_fee_payer(&fee_payer_pk.to_bytes());
             hashing_account.set_is_active(&true);
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::COUNT as u32));
+            hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
         });
         
         // Commitment queue is full

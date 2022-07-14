@@ -4,6 +4,7 @@
 pub mod program_setup;
 pub mod log;
 
+use borsh::BorshDeserialize;
 use solana_program::{
     pubkey::Pubkey,
     instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL,
@@ -13,7 +14,7 @@ use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer}
 use assert_matches::assert_matches;
 use std::{str::FromStr};
 use ark_bn254::Fr;
-use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}};
+use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}, proof::{PendingNullifierHashesAccount, PendingNullifierHashesMap}};
 use elusiv::fields::{fr_to_u256_le};
 use elusiv::processor::{BaseCommitmentHashRequest};
 use elusiv::state::{StorageAccount, NullifierAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountData}};
@@ -26,6 +27,13 @@ pub struct Actor {
 
     // Due to the InvalidRentPayingAccount error, we need to give our client a starting balance (= zero)
     pub start_balance: u64,
+}
+
+impl Clone for Actor {
+    fn clone(&self) -> Self {
+        let keypair = Keypair::from_bytes(&self.keypair.to_bytes()).unwrap();
+        Actor { keypair, pubkey: self.pubkey, start_balance: self.start_balance }
+    }
 }
 
 impl Actor {
@@ -184,6 +192,23 @@ pub async fn nullifier_account<F>(
     f(&storage_account)
 }
 
+pub async fn pending_nullifiers_map_account(
+    mt_index: u64,
+    context: &mut ProgramTestContext,
+) -> Pubkey {
+    let data = get_data(context, PendingNullifierHashesAccount::find(Some(mt_index)).0).await;
+    elusiv::state::program_account::MultiAccountAccountData::<1>::new(&data).unwrap().pubkeys[0].option().unwrap()
+}
+
+pub async fn pending_nullifiers_map(
+    mt_index: u64,
+    context: &mut ProgramTestContext,
+) -> PendingNullifierHashesMap {
+    let pk = pending_nullifiers_map_account(mt_index, context).await;
+    let data = get_data(context, pk).await;
+    PendingNullifierHashesMap::try_from_slice(&data[1..]).unwrap()
+}
+
 #[allow(unused_imports)] pub(crate) use queue;
 #[allow(unused_imports)] pub(crate) use queue_mut;
 #[allow(unused_imports)] pub(crate) use pda_account;
@@ -243,11 +268,16 @@ pub fn nonce_instruction(ix: Instruction) -> Instruction {
     ix
 }
 
-/// Replaces all accounts through invalid accounts with valid data and lamports (except the signer accounts)
-pub async fn invalid_accounts_fuzzing(ix: &Instruction, context: &mut ProgramTestContext) -> Vec<Instruction> {
-    let mut ixs = Vec::new();
+/// Replaces all accounts through invalid accounts with valid data and lamports
+/// - returns the fuzzed instructions and accorsing signers
+pub async fn invalid_accounts_fuzzing(
+    ix: &Instruction,
+    context: &mut ProgramTestContext,
+    original_signer: &Actor,
+) -> Vec<(Instruction, Actor)> {
+    let mut result = Vec::new();
     for (i, acc) in ix.accounts.iter().enumerate() {
-        if acc.is_signer { continue }
+        let signer = if acc.is_signer { (*original_signer).clone() } else { Actor::new(context).await };
         let mut ix = ix.clone();
 
         // Clone data and lamports
@@ -264,9 +294,9 @@ pub async fn invalid_accounts_fuzzing(ix: &Instruction, context: &mut ProgramTes
             ix.accounts[i] = AccountMeta::new_readonly(new_pubkey, false);
         }
 
-        ixs.push(ix);
+        result.push((ix, signer));
     }
-    ixs
+    result
 }
 
 /// All fuzzed ix variants should fail and the original ix should afterwards succeed
@@ -279,13 +309,16 @@ pub async fn test_instruction_fuzzing(
 ) {
     let invalid_instructions = invalid_accounts_fuzzing(
         &valid_ix,
-        context
+        context,
+        signer,
     ).await;
 
-    for ix in invalid_instructions {
+    for (ix, signer) in invalid_instructions {
         let mut ixs = prefix_ixs.to_vec();
         ixs.push(ix);
-        tx_should_fail(&ixs, signer, context).await;
+
+        let mut signer = signer.clone();
+        tx_should_fail(&ixs, &mut signer, context).await;
     }
 
     let mut ixs = prefix_ixs.to_vec();
@@ -309,6 +342,7 @@ async fn generate_and_sign_tx(
         &[&signer.keypair],
         context.banks_client.get_latest_blockhash().await.unwrap()
     );
+
     tx
 }
 

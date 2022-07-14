@@ -10,10 +10,12 @@ pub enum ElusivError {
     InsufficientFunds,
     InvalidRecipient,
     InvalidAccount,
+    InvalidAccountState,
     InvalidAccountSize,
     InvalidAccountBalance,
     NonScalarValue,
     MissingSubAccount,
+    FeatureNotAvailable,
 
     SenderIsNotSigner,
     SenderIsNotWritable,

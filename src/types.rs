@@ -107,6 +107,8 @@ pub struct JoinSplitPublicInputs {
     pub amount: u64,
 }
 
+const JOIN_SPLIT_MAX_N_ARITY: u8 = 4;
+
 fn deserialze_vec<N: BorshDeserialize>(buf: &mut &[u8], len: usize) -> std::io::Result<Vec<N>> {
     let mut v = Vec::new();
     for _ in 0..len { v.push(N::deserialize(buf)?); }
@@ -118,7 +120,7 @@ impl BorshDeserialize for JoinSplitPublicInputs {
         assert!(buf.len() >= Self::SIZE);
 
         let commitment_count = u8::deserialize(buf)?;
-        assert!(commitment_count <= 10);
+        assert!(commitment_count <= JOIN_SPLIT_MAX_N_ARITY);
 
         let roots: Vec<U256> = deserialze_vec(buf, commitment_count as usize)?;
         let roots = roots.iter().map(|&r| if r == [0; 32] { None } else { Some(r) }).collect();
@@ -127,7 +129,7 @@ impl BorshDeserialize for JoinSplitPublicInputs {
         let fee_version = u64::deserialize(buf)?;
         let amount = u64::deserialize(buf)?;
 
-        let remaining = (10 - commitment_count as usize) * (32 + 32);
+        let remaining = (JOIN_SPLIT_MAX_N_ARITY - commitment_count) as usize * (32 + 32);
         *buf = &buf[remaining..];
 
         Ok(
@@ -151,7 +153,7 @@ fn serialize_vec<N: BorshSerialize, W: std::io::Write>(v: &Vec<N>, len: usize, w
 
 impl BorshSerialize for JoinSplitPublicInputs {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        assert!(self.commitment_count <= 10);
+        assert!(self.commitment_count <= JOIN_SPLIT_MAX_N_ARITY);
         self.commitment_count.serialize(writer)?;
 
         let roots: Vec<U256> = self.roots.iter().map(|&r| r.unwrap_or([0; 32])).collect();
@@ -162,7 +164,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
         self.fee_version.serialize(writer)?;
         self.amount.serialize(writer)?;
 
-        let remaining = (10 - self.commitment_count as usize) * (32 + 32);
+        let remaining = (JOIN_SPLIT_MAX_N_ARITY - self.commitment_count) as usize * (32 + 32);
         writer.write_all(&vec![0; remaining])?;
 
         Ok(())
@@ -170,7 +172,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
 }
 
 impl BorshSerDeSized for JoinSplitPublicInputs {
-    const SIZE: usize = 1 + 10 * (32 + 32) + 32 + 8 + 8;
+    const SIZE: usize = 1 + JOIN_SPLIT_MAX_N_ARITY as usize * (32 + 32) + 32 + 8 + 8;
 }
 
 const ZERO: BigInteger256 = BigInteger256([0,0,0,0]);
@@ -191,7 +193,7 @@ pub trait PublicInputs {
 }
 
 pub fn map_public_inputs(raw: &[U256]) -> Vec<BigInteger256> {
-    raw.iter().map(|x| if *x == [0; 32] { ZERO } else { u256_to_fr(x).into_repr() }).collect() 
+    raw.iter().map(u256_to_repr).collect() 
 }
 
 pub fn u256_to_repr(raw: &U256) -> BigInteger256 {
@@ -219,12 +221,12 @@ pub struct MigratePublicInputs {
 pub const MAX_PUBLIC_INPUTS_COUNT: usize = max(SendPublicInputs::PUBLIC_INPUTS_COUNT, MigratePublicInputs::PUBLIC_INPUTS_COUNT);
 
 impl PublicInputs for SendPublicInputs {
-    const PUBLIC_INPUTS_COUNT: usize = 28;
+    const PUBLIC_INPUTS_COUNT: usize = 16;
     
     fn verify_additional_constraints(&self) -> bool {
-        // Maximum `commitment_count` is 10
+        // Maximum `commitment_count` is 4
         // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_deca.circom
-        if self.join_split.commitment_count > 10 { return false }
+        if self.join_split.commitment_count > JOIN_SPLIT_MAX_N_ARITY { return false }
 
         // Minimum `commitment_count` is 1
         if self.join_split.commitment_count == 0 { return false }
@@ -248,14 +250,14 @@ impl PublicInputs for SendPublicInputs {
                 None => public_signals.push(self.join_split.roots[0].unwrap())
             }
         }
-        for _ in self.join_split.roots.len()..10 {
+        for _ in self.join_split.roots.len()..JOIN_SPLIT_MAX_N_ARITY as usize {
             public_signals.push([0; 32]);
         }
 
         for n_hash in &self.join_split.nullifier_hashes {
             public_signals.push(*n_hash);
         }
-        for _ in self.join_split.nullifier_hashes.len()..10 {
+        for _ in self.join_split.nullifier_hashes.len()..JOIN_SPLIT_MAX_N_ARITY as usize {
             public_signals.push([0; 32]);
         }
 

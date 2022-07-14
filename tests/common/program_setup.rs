@@ -1,5 +1,7 @@
+use elusiv::proof::{PendingNullifierHashesAccount, CombinedMillerLoop, FinalExponentiation};
 use elusiv::state::fee::ProgramFee;
 use elusiv::state::{StorageAccount, NullifierAccount};
+use elusiv_computation::PartialComputation;
 use solana_program::pubkey::Pubkey;
 use solana_program::instruction::Instruction;
 use solana_program_test::*;
@@ -32,18 +34,24 @@ async fn send_tx(ixs: &[Instruction], context: &mut ProgramTestContext) {
     assert_matches!(context.banks_client.process_transaction(transaction).await, Ok(()));
 }
 
-pub async fn setup_pda_accounts(context: &mut ProgramTestContext) {
+pub async fn setup_initial_accounts(context: &mut ProgramTestContext) {
+    // Initial PDA accounts
     let ixs = open_all_initial_accounts(context.payer.pubkey());
     let ixs: Vec<Instruction> = ixs.iter().map(|ix| nonce_instruction(ix.clone())).collect();
     send_tx(&ixs, context).await;
 
+    // Fee account
     setup_fee_account(context).await;
 }
 
 pub async fn setup_fee_account(context: &mut ProgramTestContext) {
     let lamports_per_tx = lamports_per_signature(context).await;
     send_tx(&[
-        ElusivInstruction::init_new_fee_version_instruction(0, genesis_fee(lamports_per_tx), SignerAccount(context.payer.pubkey()))
+        ElusivInstruction::init_new_fee_version_instruction(
+            0,
+            genesis_fee(lamports_per_tx),
+            WritableSignerAccount(context.payer.pubkey())
+        )
     ], context).await;
 }
 
@@ -57,6 +65,7 @@ pub fn genesis_fee(lamports_per_tx: u64) -> ProgramFee {
         relayer_hash_tx_fee: 300,
         relayer_proof_tx_fee: 0,
         relayer_proof_reward: 555,
+        proof_base_tx_count: (CombinedMillerLoop::TX_COUNT + FinalExponentiation::TX_COUNT + 2) as u64,
     }
 }
 
@@ -64,7 +73,7 @@ pub async fn setup_storage_account<'a>(context: &mut ProgramTestContext) -> Vec<
     send_tx(&[
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::StorageAccount,
-            SignerAccount(context.payer.pubkey()),
+            WritableSignerAccount(context.payer.pubkey()),
             WritableUserAccount(StorageAccount::find(None).0)
         )
     ], context).await;
@@ -89,7 +98,7 @@ pub async fn create_merkle_tree(
         ElusivInstruction::open_multi_instance_account_instruction(
             MultiInstancePDAAccountKind::NullifierAccount,
             mt_index,
-            SignerAccount(context.payer.pubkey()),
+            WritableSignerAccount(context.payer.pubkey()),
             WritableUserAccount(NullifierAccount::find(Some(mt_index)).0)
         )
     ];
@@ -101,6 +110,16 @@ pub async fn create_merkle_tree(
         );
     }
     send_tx(&instructions, context).await;
+
+    // Open pending nullifiers map
+    let acc = create_account_rent_exepmt(context, PendingNullifierHashesAccount::ACCOUNT_SIZE).await;
+    send_tx(&[
+        ElusivInstruction::open_pending_nullifier_hashes_account_instruction(
+            mt_index,
+            WritableSignerAccount(context.payer.pubkey()),
+            WritableUserAccount(acc.pubkey()),
+        )
+    ], context).await;
 
     pubkeys
 }

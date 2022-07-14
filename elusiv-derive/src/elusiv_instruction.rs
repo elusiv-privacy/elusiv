@@ -97,7 +97,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let account_init_fn = if is_writable { quote!{ new } } else { quote!{ new_readonly } };
 
                 let user_account_type = if is_signer {
-                    if is_writable { quote!{ SignerAccount } } else { quote!{ WritableSignerAccount } }
+                    if is_writable { quote!{ WritableSignerAccount } } else { quote!{ SignerAccount } }
                 } else if is_writable { quote!{ WritableUserAccount } } else { quote!{ UserAccount } };
 
                 match attr_name.as_str() {
@@ -184,6 +184,12 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         // Multi account account
                         let multi_account = sub_attrs.contains(&"multi_accounts");
 
+                        // (For multi accounts): SKIPS THE PUBKEY VERIFICATION of the sub-accounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)
+                        let no_sub_account_check = sub_attrs.contains(&"no_sub_account_check");
+
+                        // (For multi accounts): skips all sub-accounts (-> no checks required -> speed up)
+                        let ignore_sub_accounts = sub_attrs.contains(&"ignore_sub_accounts");
+
                         // PDA verification
                         let find_pda = sub_attrs.contains(&"find_pda"); // does not read the bump byte from the account data
                         if find_pda {
@@ -209,52 +215,66 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             // - the sub-accounts need to be supplied in the correct order
                             // - we iterate over the pubkeys of the main-account
                             // - if a pubkey has not been activated yet, it's skipped
-
-                            // Sub-accounts with PDA and ownership check for each
-                            accounts.extend(quote!{
-                                let acc_data = &mut #account.data.borrow_mut()[..];
-                                let fields_check = match MultiAccountAccountData::<{<#ty>::COUNT}>::new(&acc_data) {
-                                    Ok(a) => a,
-                                    Err(_) => return Err(InvalidArgument)
-                                };
-                                let mut accounts = std::collections::HashMap::new();
-                                let mut iter_before = account_info_iter.clone();
-
-                                let mut i = 0;
-                                while i < <#ty>::COUNT {
-                                    // Get next account
-                                    match next_account_info(account_info_iter) {
-                                        Ok(account) => {
-                                            // Find matching pubkey
-                                            for j in i..<#ty>::COUNT {
-                                                // Compare pubkeys
-                                                match fields_check.pubkeys[j] {
-                                                    crate::bytes::ElusivOption::Some(pk) => if *account.key != pk { continue },
-                                                    crate::bytes::ElusivOption::None => continue
-                                                }
-
-                                                #write_check
-
-                                                i = j;
-                                                if account.owner != program_id { return Err(IllegalOwner) }
-                                                accounts.insert(i, account);
-                                            }
-
-                                            i += 1;
-                                        }
-                                        Err(_) => { break; }
+                            let sub_account_check = if no_sub_account_check {
+                                quote!{ }
+                            } else {
+                                quote!{
+                                    match fields_check.pubkeys[j] {
+                                        crate::bytes::ElusivOption::Some(pk) => if *account.key != pk { continue },
+                                        crate::bytes::ElusivOption::None => continue
                                     }
                                 }
+                            };
 
-                                let account_info_iter = &mut iter_before.skip(accounts.len());
-                            });
+                            // Sub-accounts with PDA and ownership check for each
+                            if !ignore_sub_accounts {
+                                accounts.extend(quote!{
+                                    let acc_data = &mut #account.data.borrow_mut()[..];
+                                    let fields_check = match MultiAccountAccountData::<{<#ty>::COUNT}>::new(&acc_data) {
+                                        Ok(a) => a,
+                                        Err(_) => return Err(InvalidArgument)
+                                    };
+                                    let mut accounts = std::collections::HashMap::new();
+                                    let mut iter_before = account_info_iter.clone();
+    
+                                    let mut i = 0;
+                                    while i < <#ty>::COUNT {
+                                        // Get next account
+                                        match next_account_info(account_info_iter) {
+                                            Ok(account) => {
+                                                // Find matching pubkey
+                                                for j in i..<#ty>::COUNT {
+                                                    #sub_account_check
+                                                    #write_check
+    
+                                                    i = j;
+                                                    if account.owner != program_id { return Err(IllegalOwner) }
+                                                    accounts.insert(i, account);
+                                                }
+    
+                                                i += 1;
+                                            }
+                                            Err(_) => { break; }
+                                        }
+                                    }
+    
+                                    let account_info_iter = &mut iter_before.skip(accounts.len());
+                                });
+                            } else {
+                                accounts.extend(quote!{
+                                    let acc_data = &mut #account.data.borrow_mut()[..];
+                                    let mut accounts = std::collections::HashMap::new();
+                                });
+                            }
 
-                            user_accounts.extend(quote!{ #account: &[#user_account_type], });
-                            account_init.push(quote!{
-                                for account in #account {
-                                    accounts.push(AccountMeta::#account_init_fn(account.0, #is_signer));
-                                }
-                            });
+                            if !ignore_sub_accounts {
+                                user_accounts.extend(quote!{ #account: &[#user_account_type], });
+                                account_init.push(quote!{
+                                    for account in #account {
+                                        accounts.push(AccountMeta::#account_init_fn(account.0, #is_signer));
+                                    }
+                                });
+                            }
 
                             if as_account_info {
                                 accounts.extend(quote!{

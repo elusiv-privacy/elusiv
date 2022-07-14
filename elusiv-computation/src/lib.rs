@@ -2,7 +2,8 @@
 
 /// Representation of a partial computation
 pub trait PartialComputation<const INSTRUCTION_COUNT: usize> {
-    const COUNT: usize = INSTRUCTION_COUNT;
+    const IX_COUNT: usize = INSTRUCTION_COUNT;
+    const TX_COUNT: usize;
 
     /// Rounds performed in a specific instruction
     const INSTRUCTION_ROUNDS: [u8; INSTRUCTION_COUNT];

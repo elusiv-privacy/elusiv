@@ -22,7 +22,7 @@ use self::poseidon_hash::BinarySpongeHashingState;
 pub struct BaseCommitmentHashComputation {}
 
 elusiv_hash_compute_units!(BaseCommitmentHashComputation, 1);
-const_assert_eq!(BaseCommitmentHashComputation::COUNT, 2);
+const_assert_eq!(BaseCommitmentHashComputation::TX_COUNT, 2);
 
 /// Account used for computing `commitment = h(base_commitment, amount)`
 /// - https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/commitment.circom#L7
@@ -75,7 +75,7 @@ pub fn compute_base_commitment_hash_partial(
     hashing_account: &mut BaseCommitmentHashingAccount,
 ) -> Result<(), ProgramError> {
     let instruction = hashing_account.get_instruction();
-    guard!((instruction as usize) < BaseCommitmentHashComputation::COUNT, ComputationIsAlreadyFinished);
+    guard!((instruction as usize) < BaseCommitmentHashComputation::IX_COUNT, ComputationIsAlreadyFinished);
 
     let start_round = hashing_account.get_round();
     let rounds = BaseCommitmentHashComputation::INSTRUCTION_ROUNDS[instruction as usize] as u32;
@@ -662,7 +662,7 @@ mod tests {
         for request in requests {
             account.setup(request.clone(), [0; 32]).unwrap();
 
-            while account.get_instruction() < BaseCommitmentHashComputation::COUNT as u32 {
+            while account.get_instruction() < BaseCommitmentHashComputation::IX_COUNT as u32 {
                 compute_base_commitment_hash_partial(&mut account).unwrap();
             }
 
