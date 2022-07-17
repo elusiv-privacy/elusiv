@@ -146,6 +146,7 @@ fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
 }
 
 /// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes (`EMPTY_TREE[MT_HEIGHT]` is the root)
+/// - all values are in mr-form
 pub const EMPTY_TREE: [U256; MT_HEIGHT as usize + 1] = [
     [130, 154, 1, 250, 228, 248, 226, 43, 27, 76, 165, 173, 91, 84, 165, 131, 78, 224, 152, 167, 123, 115, 91, 213, 116, 49, 167, 101, 109, 41, 161, 8],
     [80, 180, 254, 174, 183, 151, 82, 229, 123, 24, 44, 98, 7, 166, 152, 78, 191, 94, 109, 201, 215, 229, 108, 66, 136, 150, 102, 80, 152, 67, 183, 24],
@@ -170,10 +171,18 @@ pub const EMPTY_TREE: [U256; MT_HEIGHT as usize + 1] = [
     [215, 208, 169, 37, 21, 214, 245, 126, 221, 48, 194, 233, 207, 177, 29, 18, 85, 167, 242, 130, 212, 71, 7, 78, 114, 10, 173, 101, 60, 84, 109, 9],
 ];
 
+#[cfg(feature = "testing")]
+pub fn empty_root_raw() -> crate::types::RawU256 {
+    use crate::fields::{fr_to_u256_le_repr, scalar_skip_mr, u256_to_big_uint};
+    crate::types::RawU256::new(
+        fr_to_u256_le_repr(&scalar_skip_mr(u256_to_big_uint(&EMPTY_TREE[MT_HEIGHT as usize])))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{macros::storage_account, commitment::{poseidon_hash::full_poseidon2_hash, u256_from_str}, fields::u256_to_fr};
+    use crate::{macros::storage_account, commitment::{poseidon_hash::full_poseidon2_hash}, fields::{u256_to_fr_skip_mr, u256_from_str}};
     use ark_bn254::Fr;
     use std::str::FromStr;
 
@@ -188,6 +197,11 @@ mod tests {
         assert_eq!(4, mt_array_index(1, 2));
         assert_eq!(5, mt_array_index(2, 2));
         assert_eq!(6, mt_array_index(3, 2));
+    }
+
+    #[test]
+    fn test_empty_root_raw() {
+        assert_eq!(empty_root_raw().reduce(), EMPTY_TREE[MT_HEIGHT as usize]);
     }
 
     #[test]
@@ -302,7 +316,7 @@ mod tests {
         let b = Fr::from_str("10325823052538184185762853738620713863393182243594528391700012489616960720113").unwrap();
         let mut hash = full_poseidon2_hash(a, b);
         for i in 1..MT_HEIGHT as usize {
-            hash = full_poseidon2_hash(hash, u256_to_fr(&EMPTY_TREE[i]));
+            hash = full_poseidon2_hash(hash, u256_to_fr_skip_mr(&EMPTY_TREE[i]));
         }
         assert_eq!(hash, Fr::from_str("2405070960812791252603303680410822171263982421393937538616415344325138142909").unwrap());
     }

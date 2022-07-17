@@ -22,7 +22,6 @@ pub struct ProgramFee {
     pub proof_subvention: u64,
 
     pub relayer_hash_tx_fee: u64,
-    pub relayer_proof_tx_fee: u64,  // this fee is ignored atm by the proof-processor and forced to be zero (only here for possible future use)
     pub relayer_proof_reward: u64,
 
     /// Current tx count for init, combined miller loop, final exponentiation and finalization (dynamic tx for input preparation ignored)
@@ -38,11 +37,10 @@ impl ProgramFee {
             }
 
             // For proof verification we assume the cheapest scenario to be proof_base_tx_count (and network fee to be zero)
-            if self.proof_base_tx_count * (self.lamports_per_tx + self.relayer_proof_tx_fee) + self.commitment_hash_fee(min_batching_rate) < self.proof_subvention {
+            if self.proof_base_tx_count * self.lamports_per_tx + self.commitment_hash_fee(min_batching_rate) < self.proof_subvention {
                 return false
             }
 
-            if self.relayer_proof_tx_fee != 0 { return false }
             if u64_as_usize_safe(self.proof_base_tx_count) != CombinedMillerLoop::TX_COUNT + FinalExponentiation::TX_COUNT + 2 { return false }
         }
         true
@@ -97,7 +95,7 @@ impl ProgramFee {
         amount: u64,
     ) -> u64 {
         let tx_count = input_preparation_tx_count + u64_as_usize_safe(self.proof_base_tx_count);
-        tx_count as u64 * (self.lamports_per_tx + self.relayer_proof_tx_fee)
+        tx_count as u64 * self.lamports_per_tx
             + self.relayer_proof_reward
             + self.commitment_hash_fee(min_batching_rate)
             + self.proof_verification_network_fee(amount)
@@ -108,10 +106,6 @@ impl ProgramFee {
         amount: u64,
     ) -> u64 {
         self.proof_network_fee * amount / 10_000
-    }
-
-    pub fn proof_tx_compensation(&self) -> u64 {
-        self.lamports_per_tx + self.relayer_proof_tx_fee
     }
 }
 
@@ -131,8 +125,7 @@ mod tests {
                 base_commitment_subvention: 44,
                 proof_subvention: 555,
                 relayer_hash_tx_fee: 666,
-                relayer_proof_tx_fee: 777,
-                relayer_proof_reward: 888,
+                relayer_proof_reward: 777,
                 proof_base_tx_count: 10,
             }
         }
@@ -169,10 +162,10 @@ mod tests {
 
         assert_eq!(
             fee.proof_verification_fee(input_preparation_tx_count, 0, LAMPORTS_PER_SOL),
-            (777 + 11) * (fee.proof_base_tx_count + input_preparation_tx_count as u64)
-            + 888
+            11 * (fee.proof_base_tx_count + input_preparation_tx_count as u64)
+            + 777
             + fee.commitment_hash_fee(0)
-            + LAMPORTS_PER_SOL / 10 // 10 percent network fee
+            + LAMPORTS_PER_SOL / 10
         );
     }
 
@@ -189,7 +182,6 @@ mod tests {
                 proof_subvention: 0,
 
                 relayer_hash_tx_fee: 0,
-                relayer_proof_tx_fee: 0,
                 relayer_proof_reward: 0,
 
                 proof_base_tx_count: 10,

@@ -13,7 +13,7 @@ use crate::error::ElusivError::{
     InvalidAccount,
     InvalidInstructionData,
     InvalidAmount,
-    InvalidAccountBalance
+    InsufficientFunds
 };
 use crate::macros::guard;
 use crate::state::program_account::{
@@ -113,7 +113,7 @@ pub fn create_pda_account<'a>(
 
     let lamports_required = Rent::get()?.minimum_balance(account_size);
     let space: u64 = account_size.try_into().unwrap();
-    guard!(payer.lamports() >= lamports_required, InvalidAccountBalance);
+    guard!(payer.lamports() >= lamports_required, InsufficientFunds);
 
     // Additional (redundant) check that account does not already exist
     guard!(

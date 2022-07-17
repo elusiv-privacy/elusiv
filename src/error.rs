@@ -8,41 +8,24 @@ pub enum ElusivError {
     InvalidInstructionData,
     InvalidAmount,
     InsufficientFunds,
-    InvalidRecipient,
     InvalidAccount,
     InvalidAccountState,
-    InvalidAccountSize,
-    InvalidAccountBalance,
     NonScalarValue,
     MissingSubAccount,
     FeatureNotAvailable,
 
-    SenderIsNotSigner,
-    SenderIsNotWritable,
-
     // Merkle tree
-    MerkleTreeIsNotInitialized,
-    InvalidMerkleTreeAccess,
     InvalidMerkleRoot,
 
     // Nullifier
     NullifierAlreadyExists,
-    NoRoomForNullifier,
-    InvalidNullifierAccount,
-    NullifierAccountDoesNotExist,
 
     // Commitment
-    CommitmentAlreadyExists,
     NoRoomForCommitment,
-    Commitment,
-    HashingIsAlreadyComplete,
     InvalidBatchingRate,
 
     // Proof
-    InvalidProof,
     InvalidPublicInputs,
-    InvalidFeePayer,
-    InvalidTimestamp,
     CouldNotProcessProof,
 
     // Queue

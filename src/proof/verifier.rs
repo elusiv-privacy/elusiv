@@ -43,7 +43,7 @@ pub fn verify_partial<VKey: VerificationKey>(
         }
         VerificationStep::CombinedMillerLoop => {
             // Proof first has to be setup
-            guard!(matches!(verifier_account.get_setup_state(), VerificationSetupState::ProofSetup), InvalidAccountState);
+            guard!(matches!(verifier_account.get_state(), VerificationState::ProofSetup), InvalidAccountState);
 
             combined_miller_loop::<VKey>(verifier_account, instruction, round)?;
             verifier_account.serialize_rams().unwrap();
@@ -171,7 +171,7 @@ pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 257;
 /// Public input preparation
 /// - `prepared_inputs = \sum_{i = 0}ˆ{N} input_{i} gamma_abc_g1_{i}`
 /// - reference implementation: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L22
-/// - N public inputs (elements of the scalar field)
+/// - N public inputs (elements of the scalar field) in non-reduced form
 /// - the total rounds required for preparation of all inputs is `PREPARE_PUBLIC_INPUTS_ROUNDS` * N
 /// - this partial computation is different from the rest, in that it's cost is dependent on the public inputs count and bits
 /// - for `prepare_public_inputs` we use 1 instruction with 1.4m compute units
@@ -528,7 +528,7 @@ const_assert_eq!(INVERSE_FQ12_ROUNDS_COUNT, 4);
 const_assert_eq!(EXP_BY_NEG_X_ROUNDS_COUNT, 128);
 
 elusiv_computations!(
-    // For the `final_exponentiation` we use 1 instruction with 1.4m compute units (and 30k padding)
+    // For the `final_exponentiation` we use 1 instruction with 1.4m compute units (and 20k padding)
     final_exponentiation, FinalExponentiation, 1_380_000,
 
     // https://github.com/arkworks-rs/algebra/blob/80857c9714c5a59068f8c20f1298e2138440a1d0/ff/src/fields/models/quadratic_extension.rs#L688
@@ -799,14 +799,15 @@ fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
     k
 }
 
+#[cfg(feature = "testing")] use crate::types::Proof;
+#[cfg(feature = "testing")] use std::str::FromStr;
+
 #[cfg(feature = "testing")]
 pub fn proof_from_str(
     a: (&str, &str, bool),
     b: ((&str, &str), (&str, &str), bool),
     c: (&str, &str, bool),
 ) -> Proof {
-    use std::str::FromStr;
-
     Proof {
         a: G1A(
             G1Affine::new(
@@ -845,7 +846,6 @@ pub fn proof_from_str_projective(
     b: ((&str, &str), (&str, &str), (&str, &str)),
     c: (&str, &str, &str),
 ) -> Proof {
-    use std::str::FromStr;
     use ark_bn254::G2Projective;
 
     Proof {
@@ -912,7 +912,7 @@ mod tests {
         storage.a.set_serialize(&proof.a);
         storage.b.set_serialize(&proof.b);
         storage.c.set_serialize(&proof.c);
-        storage.set_setup_state(&VerificationSetupState::ProofSetup);
+        storage.set_state(&VerificationState::ProofSetup);
 
         for (i, &public_input) in public_inputs.iter().enumerate() {
             storage.set_public_input(i, &Wrap(public_input));

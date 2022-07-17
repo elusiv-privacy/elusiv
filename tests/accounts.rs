@@ -33,7 +33,7 @@ macro_rules! assert_account {
             let data = get_data(&mut $context, <$ty>::find($offset).0).await;
 
             // Check balance and data size
-            assert!(get_balance(<$ty>::find($offset).0, &mut $context).await > 0);
+            assert!(get_balance(&<$ty>::find($offset).0, &mut $context).await > 0);
             assert_eq!(data.len(), <$ty>::SIZE);
 
             // Check pda account fields
@@ -173,7 +173,9 @@ async fn test_open_new_merkle_tree() {
             assert_eq!(keys, pks);
         }).await;
 
-        // TODO: Check that nullifier map has been setup
+        // Check that nullifier map has been setup
+        let map = pending_nullifiers_map(mt_index, &mut context).await;
+        assert!(map.is_empty());
     }
 }
 
@@ -201,7 +203,7 @@ async fn test_open_new_merkle_tree_duplicate() {
 }
 
 #[tokio::test]
-async fn test_reset_merkle_tree() {
+async fn test_close_merkle_tree() {
     let mut context = start_program_solana_program_test().await;
     let mut client = Actor::new(&mut context).await;
     setup_initial_accounts(&mut context).await;
@@ -364,7 +366,7 @@ async fn test_global_sub_account_duplicates() {
     // Manipulate map size
     let mut data = vec![1; NullifierAccount::ACCOUNT_SIZE];
     data[0] = 0;
-    let lamports = get_balance(account2.pubkey(), &mut context).await;
+    let lamports = get_balance(&account2.pubkey(), &mut context).await;
     set_account(&mut context, &account2.pubkey(), data, lamports).await;
 
     // Setting a different account a a different index should succeed

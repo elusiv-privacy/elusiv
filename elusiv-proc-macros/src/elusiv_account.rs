@@ -25,7 +25,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let mut total_size = quote! {};
     let mut impls = quote! {};
     let mut init = quote! {};
-    let mut account_trait = quote! { crate::state::program_account::ProgramAccount<'a> }; // either ProgramAccount or MultiAccountAccount
+    let mut account_trait = quote! { crate::state::program_account::ProgramAccount<'a> }; // either `ProgramAccount` or `MultiAccountAccount`
     let mut fields = quote! {};
     let mut signature = quote! {};
     let mut lifetimes = quote!{ 'a };
@@ -82,10 +82,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         const COUNT: usize = #count;
                         const ACCOUNT_SIZE: usize = #account_size;
 
-                        fn get_account(&self, account_index: usize) -> Result<&solana_program::account_info::AccountInfo<'t>, solana_program::program_error::ProgramError> {
+                        unsafe fn get_account_unsafe(&self, account_index: usize) -> Result<&solana_program::account_info::AccountInfo<'t>, solana_program::program_error::ProgramError> {
                             match self.accounts.get(&account_index) {
                                 Some(&m) => Ok(m),
-                                None => panic!()
+                                None => Err(crate::error::ElusivError::MissingSubAccount.into())
                             }
                         }
 
@@ -224,7 +224,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             type T = #name<#lifetimes>;
 
             fn new(d: &'a mut [u8], #signature) -> Result<Self, solana_program::program_error::ProgramError> {
-                crate::macros::guard!(d.len() == Self::SIZE, crate::error::ElusivError::InvalidAccountSize);
+                crate::macros::guard!(d.len() == Self::SIZE, crate::error::ElusivError::InvalidAccount);
                 #init
                 Ok(#name { #fields })
             }

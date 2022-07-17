@@ -12,7 +12,7 @@ use crate::state::{StorageAccount, HISTORY_ARRAY_COUNT};
 use crate::types::U256;
 use crate::bytes::{BorshSerDeSized, usize_as_u32_safe};
 use crate::state::program_account::{SizedAccount, PDAAccountData};
-use crate::fields::{u64_to_scalar, u256_to_fr, fr_to_u256_le};
+use crate::fields::{u64_to_scalar, u256_to_fr_skip_mr, fr_to_u256_le};
 use solana_program::program_error::ProgramError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;
@@ -48,8 +48,6 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
         request: BaseCommitmentHashRequest,
         fee_payer: U256,
     ) -> Result<(), ProgramError> {
-        guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
-
         self.set_is_active(&true);
         self.set_instruction(&0);
         self.set_round(&0);
@@ -61,7 +59,7 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
         // Reset hashing state
         self.set_state(
             &BinarySpongeHashingState::new(
-                u256_to_fr(&request.base_commitment),
+                u256_to_fr_skip_mr(&request.base_commitment.reduce()),
                 u64_to_scalar(request.amount),
                 false,
             )
@@ -106,17 +104,18 @@ struct CommitmentHashComputation<const BATCHING_RATE: usize> {}
 /// Generates a `CommitmentHashComputation` with a specific `BATCHING_RATE`
 /// - the macro also verifies that `$hash_count$ is valid
 macro_rules! commitment_batch_hashing {
-    ($batching_rate: literal, $hash_count: literal) => {
+    ($batching_rate: literal, $hash_count: literal, $instruction_count: literal) => {
         elusiv_hash_compute_units!(CommitmentHashComputation<$batching_rate>, $hash_count);
         const_assert_eq!($hash_count, hash_count_per_batch($batching_rate));
+        const_assert_eq!($instruction_count, <CommitmentHashComputation<$batching_rate>>::IX_COUNT);
     };
 }
 
-commitment_batch_hashing!(0, 20);
-commitment_batch_hashing!(1, 20);
-commitment_batch_hashing!(2, 21);
-commitment_batch_hashing!(3, 24);
-commitment_batch_hashing!(4, 31);
+commitment_batch_hashing!(0, 20, 24);
+commitment_batch_hashing!(1, 20, 24);
+commitment_batch_hashing!(2, 21, 25);
+commitment_batch_hashing!(3, 24, 29);
+commitment_batch_hashing!(4, 31, 37);
 
 macro_rules! commitment_hash_computation {
     ($batching_rate: ident, $field: ident) => {
@@ -301,8 +300,8 @@ impl<'a> CommitmentHashingAccount<'a> {
                     let index_below = commitment_count + nodes_below - below_layer_size + index_in_layer * 2;
 
                     return BinarySpongeHashingState::new(
-                        u256_to_fr(&self.get_hash_tree(index_below)),
-                        u256_to_fr(&self.get_hash_tree(index_below + 1)),
+                        u256_to_fr_skip_mr(&self.get_hash_tree(index_below)),
+                        u256_to_fr_skip_mr(&self.get_hash_tree(index_below + 1)),
                         false,
                     )
                 }
@@ -314,16 +313,16 @@ impl<'a> CommitmentHashingAccount<'a> {
             let ht_root_index = two_pow!(batching_rate + 1) - 2;
 
             BinarySpongeHashingState::new(
-                u256_to_fr(&self.get_hash_tree(ht_root_index)),
-                u256_to_fr(&self.get_siblings(batching_rate as usize)),
+                u256_to_fr_skip_mr(&self.get_hash_tree(ht_root_index)),
+                u256_to_fr_skip_mr(&self.get_siblings(batching_rate as usize)),
                 ordering & 1 == 1,
             )
         } else {    // hash above hashes with siblings
             let index = hash_index - sub_tree_size;
             let ordering = self.get_ordering() >> (index + batching_rate as usize);
 
-            let a = u256_to_fr(&self.get_above_hashes(index - 1));
-            let b = u256_to_fr(&self.get_siblings(batching_rate as usize + index));
+            let a = u256_to_fr_skip_mr(&self.get_above_hashes(index - 1));
+            let b = u256_to_fr_skip_mr(&self.get_siblings(batching_rate as usize + index));
 
             BinarySpongeHashingState::new(a, b, ordering & 1 == 1)
         }
@@ -400,28 +399,23 @@ impl<'a> CommitmentHashingAccount<'a> {
 
 #[cfg(test)]
 pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u64, min_batching_rate: u32) -> BaseCommitmentHashRequest {
-    BaseCommitmentHashRequest { base_commitment: u256_from_str(bc), commitment: u256_from_str(c), amount, fee_version, min_batching_rate }
-}
+    use crate::{fields::u256_from_str_skip_mr, types::RawU256};
 
-#[cfg(test)]
-pub fn u256_from_str(str: &str) -> U256 {
-    use std::str::FromStr;
-    fr_to_u256_le(&ark_bn254::Fr::from_str(str).unwrap())
-}
-
-#[cfg(test)]
-pub fn u256_from_str_repr(str: &str) -> U256 {
-    use std::str::FromStr;
-    use crate::fields::fr_to_u256_le_repr;
-    fr_to_u256_le_repr(&ark_bn254::Fr::from_str(str).unwrap())
+    BaseCommitmentHashRequest {
+        base_commitment: RawU256::new(u256_from_str_skip_mr(bc)),
+        commitment: RawU256::new(u256_from_str_skip_mr(c)),
+        amount, fee_version, min_batching_rate
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fields::u256_from_str;
     use crate::state::{mt_array_index, EMPTY_TREE};
     use crate::state::program_account::{ProgramAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::storage_account;
+    use crate::types::RawU256;
     use ark_bn254::Fr;
     use ark_ff::Zero;
     use assert_matches::assert_matches;
@@ -667,7 +661,7 @@ mod tests {
             }
 
             assert_matches!(compute_base_commitment_hash_partial(&mut account), Err(_));
-            assert_eq!(account.get_state().result(), u256_to_fr(&request.commitment));
+            assert_eq!(account.get_state().result(), u256_to_fr_skip_mr(&request.commitment.reduce()));
         }
     }
 
@@ -718,19 +712,19 @@ mod tests {
             }
 
             assert_matches!(compute_commitment_hash_partial(&mut account), Err(_));
-            assert_eq!(account.get_state().result(), u256_to_fr(&request.valid_root));
+            assert_eq!(account.get_state().result(), u256_to_fr_skip_mr(&request.valid_root));
         }
     }
 
     #[test]
-    fn test_base_commitment_account_reset() {
+    fn test_base_commitment_account_setup() {
         let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
         let mut account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
 
         let request = BaseCommitmentHashRequest {
-            base_commitment: [1; 32],
+            base_commitment: RawU256::new([1; 32]),
             amount: 333,
-            commitment: [2; 32],
+            commitment: RawU256::new([2; 32]),
             fee_version: 444,
             min_batching_rate: 555,
         };
@@ -740,7 +734,7 @@ mod tests {
 
         assert_eq!(account.get_state().0, [
             Fr::zero(),
-            u256_to_fr(&request.base_commitment),
+            u256_to_fr_skip_mr(&request.base_commitment.reduce()),
             u64_to_scalar(request.amount),
         ]);
         assert_eq!(account.get_fee_payer(), fee_payer);
@@ -748,13 +742,6 @@ mod tests {
         assert_eq!(account.get_min_batching_rate(), request.min_batching_rate);
         assert_eq!(account.get_instruction(), 0);
         assert!(account.get_is_active());
-
-        // Second reset should fail
-        assert_matches!(account.setup(request.clone(), fee_payer), Err(_));
-
-        // Second reset now allowed
-        account.set_is_active(&false);
-        account.setup(request, fee_payer).unwrap();
     }
     
     #[test]

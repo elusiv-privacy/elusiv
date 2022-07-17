@@ -190,6 +190,19 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         // (For multi accounts): skips all sub-accounts (-> no checks required -> speed up)
                         let ignore_sub_accounts = sub_attrs.contains(&"ignore_sub_accounts");
 
+                        let skip_abi = sub_attrs.contains(&"skip_abi");
+                        if skip_abi {
+                            let offset_ident: TokenStream = format!("{}_pda_offset", sub_attrs[0]).parse().unwrap();
+                            user_accounts.extend(quote!{ #offset_ident: Option<u64>, });
+                            account_init.push(quote!{
+                                accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#offset_ident).0, #is_signer));
+                            });
+                        } else {
+                            account_init.push(quote!{
+                                accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#pda_offset).0, #is_signer));
+                            });
+                        }
+
                         // PDA verification
                         let find_pda = sub_attrs.contains(&"find_pda"); // does not read the bump byte from the account data
                         if find_pda {
@@ -201,10 +214,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 if !<#ty>::is_valid_pubkey(&#account, #pda_offset, #account.key)? { return Err(InvalidArgument) }
                             });
                         }
-
-                        account_init.push(quote!{
-                            accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#pda_offset).0, #is_signer));
-                        });
 
                         if multi_account {
                             let write_check = if !is_writable { quote!{} } else {

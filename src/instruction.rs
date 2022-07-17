@@ -6,7 +6,7 @@ use crate::state::fee::ProgramFee;
 use crate::types::RawProof;
 use super::processor;
 use super::processor::{BaseCommitmentHashRequest};
-use crate::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, ProofRequest};
+use crate::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, ProofRequest, MAX_MT_COUNT};
 use crate::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount};
 use crate::state::{
     program_account::{
@@ -108,10 +108,10 @@ pub enum ElusivInstruction {
     #[pda(storage_account, Storage, { multi_accounts, ignore_sub_accounts })]
     #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { multi_accounts })]
     #[pda(nullifier_account1, Nullifier, pda_offset = Some(tree_indices[1]), { multi_accounts })]
-    #[sys(system_program, key = system_program::ID)]
+    #[sys(system_program, key = system_program::ID, { ignore })]
     InitVerification {
         verification_account_index: u64,
-        tree_indices: [u64; 2],
+        tree_indices: [u64; MAX_MT_COUNT],
         request: ProofRequest,
     },
 
@@ -120,13 +120,8 @@ pub enum ElusivInstruction {
     #[pda(pending_nullifiers1, PendingNullifierHashes, pda_offset = Some(tree_indices[1]), { writable, multi_accounts })]
     InitVerificationValidateNullifierHashes {
         verification_account_index: u64,
-        tree_indices: [u64; 2],
+        tree_indices: [u64; MAX_MT_COUNT],
         ignore_duplicate_verifications: bool,
-    },
-
-    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
-    InitVerificationPublicInputs {
-        verification_account_index: u64,
     },
 
     #[acc(fee_payer, { signer })]
@@ -143,20 +138,33 @@ pub enum ElusivInstruction {
     },
 
     // Finalizing proofs that finished 
-    /*#[acc(original_fee_payer, { writable })]
+    #[acc(identifier_account)]
+    #[acc(salt_account)]
+    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
+    #[pda(nullifier_account0, Nullifier, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, multi_accounts, skip_abi })]
+    #[pda(nullifier_account1, Nullifier, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi })]
+    FinalizeVerificationSendNullifiers {
+        verification_account_index: u64,
+    },
+
+    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
+    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
+    #[pda(pending_nullifiers0, PendingNullifierHashes, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, multi_accounts, skip_abi })]
+    #[pda(pending_nullifiers1, PendingNullifierHashes, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi })]
+    FinalizeVerificationPendingNullifiers {
+        verification_account_index: u64,
+    },
+
     #[acc(recipient, { writable })]
+    #[acc(original_fee_payer, { writable })]
     #[pda(fee, Fee, pda_offset = Some(fee_version))]
-    #[pda(sol_pool, Pool, { writable, account_info })]
+    #[pda(pool, Pool, { writable, account_info })]
     #[pda(fee_collector, FeeCollector, { writable, account_info })]
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable, account_info })]
-    #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
-    #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { writable, multi_accounts })]
-    #[pda(nullifier_account1, Nullifier, pda_offset = Some(tree_indices[1]), { writable, multi_accounts })]
-    FinalizeProof {
+    FinalizeVerificationPayment {
         verification_account_index: u64,
         fee_version: u64,
-        tree_indices: [u64; 2],
-    },*/
+    },
 
     // Set the next MT as the active MT
     #[pda(storage_account, Storage, { writable, multi_accounts })]

@@ -60,10 +60,9 @@ pub fn genesis_fee(lamports_per_tx: u64) -> ProgramFee {
         lamports_per_tx,
         base_commitment_network_fee: 11,
         proof_network_fee: 222,
-        base_commitment_subvention: 0,
-        proof_subvention: 0,
+        base_commitment_subvention: 33,
+        proof_subvention: 44,
         relayer_hash_tx_fee: 300,
-        relayer_proof_tx_fee: 0,
         relayer_proof_reward: 555,
         proof_base_tx_count: (CombinedMillerLoop::TX_COUNT + FinalExponentiation::TX_COUNT + 2) as u64,
     }

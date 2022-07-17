@@ -1,6 +1,8 @@
 use crate::u64_array;
-use crate::fields::{G1A, G2A, u256_to_fr, u64_to_u256};
-use ark_ff::{BigInteger256, PrimeField};
+use crate::fields::{G1A, G2A, u64_to_u256_skip_mr, u256_to_big_uint, fr_to_u256_le, Wrap};
+use ark_bn254::{Fr, Fq, Fq2, G1Projective, G2Projective};
+use ark_ec::AffineCurve;
+use ark_ff::{BigInteger256, PrimeField, One, Zero};
 use crate::bytes::{BorshSerDeSized, max};
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
@@ -8,6 +10,27 @@ use crate::macros::BorshSerDeSized;
 
 /// Unsigned 256 bit integer ordered in LE ([32] is the first byte)
 pub type U256 = [u8; 32];
+
+/// A U256 in non-montgomery reduction form
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
+pub struct RawU256(U256);
+
+impl RawU256 {
+    pub const ZERO: Self = RawU256([0; 32]);
+
+    pub fn new(r: U256) -> Self {
+        Self(r)
+    }
+
+    /// Performs a montgomery reduction
+    pub fn reduce(&self) -> U256 {
+        fr_to_u256_le(&Fr::from_repr(u256_to_big_uint(&self.0)).unwrap())
+    }
+
+    /// Skips the montgomery reduction
+    pub fn skip_mr(&self) -> U256 { self.0 }
+    pub fn skip_mr_ref(&self) -> &U256 { &self.0 }
+}
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Copy, Clone, PartialEq, PartialOrd)]
 pub struct U256Limbed4(pub [u64; 4]);
@@ -76,23 +99,81 @@ impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Copy, Clone)]
-/// A Groth16 proof
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
+/// A Groth16 proof in affine form
 pub struct Proof {
     pub a: G1A,
     pub b: G2A,
     pub c: G1A,
 }
 
-pub type RawProof = [u8; 259];
-impl From<RawProof> for Proof {
-    fn from(raw: RawProof) -> Proof {
-        let mut buf = &raw[..];
-        Proof {
-            a: G1A::deserialize(&mut buf).unwrap(),
-            b: G2A::deserialize(&mut buf).unwrap(),
-            c: G1A::deserialize(&mut buf).unwrap(),
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
+/// A Groth16 proof in projective form in binary representation
+pub struct RawProof(pub [u8; 260]);
+
+impl TryFrom<Proof> for RawProof {
+    type Error = std::io::Error;
+
+    fn try_from(proof: Proof) -> Result<Self, Self::Error> {
+        let mut v = Vec::new();
+
+        let a = proof.a.0.into_projective();
+        Wrap(a.x).serialize(&mut v)?;
+        Wrap(a.y).serialize(&mut v)?;
+        (a.z == Fq::zero()).serialize(&mut v)?;
+
+        let b = proof.b.0.into_projective();
+        Wrap(b.x).serialize(&mut v)?;
+        Wrap(b.y).serialize(&mut v)?;
+        (b.z.c0 == Fq::zero()).serialize(&mut v)?;
+        (b.z.c1 == Fq::zero()).serialize(&mut v)?;
+
+        let c = proof.c.0.into_projective();
+        Wrap(c.x).serialize(&mut v)?;
+        Wrap(c.y).serialize(&mut v)?;
+        (c.z == Fq::zero()).serialize(&mut v)?;
+
+        Ok(
+            RawProof(v.try_into().unwrap())
+        )
+    }
+}
+
+impl TryFrom<RawProof> for Proof {
+    type Error = std::io::Error;
+
+    fn try_from(value: RawProof) -> Result<Self, Self::Error> {
+        let mut buf = &value.0[..];
+
+        fn projective_z(buf: &mut &[u8]) -> Result<Fq, std::io::Error> {
+            if bool::deserialize(buf)? { Ok(Fq::zero()) } else { Ok(Fq::one()) }
         }
+        
+        fn g1p(buf: &mut &[u8]) -> Result<G1Projective, std::io::Error> {
+            Ok(
+                G1Projective::new(
+                    <Wrap<Fq>>::deserialize(buf)?.0,
+                    <Wrap<Fq>>::deserialize(buf)?.0,
+                    projective_z(buf)?,
+                )
+            )
+        }
+
+        let a = g1p(&mut buf)?;
+        let b = G2Projective::new(
+            <Wrap<Fq2>>::deserialize(&mut buf)?.0,
+            <Wrap<Fq2>>::deserialize(&mut buf)?.0,
+            Fq2::new(projective_z(&mut buf)?, projective_z(&mut buf)?),
+        );
+        let c = g1p(&mut buf)?;
+        
+        Ok(
+            Proof {
+                a: G1A(a.into()),
+                b: G2A(b.into()),
+                c: G1A(c.into()),
+            }
+        )
     }
 }
 
@@ -100,9 +181,9 @@ impl From<RawProof> for Proof {
 pub struct JoinSplitPublicInputs {
     pub commitment_count: u8,
 
-    pub roots: Vec<Option<U256>>,
-    pub nullifier_hashes: Vec<U256>,
-    pub commitment: U256,
+    pub roots: Vec<Option<RawU256>>,
+    pub nullifier_hashes: Vec<RawU256>,
+    pub commitment: RawU256,
     pub fee_version: u64,
     pub amount: u64,
 }
@@ -122,10 +203,10 @@ impl BorshDeserialize for JoinSplitPublicInputs {
         let commitment_count = u8::deserialize(buf)?;
         assert!(commitment_count <= JOIN_SPLIT_MAX_N_ARITY);
 
-        let roots: Vec<U256> = deserialze_vec(buf, commitment_count as usize)?;
-        let roots = roots.iter().map(|&r| if r == [0; 32] { None } else { Some(r) }).collect();
+        let roots: Vec<RawU256> = deserialze_vec(buf, commitment_count as usize)?;
+        let roots = roots.iter().map(|&r| if r.0 == [0; 32] { None } else { Some(r) }).collect();
         let nullifier_hashes = deserialze_vec(buf, commitment_count as usize)?;
-        let commitment = U256::deserialize(buf)?;
+        let commitment = RawU256::deserialize(buf)?;
         let fee_version = u64::deserialize(buf)?;
         let amount = u64::deserialize(buf)?;
 
@@ -156,7 +237,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
         assert!(self.commitment_count <= JOIN_SPLIT_MAX_N_ARITY);
         self.commitment_count.serialize(writer)?;
 
-        let roots: Vec<U256> = self.roots.iter().map(|&r| r.unwrap_or([0; 32])).collect();
+        let roots: Vec<RawU256> = self.roots.iter().map(|&r| r.unwrap_or(RawU256::ZERO)).collect();
         serialize_vec(&roots, self.commitment_count as usize, writer)?;
         serialize_vec(&self.nullifier_hashes, self.commitment_count as usize, writer)?;
 
@@ -175,8 +256,6 @@ impl BorshSerDeSized for JoinSplitPublicInputs {
     const SIZE: usize = 1 + JOIN_SPLIT_MAX_N_ARITY as usize * (32 + 32) + 32 + 8 + 8;
 }
 
-const ZERO: BigInteger256 = BigInteger256([0,0,0,0]);
-
 pub trait PublicInputs {
     const PUBLIC_INPUTS_COUNT: usize;
 
@@ -185,37 +264,30 @@ pub trait PublicInputs {
     fn join_split_inputs(&self) -> &JoinSplitPublicInputs;
 
     /// Returns the actual public signals used for the proof verification
-    fn public_signals(&self) -> Vec<U256>;
+    /// - no montgomery reduction is performed
+    fn public_signals(&self) -> Vec<RawU256>;
 
-    fn public_signals_big_integer(&self) -> Vec<BigInteger256> {
-        map_public_inputs(&self.public_signals())
+    fn public_signals_big_integer_skip_mr(&self) -> Vec<BigInteger256> {
+        self.public_signals().iter().map(|p| u256_to_big_uint(&p.0)).collect() 
     }
 }
 
-pub fn map_public_inputs(raw: &[U256]) -> Vec<BigInteger256> {
-    raw.iter().map(u256_to_repr).collect() 
-}
-
-pub fn u256_to_repr(raw: &U256) -> BigInteger256 {
-    if *raw == [0; 32] { ZERO } else { u256_to_fr(raw).into_repr() }
-}
-
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 /// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_deca.circom
 pub struct SendPublicInputs {
     pub join_split: JoinSplitPublicInputs,
-    pub recipient: U256,
+    pub recipient: RawU256,
     pub current_time: u64,
-    pub identifier: U256,
-    pub salt: U256, // only 128 bit
+    pub identifier: RawU256,
+    pub salt: RawU256, // only 128 bit
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
 pub struct MigratePublicInputs {
     pub join_split: JoinSplitPublicInputs,
-    pub current_nsmt_root: U256,
-    pub next_nsmt_root: U256,
+    pub current_nsmt_root: RawU256,
+    pub next_nsmt_root: RawU256,
 }
 
 pub const MAX_PUBLIC_INPUTS_COUNT: usize = max(SendPublicInputs::PUBLIC_INPUTS_COUNT, MigratePublicInputs::PUBLIC_INPUTS_COUNT);
@@ -241,36 +313,41 @@ impl PublicInputs for SendPublicInputs {
     fn join_split_inputs(&self) -> &JoinSplitPublicInputs { &self.join_split }
 
     // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_deca.circom
-    fn public_signals(&self) -> Vec<U256> {
+    // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/send.circom
+    fn public_signals(&self) -> Vec<RawU256> {
         let mut public_signals = Vec::new();
 
-        for root in &self.join_split.roots {
-            match root {
-                Some(root) => public_signals.push(*root),
-                None => public_signals.push(self.join_split.roots[0].unwrap())
-            }
-        }
-        for _ in self.join_split.roots.len()..JOIN_SPLIT_MAX_N_ARITY as usize {
-            public_signals.push([0; 32]);
-        }
-
+        // nullifierHash[nArity]
         for n_hash in &self.join_split.nullifier_hashes {
             public_signals.push(*n_hash);
         }
         for _ in self.join_split.nullifier_hashes.len()..JOIN_SPLIT_MAX_N_ARITY as usize {
-            public_signals.push([0; 32]);
+            public_signals.push(RawU256::ZERO);
         }
 
-        let recipient = split_u256_into_limbs(self.recipient);
-        public_signals.extend(&recipient);
+        // root[nArity]
+        for root in &self.join_split.roots {
+            match root {
+                Some(root) => public_signals.push(*root),
+                None => public_signals.push(RawU256::ZERO),
+            }
+        }
+        for _ in self.join_split.roots.len()..JOIN_SPLIT_MAX_N_ARITY as usize {
+            public_signals.push(RawU256::ZERO);
+        }
+
+        // recipient[2]
+        let recipient = split_u256_into_limbs(self.recipient.0);
 
         public_signals.extend(vec![
-            u64_to_u256(self.join_split.amount),
-            u64_to_u256(self.current_time),
+            RawU256(recipient[0]),
+            RawU256(recipient[1]),
+            RawU256(u64_to_u256_skip_mr(self.join_split.amount)),
+            RawU256(u64_to_u256_skip_mr(self.current_time)),
             self.identifier,
             self.salt,
             self.join_split.commitment,
-            u64_to_u256(self.join_split.fee_version),
+            RawU256(u64_to_u256_skip_mr(self.join_split.fee_version)),
         ]);
 
         public_signals
@@ -294,15 +371,16 @@ impl PublicInputs for MigratePublicInputs {
     fn join_split_inputs(&self) -> &JoinSplitPublicInputs { &self.join_split }
 
     // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
-    fn public_signals(&self) -> Vec<U256> {
+    // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/migrate.circom
+    fn public_signals(&self) -> Vec<RawU256> {
         vec![
-            self.join_split.roots[0].unwrap(),
             self.join_split.nullifier_hashes[0],
+            self.join_split.roots[0].unwrap(),
             self.join_split.commitment,
             self.current_nsmt_root,
             self.next_nsmt_root,
-            u64_to_u256(self.join_split.fee_version),
-            u64_to_u256(self.join_split.amount),
+            RawU256(u64_to_u256_skip_mr(self.join_split.fee_version)),
+            RawU256(u64_to_u256_skip_mr(self.join_split.amount)),
         ]
     }
 }
@@ -322,18 +400,28 @@ pub fn split_u256_into_limbs(v: U256) -> [U256; 2] {
     for i in 0..16 { a[i + 16] = 0; }
 
     let mut b = [0; 32];
-    b[..16].copy_from_slice(&v[16..(16 + 16)]);
+    b[..16].copy_from_slice(&v[16..32]);
 
     [a, b]
 }
 
 #[cfg(test)]
 mod test {
-    use crate::commitment::u256_from_str_repr;
-
     use super::*;
     use std::str::FromStr;
     use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
+    use crate::{fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr}, proof::proof_from_str};
+
+    #[test]
+    fn test_raw_u256() {
+        // Just as info: `.0` returns the montgomery-reduced field element, `.into_repr` the actual field element
+        assert_ne!(Fr::from_str("123").unwrap().0, Fr::from_str("123").unwrap().into_repr());
+
+        assert_eq!(
+            Fr::from_str("123").unwrap(),
+            u256_to_fr_skip_mr(&RawU256(u256_from_str_skip_mr("123")).reduce())
+        )
+    }
 
     #[test]
     fn test_proof_bytes() {
@@ -370,15 +458,45 @@ mod test {
     }
 
     #[test]
+    fn test_proof_raw_proof_into() {
+        let proof = proof_from_str(
+            (
+                "10026859857882131638516328056627849627085232677511724829502598764489185541935",
+                "19685960310506634721912121951341598678325833230508240750559904196809564625591",
+                false,
+            ),
+            (
+                (
+                    "857882131638516328056627849627085232677511724829502598764489185541935",
+                    "685960310506634721912121951341598678325833230508240750559904196809564625591",
+                ),
+                (
+                    "837064132573119120838379738103457054645361649757131991036638108422638197362",
+                    "86803555845400161937398579081414146527572885637089779856221229551142844794",
+                ),
+                false,
+            ),
+            (
+                "21186803555845400161937398579081414146527572885637089779856221229551142844794",
+                "85960310506634721912121951341598678325833230508240750559904196809564625591",
+                false,
+            ),
+        );
+
+        let raw_proof = RawProof::try_from(proof).unwrap();
+        assert_eq!(Proof::try_from(raw_proof).unwrap(), proof);
+    }
+
+    #[test]
     fn test_join_split_public_inputs_ser_de() {
         let inputs = JoinSplitPublicInputs {
             commitment_count: 1,
-            commitment: [1; 32],
+            commitment: RawU256([1; 32]),
             roots: vec![
-                Some([2; 32]),
+                Some(RawU256([2; 32])),
             ],
             nullifier_hashes: vec![
-                [5; 32],
+                RawU256([5; 32]),
             ],
             amount: 666,
             fee_version: 999
@@ -395,21 +513,21 @@ mod test {
             join_split: JoinSplitPublicInputs {
                 commitment_count: 2,
                 roots: vec![
-                    Some([0; 32]),
+                    Some(RawU256([0; 32])),
                     None,
                 ],
                 nullifier_hashes: vec![
-                    [0; 32],
-                    [0; 32],
+                    RawU256([0; 32]),
+                    RawU256([0; 32]),
                 ],
-                commitment: [0; 32],
+                commitment: RawU256([0; 32]),
                 fee_version: 0,
                 amount: 0,
             },
-            recipient: [0; 32],
+            recipient: RawU256([0; 32]),
             current_time: 0,
-            identifier: [0; 32],
-            salt: [0; 32],
+            identifier: RawU256([0; 32]),
+            salt: RawU256([0; 32]),
         };
         assert!(valid_inputs.verify_additional_constraints());
 
@@ -429,9 +547,46 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_send_public_inputs_public_signals() {
-        panic!()
+        let inputs = SendPublicInputs {
+            join_split: JoinSplitPublicInputs {
+                commitment_count: 1,
+                roots: vec![
+                    Some(RawU256(u256_from_str_skip_mr("6191230350958560078367981107768184097462838361805930166881673322342311903752"))),
+                ],
+                nullifier_hashes: vec![
+                    RawU256(u256_from_str_skip_mr("7889586699914970744657798935358222218486353295005298675075639741334684257960")),
+                ],
+                commitment: RawU256(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
+                fee_version: 0,
+                amount: 50000,
+            },
+            recipient: RawU256(u256_from_str_skip_mr("212334656798193948954971085461110323640890639608634923090101683")),
+            current_time: 1657927306,
+            identifier: RawU256(u256_from_str_skip_mr("1")),
+            salt: RawU256(u256_from_str_skip_mr("2")),
+        };
+
+        let expected = [
+            "7889586699914970744657798935358222218486353295005298675075639741334684257960",
+            "0",
+            "0",
+            "0",
+            "6191230350958560078367981107768184097462838361805930166881673322342311903752",
+            "0",
+            "0",
+            "0",
+            "306186522190603117929438292402982536627",
+            "623995473875165532486851",
+            "50000",
+            "1657927306",
+            "1",
+            "2",
+            "12986953721358354389598211912988135563583503708016608019642730042605916285029",
+            "0",
+        ].iter().map(|&p| RawU256(u256_from_str_skip_mr(p))).collect::<Vec<RawU256>>();
+
+        assert_eq!(expected, inputs.public_signals());
     }
 
     #[test]
@@ -439,14 +594,14 @@ mod test {
         let valid_inputs = MigratePublicInputs {
             join_split: JoinSplitPublicInputs {
                 commitment_count: 1,
-                roots: vec![Some([0; 32])],
-                nullifier_hashes: vec![[0; 32]],
-                commitment: [0; 32],
+                roots: vec![Some(RawU256([0; 32]))],
+                nullifier_hashes: vec![RawU256([0; 32])],
+                commitment: RawU256([0; 32]),
                 fee_version: 0,
                 amount: 0,
             },
-            current_nsmt_root: [0; 32],
-            next_nsmt_root: [0; 32],
+            current_nsmt_root: RawU256([0; 32]),
+            next_nsmt_root: RawU256([0; 32]),
         };
         assert!(valid_inputs.verify_additional_constraints());
 
@@ -462,18 +617,52 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_migrate_public_inputs_public_signals() {
-        panic!()
+        let inputs = MigratePublicInputs {
+            join_split: JoinSplitPublicInputs {
+                commitment_count: 1,
+                roots: vec![
+                    Some(RawU256(u256_from_str_skip_mr("6191230350958560078367981107768184097462838361805930166881673322342311903752"))),
+                ],
+                nullifier_hashes: vec![
+                    RawU256(u256_from_str_skip_mr("7889586699914970744657798935358222218486353295005298675075639741334684257960")),
+                ],
+                commitment: RawU256(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
+                fee_version: 0,
+                amount: 50000,
+            },
+            current_nsmt_root: RawU256(u256_from_str_skip_mr("21233465679819394895497108546111032364089063960863923090101683")),
+            next_nsmt_root: RawU256(u256_from_str_skip_mr("409746283836180593012730668816372135835438959821191292730")),
+        };
+
+        let expected = [
+            "7889586699914970744657798935358222218486353295005298675075639741334684257960",
+            "6191230350958560078367981107768184097462838361805930166881673322342311903752",
+            "12986953721358354389598211912988135563583503708016608019642730042605916285029",
+            "21233465679819394895497108546111032364089063960863923090101683",
+            "409746283836180593012730668816372135835438959821191292730",
+            "0",
+            "50000",
+        ].iter().map(|&p| RawU256(u256_from_str_skip_mr(p))).collect::<Vec<RawU256>>();
+
+        assert_eq!(expected, inputs.public_signals());
     }
 
     #[test]
     fn test_split_u256() {
         assert_eq!(
-            split_u256_into_limbs(u256_from_str_repr("1157920892373337907853269984665640564039457584007913129639935")),
+            split_u256_into_limbs(u256_from_str_skip_mr("1157920892373337907853269984665640564039457584007913129639935")),
             [
-                u256_from_str_repr("125150045379035551642519419267248553983"),
-                u256_from_str_repr("3402823669209901715842"),
+                u256_from_str_skip_mr("125150045379035551642519419267248553983"),
+                u256_from_str_skip_mr("3402823669209901715842"),
+            ]
+        );
+
+        assert_eq!(
+            split_u256_into_limbs(u256_from_str_skip_mr("212334656798193948954971085461110323640890639608634923090101683")),
+            [
+                u256_from_str_skip_mr("306186522190603117929438292402982536627"),
+                u256_from_str_skip_mr("623995473875165532486851"),
             ]
         );
     }

@@ -220,8 +220,9 @@ where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized {
     }
 
     pub fn try_insert(&mut self, k: K, v: V) -> ElusivResult {
-        if self.0.len() >= COUNT {
-            return Err(ElusivError::NoRoomForNullifier)
+        //solana_program::msg!("{} {}", self.len(), COUNT);
+        if self.is_full() {
+            return Err(ElusivError::InvalidAccountState)
         }
         self.0.insert(k, v);
         Ok(())
@@ -239,9 +240,16 @@ where K: Hash + Ord + BorshSerDeSized, V: BorshSerDeSized {
         self.0.get(k)
     }
 
-    #[allow(clippy::len_without_is_empty)] 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.len() == COUNT
     }
 }
 

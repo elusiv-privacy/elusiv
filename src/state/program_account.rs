@@ -118,10 +118,6 @@ pub trait MultiInstancePDAAccount: PDAAccount {
     }
 }
 
-/// 1 MiB sub-account size
-/// - we don't use 10 MiB (`solana_program::system_instruction::MAX_PERMITTED_DATA_LENGTH`) for increased fetching/rent efficiency
-pub const MIN_ACCOUNT_SIZE: usize = 1048576;
-
 /// Allows for storing data across multiple accounts (needed for data sized >10 MiB)
 /// - these accounts can be PDAs, but will most likely be data accounts (size > 10 KiB)
 /// - by default all these accounts are assumed to have the same size = `ACCOUNT_SIZE`
@@ -135,13 +131,17 @@ pub trait MultiAccountAccount<'t>: PDAAccount {
     /// The size of subsidiary accounts
     const ACCOUNT_SIZE: usize;
 
-    #[deprecated(note="Never call this function. Use `execute_on_sub_account` instead.")]
-    fn get_account(&self, account_index: usize) -> Result<&AccountInfo<'t>, ProgramError>;
+    /// Returns the sub-account for the specified index
+    /// 
+    /// # Safety
+    /// - Each sub-account has to be serialized using the `SubAccount` struct.
+    /// - Modifiying/accessing without the `SubAccount` struct, can lead to undefined behaviour.
+    /// - Use `execute_on_sub_account` instead of `get_account_unsafe` directly.
+    unsafe fn get_account_unsafe(&self, account_index: usize) -> Result<&AccountInfo<'t>, ProgramError>;
 
     /// Ensures that the fields of `SubAccount` are not manipulated on a sub-account
-    #[allow(deprecated)]
     fn execute_on_sub_account<F, T, E>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> Result<T, E> {
-        let account = self.get_account(account_index)?;
+        let account = unsafe { self.get_account_unsafe(account_index)? };
         let data = &mut account.data.borrow_mut()[..];
         let account = SubAccount::new(data);
         f(account.data).or(Err(ProgramError::InvalidAccountData))

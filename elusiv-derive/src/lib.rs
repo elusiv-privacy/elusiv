@@ -30,11 +30,12 @@ use enum_variant::*;
 ///     - extra_attributes:
 ///         - `signer`
 ///         - `writable`
-///         - `find_pda`: does a PDA verification with a pda_offset but with unknown runtime, since no bump is supplied (used for reting new PDAs)
-///         - `multi_accounts`: the `Type` has to implement the `crate::state::program_account::MultiAccountAccount` trait and `Type::COUNT + 1` accounts will be required
+///         - `find_pda`: does a PDA verification with a pda_offset but with unknown runtime, since no bump is supplied (used for renting new PDAs)
 ///         - `account_info`: returns an `AccountInfo` object (only relevant for PDAs)
+///         - `multi_accounts`: the `Type` has to implement the `crate::state::program_account::MultiAccountAccount` trait and `Type::COUNT + 1` accounts will be required
 ///         - `no_sub_account_check`: **SKIPS THE PUBKEY VERIFICATION of the sub-accounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)**
 ///         - `ignore_sub_accounts`: ignores all sub-accounts of a multi-account
+///         - `skip_abi`
 /// 
 /// # Usage
 /// ```

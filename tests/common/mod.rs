@@ -12,11 +12,10 @@ use solana_program::{
 use solana_program_test::ProgramTestContext;
 use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer};
 use assert_matches::assert_matches;
-use std::{str::FromStr};
-use ark_bn254::Fr;
-use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}, proof::{PendingNullifierHashesAccount, PendingNullifierHashesMap}};
-use elusiv::fields::{fr_to_u256_le};
-use elusiv::processor::{BaseCommitmentHashRequest};
+use std::str::FromStr;
+use elusiv::{types::{U256, RawU256}, instruction::{UserAccount, WritableUserAccount}, proof::{PendingNullifierHashesAccount, PendingNullifierHashesMap}, fields::fr_to_u256_le_repr};
+use elusiv::fields::fr_to_u256_le;
+use elusiv::processor::BaseCommitmentHashRequest;
 use elusiv::state::{StorageAccount, NullifierAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountData}};
 
 const DEFAULT_START_BALANCE: u64 = LAMPORTS_PER_SOL;
@@ -54,7 +53,7 @@ impl Actor {
 
     /// Returns the account's balance - start_balance - failed_signatures * lamports_per_signature
     pub async fn balance(&self, context: &mut ProgramTestContext) -> u64 {
-        get_balance(self.pubkey, context).await - self.start_balance
+        get_balance(&self.pubkey, context).await - self.start_balance
     }
 
     pub async fn airdrop(&self, lamports: u64, context: &mut ProgramTestContext) {
@@ -62,8 +61,8 @@ impl Actor {
     }
 }
 
-pub async fn get_balance(pubkey: Pubkey, context: &mut ProgramTestContext) -> u64 {
-    context.banks_client.get_account(pubkey).await.unwrap().unwrap().lamports
+pub async fn get_balance(pubkey: &Pubkey, context: &mut ProgramTestContext) -> u64 {
+    context.banks_client.get_account(*pubkey).await.unwrap().unwrap().lamports
 }
 
 pub async fn account_does_exist(pubkey: Pubkey, context: &mut ProgramTestContext) -> bool {
@@ -124,10 +123,18 @@ macro_rules! sized_account {
 }
 
 macro_rules! pda_account {
-    ($id: ident, $ty: ty, $offset: expr, $prg: ident) => {
-        let pk = <$ty>::find($offset).0;
-        let mut data = &mut get_data(&mut $prg, pk).await[..];
+    ($id: ident, $ty: ty, $offset: expr, $context: ident) => {
+        pda_account!(data data, $ty, $offset, $context);
         let $id = <$ty>::new(&mut data).unwrap();
+    };
+    (mut $id: ident, $ty: ty, $offset: expr, $context: ident) => {
+        pda_account!(data data, $ty, $offset, $context);
+        let mut $id = <$ty>::new(&mut data).unwrap();
+    };
+
+    (data $data: ident, $ty: ty, $offset: expr, $context: ident) => {
+        let pk = <$ty>::find($offset).0;
+        let mut $data = &mut get_data(&mut $context, pk).await[..];
     };
 }
 
@@ -277,14 +284,14 @@ pub async fn invalid_accounts_fuzzing(
 ) -> Vec<(Instruction, Actor)> {
     let mut result = Vec::new();
     for (i, acc) in ix.accounts.iter().enumerate() {
-        let signer = if acc.is_signer { (*original_signer).clone() } else { Actor::new(context).await };
+        let signer = if !acc.is_signer { (*original_signer).clone() } else { Actor::new(context).await };
         let mut ix = ix.clone();
 
         // Clone data and lamports
         let id = acc.pubkey;
         let accounts_exists = account_does_exist(id, context).await;
         let data = if accounts_exists { get_data(context, id).await } else { vec![] };
-        let lamports = if accounts_exists { get_balance(id, context).await } else { 100_000 };
+        let lamports = if accounts_exists { get_balance(&id, context).await } else { 100_000 };
         let new_pubkey = Pubkey::new_unique();
         set_account(context, &new_pubkey, data, lamports).await;
 
@@ -386,13 +393,23 @@ pub async fn ix_should_fail(
 }
 
 pub fn u256_from_str(str: &str) -> U256 {
-    fr_to_u256_le(&Fr::from_str(str).unwrap())
+    fr_to_u256_le(&ark_bn254::Fr::from_str(str).unwrap())
 }
 
-pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u64, min_batching_rate: u32) -> BaseCommitmentHashRequest {
+pub fn u256_from_str_skip_mr(str: &str) -> U256 {
+    fr_to_u256_le_repr(&ark_bn254::Fr::from_str(str).unwrap())
+}
+
+pub fn base_commitment_request(
+    base_commitment: &str,
+    commitment: &str,
+    amount: u64,
+    fee_version: u64,
+    min_batching_rate: u32,
+) -> BaseCommitmentHashRequest {
     BaseCommitmentHashRequest {
-        base_commitment: u256_from_str(bc),
-        commitment: u256_from_str(c),
+        base_commitment: RawU256::new(u256_from_str_skip_mr(base_commitment)),
+        commitment: RawU256::new(u256_from_str_skip_mr(commitment)),
         amount,
         fee_version,
         min_batching_rate,
