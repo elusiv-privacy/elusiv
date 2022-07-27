@@ -132,7 +132,7 @@ async fn test_setup_storage_account() {
     let mut context = start_program_solana_program_test().await;
     let keys = setup_storage_account(&mut context).await;
 
-    storage_account(&mut context, |storage_account| {
+    storage_account(&mut context, None, |storage_account| {
         let pks: Vec<Pubkey> = storage_account.get_multi_account_data().pubkeys.iter().map(|p| p.option().unwrap()).collect();
         assert_eq!(keys, pks);
     }).await;
@@ -168,14 +168,10 @@ async fn test_open_new_merkle_tree() {
     for mt_index in 0..3 {
         let keys = create_merkle_tree(&mut context, mt_index).await;
 
-        nullifier_account(mt_index, &mut context, |nullfier_account: &NullifierAccount| {
+        nullifier_account(&mut context, Some(mt_index), |nullfier_account: &NullifierAccount| {
             let pks: Vec<Pubkey> = nullfier_account.get_multi_account_data().pubkeys.iter().map(|p| p.option().unwrap()).collect();
             assert_eq!(keys, pks);
         }).await;
-
-        // Check that nullifier map has been setup
-        let map = pending_nullifiers_map(mt_index, &mut context).await;
-        assert!(map.is_empty());
     }
 }
 
@@ -252,12 +248,12 @@ async fn test_close_merkle_tree() {
         &mut client, &mut context
     ).await;
 
-    nullifier_account(0, &mut context, |n: &NullifierAccount| {
+    nullifier_account(&mut context, Some(0), |n: &NullifierAccount| {
         assert_eq!(n.get_root(), EMPTY_TREE[MT_HEIGHT as usize]);
     }).await;
 
     // Check active index
-    storage_account(&mut context, |s: &StorageAccount| {
+    storage_account(&mut context, None, |s: &StorageAccount| {
         assert_eq!(s.get_trees_count(), 1);
         assert_eq!(s.get_next_commitment_ptr(), 0);
         assert_eq!(s.get_mt_roots_count(), 0);

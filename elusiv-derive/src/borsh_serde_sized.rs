@@ -54,3 +54,18 @@ pub fn impl_borsh_serde_sized(ast: &syn::DeriveInput) -> TokenStream {
         _ => { panic!() }
     }
 }
+
+pub fn impl_borsh_serde_placeholder(ast: &syn::DeriveInput) -> TokenStream {
+    let ident = &ast.ident.clone();
+    let (impl_generics, ty_generics, where_clause) = &ast.generics.split_for_impl();
+
+    quote! {
+        impl #impl_generics borsh::BorshDeserialize for #ident #ty_generics #where_clause {
+            fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> { panic!() }
+        }
+
+        impl #impl_generics borsh::BorshSerialize for #ident #ty_generics #where_clause {
+            fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> { panic!() }
+        }
+    }
+}

@@ -1,8 +1,11 @@
+use std::marker::PhantomData;
 use crate::u64_array;
 use crate::fields::{G1A, G2A, u64_to_u256_skip_mr, u256_to_big_uint, fr_to_u256_le, Wrap};
 use ark_bn254::{Fr, Fq, Fq2, G1Projective, G2Projective};
 use ark_ec::AffineCurve;
 use ark_ff::{BigInteger256, PrimeField, One, Zero};
+use elusiv_derive::BorshSerDePlaceholder;
+use solana_program::pubkey::Pubkey;
 use crate::bytes::{BorshSerDeSized, max};
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
@@ -32,45 +35,36 @@ impl RawU256 {
     pub fn skip_mr_ref(&self) -> &U256 { &self.0 }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Copy, Clone, PartialEq, PartialOrd)]
-pub struct U256Limbed4(pub [u64; 4]);
-
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Copy, Clone, PartialEq, PartialOrd, std::hash::Hash, Eq, Ord)]
-pub struct U256Limbed2(pub [u128; 2]);
-
-impl From<U256> for U256Limbed4 {
-    fn from(v: U256) -> Self {
-        U256Limbed4([
-            u64::from_le_bytes((&v[..8]).try_into().unwrap()),
-            u64::from_le_bytes((&v[8..16]).try_into().unwrap()),
-            u64::from_le_bytes((&v[16..24]).try_into().unwrap()),
-            u64::from_le_bytes((&v[24..]).try_into().unwrap()),
-        ])
-    }
+pub trait LazyField<'a>: BorshSerDeSized {
+    fn new(data: &'a mut [u8]) -> Self;
+    fn serialize(&mut self);
 }
 
-impl From<U256> for U256Limbed2 {
-    fn from(v: U256) -> Self {
-        U256Limbed2([
-            u128::from_le_bytes((&v[..16]).try_into().unwrap()),
-            u128::from_le_bytes((&v[16..]).try_into().unwrap()),
-        ])
-    }
-}
-
+#[derive(BorshSerDePlaceholder, PartialEq, Debug)]
 pub struct Lazy<'a, N: BorshSerDeSized + Clone> {
     modified: bool,
     value: Option<N>,
     data: &'a mut [u8],
 }
 
-impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
-    pub const SIZE: usize = N::SIZE;
+impl<'a, N: BorshSerDeSized + Clone> BorshSerDeSized for Lazy<'a, N> {
+    const SIZE: usize = N::SIZE;
+}
 
-    pub fn new(data: &'a mut [u8]) -> Self {
-        Lazy { modified: false, value: None, data }
+impl<'a, N: BorshSerDeSized + Clone> LazyField<'a> for Lazy<'a, N> {
+    fn new(data: &'a mut [u8]) -> Self {
+        Self { modified: false, value: None, data }
     }
 
+    fn serialize(&mut self) {
+        if !self.modified { return }
+        let v = self.value.clone().unwrap().try_to_vec().unwrap();
+        assert!(self.data.len() >= v.len());
+        self.data[..v.len()].copy_from_slice(&v[..]);
+    }
+}
+
+impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
     pub fn get(&mut self) -> N {
         match &self.value {
             Some(v) => v.clone(),
@@ -90,12 +84,36 @@ impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
         self.set(value);
         self.serialize();
     }
+}
 
-    pub fn serialize(&mut self) {
-        if !self.modified { return }
-        let v = self.value.clone().unwrap().try_to_vec().unwrap();
-        assert!(self.data.len() >= v.len());
-        self.data[..v.len()].copy_from_slice(&v[..]);
+#[derive(BorshSerDePlaceholder, PartialEq, Debug)]
+pub struct JITArray<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> {
+    pub data: &'a mut [u8],
+    phantom: PhantomData<N>,
+}
+
+impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> BorshSerDeSized for JITArray<'a, N, CAPACITY> {
+    const SIZE: usize = N::SIZE * CAPACITY;
+}
+
+impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> LazyField<'a> for JITArray<'a, N, CAPACITY> {
+    fn new(data: &'a mut [u8]) -> Self {
+        Self { data, phantom: PhantomData }
+    }
+
+    fn serialize(&mut self) { panic!() }    // no call to serialize required, performed after each set
+}
+
+impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> JITArray<'a, N, CAPACITY> {
+    pub fn get(&mut self, index: usize) -> N {
+        N::try_from_slice(&self.data[index * N::SIZE..(index + 1) * N::SIZE]).unwrap()
+    }
+
+    pub fn set(&mut self, index: usize, value: &N) {
+        let v = value.try_to_vec().unwrap();
+        for (i, v) in v.iter().enumerate() {
+            self.data[index * N::SIZE + i] = *v;
+        }
     }
 }
 
@@ -186,6 +204,19 @@ pub struct JoinSplitPublicInputs {
     pub commitment: RawU256,
     pub fee_version: u64,
     pub amount: u64,
+    pub fee: u64,
+}
+
+impl JoinSplitPublicInputs {
+    pub fn nullifier_duplicate_pda(&self) -> (Pubkey, u8) {
+        let nullifier_hashes: Vec<U256> = self.nullifier_hashes.iter().map(|n| n.skip_mr()).collect();
+        let nullifier_hashes: Vec<&[u8]> = nullifier_hashes.iter().map(|n| &n[..]).collect();
+        Pubkey::find_program_address(&nullifier_hashes[..], &crate::ID)
+    }
+
+    pub fn total_amount(&self) -> u64 {
+        self.amount + self.fee
+    }
 }
 
 const JOIN_SPLIT_MAX_N_ARITY: u8 = 4;
@@ -209,6 +240,7 @@ impl BorshDeserialize for JoinSplitPublicInputs {
         let commitment = RawU256::deserialize(buf)?;
         let fee_version = u64::deserialize(buf)?;
         let amount = u64::deserialize(buf)?;
+        let fee = u64::deserialize(buf)?;
 
         let remaining = (JOIN_SPLIT_MAX_N_ARITY - commitment_count) as usize * (32 + 32);
         *buf = &buf[remaining..];
@@ -221,6 +253,7 @@ impl BorshDeserialize for JoinSplitPublicInputs {
                 commitment,
                 fee_version,
                 amount,
+                fee,
             }
         )
     }
@@ -244,6 +277,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
         self.commitment.serialize(writer)?;
         self.fee_version.serialize(writer)?;
         self.amount.serialize(writer)?;
+        self.fee.serialize(writer)?;
 
         let remaining = (JOIN_SPLIT_MAX_N_ARITY - self.commitment_count) as usize * (32 + 32);
         writer.write_all(&vec![0; remaining])?;
@@ -253,7 +287,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
 }
 
 impl BorshSerDeSized for JoinSplitPublicInputs {
-    const SIZE: usize = 1 + JOIN_SPLIT_MAX_N_ARITY as usize * (32 + 32) + 32 + 8 + 8;
+    const SIZE: usize = 1 + JOIN_SPLIT_MAX_N_ARITY as usize * (32 + 32) + 32 + 8 + 8 + 8;
 }
 
 pub trait PublicInputs {
@@ -262,6 +296,8 @@ pub trait PublicInputs {
     /// Verifies the public inputs based on static value constraints
     fn verify_additional_constraints(&self) -> bool;
     fn join_split_inputs(&self) -> &JoinSplitPublicInputs;
+
+    fn set_fee(&mut self, fee: u64);
 
     /// Returns the actual public signals used for the proof verification
     /// - no montgomery reduction is performed
@@ -342,7 +378,7 @@ impl PublicInputs for SendPublicInputs {
         public_signals.extend(vec![
             RawU256(recipient[0]),
             RawU256(recipient[1]),
-            RawU256(u64_to_u256_skip_mr(self.join_split.amount)),
+            RawU256(u64_to_u256_skip_mr(self.join_split.total_amount())),
             RawU256(u64_to_u256_skip_mr(self.current_time)),
             self.identifier,
             self.salt,
@@ -351,6 +387,10 @@ impl PublicInputs for SendPublicInputs {
         ]);
 
         public_signals
+    }
+
+    fn set_fee(&mut self, fee: u64) {
+        self.join_split.fee = fee
     }
 }
 
@@ -380,8 +420,31 @@ impl PublicInputs for MigratePublicInputs {
             self.current_nsmt_root,
             self.next_nsmt_root,
             RawU256(u64_to_u256_skip_mr(self.join_split.fee_version)),
-            RawU256(u64_to_u256_skip_mr(self.join_split.amount)),
+            RawU256(u64_to_u256_skip_mr(self.join_split.total_amount())),
         ]
+    }
+
+    fn set_fee(&mut self, fee: u64) {
+        self.join_split.fee = fee
+    }
+}
+
+#[cfg(feature = "instruction-abi")]
+pub fn compute_fee_rec<VKey: crate::proof::vkey::VerificationKey, P: PublicInputs>(
+    public_inputs: &mut P,
+    program_fee: &crate::state::fee::ProgramFee,
+) {
+    let fee = program_fee.proof_verification_fee(
+        crate::proof::prepare_public_inputs_instructions::<VKey>(
+            &public_inputs.public_signals_big_integer_skip_mr()
+        ).len(),
+        0,
+        public_inputs.join_split_inputs().amount
+    ) - program_fee.proof_subvention;
+
+    if fee != public_inputs.join_split_inputs().fee {
+        public_inputs.set_fee(fee);
+        compute_fee_rec::<VKey, P>(public_inputs, program_fee)
     }
 }
 
@@ -498,8 +561,9 @@ mod test {
             nullifier_hashes: vec![
                 RawU256([5; 32]),
             ],
+            fee_version: 999,
             amount: 666,
-            fee_version: 999
+            fee: 777,
         };
 
         let serialized = inputs.try_to_vec().unwrap();
@@ -523,6 +587,7 @@ mod test {
                 commitment: RawU256([0; 32]),
                 fee_version: 0,
                 amount: 0,
+                fee: 0,
             },
             recipient: RawU256([0; 32]),
             current_time: 0,
@@ -560,6 +625,7 @@ mod test {
                 commitment: RawU256(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
                 fee_version: 0,
                 amount: 50000,
+                fee: 1,
             },
             recipient: RawU256(u256_from_str_skip_mr("212334656798193948954971085461110323640890639608634923090101683")),
             current_time: 1657927306,
@@ -578,7 +644,7 @@ mod test {
             "0",
             "306186522190603117929438292402982536627",
             "623995473875165532486851",
-            "50000",
+            "50001",
             "1657927306",
             "1",
             "2",
@@ -599,6 +665,7 @@ mod test {
                 commitment: RawU256([0; 32]),
                 fee_version: 0,
                 amount: 0,
+                fee: 0,
             },
             current_nsmt_root: RawU256([0; 32]),
             next_nsmt_root: RawU256([0; 32]),
@@ -630,6 +697,7 @@ mod test {
                 commitment: RawU256(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
                 fee_version: 0,
                 amount: 50000,
+                fee: 1,
             },
             current_nsmt_root: RawU256(u256_from_str_skip_mr("21233465679819394895497108546111032364089063960863923090101683")),
             next_nsmt_root: RawU256(u256_from_str_skip_mr("409746283836180593012730668816372135835438959821191292730")),
@@ -642,7 +710,7 @@ mod test {
             "21233465679819394895497108546111032364089063960863923090101683",
             "409746283836180593012730668816372135835438959821191292730",
             "0",
-            "50000",
+            "50001",
         ].iter().map(|&p| RawU256(u256_from_str_skip_mr(p))).collect::<Vec<RawU256>>();
 
         assert_eq!(expected, inputs.public_signals());
@@ -665,5 +733,40 @@ mod test {
                 u256_from_str_skip_mr("623995473875165532486851"),
             ]
         );
+    }
+
+    type TestJITArray<'a> = JITArray<'a, u64, 100>;
+
+    #[test]
+    #[should_panic]
+    fn test_jit_array_ser() {
+        let v = vec![0; TestJITArray::SIZE];
+        _ = TestJITArray::deserialize(&mut &v[..]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_jit_array_de() {
+        let mut v = vec![0; TestJITArray::SIZE];
+        let a = TestJITArray::new(&mut v);
+        _ = a.try_to_vec();
+    }
+
+    #[test]
+    fn test_jit_array() {
+        let mut v = vec![0; TestJITArray::SIZE];
+        let mut a = TestJITArray::new(&mut v);
+        for i in 0..100 {
+            a.set(i, &(i as u64));
+        }
+
+        for i in 0..100 {
+            assert_eq!(a.get(i), i as u64);
+        }
+
+        for i in 0..100 {
+            let v = u64::try_from_slice(&v[i * u64::SIZE..(i + 1) * u64::SIZE]).unwrap();
+            assert_eq!(v, i as u64);
+        }
     }
 }

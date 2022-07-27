@@ -200,7 +200,10 @@ fn prepare_public_inputs_partial<VKey: VerificationKey>(
                 acc.add_assign_mixed(&gamma_abc_g1); // (CUs: max: 20836, min: 211, avg: 19912)
             }
         } else { // Adding
-            let g_ic = acc + if input_index == 0 { VKey::gamma_abc_g1_0() } else { read_g1_p!(storage.ram_fq, 0) };
+            let mut g_ic = if input_index == 0 { VKey::gamma_abc_g1_0() } else { read_g1_p!(storage.ram_fq, 0) };
+            if first_non_zero < 256 {
+                g_ic += acc;
+            }
 
             if input_index < VKey::PUBLIC_INPUTS_COUNT - 1 {
                 write_g1_projective(&mut storage.ram_fq, &g_ic, 0);
@@ -242,7 +245,7 @@ pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: 
 
         for b in skip..=256 {
             let cus = if b == 256 {
-                ADD_COST
+                if skip == 256 { 0 } else { ADD_COST }
             } else if get_bit(public_input, b) {
                 ONE_BIT_COST
             } else {

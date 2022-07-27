@@ -676,7 +676,7 @@ async fn test_single_commitment() {
     );
 
     // Check updated MT
-    storage_account(&mut context, |s: &StorageAccount| {
+    storage_account(&mut context, None, |s: &StorageAccount| {
         assert_eq!(
             s.get_root(),
             u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575")
@@ -831,7 +831,7 @@ async fn test_commitment_correct_storage_account_insertion() {
     }
 
     // Check that each commitment is at the correct position
-    storage_account(&mut context, |s: &StorageAccount| {
+    storage_account(&mut context, None, |s: &StorageAccount| {
         for i in 0..commitment_count {
             assert_eq!(
                 s.get_node(i as usize, MT_HEIGHT as usize),
@@ -918,14 +918,14 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
         ).await;
 
         // Verify commitment and root
-        storage_account(&mut context, |s: &StorageAccount| {
+        storage_account(&mut context, None, |s: &StorageAccount| {
             assert_eq!(s.get_node(i, MT_HEIGHT as usize), requests[i].commitment);
             assert_eq!(s.get_root(), correct_roots_afterwards[i]);
         }).await;
     }
 
     // Verify all commitments
-    storage_account(&mut context, |s: &StorageAccount| {
+    storage_account(&mut context, None, |s: &StorageAccount| {
         for i in 0..requests.len() {
             assert_eq!(s.get_node(i, MT_HEIGHT as usize), requests[i].commitment);
         }
@@ -994,7 +994,7 @@ async fn test_commitment_hash_with_batching_rate(
     }
 
     // Verify all commitments and root
-    storage_account(&mut context, |s: &StorageAccount| {
+    storage_account(&mut context, None, |s: &StorageAccount| {
         for (i, request) in requests.iter().enumerate() {
             assert_eq!(s.get_node(i, MT_HEIGHT as usize), request.commitment);
         }

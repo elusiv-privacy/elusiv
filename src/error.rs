@@ -18,7 +18,7 @@ pub enum ElusivError {
     InvalidMerkleRoot,
 
     // Nullifier
-    NullifierAlreadyExists,
+    CouldNotInsertNullifier,
 
     // Commitment
     NoRoomForCommitment,

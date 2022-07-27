@@ -7,10 +7,11 @@ use solana_program::{
 };
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex};
 use crate::processor::{MATH_ERR, ZERO_COMMITMENT_RAW};
-use crate::processor::utils::{open_pda_account_with_offset, send_from_pool, close_account};
-use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, PendingNullifierHashesAccount, VerificationState};
+use crate::processor::utils::{open_pda_account_with_offset, send_from_pool, close_account, open_pda_account};
+use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState};
 use crate::state::fee::FeeAccount;
 use crate::state::governor::FEE_COLLECTOR_MINIMUM_BALANCE;
+use crate::state::program_account::PDAAccountData;
 use crate::state::queue::{CommitmentQueue, CommitmentQueueAccount, Queue, RingQueue};
 use crate::state::{
     NullifierAccount,
@@ -28,7 +29,7 @@ use crate::error::ElusivError::{
     InvalidInstructionData,
     ComputationIsAlreadyFinished,
     ComputationIsNotYetFinished,
-    NullifierAlreadyExists,
+    CouldNotInsertNullifier,
     InvalidFeeVersion,
     FeatureNotAvailable,
 };
@@ -95,6 +96,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     pool: &AccountInfo<'c>,
     fee_collector: &AccountInfo<'c>,
     verification_account: &AccountInfo<'c>,
+    nullifier_duplicate_account: &AccountInfo<'c>,
     storage_account: &StorageAccount,
     n_acc_0: &NullifierAccount<'a, 'b, 'd>,
     n_acc_1: &NullifierAccount<'a, 'b, 'd>,
@@ -125,41 +127,36 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     guard!(request.fee_version() == governor.get_fee_version(), InvalidFeeVersion);
     let fee = governor.get_program_fee();
     let min_batching_rate = governor.get_commitment_batching_rate();
+    let subvention = fee.proof_subvention;
     let unadjusted_fee = fee.proof_verification_fee(
         instructions.len(),
         min_batching_rate,
         request.proof_fee_amount()
     );
-    let subvention = fee.proof_subvention;
-    let fee_total = unadjusted_fee.checked_sub(subvention).ok_or(MATH_ERR)?;
-
-    let mut remaining_amount = 0;
-    let join_split;
+    let fee = unadjusted_fee.checked_sub(subvention).ok_or(MATH_ERR)?;
 
     // Verify public inputs
-    match &request {
+    let join_split = match &request {
         ProofRequest::Send(public_inputs) => {
-            guard!(public_inputs.join_split.amount >= fee_total, InvalidAmount);
-            remaining_amount = public_inputs.join_split.amount - fee_total;
             guard!(public_inputs.verify_additional_constraints(), InvalidPublicInputs);
-            join_split = &public_inputs.join_split;
-
             if cfg!(not(test)) {
                 let clock = Clock::get()?;
                 let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();
                 guard!(is_timestamp_valid(public_inputs.current_time, current_timestamp), InvalidInstructionData);
             }
+            &public_inputs.join_split
         }
         ProofRequest::Merge(public_inputs) => {
-            guard!(public_inputs.join_split.amount == fee_total, InvalidAmount);
+            guard!(public_inputs.join_split.amount == 0, InvalidAmount);
             guard!(public_inputs.verify_additional_constraints(), InvalidPublicInputs);
-            join_split = &public_inputs.join_split;
+            &public_inputs.join_split
         }
         ProofRequest::Migrate(_) => {
             // Migrate from archived MTs not implemented yet
             return Err(FeatureNotAvailable.into())
         }
-    }
+    };
+    guard!(fee == join_split.fee, InvalidPublicInputs);
 
     check_join_split_public_inputs(
         join_split,
@@ -176,6 +173,16 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         send_from_pool(fee_collector, pool, subvention)?;
     }
 
+    // Open `nullifier_duplicate_account`
+    let nullifier_hashes: Vec<U256> = join_split.nullifier_hashes.iter().map(|n| n.skip_mr()).collect();
+    let nullifier_hashes: Vec<&[u8]> = nullifier_hashes.iter().map(|n| &n[..]).collect();
+    open_pda_account(
+        fee_payer,
+        nullifier_duplicate_account,
+        PDAAccountData::SIZE,
+        &nullifier_hashes,
+    )?;
+
     // Open `VerificationAccount`
     open_pda_account_with_offset::<VerificationAccount>(
         fee_payer,
@@ -191,8 +198,8 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         vkey,
         VerificationAccountData {
             fee_payer: RawU256::new(fee_payer.key.to_bytes()),
+            nullifier_duplicate_pda: RawU256::new(nullifier_duplicate_account.key.to_bytes()),
             min_batching_rate,
-            remaining_amount,
             unadjusted_fee,
         },
         request,
@@ -200,38 +207,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     )
 }
 
-/// Verifies that the `nullifier_hashes` are not already being verified in a different verification
-/// - this protects the relayer against bad clients, submitting identical, valid proofs to two relayers at the same time
-/// - relayers can opt-out of this protection by setting `ignore_duplicate_verifications`
-/// - `ignore_duplicate_verifications` cannot introduce a race condition, since at proof finalization each `nullifier_hash`'s uniqueness is checked
-pub fn init_verification_validate_nullifier_hashes(
-    verification_account: &mut VerificationAccount,
-    pending_nullifier_hashes0: &mut PendingNullifierHashesAccount,
-    pending_nullifier_hashes1: &mut PendingNullifierHashesAccount,
-
-    _verification_account_index: u64,
-    tree_indices: [u64; MAX_MT_COUNT],
-    ignore_duplicate_verifications: bool,
-) -> ProgramResult {
-    guard!(matches!(verification_account.get_state(), VerificationState::None), InvalidAccountState);
-
-    guard!(verification_account.all_tree_indices() == tree_indices, InvalidInstructionData);
-    let request = verification_account.get_request();
-    let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
-
-    // Check for duplicates and add `nullifier_hashes` into `pending_nullifier_hashes`
-    let nullifier_hashes = group_nullifier_hashes(join_split);
-    pending_nullifier_hashes0.try_insert(&nullifier_hashes[0], ignore_duplicate_verifications)?;
-    if nullifier_hashes.len() == 2 {
-        pending_nullifier_hashes1.try_insert(&nullifier_hashes[1], ignore_duplicate_verifications)?;
-    }
-
-    verification_account.set_state(&VerificationState::NullifiersChecked);
-
-    Ok(())
-}
-
-/// Called once after `init_verification_validate_nullifier_hashes` to initialize the proof's public inputs
+/// Called once after `init_verification` to initialize the proof's public inputs
 /// - Note: has to be called by the original `fee_payer`, that called `init_verification`
 /// - depending on the MT-count this has to be called in a different tx than the init-tx
 pub fn init_verification_proof(
@@ -241,7 +217,7 @@ pub fn init_verification_proof(
     _verification_account_index: u64,
     proof: RawProof,
 ) -> ProgramResult {
-    guard!(matches!(verification_account.get_state(), VerificationState::NullifiersChecked), InvalidAccountState);
+    guard!(matches!(verification_account.get_state(), VerificationState::None), InvalidAccountState);
     guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
     guard!(verification_account.get_other_data().fee_payer.skip_mr() == fee_payer.key.to_bytes(), InvalidAccount);
 
@@ -260,7 +236,11 @@ pub fn compute_verification(
     verification_account: &mut VerificationAccount,
     _verification_account_index: u64,
 ) -> ProgramResult {
-    guard!(!matches!(verification_account.get_state(), VerificationState::None), InvalidAccountState);
+    guard!(
+        matches!(verification_account.get_state(), VerificationState::None) ||
+        matches!(verification_account.get_state(), VerificationState::ProofSetup),
+        InvalidAccountState
+    );
     guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
 
     let vkey = verification_account.get_vkey();
@@ -290,22 +270,21 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
     identifier_account: &AccountInfo,
     salt_account: &AccountInfo,
     verification_account: &mut VerificationAccount,
+    commitment_hash_queue: &mut CommitmentQueueAccount,
     n_acc_0: &mut NullifierAccount<'a, 'b, 'c>,
     n_acc_1: &mut NullifierAccount<'a, 'b, 'c>,
 
     _verification_account_index: u64,
 ) -> ProgramResult {
     guard!(matches!(verification_account.get_state(), VerificationState::ProofSetup), InvalidAccountState);
-    verification_account.set_state(&VerificationState::NullifiersUpdated);
+    verification_account.set_state(&VerificationState::Finalized);
 
     match verification_account.get_is_verified() {
         ElusivOption::None => return Err(ComputationIsNotYetFinished.into()),
-        ElusivOption::Some(verified) => {
-            if !verified {
-                verification_account.set_state(&VerificationState::ReadyForPayment);
-                return Ok(())
-            }
+        ElusivOption::Some(false) => {
+            return Ok(())
         }
+        _ => {}
     }
 
     let request = verification_account.get_request();
@@ -318,37 +297,7 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
     guard!(identifier_account.key.to_bytes() == public_inputs.identifier.skip_mr(), InvalidAccount);
     guard!(salt_account.key.to_bytes() == public_inputs.salt.skip_mr(), InvalidAccount);
 
-    let _nullifier_accounts = [n_acc_0, n_acc_1];
-    /*let nullifier_hashes = group_nullifier_hashes(&public_inputs.join_split);
-    for (i, nullifier_hashes) in nullifier_hashes.iter().enumerate() {
-        for &nullifier_hash in nullifier_hashes {
-            nullifier_accounts[i].try_insert_nullifier_hash(nullifier_hash)?;
-        }
-    }*/
-
-    Ok(())
-}
-
-pub fn finalize_verification_pending_nullifiers<'a, 'b, 'c>(
-    verification_account: &mut VerificationAccount,
-    commitment_hash_queue: &mut CommitmentQueueAccount,
-    pending_nullifier_hashes0: &mut PendingNullifierHashesAccount<'a, 'b, 'c>,
-    pending_nullifier_hashes1: &mut PendingNullifierHashesAccount<'a, 'b, 'c>,
-
-    _verification_account_index: u64,
-) -> ProgramResult {
-    guard!(matches!(verification_account.get_state(), VerificationState::NullifiersUpdated), InvalidAccountState);
-    verification_account.set_state(&VerificationState::ReadyForPayment);
-
-    let request = verification_account.get_request();
-    let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
-
-    let pending_nullifier_hashes = [pending_nullifier_hashes0, pending_nullifier_hashes1];
-    let nullifier_hashes = group_nullifier_hashes(join_split);
-    for (i, nullifier_hashes) in nullifier_hashes.iter().enumerate() {
-        pending_nullifier_hashes[i].try_remove(nullifier_hashes)?;
-    }
-
+    let join_split = public_inputs.join_split;
     let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
     commitment_queue.enqueue(
         CommitmentHashRequest {
@@ -356,55 +305,81 @@ pub fn finalize_verification_pending_nullifiers<'a, 'b, 'c>(
             fee_version: u64_as_u32_safe(join_split.fee_version),
             min_batching_rate: verification_account.get_other_data().min_batching_rate,
         }
-    )
+    )?;
+
+    let nullifier_accounts: [&mut NullifierAccount<'a, 'b, 'c>; MAX_MT_COUNT] = [n_acc_0, n_acc_1];
+    let nullifier_hashes = group_nullifier_hashes(&join_split);
+    for (i, nullifier_hashes) in nullifier_hashes.iter().enumerate() {
+        for &nullifier_hash in nullifier_hashes {
+            nullifier_accounts[i].try_insert_nullifier_hash(nullifier_hash)?;
+        }
+    }
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn finalize_verification_payment<'a>(
+pub fn finalize_verification_transfer<'a>(
     recipient: &AccountInfo<'a>, // can be any account for merge/migrate
     original_fee_payer: &AccountInfo<'a>,
     fee: &FeeAccount,
     pool: &AccountInfo<'a>,
     fee_collector: &AccountInfo<'a>,
     verification_account_info: &AccountInfo<'a>,
+    nullifier_duplicate_account: &AccountInfo<'a>,
 
     _verification_account_index: u64,
     fee_version: u64,
 ) -> ProgramResult {
     let data = &mut verification_account_info.data.borrow_mut()[..];
     let mut verification_account = VerificationAccount::new(data)?;
+    let data = verification_account.get_other_data();
 
-    guard!(matches!(verification_account.get_state(), VerificationState::ReadyForPayment), InvalidAccountState);
+    guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
+    guard!(nullifier_duplicate_account.key.to_bytes() == data.nullifier_duplicate_pda.skip_mr(), InvalidAccount);
     verification_account.set_state(&VerificationState::Closed);
 
     let fee = fee.get_program_fee();
-    let data = verification_account.get_other_data();
     let request = verification_account.get_request();
     guard!(request.fee_version() == fee_version, InvalidFeeVersion);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
 
     if let ElusivOption::Some(false) = verification_account.get_is_verified() {
         // Subvention and rent flow to `fee_collector`
+        // Close `verification_account` and `nullifier_duplicate_account`
         close_account(fee_collector, verification_account_info)?;
+        close_account(fee_collector, nullifier_duplicate_account)?;
+
         if fee.proof_subvention > 0 {
             send_from_pool(pool, fee_collector, fee.proof_subvention)?;
         }
+
         return Ok(())
     }
 
-    if let ProofRequest::Send(public_inputs) = request {
-        // Send `remaining_amount` to `recipient`
+    let amount = if let ProofRequest::Send(public_inputs) = request {
+        // Send `amount` to `recipient`
         guard!(recipient.key.to_bytes() == public_inputs.recipient.skip_mr(), InvalidAccount);
-        send_from_pool(pool, recipient, data.remaining_amount)?;
-    }
+        send_from_pool(pool, recipient, public_inputs.join_split.amount)?;
+        public_inputs.join_split.amount
+    } else {
+        0
+    };
 
-    // Repay and reward relayer
-    let network_fee = fee.proof_network_fee;
-    let amount = data.unadjusted_fee.checked_sub(network_fee).ok_or(MATH_ERR)?;
+    // Repay and reward `original_fee_payer`
+    let network_fee = fee.proof_verification_network_fee(amount);
+    let commitment_hash_fee = fee.commitment_hash_fee(data.min_batching_rate);
+    let amount = data.unadjusted_fee
+        .checked_sub(commitment_hash_fee).ok_or(MATH_ERR)?
+        .checked_sub(network_fee).ok_or(MATH_ERR)?;
     send_from_pool(pool, original_fee_payer, amount)?;
 
-    // Close verification account
-    close_account(original_fee_payer, verification_account_info)
+    // Send `network_fee` to `fee_collector`
+    send_from_pool(pool, fee_collector, network_fee)?;
+
+    // Close `verification_account` and `nullifier_duplicate_account`
+    close_account(original_fee_payer, verification_account_info)?;
+    close_account(original_fee_payer, nullifier_duplicate_account)
 }
 
 const TIMESTAMP_BITS_PRUNING: usize = 5;
@@ -483,7 +458,7 @@ fn check_join_split_public_inputs(
         // - Note: nullifier-hashes are stored in mr-form
         guard!(
             nullifier_accounts[tree_index[i]].can_insert_nullifier_hash(public_inputs.nullifier_hashes[i].reduce())?,
-            NullifierAlreadyExists
+            CouldNotInsertNullifier
         );
     }
 
@@ -518,15 +493,15 @@ mod tests {
     use assert_matches::assert_matches;
     use solana_program::native_token::LAMPORTS_PER_SOL;
     use solana_program::pubkey::Pubkey;
-    use crate::fields::{Wrap, u256_from_str, u256_from_str_skip_mr};
+    use crate::fields::{Wrap, u256_from_str, u256_from_str_skip_mr,};
     use crate::processor::ZERO_COMMITMENT_RAW;
-    use crate::proof::{COMBINED_MILLER_LOOP_IXS, FINAL_EXPONENTIATION_IXS, proof_from_str, PendingNullifierHashesMap};
+    use crate::proof::{COMBINED_MILLER_LOOP_IXS, FINAL_EXPONENTIATION_IXS, proof_from_str};
     use crate::proof::vkey::TestVKey;
     use crate::state::fee::ProgramFee;
-    use crate::state::{EMPTY_TREE, MT_HEIGHT, NullifierMap, empty_root_raw};
+    use crate::state::{EMPTY_TREE, MT_HEIGHT, empty_root_raw};
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::{two_pow, zero_account, account, test_account_info, storage_account, nullifier_account, hash_map};
-    use crate::types::{RawU256, U256Limbed2, Proof};
+    use crate::types::{RawU256, Proof, compute_fee_rec};
 
     fn mutate<T: Clone, F>(v: &T, f: F) -> T where F: Fn(&mut T) {
         let mut i = v.clone();
@@ -535,6 +510,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_mut)]
     fn test_init_verification() {
         test_account_info!(fee_payer, 0);
         zero_account!(mut governor, GovernorAccount);
@@ -544,7 +520,7 @@ mod tests {
         let pda = VerificationAccount::find(Some(0)).0;
         account!(verification_account, pda, vec![0; VerificationAccount::SIZE]);
 
-        let public_inputs = SendPublicInputs{
+        let mut send_public_inputs = SendPublicInputs{
             join_split: JoinSplitPublicInputs {
                 commitment_count: 1,
                 roots: vec![
@@ -556,12 +532,38 @@ mod tests {
                 commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL,
+                fee: 0,
             },
             recipient: RawU256::new(u256_from_str_skip_mr("1")),
             current_time: 0,
             identifier: RawU256::new(u256_from_str_skip_mr("1")),
             salt: RawU256::new(u256_from_str_skip_mr("1")),
         };
+        compute_fee_rec::<SendQuadraVKey, _>(&mut send_public_inputs, &ProgramFee::default());
+
+        let mut merge_public_inputs = SendPublicInputs{
+            join_split: JoinSplitPublicInputs {
+                commitment_count: 1,
+                roots: vec![
+                    Some(empty_root_raw()),
+                ],
+                nullifier_hashes: vec![
+                    RawU256::new(u256_from_str_skip_mr("1")),
+                ],
+                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                fee_version: 0,
+                amount: 0,
+                fee: 0,
+            },
+            recipient: RawU256::new(u256_from_str_skip_mr("1")),
+            current_time: 0,
+            identifier: RawU256::new(u256_from_str_skip_mr("1")),
+            salt: RawU256::new(u256_from_str_skip_mr("1")),
+        };
+        compute_fee_rec::<SendQuadraVKey, _>(&mut merge_public_inputs, &ProgramFee::default());
+
+        let nullifier_duplicate_pda = send_public_inputs.join_split.nullifier_duplicate_pda().0;
+        account!(nullifier_duplicate_account, nullifier_duplicate_pda, vec![1]);
 
         struct InitVerificationTest {
             verification_account_index: u64,
@@ -571,13 +573,13 @@ mod tests {
         }
 
         let tests = [
-            // Send: amount is smaller than fee
+            // Send: invalid fee
             InitVerificationTest {
                 verification_account_index: 0,
                 tree_indices: [0, 0],
                 request: ProofRequest::Send(
-                    mutate(&public_inputs, |public_inputs| {
-                        public_inputs.join_split.amount = 0;
+                    mutate(&send_public_inputs, |public_inputs| {
+                        public_inputs.join_split.fee = 0;
                     })
                 ),
                 success: false,
@@ -588,8 +590,8 @@ mod tests {
                 verification_account_index: 0,
                 tree_indices: [0, 0],
                 request: ProofRequest::Merge(
-                    mutate(&public_inputs, |public_inputs| {
-                        public_inputs.join_split.amount = 16646 - 1;
+                    mutate(&merge_public_inputs, |public_inputs| {
+                        public_inputs.join_split.amount = 1;
                     })
                 ),
                 success: false,
@@ -600,7 +602,7 @@ mod tests {
                 verification_account_index: 0,
                 tree_indices: [0, 0],
                 request: ProofRequest::Send(
-                    mutate(&public_inputs, |public_inputs| {
+                    mutate(&send_public_inputs, |public_inputs| {
                         public_inputs.join_split.commitment_count = 0;
                     })
                 ),
@@ -612,37 +614,37 @@ mod tests {
                 verification_account_index: 0,
                 tree_indices: [0, 0],
                 request: ProofRequest::Send(
-                    mutate(&public_inputs, |public_inputs| {
+                    mutate(&send_public_inputs, |public_inputs| {
                         public_inputs.join_split.commitment_count = 4 + 1;
                     })
                 ),
                 success: false,
             },
 
-            // Invalid verification_account_index
-            InitVerificationTest {
-                verification_account_index: 1,
-                tree_indices: [0, 0],
-                request: ProofRequest::Send(public_inputs.clone()),
-                success: false,
-            },
-
-            // Merge: fee == amount
+            // Merge: invalid fee
             InitVerificationTest {
                 verification_account_index: 0,
                 tree_indices: [0, 0],
                 request: ProofRequest::Merge(
-                    mutate(&public_inputs, |public_inputs| {
-                        public_inputs.join_split.amount = 16646;
+                    mutate(&merge_public_inputs, |public_inputs| {
+                        public_inputs.join_split.fee = 0;
                     })
                 ),
+                success: false,
+            },
+
+            // Merge: valid fee
+            InitVerificationTest {
+                verification_account_index: 0,
+                tree_indices: [0, 0],
+                request: ProofRequest::Merge(merge_public_inputs.clone()),
                 success: true,
             },
 
             InitVerificationTest {
                 verification_account_index: 0,
                 tree_indices: [0, 0],
-                request: ProofRequest::Send(public_inputs.clone()),
+                request: ProofRequest::Send(send_public_inputs.clone()),
                 success: true,
             },
 
@@ -652,7 +654,7 @@ mod tests {
                 tree_indices: [0, 0],
                 request: ProofRequest::Migrate(
                     MigratePublicInputs {
-                        join_split: public_inputs.join_split,
+                        join_split: send_public_inputs.join_split,
                         current_nsmt_root: RawU256::new([0; 32]),
                         next_nsmt_root: RawU256::new([0; 32]),
                     }
@@ -661,16 +663,17 @@ mod tests {
             },
         ];
 
-        for test in tests {
-            storage_account!(storage_account);
-            nullifier_account!(nullifier_account);
+        storage_account!(storage_account);
+        nullifier_account!(nullifier_account);
 
+        for test in tests {
             let result = init_verification(
                 &fee_payer,
                 &governor,
                 &pool,
                 &fee_collector,
                 &verification_account,
+                &nullifier_duplicate_account,
                 &storage_account,
                 &nullifier_account,
                 &nullifier_account,
@@ -685,123 +688,8 @@ mod tests {
                 assert_matches!(result, Err(_));
             }
         }
-    }
 
-    macro_rules! pending_nulliier_map {
-        ($id: ident) => {
-            let data = vec![0; PendingNullifierHashesAccount::ACCOUNT_SIZE];
-            pending_nulliier_map!(terminal $id, data);
-        };
-        ($id: ident, $map: expr) => {
-            let mut data = vec![1];
-            $map.serialize(&mut data).unwrap();
-            pending_nulliier_map!(terminal $id, data);
-        };
-
-        (terminal $id: ident, $data: expr) => {
-            let pk = Pubkey::new_unique();
-            account!(pending_nullifier_map, pk, $data);
-            let mut data = vec![0; PendingNullifierHashesAccount::SIZE];
-            hash_map!(map, (0usize, &pending_nullifier_map));
-            let mut $id = PendingNullifierHashesAccount::new(&mut data, map).unwrap();
-        };
-    }
-
-    #[test]
-    fn test_init_verification_validate_nullifier_hashes() {
-        let mut data = vec![0; VerificationAccount::SIZE];
-        let mut verification_account = VerificationAccount::new(&mut data).unwrap();
-        verification_account.setup(
-            &[],
-            &vec![],
-            0,
-            VerificationAccountData {
-                fee_payer: RawU256::new([0; 32]),
-                min_batching_rate: 0,
-                remaining_amount: 0,
-                unadjusted_fee: 0,
-            },
-            ProofRequest::Send(
-                SendPublicInputs{
-                    join_split: JoinSplitPublicInputs {
-                        commitment_count: 3,
-                        roots: vec![
-                            Some(RawU256::new(EMPTY_TREE[MT_HEIGHT as usize])),
-                            None,
-                            Some(RawU256::new(EMPTY_TREE[MT_HEIGHT as usize])),
-                        ],
-                        nullifier_hashes: vec![
-                            RawU256::new(u256_from_str_skip_mr("1")),
-                            RawU256::new(u256_from_str_skip_mr("2")),
-                            RawU256::new(u256_from_str_skip_mr("3")),
-                        ],
-                        commitment: RawU256::new(u256_from_str_skip_mr("1")),
-                        fee_version: 0,
-                        amount: LAMPORTS_PER_SOL,
-                    },
-                    recipient: RawU256::new(u256_from_str_skip_mr("1")),
-                    current_time: 0,
-                    identifier: RawU256::new(u256_from_str_skip_mr("1")),
-                    salt: RawU256::new(u256_from_str_skip_mr("1")),
-                }
-            ),
-            [0, 1],
-        ).unwrap();
-
-        pending_nulliier_map!(pending0);
-        pending_nulliier_map!(pending1);
-
-        // Already setup
-        verification_account.set_state(&VerificationState::NullifiersChecked);
-        assert_matches!(init_verification_validate_nullifier_hashes(&mut verification_account, &mut pending0, &mut pending1, 0, [0, 1], false), Err(_));
-        verification_account.set_state(&VerificationState::None);
-
-        // Nullifier duplicates (ignore_duplicates will always result in success)
-        // First nullifier is duplicate
-        let mut nullifier_map = PendingNullifierHashesMap::new();
-        nullifier_map.try_insert(U256Limbed2::from(u256_from_str("1")), 0).unwrap();
-        pending_nulliier_map!(pending0, nullifier_map);
-        pending_nulliier_map!(pending1);
-
-        assert_matches!(init_verification_validate_nullifier_hashes(&mut verification_account, &mut pending0, &mut pending1, 0, [0, 1], false), Err(_));
-        assert_matches!(init_verification_validate_nullifier_hashes(&mut verification_account, &mut pending0, &mut pending1, 0, [0, 1], true), Ok(()));
-
-        verification_account.set_state(&VerificationState::None);
-
-        // Second nullifier (same MT) is duplicate
-        let mut nullifier_map = PendingNullifierHashesMap::new();
-        nullifier_map.try_insert(U256Limbed2::from(u256_from_str("2")), 0).unwrap();
-        pending_nulliier_map!(pending0, nullifier_map);
-        pending_nulliier_map!(pending1);
-
-        assert_matches!(init_verification_validate_nullifier_hashes(&mut verification_account, &mut pending0, &mut pending1, 0, [0, 1], false), Err(_));
-        assert_matches!(init_verification_validate_nullifier_hashes(&mut verification_account, &mut pending0, &mut pending1, 0, [0, 1], true), Ok(()));
-
-        verification_account.set_state(&VerificationState::None);
-
-        // Third nullifier (second MT) is duplicate
-        let mut nullifier_map = PendingNullifierHashesMap::new();
-        nullifier_map.try_insert(U256Limbed2::from(u256_from_str("3")), 0).unwrap();
-        pending_nulliier_map!(pending0);
-        pending_nulliier_map!(pending1, nullifier_map);
-
-        assert_matches!(init_verification_validate_nullifier_hashes(&mut verification_account, &mut pending0, &mut pending1, 0, [0, 1], false), Err(_));
-        assert_matches!(init_verification_validate_nullifier_hashes(&mut verification_account, &mut pending0, &mut pending1, 0, [0, 1], true), Ok(()));
-
-        verification_account.set_state(&VerificationState::None);
-        pending_nulliier_map!(pending1);
-
-        // Map is full
-        let mut nullifier_map = PendingNullifierHashesMap::new();
-        for i in 0..PendingNullifierHashesMap::MAX_ELEMENTS_COUNT {
-            nullifier_map.try_insert(U256Limbed2([0, i as u128]), 0).unwrap();
-        }
-        pending_nulliier_map!(pending0, nullifier_map);
-        assert_matches!(init_verification_validate_nullifier_hashes(&mut verification_account, &mut pending0, &mut pending1, 0, [0, 1], false), Err(_));
-
-        // Success
-        pending_nulliier_map!(pending0);
-        assert_matches!(init_verification_validate_nullifier_hashes(&mut verification_account, &mut pending0, &mut pending1, 0, [0, 1], false), Ok(()));
+        // TODO: Invalid nullifier_duplicate_account
     }
 
     #[test]
@@ -814,10 +702,10 @@ mod tests {
         let valid_pk = Pubkey::new(&[0; 32]);
         account!(fee_payer, valid_pk, vec![0; 0]);
 
-        // Account not setup
-        verification_account.set_state(&VerificationState::None);
+        // Account setup
+        verification_account.set_state(&VerificationState::ProofSetup);
         assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, raw_proof), Err(_));
-        verification_account.set_state(&VerificationState::NullifiersChecked);
+        verification_account.set_state(&VerificationState::None);
 
         // Computation already finished
         verification_account.set_is_verified(&ElusivOption::Some(true));
@@ -858,11 +746,6 @@ mod tests {
             verification_account.set_prepare_inputs_instructions(i, &(ix as u16));
         }
 
-        // Public inputs not setup
-        verification_account.set_state(&VerificationState::None);
-        assert_matches!(compute_verification(&mut verification_account, 0), Err(_));
-        verification_account.set_state(&VerificationState::NullifiersChecked);
-
         // Computation is already finished (is_verified is Some)
         verification_account.set_is_verified(&ElusivOption::Some(true));
         assert_matches!(compute_verification(&mut verification_account, 0), Err(_));
@@ -893,8 +776,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_finalize_verification() {
+        panic!()
+    }
+
+    #[test]
+    fn test_finalize_verification_transfer() {
         panic!()
     }
 
@@ -917,6 +804,7 @@ mod tests {
             commitment: RawU256::new(u256_from_str_skip_mr("1")),
             fee_version: 0,
             amount: LAMPORTS_PER_SOL,
+            fee: 123,
         };
 
         assert_eq!(
@@ -969,6 +857,7 @@ mod tests {
             commitment: RawU256::new(u256_from_str_skip_mr("1")),
             fee_version: 0,
             amount: 0,
+            fee: 123,
         };
 
         let invalid_public_inputs = [
@@ -1062,16 +951,15 @@ mod tests {
         }
 
         // Duplicate nullifier_hash already exists
-        let mut map = NullifierMap::new();
-        map.try_insert(U256Limbed2::from(u256_from_str("1")), ()).unwrap();
-        let mut data = vec![1];
-        map.serialize(&mut data).unwrap();
+        let data = vec![0; NullifierAccount::ACCOUNT_SIZE];
         let pk = Pubkey::new_unique();
-        account!(nullifier, pk, data);
-        hash_map!(acc, (0usize, &nullifier));
+        account!(sub_account, pk, data);
+
+        hash_map!(acc, (0usize, &sub_account));
         let mut data = vec![0; NullifierAccount::SIZE];
         let mut n_account = NullifierAccount::new(&mut data, acc).unwrap();
-        n_account.set_nullifier_hash_count(&1);
+
+        n_account.try_insert_nullifier_hash(u256_from_str("1")).unwrap();
 
         assert_matches!(
             check_join_split_public_inputs(

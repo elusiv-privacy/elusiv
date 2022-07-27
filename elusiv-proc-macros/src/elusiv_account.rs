@@ -63,22 +63,20 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         const SEED: &'static [u8] = #seed;
                     }
                 });
-            },
+            }
             "multi_account" => {    // Turns this PDA account into a Multi account
                 assert!(is_pda);
 
                 let multi_account: String = named_sub_attribute("multi_account", attr).parse().unwrap();
                 let multi_account = (&multi_account[1..multi_account.len() - 1]).split(';').collect::<Vec<&str>>();
 
-                let ty: TokenStream = multi_account[0].parse().unwrap();
-                let count: TokenStream = multi_account[1].parse().unwrap();
-                let account_size: TokenStream = multi_account[2].parse().unwrap();
+                let count: TokenStream = multi_account[0].parse().unwrap();
+                let account_size: TokenStream = multi_account[1].parse().unwrap();
 
-                assert_field!(field0, fields_iter, format!("multi_account_data : MultiAccountAccountData < {} >", multi_account[1]));
+                assert_field!(field0, fields_iter, format!("multi_account_data : MultiAccountAccountData < {} >", multi_account[0]));
 
                 impls.extend(quote! {
                     impl<#lifetimes> crate::state::program_account::MultiAccountAccount<'t> for #name<#lifetimes> {
-                        type T = #ty;
                         const COUNT: usize = #count;
                         const ACCOUNT_SIZE: usize = #account_size;
 
@@ -88,30 +86,22 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                                 None => Err(crate::error::ElusivError::MissingSubAccount.into())
                             }
                         }
-
-                        fn modify(&mut self, index: usize, value: Self::T) {
-                            self.modifications.insert(index, value);
-                        }
                     }
                 });
 
                 // Add accounts field (IMPORTANT: no verification happens here, caller needs to make sure that the accounts match the pubkeys)
-                fields.extend(quote! { accounts, modifications, });
+                fields.extend(quote! { accounts, });
                 definition.extend(quote! {
                     accounts: std::collections::HashMap<usize, &'b solana_program::account_info::AccountInfo<'t>>,
-                    pub modifications: std::collections::HashMap<usize, #ty>,
                 });
                 signature.extend(quote! {
                     accounts: std::collections::HashMap<usize, &'b solana_program::account_info::AccountInfo<'t>>,
                 });
-                init.extend(quote! {
-                    let modifications = std::collections::HashMap::new();
-                });
-            },
+            }
             "partial_computation" => {
                 assert_field!(field1, fields_iter, "instruction : u32");
                 assert_field!(field1, fields_iter, "round : u32");
-            },
+            }
             _ => { }
         }
     }
@@ -167,8 +157,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         let #field_name = <#ty>::new(#field_name);
                     });
                 }
-                
-            },
+            }
             Type::Array(type_array) => {    // Array field
                 let ty = type_array.elem.clone().into_token_stream();
                 let field_size = type_array.len;
@@ -206,7 +195,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         }
                     }
                 });
-            },
+            }
             _ => { panic!("Invalid field in struct") }
         }
     }

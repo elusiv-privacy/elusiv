@@ -1,4 +1,4 @@
-use elusiv::proof::{PendingNullifierHashesAccount, CombinedMillerLoop, FinalExponentiation};
+use elusiv::proof::{CombinedMillerLoop, FinalExponentiation};
 use elusiv::state::fee::ProgramFee;
 use elusiv::state::{StorageAccount, NullifierAccount};
 use elusiv_computation::PartialComputation;
@@ -59,7 +59,7 @@ pub fn genesis_fee(lamports_per_tx: u64) -> ProgramFee {
     ProgramFee {
         lamports_per_tx,
         base_commitment_network_fee: 11,
-        proof_network_fee: 222,
+        proof_network_fee: 100,
         base_commitment_subvention: 33,
         proof_subvention: 44,
         relayer_hash_tx_fee: 300,
@@ -109,16 +109,6 @@ pub async fn create_merkle_tree(
         );
     }
     send_tx(&instructions, context).await;
-
-    // Open pending nullifiers map
-    let acc = create_account_rent_exepmt(context, PendingNullifierHashesAccount::ACCOUNT_SIZE).await;
-    send_tx(&[
-        ElusivInstruction::open_pending_nullifier_hashes_account_instruction(
-            mt_index,
-            WritableSignerAccount(context.payer.pubkey()),
-            WritableUserAccount(acc.pubkey()),
-        )
-    ], context).await;
 
     pubkeys
 }

@@ -12,7 +12,6 @@ use crate::state::{
     program_account::{
         PDAAccount,
         MultiAccountAccount,
-        MultiAccountAccountData,
         ProgramAccount,
         MultiAccountProgramAccount,
     },
@@ -22,13 +21,13 @@ use crate::state::{
     fee::FeeAccount,
 };
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
-use crate::proof::{VerificationAccount, PendingNullifierHashesAccount};
+use crate::proof::VerificationAccount;
 use solana_program::{
     system_program,
     account_info::{next_account_info, AccountInfo},
     pubkey::Pubkey,
     entrypoint::ProgramResult,
-    program_error::ProgramError::{InvalidArgument, InvalidInstructionData, IllegalOwner},
+    program_error::ProgramError::{InvalidArgument, InvalidInstructionData},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -105,6 +104,7 @@ pub enum ElusivInstruction {
     #[pda(sol_pool, Pool, { writable, account_info })]
     #[pda(fee_collector, FeeCollector, { writable, account_info })]
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable, account_info, find_pda })]
+    #[acc(nullifier_duplicate_account, { writable })]
     #[pda(storage_account, Storage, { multi_accounts, ignore_sub_accounts })]
     #[pda(nullifier_account0, Nullifier, pda_offset = Some(tree_indices[0]), { multi_accounts })]
     #[pda(nullifier_account1, Nullifier, pda_offset = Some(tree_indices[1]), { multi_accounts })]
@@ -113,15 +113,6 @@ pub enum ElusivInstruction {
         verification_account_index: u64,
         tree_indices: [u64; MAX_MT_COUNT],
         request: ProofRequest,
-    },
-
-    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
-    #[pda(pending_nullifiers0, PendingNullifierHashes, pda_offset = Some(tree_indices[0]), { writable, multi_accounts })]
-    #[pda(pending_nullifiers1, PendingNullifierHashes, pda_offset = Some(tree_indices[1]), { writable, multi_accounts })]
-    InitVerificationValidateNullifierHashes {
-        verification_account_index: u64,
-        tree_indices: [u64; MAX_MT_COUNT],
-        ignore_duplicate_verifications: bool,
     },
 
     #[acc(fee_payer, { signer })]
@@ -141,17 +132,10 @@ pub enum ElusivInstruction {
     #[acc(identifier_account)]
     #[acc(salt_account)]
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
-    #[pda(nullifier_account0, Nullifier, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, multi_accounts, skip_abi })]
-    #[pda(nullifier_account1, Nullifier, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi })]
-    FinalizeVerificationSendNullifiers {
-        verification_account_index: u64,
-    },
-
-    #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable })]
     #[pda(commitment_hash_queue, CommitmentQueue, { writable })]
-    #[pda(pending_nullifiers0, PendingNullifierHashes, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, multi_accounts, skip_abi })]
-    #[pda(pending_nullifiers1, PendingNullifierHashes, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi })]
-    FinalizeVerificationPendingNullifiers {
+    #[pda(nullifier_account0, Nullifier, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, multi_accounts, skip_abi })]
+    #[pda(nullifier_account1, Nullifier, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi  })]
+    FinalizeVerificationSendNullifiers {
         verification_account_index: u64,
     },
 
@@ -161,7 +145,8 @@ pub enum ElusivInstruction {
     #[pda(pool, Pool, { writable, account_info })]
     #[pda(fee_collector, FeeCollector, { writable, account_info })]
     #[pda(verification_account, Verification, pda_offset = Some(verification_account_index), { writable, account_info })]
-    FinalizeVerificationPayment {
+    #[acc(nullifier_duplicate_account, { writable, owned })]
+    FinalizeVerificationTransfer {
         verification_account_index: u64,
         fee_version: u64,
     },
@@ -212,14 +197,6 @@ pub enum ElusivInstruction {
     EnableNullifierSubAccount {
         mt_index: u64,
         sub_account_index: u32,
-    },
-
-    #[acc(payer, { writable, signer })]
-    #[pda(nullifier_account, PendingNullifierHashes, pda_offset = Some(mt_index), { account_info, writable, find_pda })]
-    #[acc(sub_account, { owned, writable })]
-    #[sys(system_program, key = system_program::ID, { ignore })]
-    OpenPendingNullifierHashesAccount {
-        mt_index: u64,
     },
 
     #[acc(payer, { writable, signer })]

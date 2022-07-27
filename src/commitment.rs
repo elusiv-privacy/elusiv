@@ -410,9 +410,11 @@ pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u64,
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::max;
+
     use super::*;
-    use crate::fields::u256_from_str;
-    use crate::state::{mt_array_index, EMPTY_TREE};
+    use crate::fields::{u256_from_str, u64_to_u256_skip_mr, u64_to_scalar_skip_mr};
+    use crate::state::EMPTY_TREE;
     use crate::state::program_account::{ProgramAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::storage_account;
     use crate::types::RawU256;
@@ -594,10 +596,9 @@ mod tests {
         storage_account!(mut storage_account);
 
         let batching_rates: Vec<u32> = (0..MAX_COMMITMENT_BATCHING_RATE as u32).collect();
+        let mut previous_commitments_count = 0;
 
         for (i, &batching_rate) in batching_rates.iter().enumerate() {
-            storage_account.modifications.clear();
-
             // Set hashing account
             let ordering = storage_account.get_next_commitment_ptr();
             account.set_ordering(&ordering);
@@ -606,7 +607,7 @@ mod tests {
             for commitment in 0..commitments_count {
                 account.set_hash_tree(
                     commitment,
-                    &u64_to_u256(commitment as u64)
+                    &u64_to_u256_skip_mr(commitment as u64)
                 );
             }
             for hash_index in 0..hash_count_per_batch(batching_rate) {
@@ -614,7 +615,7 @@ mod tests {
                     hash_index,
                     &BinarySpongeHashingState(
                         [
-                            u64_to_scalar((hash_index + commitments_count) as u64),
+                            u64_to_scalar_skip_mr((hash_index + commitments_count) as u64),
                             Fr::zero(),
                             Fr::zero(),
                         ]
@@ -627,15 +628,36 @@ mod tests {
                 account.update_mt(&mut storage_account, i);
             }
 
-            // Check that storage account has been updated
-            for mt_level in (0..=MT_HEIGHT).rev() {
-                for index in 0..(commitments_count >> (MT_HEIGHT - mt_level)) {
-                    let mt_index = mt_array_index(index + (ordering >> (MT_HEIGHT - mt_level)) as usize, mt_level);
-                    assert!(storage_account.modifications.contains_key(&mt_index));
-                }
+            // Check commitments
+            for index in 0..commitments_count {
+                assert_eq!(
+                    u64_to_u256_skip_mr(index as u64),
+                    storage_account.get_node(previous_commitments_count + index, MT_HEIGHT)
+                );
             }
+
+            // Check hashes
+            let mut previous_offset = previous_commitments_count / 2;
+            let mut offset = 0;
+            let mut layer_size = two_pow!(batching_rate);
+            for mt_level in (0..MT_HEIGHT).rev() {
+                layer_size = max(layer_size / 2, 1);
+
+                for i in 0..layer_size {
+                    assert_eq!(
+                        u64_to_u256_skip_mr((i + commitments_count + offset) as u64),
+                        storage_account.get_node(previous_offset + i, mt_level)
+                    );
+                }
+
+                offset += layer_size;
+                previous_offset /= 2;
+            }
+
             assert_eq!(storage_account.get_next_commitment_ptr(), ordering + commitments_count as u32);
             assert_eq!(storage_account.get_mt_roots_count(), i as u32 + 1);
+
+            previous_commitments_count += commitments_count;
         }
     }
 

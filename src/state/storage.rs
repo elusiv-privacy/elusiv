@@ -34,7 +34,7 @@ const_assert_eq!(ACCOUNTS_COUNT, 25);
 // The `StorageAccount` contains the active MT that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
-#[elusiv_account(pda_seed = b"storage", multi_account = (U256; ACCOUNTS_COUNT; ACCOUNT_SIZE))]
+#[elusiv_account(pda_seed = b"storage", multi_account = (ACCOUNTS_COUNT; ACCOUNT_SIZE))]
 pub struct StorageAccount {
     pda_data: PDAAccountData,
     multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
@@ -96,7 +96,6 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         assert!(level <= MT_HEIGHT as usize);
         assert!(index < two_pow!(usize_as_u32_safe(level)));
 
-        let mt_index = mt_array_index(index, level);
         let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
         self.execute_on_sub_account(account_index, |data| {
             U256::override_slice(
@@ -104,10 +103,6 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
                 &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
             )
         }).unwrap();
-
-        if cfg!(test) {
-            self.modify(mt_index, *value);
-        }
     }
 
     pub fn get_root(&self) -> U256 {
@@ -207,23 +202,18 @@ mod tests {
     #[test]
     fn test_set_node() {
         storage_account!(mut storage_account);
+        storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
 
         for level in 0..=MT_HEIGHT {
             let last = two_pow!(level) - 1;
 
             // First node
             storage_account.set_node(&[1; 32], 0, level as usize);
-            assert_eq!(
-                *storage_account.modifications.get(&mt_array_index(0, level as usize)).unwrap(),
-                [1; 32]
-            );
+            assert_eq!(storage_account.get_node(0, level as usize), [1; 32]);
 
             // Last node
             storage_account.set_node(&[2; 32], last, level as usize);
-            assert_eq!(
-                *storage_account.modifications.get(&mt_array_index(last, level as usize)).unwrap(),
-                [2; 32]
-            );
+            assert_eq!(storage_account.get_node(last, level as usize), [2; 32]);
         }
     }
 

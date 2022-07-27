@@ -4,16 +4,15 @@
 pub mod program_setup;
 pub mod log;
 
-use borsh::BorshDeserialize;
 use solana_program::{
     pubkey::Pubkey,
-    instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL,
+    instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL, account_info::{Account, AccountInfo},
 };
 use solana_program_test::ProgramTestContext;
 use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer};
 use assert_matches::assert_matches;
-use std::str::FromStr;
-use elusiv::{types::{U256, RawU256}, instruction::{UserAccount, WritableUserAccount}, proof::{PendingNullifierHashesAccount, PendingNullifierHashesMap}, fields::fr_to_u256_le_repr};
+use std::{str::FromStr, collections::HashMap};
+use elusiv::{types::{U256, RawU256}, instruction::{UserAccount, WritableUserAccount}, fields::fr_to_u256_le_repr, state::program_account::MultiAccountProgramAccount};
 use elusiv::fields::fr_to_u256_le;
 use elusiv::processor::BaseCommitmentHashRequest;
 use elusiv::state::{StorageAccount, NullifierAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountData}};
@@ -156,65 +155,43 @@ macro_rules! account_info {
     };
 }
 
-pub async fn storage_account<F>(
-    context: &mut ProgramTestContext,
-    f: F,
-) where F: Fn(&StorageAccount) {
-    use solana_program::account_info::Account;
-    use elusiv::state::program_account::MultiAccountProgramAccount;
-
-    let mut data = get_data(context, StorageAccount::find(None).0).await;
-    let pks = elusiv::state::program_account::MultiAccountAccountData::<{StorageAccount::COUNT}>::new(&data).unwrap();
-    let keys = pks.pubkeys.iter().map(|p| p.option().unwrap()).collect::<Vec<Pubkey>>();
-    let mut sub_accounts = std::collections::HashMap::new();
-
-    elusiv_proc_macros::repeat!({
-        account_info!(acc_index, keys[_index], context);
-        sub_accounts.insert(_index, &acc_index);
-    }, 25);
-
-    let storage_account = StorageAccount::new(&mut data, sub_accounts).unwrap();
-    f(&storage_account)
+macro_rules! multi_account {
+    ($id: ident, $ty: ty) => {
+        pub async fn $id<F>(
+            context: &mut ProgramTestContext,
+            pda_offset: Option<u64>,
+            f: F,
+        ) where
+            F: Fn(&$ty),
+        {
+            let mut data = get_data(context, <$ty>::find(pda_offset).0).await;
+            let pks = MultiAccountAccountData::<{<$ty>::COUNT}>::new(&data).unwrap();
+            let keys = pks.pubkeys.iter().map(|p| p.option().unwrap()).collect::<Vec<Pubkey>>();
+        
+            let mut v = vec![];
+            for &key in keys.iter() {
+                let a = context.banks_client.get_account(key).await.unwrap().unwrap();
+                v.push(a);
+            }
+        
+            let accs = v.iter_mut();
+            let mut sub_accounts = HashMap::new();
+            for (i, a) in accs.enumerate() {
+                let (lamports, d, owner, executable, epoch) = a.get();
+                let sub_account = AccountInfo::new(&keys[i], false, false, lamports, d, owner, executable, epoch);
+                sub_accounts.insert(i, sub_account);
+            }
+        
+            let map: HashMap<usize, &AccountInfo> = sub_accounts.iter().map(|(&i, x)| (i, x)).collect();
+        
+            let account = <$ty>::new(&mut data, map).unwrap();
+            f(&account)
+        }
+    };
 }
 
-pub async fn nullifier_account<F>(
-    mt_index: u64,
-    context: &mut ProgramTestContext,
-    f: F,
-) where F: Fn(&NullifierAccount) {
-    use solana_program::account_info::Account;
-    use elusiv::state::program_account::MultiAccountProgramAccount;
-
-    let mut data = get_data(context, NullifierAccount::find(Some(mt_index)).0).await;
-    let pks = elusiv::state::program_account::MultiAccountAccountData::<{NullifierAccount::COUNT}>::new(&data).unwrap();
-    let keys = pks.pubkeys.iter().map(|p| p.option().unwrap()).collect::<Vec<Pubkey>>();
-    let mut sub_accounts = std::collections::HashMap::new();
-
-    elusiv_proc_macros::repeat!({
-        account_info!(acc_index, keys[_index], context);
-        sub_accounts.insert(_index, &acc_index);
-    }, 4);
-
-    let storage_account = NullifierAccount::new(&mut data, sub_accounts).unwrap();
-    f(&storage_account)
-}
-
-pub async fn pending_nullifiers_map_account(
-    mt_index: u64,
-    context: &mut ProgramTestContext,
-) -> Pubkey {
-    let data = get_data(context, PendingNullifierHashesAccount::find(Some(mt_index)).0).await;
-    elusiv::state::program_account::MultiAccountAccountData::<1>::new(&data).unwrap().pubkeys[0].option().unwrap()
-}
-
-pub async fn pending_nullifiers_map(
-    mt_index: u64,
-    context: &mut ProgramTestContext,
-) -> PendingNullifierHashesMap {
-    let pk = pending_nullifiers_map_account(mt_index, context).await;
-    let data = get_data(context, pk).await;
-    PendingNullifierHashesMap::try_from_slice(&data[1..]).unwrap()
-}
+multi_account!(storage_account, StorageAccount);
+multi_account!(nullifier_account, NullifierAccount);
 
 #[allow(unused_imports)] pub(crate) use queue;
 #[allow(unused_imports)] pub(crate) use queue_mut;

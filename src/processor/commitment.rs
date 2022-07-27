@@ -286,12 +286,11 @@ pub fn finalize_commitment_hash(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
+    use std::str::FromStr;
     use crate::commitment::poseidon_hash::full_poseidon2_hash;
     use crate::fields::{big_uint_to_u256, SCALAR_MODULUS_RAW, u256_from_str_skip_mr, fr_to_u256_le_repr};
-    use crate::state::{MT_HEIGHT, EMPTY_TREE, mt_array_index};
+    use crate::state::{MT_HEIGHT, EMPTY_TREE};
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::{zero_account, account, test_account_info, storage_account};
     use ark_ff::Zero;
@@ -655,24 +654,33 @@ mod tests {
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
         let batching_rate = 4;
+        let commitment_count = commitments_per_batch(batching_rate);
         hashing_account.set_is_active(&true);
         hashing_account.set_batching_rate(&batching_rate);
         hashing_account.set_instruction(&(commitment_hash_computation_instructions(batching_rate).len() as u32));
+
+        for level_inv in 0..=MT_HEIGHT {
+            let level = MT_HEIGHT - level_inv;
+            let level_size = commitment_count >> level;
+            for index in 0..level_size {
+                assert_eq!(storage_account.get_node(index, level as usize), EMPTY_TREE[level_inv as usize]);
+            }
+        }
 
         for _ in 0..=batching_rate {
             finalize_commitment_hash(&mut hashing_account, &mut storage_account).unwrap();
         }
 
-        let commitment_count = commitments_per_batch(batching_rate);
         assert!(!hashing_account.get_is_active());
+        assert!(!hashing_account.get_setup());
         assert_eq!(storage_account.get_next_commitment_ptr(), commitment_count as u32);
 
         // Check that MT is updated
-        for i in 0..=MT_HEIGHT {
-            for j in 0..commitment_count >> (MT_HEIGHT - i) {
-                assert!(
-                    storage_account.modifications.contains_key(&mt_array_index(j, i as usize))
-                );
+        for level_inv in 0..=MT_HEIGHT {
+            let level_size = commitment_count >> level_inv;
+            let level = MT_HEIGHT - level_inv;
+            for index in 0..level_size {
+                assert_ne!(storage_account.get_node(index, level as usize), EMPTY_TREE[level_inv as usize]);
             }
         }
     }

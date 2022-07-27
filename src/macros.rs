@@ -20,6 +20,17 @@ macro_rules! two_pow {
     };
 }
 
+/*macro_rules! multi_split_at_mut {
+    ($data: ident) => { };
+    ($data: ident, ($id: ident, $size: expr)) => {
+        let ($id, _) = $data.split_at_mut($size);
+    };
+    ($data: ident, ($id: ident, $size: expr), $(($x: ident, $y: expr)),*) => {
+        let ($id, data) = $data.split_at_mut($size);
+        multi_split_at_mut!(data, $(($x, $y)),*);
+    };
+}*/
+
 #[cfg(test)]
 macro_rules! hash_map {
     (internal $id: ident, $x:expr, $y:expr) => {
@@ -56,6 +67,7 @@ macro_rules! account {
 }
 
 #[cfg(test)]
+/// $id: ident, $data_size: expr
 macro_rules! test_account_info {
     ($id: ident, $data_size: expr) => {
         let pk = solana_program::pubkey::Pubkey::new_unique();
@@ -77,44 +89,52 @@ macro_rules! zero_account {
 
 #[cfg(test)]
 macro_rules! storage_account {
-    (setup $id: ident, $id_data: ident) => {
-        // Note: for testing we only use one AccountInfo, since without a ledger they cannot be modified
-        crate::macros::test_account_info!(account, StorageAccount::ACCOUNT_SIZE);
-
-        let mut $id = std::collections::HashMap::new();
-        let mut $id_data = vec![0; StorageAccount::SIZE];
-        for i in 0..StorageAccount::COUNT { $id.insert(i, &account); }
+    (internal $sub_accounts: ident, $data: ident) => {
+        let mut $data = vec![0; StorageAccount::SIZE];
+        let mut sub_accounts = std::collections::HashMap::new();
+        elusiv_proc_macros::repeat!({
+            let pk = solana_program::pubkey::Pubkey::new_unique();
+            crate::macros::account!(acc_index, pk, vec![0; StorageAccount::ACCOUNT_SIZE]);
+            sub_accounts.insert(_index, &acc_index);
+        }, 25);
+        let $sub_accounts = sub_accounts;
     };
+
     ($id: ident) => {
-        crate::macros::storage_account!(setup map, data);
-        let $id = StorageAccount::new(&mut data, map).unwrap();
+        crate::macros::storage_account!(internal sub_accounts, data);
+        let $id = StorageAccount::new(&mut data, sub_accounts).unwrap();
     };
     (mut $id: ident) => {
-        crate::macros::storage_account!(setup map, data);
-        let mut $id = StorageAccount::new(&mut data, map).unwrap();
+        crate::macros::storage_account!(internal sub_accounts, data);
+        let mut $id = StorageAccount::new(&mut data, sub_accounts).unwrap();
     };
 }
 
 #[cfg(test)]
 macro_rules! nullifier_account {
-    (setup $id: ident, $id_data: ident) => {
-        crate::macros::test_account_info!(account, NullifierAccount::ACCOUNT_SIZE);
-
-        let mut $id = std::collections::HashMap::new();
-        let mut $id_data = vec![0; NullifierAccount::SIZE];
-        for i in 0..NullifierAccount::COUNT { $id.insert(i, &account); }
+    (internal $sub_accounts: ident, $data: ident) => {
+        let mut $data = vec![0; NullifierAccount::SIZE];
+        let mut sub_accounts = std::collections::HashMap::new();
+        elusiv_proc_macros::repeat!({
+            let pk = solana_program::pubkey::Pubkey::new_unique();
+            crate::macros::account!(acc_index, pk, vec![0; NullifierAccount::ACCOUNT_SIZE]);
+            sub_accounts.insert(_index, &acc_index);
+        }, 16);
+        let $sub_accounts = sub_accounts;
     };
+
     ($id: ident) => {
-        crate::macros::nullifier_account!(setup map, data);
-        let $id = NullifierAccount::new(&mut data, map).unwrap();
+        crate::macros::nullifier_account!(internal sub_accounts, data);
+        let $id = NullifierAccount::new(&mut data, sub_accounts).unwrap();
     };
     (mut $id: ident) => {
-        crate::macros::nullifier_account!(setup map, data);
-        let mut $id = NullifierAccount::new(&mut data, map).unwrap();
+        crate::macros::nullifier_account!(internal sub_accounts, data);
+        let mut $id = NullifierAccount::new(&mut data, sub_accounts).unwrap();
     };
 }
 
 pub(crate) use guard;
+//pub(crate) use multi_split_at_mut;
 pub(crate) use two_pow;
 
 #[cfg(test)] pub(crate) use hash_map;

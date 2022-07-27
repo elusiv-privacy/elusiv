@@ -15,7 +15,9 @@ pub struct ProgramFee {
     pub lamports_per_tx: u64,
 
     pub base_commitment_network_fee: u64,
-    pub proof_network_fee: u64, // in 1/100 percent-points
+
+    /// Per join-split-amount fee in 1/100 percent-points
+    pub proof_network_fee: u64, 
 
     /// Used only as privacy mining incentive to push rewards for relayers without increasing user costs
     pub base_commitment_subvention: u64,
@@ -87,18 +89,24 @@ impl ProgramFee {
         )
     }
 
-    /// tx_count * (lamports_per_tx + relayer_proof_tx_fee) + relayer_proof_reward + commitment_hash_fee + proof_network_fee
+    /// tx_count * lamports_per_tx + relayer_proof_reward + commitment_hash_fee + proof_network_fee
     pub fn proof_verification_fee(
         &self,
         input_preparation_tx_count: usize,
         min_batching_rate: u32,
         amount: u64,
     ) -> u64 {
-        let tx_count = input_preparation_tx_count + u64_as_usize_safe(self.proof_base_tx_count);
-        tx_count as u64 * self.lamports_per_tx
+        self.proof_verification_compensation(input_preparation_tx_count)
             + self.relayer_proof_reward
             + self.commitment_hash_fee(min_batching_rate)
             + self.proof_verification_network_fee(amount)
+    }
+
+    fn proof_verification_compensation(
+        &self,
+        input_preparation_tx_count: usize,
+    ) -> u64 {
+        (input_preparation_tx_count + u64_as_usize_safe(self.proof_base_tx_count)) as u64 * self.lamports_per_tx
     }
 
     pub fn proof_verification_network_fee(

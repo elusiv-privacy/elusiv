@@ -3,19 +3,21 @@ extern crate proc_macro;
 mod elusiv_instruction;
 mod borsh_serde_sized;
 mod enum_variant;
+mod jit;
 mod utils;
 
 use syn::{ parse_macro_input, DeriveInput };
 use elusiv_instruction::*;
 use borsh_serde_sized::*;
 use enum_variant::*;
+use jit::*;
 
 /// Instructions account parsing
 /// 
 /// # Account attributes
 /// - Each enum variant (instruction) can require accounts
 /// - Specify accounts using attributes with the following syntax:
-/// `#[type(name, Type, pda_offset = .., key = .., [ signer, writable, multi_accounts, account_info, no_sub_account_check ])]`
+/// `#[type(name, Type, pda_offset = .., key = .., [ signer, writable, multi_accounts, account_info ])]`
 /// - with:
 ///     - type:
 ///         - `acc`: user accounts or any `AccountInfo` that has no basic checks
@@ -33,9 +35,8 @@ use enum_variant::*;
 ///         - `find_pda`: does a PDA verification with a pda_offset but with unknown runtime, since no bump is supplied (used for renting new PDAs)
 ///         - `account_info`: returns an `AccountInfo` object (only relevant for PDAs)
 ///         - `multi_accounts`: the `Type` has to implement the `crate::state::program_account::MultiAccountAccount` trait and `Type::COUNT + 1` accounts will be required
-///         - `no_sub_account_check`: **SKIPS THE PUBKEY VERIFICATION of the sub-accounts (ONLY TO BE USED WHEN CREATING A NEW ACCOUNT!)**
 ///         - `ignore_sub_accounts`: ignores all sub-accounts of a multi-account
-///         - `skip_abi`
+///         - `skip_abi`: can be used to add manual pda_offsets in the abi
 /// 
 /// # Usage
 /// ```
@@ -59,8 +60,20 @@ pub fn borsh_serde_sized(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     impl_borsh_serde_sized(&ast).into()
 }
 
+#[proc_macro_derive(BorshSerDePlaceholder)]
+pub fn borsh_placeholder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    impl_borsh_serde_placeholder(&ast).into()
+}
+
 #[proc_macro_derive(EnumVariantIndex)]
 pub fn enum_variant_index(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     impl_enum_variant_index(&ast).into()
+}
+
+#[proc_macro_derive(ByteBackedJIT)]
+pub fn jit(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    impl_byte_backed_jit(&ast).into()
 }
