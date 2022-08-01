@@ -8,12 +8,15 @@ use borsh::BorshSerialize;
 use common::*;
 use common::program_setup::*;
 
-use elusiv::state::program_account::MultiAccountAccount;
+use elusiv::proof::precompute::{precompute_account_size2, VKEY_COUNT};
+use elusiv::proof::vkey::{SendQuadraVKey, VerificationKey};
+use elusiv::state::program_account::{MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE};
 use elusiv::state::queue::{RingQueue, BaseCommitmentQueueAccount};
 use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT, EMPTY_TREE};
 use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
 use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, CommitmentHashRequest};
+use elusiv_utils::batch_instructions;
 use solana_program::instruction::{Instruction, AccountMeta};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
@@ -305,7 +308,7 @@ async fn test_global_sub_account_duplicates() {
     ix_should_succeed(open_mt(1, client.pubkey), &mut client, &mut context).await;
 
     // Setting in first MT should succeed
-    let account = create_account_rent_exepmt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
+    let account = create_account_rent_exempt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
     ix_should_succeed(
         ElusivInstruction::enable_nullifier_sub_account_instruction(
             0,
@@ -350,7 +353,7 @@ async fn test_global_sub_account_duplicates() {
     ).await;
 
     // Setting a different account at same index should fail
-    let account2 = create_account_rent_exepmt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
+    let account2 = create_account_rent_exempt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
     ix_should_fail(
         ElusivInstruction::enable_nullifier_sub_account_instruction(
             0,
@@ -365,7 +368,7 @@ async fn test_global_sub_account_duplicates() {
     let lamports = get_balance(&account2.pubkey(), &mut context).await;
     set_account(&mut context, &account2.pubkey(), data, lamports).await;
 
-    // Setting a different account a a different index should succeed
+    // Setting a different account at a different index should succeed
     ix_should_succeed(
         ElusivInstruction::enable_nullifier_sub_account_instruction(
             0,
@@ -378,4 +381,113 @@ async fn test_global_sub_account_duplicates() {
     let data = get_data(&mut context, account2.pubkey()).await;
     assert_eq!(data[0], 1);
     assert_eq!(&data[1..5], &[0,0,0,0]);
+}
+
+#[tokio::test]
+async fn test_enable_precomputes_subaccounts() {
+    let mut context = start_program_solana_program_test().await;
+    let mut client = Actor::new(&mut context).await;
+    setup_initial_accounts(&mut context).await;
+
+    // Open storage account
+    ix_should_succeed(
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::StorageAccount,
+            WritableSignerAccount(client.pubkey),
+            WritableUserAccount(StorageAccount::find(None).0)
+        ), &mut client, &mut context
+    ).await;
+
+    // Enable sub accounts
+    let mut ixs = Vec::new();
+    let mut pubkeys = Vec::new();
+    for i in 0..VKEY_COUNT {
+        let size = precompute_account_size2(i) + SUB_ACCOUNT_ADDITIONAL_SIZE;
+        let account = create_account_rent_exempt(&mut context, size).await;
+        pubkeys.push(account.pubkey());
+        ixs.push(
+            ElusivInstruction::enable_precompute_sub_account_instruction(
+                i as u32,
+                WritableUserAccount(account.pubkey())
+            )
+        );
+    }
+    tx_should_succeed(&ixs, &mut client, &mut context).await;
+
+    // Subaccount already setup
+    // Index already set
+    // Invalid size
+    // Success
+    panic!()
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_precompute_full() {
+    // Setup requires multiple thousand tx atm -> no CI integration test possible -> ignore (we use test_precompute_partial instead and unit tests)
+
+    let mut context = start_program_solana_program_test().await;
+    let mut client = Actor::new(&mut context).await;
+    setup_initial_accounts(&mut context).await;
+
+    // Enable sub accounts
+    let mut ixs = Vec::new();
+    let mut pubkeys = Vec::new();
+    for i in 0..VKEY_COUNT {
+        let size = precompute_account_size2(i) + SUB_ACCOUNT_ADDITIONAL_SIZE;
+        let account = create_account_rent_exempt(&mut context, size).await;
+        pubkeys.push(account.pubkey());
+        ixs.push(
+            ElusivInstruction::enable_precompute_sub_account_instruction(
+                i as u32,
+                WritableUserAccount(account.pubkey())
+            )
+        );
+    }
+    tx_should_succeed(&ixs, &mut client, &mut context).await;
+
+    let precompute_accounts: Vec<WritableUserAccount> = pubkeys.iter().map(|p| WritableUserAccount(*p)).collect();
+
+    // Init precomputing
+    let ixs = [
+        request_compute_units(1_400_000),
+        ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts),
+    ];
+    
+    for _ in 0..SendQuadraVKey::PUBLIC_INPUTS_COUNT {
+        // Init public input
+        tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+
+        for _ in 0..32 {
+            // Tuples
+            tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+
+            // Quads
+            tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+            tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+            
+            // Octs
+            let txs = batch_instructions(
+                15 * 15,
+                120_000,
+                ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts)
+            );
+            for tx in txs {
+                tx_should_succeed(&tx, &mut client, &mut context).await;
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_precompute_partial() {
+    panic!()
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_precompute_invalid() {
+    // precompute before subaccount has been setup
+    panic!()
 }

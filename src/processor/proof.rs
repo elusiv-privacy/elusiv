@@ -8,6 +8,7 @@ use solana_program::{
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex};
 use crate::processor::{MATH_ERR, ZERO_COMMITMENT_RAW};
 use crate::processor::utils::{open_pda_account_with_offset, send_from_pool, close_account, open_pda_account};
+use crate::proof::precompute::PrecomputesAccount;
 use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState};
 use crate::state::fee::FeeAccount;
 use crate::state::governor::FEE_COLLECTOR_MINIMUM_BALANCE;
@@ -118,7 +119,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
             &proof_request!(
                 &request,
                 public_inputs,
-                public_inputs.public_signals_big_integer_skip_mr()
+                public_inputs.public_signals_skip_mr()
             )
         )
     );
@@ -234,8 +235,11 @@ pub fn init_verification_proof(
 /// Partial proof verification computation
 pub fn compute_verification(
     verification_account: &mut VerificationAccount,
+    precomputes_account: &PrecomputesAccount,
+
     _verification_account_index: u64,
 ) -> ProgramResult {
+    guard!(precomputes_account.get_is_setup(), InvalidAccountState);
     guard!(
         matches!(verification_account.get_state(), VerificationState::None) ||
         matches!(verification_account.get_state(), VerificationState::ProofSetup),
@@ -244,7 +248,11 @@ pub fn compute_verification(
     guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
 
     let vkey = verification_account.get_vkey();
-    match execute_with_vkey!(vkey, VKey, verify_partial::<VKey>(verification_account)) {
+    match execute_with_vkey!(
+        vkey,
+        VKey,
+        verify_partial::<_, VKey>(verification_account, precomputes_account)
+    ) {
         Ok(result) => match result {
             Some(final_result) => { // After last round we receive the verification result
                 verification_account.set_is_verified(&ElusivOption::Some(final_result));
@@ -265,8 +273,8 @@ pub fn compute_verification(
     Ok(())
 }
 
-/// First part of the finalization of send/merge proofs
-pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
+/// First part of the finalization of Send/Merge proofs
+pub fn finalize_verification_send<'a, 'b, 'c>(
     identifier_account: &AccountInfo,
     salt_account: &AccountInfo,
     verification_account: &mut VerificationAccount,
@@ -277,7 +285,6 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
     _verification_account_index: u64,
 ) -> ProgramResult {
     guard!(matches!(verification_account.get_state(), VerificationState::ProofSetup), InvalidAccountState);
-    verification_account.set_state(&VerificationState::Finalized);
 
     match verification_account.get_is_verified() {
         ElusivOption::None => return Err(ComputationIsNotYetFinished.into()),
@@ -314,6 +321,8 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
             nullifier_accounts[i].try_insert_nullifier_hash(nullifier_hash)?;
         }
     }
+
+    verification_account.set_state(&VerificationState::Finalized);
 
     Ok(())
 }
@@ -484,17 +493,14 @@ fn group_nullifier_hashes(
 
 #[cfg(test)]
 mod tests {
-    // Note: unit tests here allow for behaviour that is invalid on the ledger (e.g. calling pen_pda_account_with_offset twice)
-
     use super::*;
-    use std::str::FromStr;
-    use ark_bn254::Fr;
-    use ark_ff::{BigInteger256, PrimeField};
+    use std::collections::HashMap;
     use assert_matches::assert_matches;
     use solana_program::native_token::LAMPORTS_PER_SOL;
     use solana_program::pubkey::Pubkey;
-    use crate::fields::{Wrap, u256_from_str, u256_from_str_skip_mr,};
+    use crate::fields::{u256_from_str, u256_from_str_skip_mr};
     use crate::processor::ZERO_COMMITMENT_RAW;
+    use crate::proof::precompute::{VirtualPrecomputes, precompute_account_size};
     use crate::proof::{COMBINED_MILLER_LOOP_IXS, FINAL_EXPONENTIATION_IXS, proof_from_str};
     use crate::proof::vkey::TestVKey;
     use crate::state::fee::ProgramFee;
@@ -730,15 +736,43 @@ mod tests {
         assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, raw_proof), Err(_));
     }
 
+    macro_rules! precomputes_sub_account {
+        ($id: ident, $vkey: ident) => {
+            let mut data = vec![0; precompute_account_size::<$vkey>()];
+            let precomputes = VirtualPrecomputes::<$vkey>::new(&mut data);
+
+            let mut d = vec![1];
+            d.extend(precomputes.0.data.to_vec());
+
+            let pk = solana_program::pubkey::Pubkey::new_unique();
+            account!($id, pk, d);
+        };
+    }
+
+    macro_rules! precomputes_account {
+        ($id: ident) => {
+            let mut data = vec![0; PrecomputesAccount::SIZE];
+            let mut map = HashMap::new();
+
+            precomputes_sub_account!(acc0, SendQuadraVKey);
+            map.insert(0, &acc0);
+
+            let mut $id = PrecomputesAccount::new(&mut data, map).unwrap();
+            $id.set_is_setup(&true);
+        };
+    }
+
     #[test]
     fn test_compute_verification() {
         let mut data = vec![0; VerificationAccount::SIZE];
         let mut verification_account = VerificationAccount::new(&mut data).unwrap();
 
+        precomputes_account!(precomputes_account);
+
         // Setup
         let public_inputs = test_public_inputs();
         for (i, &public_input) in public_inputs.iter().enumerate() {
-            verification_account.set_public_input(i, &Wrap(public_input));
+            verification_account.set_public_input(i, &RawU256::new(public_input));
         }
         let instructions = prepare_public_inputs_instructions::<TestVKey>(&public_inputs);
         verification_account.set_prepare_inputs_instructions_count(&(instructions.len() as u32));
@@ -748,16 +782,16 @@ mod tests {
 
         // Computation is already finished (is_verified is Some)
         verification_account.set_is_verified(&ElusivOption::Some(true));
-        assert_matches!(compute_verification(&mut verification_account, 0), Err(_));
+        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Err(_));
         verification_account.set_is_verified(&ElusivOption::None);
 
         // Success for public input preparation
         for _ in 0..instructions.len() {
-            assert_matches!(compute_verification(&mut verification_account, 0), Ok(()));
+            assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Ok(()));
         }
 
         // Failure for miller loop (proof not setup)
-        assert_matches!(compute_verification(&mut verification_account, 0), Err(_));
+        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Err(_));
 
         let proof = test_proof();
         verification_account.a.set(&proof.a);
@@ -767,21 +801,152 @@ mod tests {
 
         // Success
         for _ in 0..COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS {
-            assert_matches!(compute_verification(&mut verification_account, 0), Ok(()));
+            assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Ok(()));
         }
 
         // Computation is finished
-        assert_matches!(compute_verification(&mut verification_account, 0), Err(_));
+        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Err(_));
         assert_matches!(verification_account.get_is_verified().option(), Some(false));
     }
 
     #[test]
-    fn test_finalize_verification() {
+    fn test_finalize_verification_send_valid() {
+        let send_public_inputs = SendPublicInputs{
+            join_split: JoinSplitPublicInputs {
+                commitment_count: 1,
+                roots: vec![
+                    Some(empty_root_raw()),
+                ],
+                nullifier_hashes: vec![
+                    RawU256::new(u256_from_str_skip_mr("1")),
+                ],
+                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                fee_version: 0,
+                amount: LAMPORTS_PER_SOL,
+                fee: 10000,
+            },
+            recipient: RawU256::new(u256_from_str_skip_mr("1")),
+            current_time: 0,
+            identifier: RawU256::new(u256_from_str_skip_mr("12345")),
+            salt: RawU256::new(u256_from_str_skip_mr("6789")),
+        };
+
+        let identifier_pk = Pubkey::new(&send_public_inputs.identifier.skip_mr());
+        account!(identifier, identifier_pk, vec![]);
+
+        let salt_pk = Pubkey::new(&send_public_inputs.salt.skip_mr());
+        account!(salt, salt_pk, vec![]);
+
+        let fee_payer = Pubkey::new_unique().to_bytes();
+        let nullifier_duplicate_pda = Pubkey::new_unique().to_bytes();
+
+        let mut data = vec![0; VerificationAccount::SIZE];
+        let mut v_account = VerificationAccount::new(&mut data).unwrap();
+        v_account.setup(
+            &[],
+            &vec![0],
+            0,
+            VerificationAccountData {
+                fee_payer: RawU256::new(fee_payer),
+                nullifier_duplicate_pda: RawU256::new(nullifier_duplicate_pda),
+                min_batching_rate: 0,
+                unadjusted_fee: 0,
+            },
+            ProofRequest::Send(send_public_inputs.clone()),
+            [0, 1],
+        ).unwrap();
+        v_account.set_state(&VerificationState::ProofSetup);
+        v_account.set_is_verified(&ElusivOption::Some(true));
+
+        let mut data = vec![0; CommitmentQueueAccount::SIZE];
+        let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
+
+        nullifier_account!(mut n_acc_0);
+        nullifier_account!(mut n_acc_1);
+
+        // Verification is not finished
+        v_account.set_is_verified(&ElusivOption::None);
+        assert_matches!(
+            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &mut n_acc_0, &mut n_acc_1, 0),
+            Err(_)
+        );
+
+        v_account.set_is_verified(&ElusivOption::Some(true));
+
+        { // Invalid identifier
+            account!(identifier, salt_pk, vec![]); 
+            assert_matches!(
+                finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &mut n_acc_0, &mut n_acc_1, 0),
+                Err(_)
+            );
+        }
+
+        { // Invalid salt
+            account!(salt, identifier_pk, vec![]); 
+            assert_matches!(
+                finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &mut n_acc_0, &mut n_acc_1, 0),
+                Err(_)
+            );
+        }
+
+        { // Commitment queue is full
+            let mut queue = CommitmentQueue::new(&mut queue);
+            for _ in 0..CommitmentQueue::CAPACITY {
+                queue.enqueue(
+                    CommitmentHashRequest {
+                        commitment: [0; 32],
+                        fee_version: 0,
+                        min_batching_rate: 0,
+                    }
+                ).unwrap();
+            }
+        }
+        assert_matches!(
+            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &mut n_acc_0, &mut n_acc_1, 0),
+            Err(_)
+        );
+
+        let mut data = vec![0; CommitmentQueueAccount::SIZE];
+        let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
+
+        // Nullifier duplicate
+        n_acc_0.try_insert_nullifier_hash(send_public_inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
+        assert_matches!(
+            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &mut n_acc_0, &mut n_acc_1, 0),
+            Err(_)
+        );
+
+        nullifier_account!(mut n_acc_0);
+
+        // Success
+        assert_matches!(
+            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &mut n_acc_0, &mut n_acc_1, 0),
+            Ok(())
+        );
+
+        // Called twice
+        assert_matches!(
+            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &mut n_acc_0, &mut n_acc_1, 0),
+            Err(_)
+        );
+    }
+
+    #[test]
+    fn test_finalize_verification_send_invalid() {
+        panic!()
+    }
+
+    #[test]
+    fn test_finalize_verification_migrate() {
         panic!()
     }
 
     #[test]
     fn test_finalize_verification_transfer() {
+        // Finalize not called prior
+        // Invalid original feepayer
+        // Invalid nullifier_duplicate_account
+
         panic!()
     }
 
@@ -1000,7 +1165,7 @@ mod tests {
         )
     }
 
-    fn test_public_inputs() -> Vec<BigInteger256> {
+    fn test_public_inputs() -> Vec<U256> {
         vec![
             "7889586699914970744657798935358222218486353295005298675075639741334684257960",
             "9606705614694883961284553030253534686862979817135488577431113592919470999200",
@@ -1018,6 +1183,6 @@ mod tests {
             "1",
             "2",
             "2827970856290632118729271546490749634442294169342908710567180510922374163316",
-        ].iter().map(|s| Fr::from_str(s).unwrap().into_repr()).collect()
+        ].iter().map(|s| u256_from_str_skip_mr(*s)).collect()
     }
 }

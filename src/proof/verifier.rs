@@ -15,11 +15,12 @@ use ark_bn254::{Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Param
 use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper};
 use ark_ff::{Field, CubicExtParameters, One, Zero, biginteger::BigInteger256, field_new};
 use ark_ec::models::bn::BnParameters;
+use super::*;
+use super::precompute::PrecomutedValues;
 use crate::bytes::usize_as_u8_safe;
 use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError, CouldNotProcessProof, InvalidAccountState};
 use crate::error::ElusivResult;
 use crate::fields::G2HomProjective;
-use super::*;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub enum VerificationStep {
@@ -29,8 +30,9 @@ pub enum VerificationStep {
 }
 
 /// Requires `verifier_account.prepare_inputs_instructions_count + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS` calls to verify a valid proof
-pub fn verify_partial<VKey: VerificationKey>(
+pub fn verify_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
     verifier_account: &mut VerificationAccount,
+    precomputes: &P,
 ) -> Result<Option<bool>, ElusivError> {
     let instruction = verifier_account.get_instruction() as usize;
     let round = verifier_account.get_round() as usize;
@@ -38,7 +40,7 @@ pub fn verify_partial<VKey: VerificationKey>(
 
     match step {
         VerificationStep::PublicInputPreparation => {
-            prepare_public_inputs::<VKey>(verifier_account, instruction, round)?;
+            prepare_public_inputs(verifier_account, precomputes, instruction, round)?;
             verifier_account.serialize_rams().unwrap();
         }
         VerificationStep::CombinedMillerLoop => {
@@ -58,14 +60,20 @@ pub fn verify_partial<VKey: VerificationKey>(
     Ok(None)
 }
 
-pub fn prepare_public_inputs<VKey: VerificationKey>(
+pub fn prepare_public_inputs<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
     verifier_account: &mut VerificationAccount,
+    precomputes: &P,
     instruction: usize,
     round: usize,
 ) -> ElusivResult {
     let rounds = verifier_account.get_prepare_inputs_instructions(instruction);
 
-    let result = prepare_public_inputs_partial::<VKey>(round, rounds as usize, verifier_account);
+    let result = prepare_public_inputs_partial(
+        round,
+        rounds as usize,
+        verifier_account,
+        precomputes,
+    );
     if round + rounds as usize == VKey::PREPARE_PUBLIC_INPUTS_ROUNDS {
         let prepared_inputs = result.ok_or(CouldNotProcessProof)?;
 
@@ -166,7 +174,7 @@ macro_rules! read_g1_p{
     ($ram: expr, $o: literal) => { G1Projective::new($ram.read($o), $ram.read($o + 1), $ram.read($o + 2)) };
 }
 
-pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 257;
+pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 33;
 
 /// Public input preparation
 /// - `prepared_inputs = \sum_{i = 0}ˆ{N} input_{i} gamma_abc_g1_{i}`
@@ -175,33 +183,34 @@ pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 257;
 /// - the total rounds required for preparation of all inputs is `PREPARE_PUBLIC_INPUTS_ROUNDS` * N
 /// - this partial computation is different from the rest, in that it's cost is dependent on the public inputs count and bits
 /// - for `prepare_public_inputs` we use 1 instruction with 1.4m compute units
-fn prepare_public_inputs_partial<VKey: VerificationKey>(
+fn prepare_public_inputs_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
     round: usize,
     rounds: usize,
     storage: &mut VerificationAccount,
+    precomputes: &P,
 ) -> Option<G1Affine> {
     let mut acc: G1Projective = read_g1_p!(storage.ram_fq, 3);
-
     let mut input_index = round / PREPARE_PUBLIC_INPUTS_ROUNDS;
-    let mut public_input = storage.get_public_input(input_index).0;
-    let mut first_non_zero = find_first_non_zero(&public_input);
-    let mut gamma_abc_g1 = VKey::gamma_abc_g1(input_index + 1); // mixed addition is faster than pure projective
+    let mut public_input = storage.get_public_input(input_index).skip_mr();
 
     for round in round..round + rounds {
         let round = round % PREPARE_PUBLIC_INPUTS_ROUNDS;
         if round == 0 { acc = G1Projective::zero(); }
 
-        if round < PREPARE_PUBLIC_INPUTS_ROUNDS - 1 { // Ec scalar multiplication (`input_{i} gamma_abc_g1_{i}`)
-            if round < first_non_zero { continue }
-    
-            // Multiplication core
-            acc.double_in_place(); // (CUs: max: 12740, min: 122, avg: 12468)
-            if get_bit(&public_input, round) {
-                acc.add_assign_mixed(&gamma_abc_g1); // (CUs: max: 20836, min: 211, avg: 19912)
-            }
+        if round < PREPARE_PUBLIC_INPUTS_ROUNDS - 1 {
+            precomputes.sum(
+                &mut acc,
+                input_index,
+                &[(round, public_input[round] as usize)]
+            );
         } else { // Adding
-            let mut g_ic = if input_index == 0 { VKey::gamma_abc_g1_0() } else { read_g1_p!(storage.ram_fq, 0) };
-            if first_non_zero < 256 {
+            let mut g_ic = if input_index == 0 {
+                VKey::gamma_abc_g1_0()
+            } else {
+                read_g1_p!(storage.ram_fq, 0)
+            };
+
+            if public_input != [0; 32] {
                 g_ic += acc;
             }
 
@@ -209,9 +218,7 @@ fn prepare_public_inputs_partial<VKey: VerificationKey>(
                 write_g1_projective(&mut storage.ram_fq, &g_ic, 0);
 
                 input_index += 1;
-                public_input = storage.get_public_input(input_index).0;
-                first_non_zero = find_first_non_zero(&public_input);
-                gamma_abc_g1 = VKey::gamma_abc_g1(input_index + 1);
+                public_input = storage.get_public_input(input_index).skip_mr();
             } else {
                 return Some(g_ic.into_affine())
             }
@@ -223,13 +230,12 @@ fn prepare_public_inputs_partial<VKey: VerificationKey>(
     None
 }
 
-const ZERO_BIT_COST: u16 = 12;
-const ONE_BIT_COST: u16 = 32;
+const ADD_MIXED_COST: u16 = 22;
 const ADD_COST: u16 = 30;
 const MAX_CUS: u16 = 1_330; // 1_400_000 / 1000 minus padding
 
-/// Returns the instructions (and their rounds) required for a specific public-input bound input preparation
-pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: &[BigInteger256]) -> Vec<u32> {
+/// Returns the instructions (and their rounds) required for a specific public-input-bound input preparation
+pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: &[U256]) -> Vec<u32> {
     assert!(public_inputs.len() == VKey::PUBLIC_INPUTS_COUNT);
 
     let mut instructions = Vec::new();
@@ -239,18 +245,10 @@ pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: 
     let mut compute_units = 0;
 
     for public_input in public_inputs.iter() {
-        let skip = find_first_non_zero(public_input);
-        rounds += skip as u32;
-        total_rounds += skip;
-
-        for b in skip..=256 {
-            let cus = if b == 256 {
-                if skip == 256 { 0 } else { ADD_COST }
-            } else if get_bit(public_input, b) {
-                ONE_BIT_COST
-            } else {
-                ZERO_BIT_COST
-            };
+        for b in 0..33 {
+            let cus = if b == 32 {
+                if *public_input == [0; 32] { 0 } else { ADD_COST }
+            } else if public_input[b] == 0 { 0 } else { ADD_MIXED_COST };
 
             if compute_units + cus > MAX_CUS {
                 instructions.push(rounds);
@@ -705,29 +703,6 @@ fn write_g1_projective(ram: &mut RAMFq, g1p: &G1Projective, offset: usize) {
     ram.write(g1p.z, offset + 2);
 }
 
-/// Returns the bit, indexed in bit-endian from `bytes_le` in little-endian format
-fn get_bit(repr_num: &BigInteger256, bit: usize) -> bool {
-    let limb = bit / 64;
-    let local_bit = bit % 64;
-    let bytes = u64::to_be_bytes(repr_num.0[3 - limb]);
-    (bytes[local_bit / 8] >> (7 - (local_bit % 8))) & 1 == 1
-}
-
-/// Returns the first non-zero bit in big-endian for a value `bytes_le` in little-endian
-fn find_first_non_zero(repr_num: &BigInteger256) -> usize {
-    for limb in 0..4 {
-        let bytes = u64::to_be_bytes(repr_num.0[3 - limb]);
-        for (i, byte) in bytes.iter().enumerate() {
-            for bit in 0..8 {
-                if (byte >> (7 - bit)) & 1 == 1 {
-                    return limb * 64 + i * 8 + bit;
-                }
-            }
-        }
-    }
-    256
-}
-
 /// Inverse of 2 (in q)
 /// - Calculated using: Fq::one().double().inverse().unwrap()
 const TWO_INV: Fq = Fq::new(BigInteger256::new([9781510331150239090, 15059239858463337189, 10331104244869713732, 2249375503248834476]));
@@ -893,12 +868,16 @@ mod tests {
     use ark_ec::PairingEngine;
     use ark_ec::bn::G2Prepared;
     use ark_ec::models::bn::BnParameters;
-    use ark_ff::PrimeField;
     use ark_groth16::prepare_inputs;
     use assert_matches::assert_matches;
+    use solana_program::native_token::LAMPORTS_PER_SOL;
+    use crate::fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr};
+    use crate::proof::precompute::{precompute_account_size, VirtualPrecomputes};
     use crate::proof::test_proofs::{valid_proofs, invalid_proofs};
-    use crate::proof::vkey::TestVKey;
+    use crate::proof::vkey::{TestVKey, SendQuadraVKey};
+    use crate::state::empty_root_raw;
     use crate::state::program_account::ProgramAccount;
+    use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs};
 
     macro_rules! storage {
         ($id: ident) => {
@@ -910,7 +889,7 @@ mod tests {
     fn setup_storage_account<VKey: VerificationKey>(
         storage: &mut VerificationAccount,
         proof: Proof,
-        public_inputs: &[BigInteger256],
+        public_inputs: &[U256],
     ) {
         storage.a.set_serialize(&proof.a);
         storage.b.set_serialize(&proof.b);
@@ -918,7 +897,7 @@ mod tests {
         storage.set_state(&VerificationState::ProofSetup);
 
         for (i, &public_input) in public_inputs.iter().enumerate() {
-            storage.set_public_input(i, &Wrap(public_input));
+            storage.set_public_input(i, &RawU256::new(public_input));
         }
 
         let instructions = prepare_public_inputs_instructions::<VKey>(public_inputs);
@@ -945,35 +924,50 @@ mod tests {
 
     fn g2_affine() -> G2Affine { G2Affine::new(f().c0.c0, f().c0.c1, false) }
 
+    macro_rules! precomputes {
+        ($id: ident, $vkey: ident) => {
+            let mut data = vec![0; precompute_account_size::<$vkey>()];
+            let $id = VirtualPrecomputes::<TestVKey>::new(&mut data);
+        };
+    }
+
     #[test]
     fn test_prepare_public_inputs() {
         let pvk = TestVKey::ark_pvk();
         let public_inputs = vec![
-            Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-            Fr::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
-            Fr::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-            Fr::from_str("3932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-            Fr::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
-            Fr::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-            Fr::from_str("3932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("93269045529448236888352783906317764044134926538780366070347507990829997699").unwrap(),
-            Fr::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
+            "5932690455294482368858352783906317764044134926538780366070347507990829997699",
+            "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+            "19526707366532583397322534596786476145393586591811230548888354920504818678603",
+            "20925091368075991963132407952916453596237117852799702412141988931506241672722",
+            "3932690455294482368858352783906317764044134926538780366070347507990829997699",
+            "932690455294482368858352783906317764044134926538780366070347507990829997699",
+            "455294482368858352783906317764044134926538780366070347507990829997699",
+            "5932690455294482368858352783906317764044134926538780366070347507990829997699",
+            "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+            "19526707366532583397322534596786476145393586591811230548888354920504818678603",
+            "20925091368075991963132407952916453596237117852799702412141988931506241672722",
+            "3932690455294482368858352783906317764044134926538780366070347507990829997699",
+            "932690455294482368858352783906317764044134926538780366070347507990829997699",
+            "455294482368858352783906317764044134926538780366070347507990829997699",
+            "93269045529448236888352783906317764044134926538780366070347507990829997699",
+            "5932690455294482368858352783906317764044134926538780366070347507990829997699",
         ];
+
+        precomputes!(precomputes, TestVKey);
 
         // First version
         storage!(storage);
         for (i, public_input) in public_inputs.iter().enumerate() {
-            storage.set_public_input(i, &Wrap(public_input.into_repr()));
+            storage.set_public_input(i, & RawU256::new(u256_from_str_skip_mr(*public_input)));
         }
 
-        let result = prepare_public_inputs_partial::<TestVKey>(0, TestVKey::PREPARE_PUBLIC_INPUTS_ROUNDS, &mut storage).unwrap();
+        let result = prepare_public_inputs_partial(
+            0,
+            TestVKey::PREPARE_PUBLIC_INPUTS_ROUNDS,
+            &mut storage,
+            &precomputes,
+        ).unwrap();
+        let public_inputs: Vec<Fr> = public_inputs.iter().map(|s| Fr::from_str(s).unwrap()).collect();
         let expected = prepare_inputs(&pvk, &public_inputs).unwrap().into_affine();
         assert_eq!(result, expected);
 
@@ -984,27 +978,18 @@ mod tests {
 
         for i in 0..storage.get_prepare_inputs_instructions_count() {
             let round = storage.get_round();
-            prepare_public_inputs::<TestVKey>(&mut storage, i as usize, round as usize).unwrap();
+            prepare_public_inputs(
+                &mut storage,
+                &precomputes,
+                i as usize,
+                round as usize,
+            ).unwrap();
         }
         let expected = prepare_inputs(
             &pvk,
-            &public_inputs.iter().map(|&x| Fr::from_repr(x).unwrap()).collect::<Vec<Fr>>()
+            &public_inputs.iter().map(|&x| u256_to_fr_skip_mr(&RawU256::new(x).reduce())).collect::<Vec<Fr>>()
         ).unwrap().into_affine();
         assert_eq!(storage.prepared_inputs.get().0, expected);
-    }
-
-    #[test]
-    fn test_find_first_non_zero() {
-        assert_eq!(find_first_non_zero(&BigInteger256::from(0)), 256);
-        assert_eq!(find_first_non_zero(&BigInteger256::from(1)), 255);
-        assert_eq!(find_first_non_zero(&BigInteger256::from(2)), 254);
-        assert_eq!(find_first_non_zero(&BigInteger256::from(3)), 254);
-        assert_eq!(find_first_non_zero(&BigInteger256::from(4)), 253);
-    }
-
-    #[test]
-    fn test_get_bit() {
-        assert!(get_bit(&BigInteger256::from(1), 255));
     }
 
     #[test]
@@ -1277,16 +1262,45 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_public_inputs_instructions() {
-        assert_eq!(
-            prepare_public_inputs_instructions::<TestVKey>(&vec![BigInteger256::new([0,0,0,0]); TestVKey::PUBLIC_INPUTS_COUNT]),
-            vec![TestVKey::PREPARE_PUBLIC_INPUTS_ROUNDS as u32]
-        )
+    fn test_public_inputs_preparation_costs() {
+        let abc = SendPublicInputs {
+            join_split: JoinSplitPublicInputs {
+                commitment_count: 1,
+                roots: vec![
+                    Some(empty_root_raw()),
+                    None,
+                ],
+                nullifier_hashes: vec![
+                    RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                    RawU256::new(u256_from_str_skip_mr("13921430393547588871192356721184227660578793579443975701453971046059378311483")),
+                ],
+                commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                fee_version: 0,
+                amount: LAMPORTS_PER_SOL * 123,
+                fee: 0,
+            },
+            recipient: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
+            current_time: 0,
+            identifier: RawU256::new(u256_from_str_skip_mr("139214303935475888711984321184227760578793579443975701453971046059378311483")),
+            salt: RawU256::new(u256_from_str_skip_mr("230508240750559904196809564625")),
+        };
+        let p = abc.public_signals_skip_mr();
+        let v = prepare_public_inputs_instructions::<SendQuadraVKey>(&p);
+        assert_eq!(v.len(), 4);
     }
 
-    fn full_verification<VKey: VerificationKey>(
+    #[test]
+    fn test_prepare_public_inputs_instructions() {
+        assert_eq!(
+            prepare_public_inputs_instructions::<TestVKey>(&vec![[0; 32]; TestVKey::PUBLIC_INPUTS_COUNT]),
+            vec![TestVKey::PREPARE_PUBLIC_INPUTS_ROUNDS as u32]
+        );
+    }
+
+    fn full_verification<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
         proof: Proof,
-        public_inputs: &[BigInteger256],
+        public_inputs: &[U256],
+        precomputes: &P
     ) -> bool {
         storage!(storage);
         setup_storage_account::<VKey>(&mut storage, proof, public_inputs);
@@ -1294,23 +1308,22 @@ mod tests {
 
         let mut result = None;
         for _ in 0..instruction_count {
-            result = verify_partial::<VKey>(&mut storage).unwrap();
+            result = verify_partial(&mut storage, precomputes).unwrap();
         }
 
         result.unwrap()
     }
 
     #[test]
-    fn test_verify_valid_proofs() {
-        for p in valid_proofs() {
-            assert!(full_verification::<TestVKey>(p.proof, &p.public_inputs));
-        }
-    }
+    fn test_verify_proofs() {
+        precomputes!(precomputes, TestVKey);
 
-    #[test]
-    fn test_verify_invalid_proofs() {
+        for p in valid_proofs() {
+            assert!(full_verification(p.proof, &p.public_inputs, &precomputes));
+        }
+
         for p in invalid_proofs() {
-            assert!(!full_verification::<TestVKey>(p.proof, &p.public_inputs));
+            assert!(!full_verification(p.proof, &p.public_inputs, &precomputes));
         }
     }
 
@@ -1322,12 +1335,15 @@ mod tests {
         setup_storage_account::<TestVKey>(&mut storage, proof, &public_inputs);
         let instruction_count = storage.get_prepare_inputs_instructions_count() as usize + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS;
 
+        let mut data = vec![0; precompute_account_size::<TestVKey>()];
+        let precomputes = VirtualPrecomputes::<TestVKey>::new_skip_precompute(&mut data);
+
         for _ in 0..instruction_count {
-            verify_partial::<TestVKey>(&mut storage).unwrap();
+            verify_partial(&mut storage, &precomputes).unwrap();
         }
 
         // Additional ix will result in error
-        assert_matches!(verify_partial::<TestVKey>(&mut storage), Err(_));
+        assert_matches!(verify_partial(&mut storage, &precomputes), Err(_));
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59

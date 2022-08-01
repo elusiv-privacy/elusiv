@@ -11,6 +11,7 @@ macro_rules! guard {
     };
 }
 
+/// Checked two_pow into usize (exp u32)
 macro_rules! two_pow {
     ($exp: expr) => {
         match 2usize.checked_pow($exp) {
@@ -19,17 +20,6 @@ macro_rules! two_pow {
         }
     };
 }
-
-/*macro_rules! multi_split_at_mut {
-    ($data: ident) => { };
-    ($data: ident, ($id: ident, $size: expr)) => {
-        let ($id, _) = $data.split_at_mut($size);
-    };
-    ($data: ident, ($id: ident, $size: expr), $(($x: ident, $y: expr)),*) => {
-        let ($id, data) = $data.split_at_mut($size);
-        multi_split_at_mut!(data, $(($x, $y)),*);
-    };
-}*/
 
 #[cfg(test)]
 macro_rules! hash_map {
@@ -134,7 +124,6 @@ macro_rules! nullifier_account {
 }
 
 pub(crate) use guard;
-//pub(crate) use multi_split_at_mut;
 pub(crate) use two_pow;
 
 #[cfg(test)] pub(crate) use hash_map;

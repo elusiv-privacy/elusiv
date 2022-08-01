@@ -1,9 +1,8 @@
 use std::marker::PhantomData;
 use crate::u64_array;
-use crate::fields::{G1A, G2A, u64_to_u256_skip_mr, u256_to_big_uint, fr_to_u256_le, Wrap};
-use ark_bn254::{Fr, Fq, Fq2, G1Projective, G2Projective};
-use ark_ec::AffineCurve;
-use ark_ff::{BigInteger256, PrimeField, One, Zero};
+use crate::fields::{G1A, G2A, u64_to_u256_skip_mr, u256_to_big_uint, fr_to_u256_le};
+use ark_bn254::Fr;
+use ark_ff::PrimeField;
 use elusiv_derive::BorshSerDePlaceholder;
 use solana_program::pubkey::Pubkey;
 use crate::bytes::{BorshSerDeSized, max};
@@ -126,34 +125,14 @@ pub struct Proof {
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
-/// A Groth16 proof in projective form in binary representation
-pub struct RawProof(pub [u8; 260]);
+/// A Groth16 proof in affine form in binary representation
+pub struct RawProof(pub [u8; G1A::SIZE + G2A::SIZE + G1A::SIZE]);
 
 impl TryFrom<Proof> for RawProof {
     type Error = std::io::Error;
 
     fn try_from(proof: Proof) -> Result<Self, Self::Error> {
-        let mut v = Vec::new();
-
-        let a = proof.a.0.into_projective();
-        Wrap(a.x).serialize(&mut v)?;
-        Wrap(a.y).serialize(&mut v)?;
-        (a.z == Fq::zero()).serialize(&mut v)?;
-
-        let b = proof.b.0.into_projective();
-        Wrap(b.x).serialize(&mut v)?;
-        Wrap(b.y).serialize(&mut v)?;
-        (b.z.c0 == Fq::zero()).serialize(&mut v)?;
-        (b.z.c1 == Fq::zero()).serialize(&mut v)?;
-
-        let c = proof.c.0.into_projective();
-        Wrap(c.x).serialize(&mut v)?;
-        Wrap(c.y).serialize(&mut v)?;
-        (c.z == Fq::zero()).serialize(&mut v)?;
-
-        Ok(
-            RawProof(v.try_into().unwrap())
-        )
+        Ok(RawProof(proof.try_to_vec()?.try_into().unwrap()))
     }
 }
 
@@ -162,36 +141,7 @@ impl TryFrom<RawProof> for Proof {
 
     fn try_from(value: RawProof) -> Result<Self, Self::Error> {
         let mut buf = &value.0[..];
-
-        fn projective_z(buf: &mut &[u8]) -> Result<Fq, std::io::Error> {
-            if bool::deserialize(buf)? { Ok(Fq::zero()) } else { Ok(Fq::one()) }
-        }
-        
-        fn g1p(buf: &mut &[u8]) -> Result<G1Projective, std::io::Error> {
-            Ok(
-                G1Projective::new(
-                    <Wrap<Fq>>::deserialize(buf)?.0,
-                    <Wrap<Fq>>::deserialize(buf)?.0,
-                    projective_z(buf)?,
-                )
-            )
-        }
-
-        let a = g1p(&mut buf)?;
-        let b = G2Projective::new(
-            <Wrap<Fq2>>::deserialize(&mut buf)?.0,
-            <Wrap<Fq2>>::deserialize(&mut buf)?.0,
-            Fq2::new(projective_z(&mut buf)?, projective_z(&mut buf)?),
-        );
-        let c = g1p(&mut buf)?;
-        
-        Ok(
-            Proof {
-                a: G1A(a.into()),
-                b: G2A(b.into()),
-                c: G1A(c.into()),
-            }
-        )
+        Proof::deserialize(&mut buf)
     }
 }
 
@@ -303,8 +253,8 @@ pub trait PublicInputs {
     /// - no montgomery reduction is performed
     fn public_signals(&self) -> Vec<RawU256>;
 
-    fn public_signals_big_integer_skip_mr(&self) -> Vec<BigInteger256> {
-        self.public_signals().iter().map(|p| u256_to_big_uint(&p.0)).collect() 
+    fn public_signals_skip_mr(&self) -> Vec<U256> {
+        self.public_signals().iter().map(|&p| p.skip_mr()).collect() 
     }
 }
 
@@ -436,7 +386,7 @@ pub fn compute_fee_rec<VKey: crate::proof::vkey::VerificationKey, P: PublicInput
 ) {
     let fee = program_fee.proof_verification_fee(
         crate::proof::prepare_public_inputs_instructions::<VKey>(
-            &public_inputs.public_signals_big_integer_skip_mr()
+            &public_inputs.public_signals_skip_mr()
         ).len(),
         0,
         public_inputs.join_split_inputs().amount

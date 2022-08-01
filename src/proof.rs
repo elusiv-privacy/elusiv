@@ -1,5 +1,6 @@
 pub mod vkey;
 pub mod verifier;
+pub mod precompute;
 #[cfg(test)] mod test_proofs;
 
 use borsh::{BorshSerialize, BorshDeserialize};
@@ -8,7 +9,6 @@ use elusiv_derive::{BorshSerDeSized, EnumVariantIndex};
 use solana_program::entrypoint::ProgramResult;
 pub use verifier::*;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12};
-use ark_ff::BigInteger256;
 use vkey::VerificationKey;
 use crate::error::ElusivError;
 use crate::processor::{ProofRequest, MAX_MT_COUNT};
@@ -56,7 +56,7 @@ pub struct VerificationAccount {
     state: VerificationState,
 
     // Public inputs
-    public_input: [Wrap<BigInteger256>; MAX_PUBLIC_INPUTS_COUNT],
+    public_input: [RawU256; MAX_PUBLIC_INPUTS_COUNT],
 
     // Proof
     #[pub_non_lazy] a: Lazy<'a, G1A>,
@@ -242,7 +242,7 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use crate::{state::{program_account::ProgramAccount}, fields::{u256_from_str, u256_from_str_skip_mr, u256_to_big_uint}, types::{SendPublicInputs, PublicInputs, JoinSplitPublicInputs}};
+    use crate::{state::{program_account::ProgramAccount}, fields::{u256_from_str, u256_from_str_skip_mr}, types::{SendPublicInputs, PublicInputs, JoinSplitPublicInputs}};
 
     #[test]
     fn test_setup_verification_account() {
@@ -302,7 +302,7 @@ mod tests {
 
         assert_eq!(verification_account.get_other_data(), data);
         for (i, public_input) in public_inputs.iter().enumerate() {
-            assert_eq!(verification_account.get_public_input(i).0, u256_to_big_uint(&public_input.skip_mr()));
+            assert_eq!(verification_account.get_public_input(i).skip_mr(), public_input.skip_mr());
         }
     }
 

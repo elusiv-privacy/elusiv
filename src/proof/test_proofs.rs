@@ -1,12 +1,10 @@
-use std::str::FromStr;
-use ark_ff::{BigInteger256, PrimeField};
-use crate::types::Proof;
+use crate::{types::{Proof, U256}, fields::u256_from_str_skip_mr};
 
 use super::proof_from_str_projective;
 
 pub struct TestProof {
     pub proof: Proof,
-    pub public_inputs: Vec<BigInteger256>,
+    pub public_inputs: Vec<U256>,
 }
 
 impl TestProof {
@@ -14,7 +12,7 @@ impl TestProof {
         TestProof {
             proof,
             public_inputs: public_inputs.iter()
-                .map(|x| ark_bn254::Fr::from_str(x).unwrap().into_repr())
+                .map(|x| u256_from_str_skip_mr(x))
                 .collect(),
         }
     }

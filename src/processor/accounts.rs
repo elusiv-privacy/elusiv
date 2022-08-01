@@ -7,11 +7,11 @@ use solana_program::{
 };
 use crate::{state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
-    program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData, SubAccount},
+    program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData, SubAccount, SUB_ACCOUNT_ADDITIONAL_SIZE},
     StorageAccount,
     queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount, CommitmentQueue, Queue},
     fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
-}, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe, processor::MATH_ERR};
+}, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe, processor::MATH_ERR, proof::precompute::{PrecomputesAccount, precompute_account_size2}, map::ElusivMap};
 use crate::commitment::{CommitmentHashingAccount};
 use crate::error::ElusivError::{
     InvalidAccount,
@@ -31,6 +31,7 @@ pub enum SingleInstancePDAAccountKind {
     PoolAccount,
     FeeCollectorAccount,
     StorageAccount,
+    PrecomputesAccount,
 }
 
 /// Opens one single instance `PDAAccount`, as long this PDA does not already exist
@@ -55,6 +56,9 @@ pub fn open_single_instance_account<'a>(
         }
         SingleInstancePDAAccountKind::StorageAccount => {
             open_pda_account_without_offset::<StorageAccount>(payer, pda_account)
+        }
+        SingleInstancePDAAccountKind::PrecomputesAccount => {
+            open_pda_account_without_offset::<PrecomputesAccount>(payer, pda_account)
         }
     }
 }
@@ -95,7 +99,8 @@ pub fn enable_storage_sub_account(
         storage_account,
         sub_account,
         sub_account_index as usize,
-        false
+        false,
+        None,
     )
 }
 
@@ -114,13 +119,35 @@ pub fn enable_nullifier_sub_account(
         nullifier_account,
         sub_account,
         sub_account_index as usize,
-        false
+        false,
+        None,
     )?;
 
     // Set map size to zero
     reset_map_sub_account(sub_account);
 
     Ok(())
+}
+
+pub fn enable_precompute_sub_account(
+    precomputes_account: &AccountInfo,
+    sub_account: &AccountInfo,
+
+    sub_account_index: u32,
+) -> ProgramResult {
+    setup_sub_account::<PrecomputesAccount, {PrecomputesAccount::COUNT}>(
+        precomputes_account,
+        sub_account,
+        sub_account_index as usize,
+        false,
+        Some(
+            precompute_account_size2(sub_account_index as usize) + SUB_ACCOUNT_ADDITIONAL_SIZE
+        ),
+    )
+}
+
+pub fn precompute_v_keys(precomputes_account: &mut PrecomputesAccount) -> ProgramResult {
+    precomputes_account.partial_precompute()
 }
 
 /// Closes the active MT and activates the next one
@@ -234,6 +261,7 @@ fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
     sub_account: &AccountInfo,
     sub_account_index: usize,
     check_zeroness: bool,
+    size: Option<usize>,
 ) -> ProgramResult {
     let data = &mut main_account.data.borrow_mut()[..];
     let mut account_data = <MultiAccountAccountData<{COUNT}>>::new(data)?;
@@ -242,7 +270,7 @@ fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
         return Err(SubAccountAlreadyExists.into())
     }
 
-    verify_extern_data_account(sub_account, T::ACCOUNT_SIZE, check_zeroness)?;
+    verify_extern_data_account(sub_account, size.unwrap_or(T::ACCOUNT_SIZE), check_zeroness)?;
     account_data.pubkeys[sub_account_index] = ElusivOption::Some(*sub_account.key);
     MultiAccountAccountData::override_slice(&account_data, data)?;
 
@@ -258,7 +286,9 @@ fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
 fn reset_map_sub_account(sub_account: &AccountInfo) {
     let data = &mut sub_account.data.borrow_mut()[..];
     let acc = SubAccount::new(data);
-    for b in acc.data.iter_mut().take(4) { *b = 0 }
+    let len = ElusivMap::<(), (), 1>::SIZE;
+    let mut map = ElusivMap::<(), (), 1>::new(&mut acc.data[..len]);
+    map.reset();
 }
 
 /// Verifies that an account with `data_len` > 10 KiB (non PDA) is formatted correctly
@@ -292,7 +322,7 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
-    use crate::{macros::account, state::{program_account::{PDAAccount, SizedAccount, MultiAccountProgramAccount}, queue::RingQueue}, processor::CommitmentHashRequest};
+    use crate::{macros::account, state::{program_account::{PDAAccount, SizedAccount, MultiAccountProgramAccount}, queue::RingQueue}, processor::CommitmentHashRequest, types::U256};
 
     #[test]
     fn test_open_single_instance_account() {
@@ -451,5 +481,25 @@ mod tests {
         // Check zero
         account!(account, pk, vec![0; 100]);
         assert_matches!(verify_extern_data_account(&account, 100, true), Ok(()));
+    }
+
+    #[test]
+    fn test_reset_map_sub_account() {
+        type Map<'a> = ElusivMap<'a, U256, (), 1>;
+
+        let pk = Pubkey::new_unique();
+        let mut data = vec![0; Map::SIZE];
+        let mut map = Map::new(&mut data[..]);
+        map.try_insert_default([1; 32]).unwrap();
+        assert!(map.is_full());
+
+        let mut d = vec![1];
+        d.extend(data);
+        account!(map_account, pk, d);
+        reset_map_sub_account(&map_account);
+
+        let data = &mut map_account.data.borrow_mut()[1..];
+        let mut map = Map::new(data);
+        assert!(map.is_empty());
     }
 }

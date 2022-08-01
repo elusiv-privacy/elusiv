@@ -1,5 +1,5 @@
-use ark_bn254::{Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine};
-use ark_ff::{BigInteger256, PrimeField};
+use ark_bn254::{Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective};
+use ark_ff::{BigInteger256, PrimeField, One};
 use borsh::{BorshSerialize, BorshDeserialize};
 use crate::{types::{U256, u256_to_le_limbs}, bytes::BorshSerDeSized};
 use crate::bytes::slice_to_array;
@@ -28,7 +28,7 @@ pub fn scalar_skip_mr(e: BigInteger256) -> Fr {
     Fr::new(e)
 }
 
-/// Checks whether a non-mr-form element contained in the field
+/// Checks whether a non-mr-form element is contained in the field
 pub fn is_element_scalar_field(e: BigInteger256) -> bool {
     e < SCALAR_MODULUS_RAW
 }
@@ -346,6 +346,10 @@ pub fn u256_to_big_uint(v: &U256) -> BigInteger256 {
 pub fn big_uint_to_u256(v: &BigInteger256) -> U256 {
     let s = <Wrap<BigInteger256>>::try_to_vec(&Wrap(*v)).unwrap();
     slice_to_array::<u8, 32>(&s)
+}
+
+pub fn affine_into_projective(a: &G1Affine) -> G1Projective {
+    G1Projective::new(a.x, a.y, Fq::one())
 }
 
 #[cfg(test)] use std::str::FromStr;

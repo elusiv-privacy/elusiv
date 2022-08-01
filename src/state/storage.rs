@@ -84,7 +84,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
             EMPTY_TREE[MT_HEIGHT as usize - level]
         } else {
             let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
-            self.execute_on_sub_account(account_index, |data| {
+            self.try_execute_on_sub_account(account_index, |data| {
                 U256::try_from_slice(
                     &data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
                 )
@@ -97,7 +97,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         assert!(index < two_pow!(usize_as_u32_safe(level)));
 
         let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
-        self.execute_on_sub_account(account_index, |data| {
+        self.try_execute_on_sub_account(account_index, |data| {
             U256::override_slice(
                 value,
                 &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]

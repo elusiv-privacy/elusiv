@@ -1,4 +1,5 @@
 use elusiv_derive::{BorshSerDeSized, BorshSerDePlaceholder, ByteBackedJIT};
+use crate::macros::two_pow;
 use crate::types::{LazyField, Lazy, JITArray, U256};
 use crate::bytes::*;
 use std::cmp::Ordering;
@@ -15,19 +16,21 @@ macro_rules! impl_map_value {
     ($ty: ty) => { impl crate::map::ElusivMapValue for $ty {} };
 }
 
-impl_map_value!(());
+impl_map_key!(());
 impl_map_key!(U256);
+
+impl_map_value!(());
 
 pub type ElusivSet<'a, K, const CAPACITY: usize> = ElusivMap<'a, K, (), CAPACITY>;
 
 #[derive(BorshSerDeSized, BorshSerDePlaceholder, ByteBackedJIT, Debug)]
 /// Write efficient, append only, JIT deserializing, insertion sorted map with a maximum capacity
-/// - upper bound for `CAPACITY` is `u16::MAX`
+/// - upper bound for `CAPACITY` is `2^16`
 /// - containment check: `O(log CAPACITY)`
 /// - minimum/maximum key insertion: `O(1)` for search and write
 /// - other value insertion: `O(log CAPACITY)` for search, `O(1)` for write
 pub struct ElusivMap<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> {
-    len: Lazy<'a, u16>,
+    len: Lazy<'a, u32>, // important: len, max_ptr (non-generic-size) and next need to preceed keys and values (because of resets in accounts::reset_map_sub_account)
 
     /// Points to the maximum key (entry) stored in the map
     max_ptr: Lazy<'a, u16>,
@@ -40,8 +43,16 @@ pub struct ElusivMap<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usi
     values: JITArray<'a, V, CAPACITY>,
 }
 
+const MAX: u32 = two_pow!(16) as u32;
+const fn verify_capacity(c: u32) -> u32 {
+    if c > MAX {
+        panic!()
+    }
+    c
+}
+
 impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a, K, V, CAPACITY> {
-    pub const CAPACITY: u16 = usize_as_u16_safe(CAPACITY);
+    pub const CAPACITY: u32 = verify_capacity(usize_as_u32_safe(CAPACITY));
 
     /// Attempts to insert a new entry into the map
     /// - duplicate keys cannot be inserted
@@ -81,7 +92,7 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
     }
 
     /// Finds the pointer after which an entry can be inserted 
-    /// - insertion at `next(pointer)`
+    /// - insertion at `next.get(pointer)`
     #[allow(clippy::comparison_chain)]
     fn binary_search(&mut self, key: &K) -> Result<u16, ElusivMapError<V>> {
         if self.is_empty() {
@@ -151,7 +162,7 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
 
     /// Inserts an entry after a given pointer
     fn insert_entry_after(&mut self, key: &K, value: &V, pointer: u16) -> Result<Option<(K, V)>, ElusivMapError<V>> {
-        let new_index = if self.is_full() { self.max_ptr.get() } else { self.len.get() } as usize;
+        let new_index = if self.is_full() { self.max_ptr.get() } else { self.len.get().try_into().unwrap() } as usize;
         let next = self.next.get(pointer as usize);
 
         let min_ptr = self.min_ptr();
@@ -220,6 +231,12 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
 
     pub fn is_full(&mut self) -> bool {
         self.len.get() as usize == CAPACITY
+    }
+
+    pub fn reset(&mut self) {
+        self.len.set_serialize(&0);
+        self.max_ptr.set_serialize(&0);
+        self.next.set(0, &0);
     }
 
     pub fn sorted_keys(&mut self) -> Vec<K> {
@@ -337,5 +354,41 @@ mod tests {
 
         map.try_insert(8, &6).unwrap();
         assert!(map.contains(&8).is_some());
+    }
+
+    #[test]
+    fn test_reset() {
+        map!(map);
+
+        map.try_insert_default(0).unwrap();
+        map.try_insert_default(1).unwrap();
+        map.try_insert_default(2).unwrap();
+
+        map.reset();
+
+        assert!(map.is_empty());
+        assert_eq!(map.len.get(), 0);
+
+        map.try_insert_default(0).unwrap();
+        map.try_insert_default(1).unwrap();
+        map.try_insert_default(2).unwrap();
+
+        assert_eq!(map.sorted_keys(), [0, 1, 2]);
+    }
+
+    const M: usize = MAX as usize;
+
+    #[test]
+    fn test_map_max_size() {
+        type Map<'a> = ElusivMap<'a, u16, (), M>;
+        let mut data = vec![0; Map::SIZE];
+        let mut map = Map::new(&mut data);
+
+        for i in 0..=(M - 1) as u16 {
+            map.try_insert_default(i).unwrap();
+        }
+
+        assert!(map.is_full());
+        assert_eq!(map.len.get(), two_pow!(16) as u32);
     }
 }

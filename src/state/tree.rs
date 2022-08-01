@@ -14,14 +14,14 @@ const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
 /// We store nullifiers with the `NullifierMap` data structure for efficient searching and later N-SMT construction
 pub type NullifierMap<'a> = ElusivSet<'a, U256, NULLIFIERS_PER_ACCOUNT>;
 
-const NULLIFIERS_PER_ACCOUNT: usize = u16::MAX as usize;// two_pow!(16);
+const NULLIFIERS_PER_ACCOUNT: usize = two_pow!(16);
 const ACCOUNT_SIZE: usize = NullifierMap::SIZE + SUB_ACCOUNT_ADDITIONAL_SIZE;
 const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling(NULLIFIERS_COUNT as u64, NULLIFIERS_PER_ACCOUNT as u64));
-const_assert_eq!(ACCOUNTS_COUNT, 17);
+const_assert_eq!(ACCOUNTS_COUNT, 16);
 
 /// NullifierAccount is a big-array storing `NULLIFIERS_COUNT` nullifiers over multiple accounts
 /// - we use `NullifierMap`s to store the nullifiers
-#[elusiv_account(pda_seed = b"tree", multi_account = (ACCOUNTS_COUNT; ACCOUNT_SIZE))]
+#[elusiv_account(pda_seed = b"nullifier", multi_account = (ACCOUNTS_COUNT; ACCOUNT_SIZE))]
 pub struct NullifierAccount {
     pda_data: PDAAccountData,
     multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
@@ -31,7 +31,7 @@ pub struct NullifierAccount {
 }
 
 /// Tree account after archiving (only a single collapsed N-SMT root)
-#[elusiv_account(pda_seed = b"archived_tree")]
+#[elusiv_account(pda_seed = b"archived")]
 pub struct ArchivedTreeAccount {
     pda_data: PDAAccountData,
 
@@ -55,7 +55,7 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
         if let Some(nmap_index) = self.nullifier_map_index() {
             let repr = nullifier_hash;
             for i in 0..=nmap_index {
-                let contains = self.execute_on_sub_account::<_, _, ProgramError>(i, |data| {
+                let contains = self.try_execute_on_sub_account::<_, _, ProgramError>(i, |data| {
                     let mut map = NullifierMap::new(data);
                     let result = map.contains(&repr).is_some();
                     Ok(result)
@@ -76,7 +76,7 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
         let mut account_index = 0;
         let mut value = Some(nullifier_hash);
         while value.is_some() {
-            let insertion = self.execute_on_sub_account::<_, Option<(U256, ())>, ElusivMapError<()>>(account_index, |data| {
+            let insertion = self.try_execute_on_sub_account::<_, Option<(U256, ())>, ElusivMapError<()>>(account_index, |data| {
                 NullifierMap::new(data).try_insert_default(nullifier_hash)
             });
 

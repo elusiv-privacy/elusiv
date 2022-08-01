@@ -121,7 +121,6 @@ impl ProgramFee {
 mod tests {
     use super::*;
     use crate::proof::{vkey::{TestVKey, VerificationKey}, prepare_public_inputs_instructions};
-    use ark_ff::BigInteger256;
     use solana_program::native_token::LAMPORTS_PER_SOL;
 
     impl Default for ProgramFee {
@@ -165,7 +164,7 @@ mod tests {
     fn test_proof_verification_fee() {
         let fee = ProgramFee::default();
 
-        let public_inputs = vec![BigInteger256::new([0,0,0,0]); TestVKey::PUBLIC_INPUTS_COUNT];
+        let public_inputs = vec![[0; 32]; TestVKey::PUBLIC_INPUTS_COUNT];
         let input_preparation_tx_count = prepare_public_inputs_instructions::<TestVKey>(&public_inputs).len();
 
         assert_eq!(

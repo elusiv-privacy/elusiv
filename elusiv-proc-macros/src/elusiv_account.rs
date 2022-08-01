@@ -7,7 +7,7 @@ macro_rules! assert_field {
     // $e is whitespace-sensitive
     ($id: ident, $iter: ident, $e: expr) => {
         let $id = $iter.next().expect(&format!("Field has to be `{}`", $e));
-        if $id.to_token_stream().to_string() != $e {
+        if $id.to_token_stream().to_string() != $e.parse::<TokenStream>().unwrap().to_string() {
             panic!("Could not find: `{}` in {:?}", $e, $id.to_token_stream().to_string());
         }
     };

@@ -119,6 +119,14 @@ pub trait MultiInstancePDAAccount: PDAAccount {
     }
 }
 
+macro_rules! sub_account_safe {
+    ($id: ident, $self: ident, $account_index: expr) => {
+        let account = unsafe { $self.get_account_unsafe($account_index)? };
+        let data = &mut account.data.borrow_mut()[..];
+        let $id = SubAccount::new(data); 
+    };
+}
+
 /// Allows for storing data across multiple accounts (needed for data sized >10 MiB)
 /// - these accounts can be PDAs, but will most likely be data accounts (size > 10 KiB)
 /// - by default all these accounts are assumed to have the same size = `ACCOUNT_SIZE`
@@ -191,11 +199,14 @@ pub trait MultiAccountAccount<'t>: PDAAccount {
     unsafe fn get_account_unsafe(&self, account_index: usize) -> Result<&AccountInfo<'t>, ProgramError>;
 
     /// Ensures that the fields of `SubAccount` are not manipulated on a sub-account
-    fn execute_on_sub_account<F, T, E>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> Result<T, E> {
-        let account = unsafe { self.get_account_unsafe(account_index)? };
-        let data = &mut account.data.borrow_mut()[..];
-        let account = SubAccount::new(data);
+    fn try_execute_on_sub_account<F, T, E>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> Result<T, E> {
+        sub_account_safe!(account, self, account_index);
         f(account.data).or(Err(ProgramError::InvalidAccountData))
+    }
+
+    fn execute_on_sub_account<F, T>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> T {
+        sub_account_safe!(account, self, account_index);
+        Ok(f(account.data))
     }
 }
 
@@ -223,11 +234,10 @@ impl<'a> SubAccount<'a> {
 
 #[cfg(test)]
 mod tests {
-    use elusiv_proc_macros::repeat;
-
     use super::*;
     use crate::macros::account;
     use std::collections::HashMap;
+    use elusiv_proc_macros::repeat;
 
     struct TestPDAAccount { }
 
@@ -313,14 +323,39 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_get_account_unsafe() {
+        test_multi_account!(account);
+        unsafe { _ = account.get_account_unsafe(3); }
+    }
+
+    #[test]
+    fn test_try_execute_on_sub_account() {
+        test_multi_account!(account);
+
+        for i in 0..SUB_ACCOUNT_COUNT {
+            assert_eq!(
+                account.try_execute_on_sub_account::<_, usize, ProgramError>(i, |data| {
+                    data[0] = i as u8 + 1;
+                    Ok(42)
+                }).unwrap(),
+                42
+            );
+        }
+
+        for i in 0..SUB_ACCOUNT_COUNT {
+            assert_eq!(account.accounts[&i].data.borrow()[1], i as u8 + 1);
+        }
+    }
+
+    #[test]
     fn test_execute_on_sub_account() {
         test_multi_account!(account);
 
         for i in 0..SUB_ACCOUNT_COUNT {
-            account.execute_on_sub_account::<_, _, ProgramError>(i, |data| {
+            account.execute_on_sub_account(i, |data| {
                 data[0] = i as u8 + 1;
-                Ok(())
-            }).unwrap()
+            }).unwrap();
         }
 
         for i in 0..SUB_ACCOUNT_COUNT {

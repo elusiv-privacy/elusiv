@@ -131,7 +131,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                             account = quote!{ &#account };
                         } else {
-                            let ty = program_account_type(sub_attrs[1]);
+                            let ty: TokenStream = String::from(sub_attrs[1]).parse().unwrap();
                             let key: TokenStream = named_sub_attribute("key", sub_attrs[2]).parse().unwrap();
 
                             accounts.extend(quote!{
@@ -146,7 +146,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 account = quote!{ &#account };
                             }
                         }
-
                     }
 
                     // System program `AccountInfo` (usage: <name> <key = ..>)
@@ -171,7 +170,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         // - the seed of the main account plus the index of each sub-account is used to generate their PDAs
 
                         // The PDA account type
-                        let ty = program_account_type(sub_attrs[1]);
+                        let ty: TokenStream = String::from(sub_attrs[1]).parse().unwrap();
 
                         // The PDA offset is an optional field, used to add an offset to the seed (e.g. to index of tree)
                         // - note: you can reference a field from an account added before this one as an offset as well
@@ -336,8 +335,4 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
     
         }
     } else { panic!("Only enums can be instructions") }
-}
-
-fn program_account_type(name: &str) -> TokenStream {
-    (String::from(name) + "Account").parse().unwrap()
 }
