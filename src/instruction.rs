@@ -1,12 +1,12 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::macros::*;
-use crate::bytes::BorshSerDeSized;
+use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum};
 use crate::state::fee::ProgramFee;
 use crate::types::RawProof;
 use super::processor;
 use super::processor::{BaseCommitmentHashRequest};
-use crate::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, ProofRequest, MAX_MT_COUNT};
+use crate::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, ProofRequest, MAX_MT_COUNT, FinalizeSendData};
 use crate::state::queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount};
 use crate::state::{
     program_account::{
@@ -134,9 +134,11 @@ pub enum ElusivInstruction {
     #[acc(salt_account)]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
+    #[pda(storage_account, StorageAccount, { multi_accounts, ignore_sub_accounts })]
     #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, multi_accounts, skip_abi })]
     #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi  })]
     FinalizeVerificationSend {
+        data: FinalizeSendData,
         verification_account_index: u64,
     },
 

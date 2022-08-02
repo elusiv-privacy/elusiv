@@ -17,14 +17,14 @@ macro_rules! queue_account {
         pub struct $id_account {
             pda_data: PDAAccountData,
 
-            head: u64,
-            tail: u64,
+            head: u32,
+            tail: u32,
             data: [$ty_element; $size],
         }
 
         const_assert_eq!(
             <$id_account>::SIZE,
-            PDAAccountData::SIZE + (8 + 8) + <$ty_element>::SIZE * ($size)
+            PDAAccountData::SIZE + (4 + 4) + <$ty_element>::SIZE * ($size)
         );
 
         const_assert_eq!(
@@ -49,12 +49,12 @@ macro_rules! queue_account {
         
         impl<'a, 'b> RingQueue for $id<'a, 'b> {
             type N = $ty_element;
-            const CAPACITY: u64 = $size - 1;
+            const CAPACITY: u32 = $size - 1;
         
-            fn get_head(&self) -> u64 { self.account.get_head() }
-            fn set_head(&mut self, value: &u64) { self.account.set_head(value) }
-            fn get_tail(&self) -> u64 { self.account.get_tail() }
-            fn set_tail(&mut self, value: &u64) { self.account.set_tail(value) }
+            fn get_head(&self) -> u32 { self.account.get_head() }
+            fn set_head(&mut self, value: &u32) { self.account.set_head(value) }
+            fn get_tail(&self) -> u32 { self.account.get_tail() }
+            fn set_tail(&mut self, value: &u32) { self.account.set_tail(value) }
             fn get_data(&self, index: usize) -> Self::N { self.account.get_data(index) }
             fn set_data(&mut self, index: usize, value: &Self::N) { self.account.set_data(index, value) }
         }
@@ -109,14 +109,14 @@ impl<'a, 'b> CommitmentQueue<'a, 'b> {
 /// - `head == tail` => queue is empty
 pub trait RingQueue {
     type N: PartialEq + BorshSerDeSized + Clone;
-    const CAPACITY: u64;
-    const SIZE: u64 = Self::CAPACITY + 1;
+    const CAPACITY: u32;
+    const SIZE: u32 = Self::CAPACITY + 1;
 
-    fn get_head(&self) -> u64;
-    fn set_head(&mut self, value: &u64);
+    fn get_head(&self) -> u32;
+    fn set_head(&mut self, value: &u32);
 
-    fn get_tail(&self) -> u64;
-    fn set_tail(&mut self, value: &u64);
+    fn get_tail(&self) -> u32;
+    fn set_tail(&mut self, value: &u32);
 
     fn get_data(&self, index: usize) -> Self::N;
     fn set_data(&mut self, index: usize, value: &Self::N);
@@ -129,7 +129,7 @@ pub trait RingQueue {
         let next_tail = (tail + 1) % Self::SIZE;
         guard!(next_tail != head, QueueIsFull);
 
-        self.set_data(u64_as_usize_safe(tail), &value);
+        self.set_data(tail as usize, &value);
         self.set_tail(&next_tail);
 
         Ok(())
@@ -144,9 +144,9 @@ pub trait RingQueue {
         let head = self.get_head();
         let tail = self.get_tail();
         guard!(head != tail, QueueIsEmpty);
-        guard!((offset as u64) < self.len(), InvalidQueueAccess);
+        guard!(usize_as_u32_safe(offset) < self.len(), InvalidQueueAccess);
 
-        Ok(self.get_data((u64_as_usize_safe(head) + offset) % (u64_as_usize_safe(Self::SIZE))))
+        Ok(self.get_data((head as usize + offset) % Self::SIZE as usize))
     }
 
     /// Try to remove the first element from the queue
@@ -155,13 +155,13 @@ pub trait RingQueue {
         let tail = self.get_tail();
         guard!(head != tail, QueueIsEmpty);
 
-        let value = self.get_data(u64_as_usize_safe(head));
+        let value = self.get_data(head as usize);
         self.set_head(&((head + 1) % Self::SIZE));
 
         Ok(value)
     }
 
-    fn remove(&mut self, count: u64) -> Result<(), ProgramError> {
+    fn remove(&mut self, count: u32) -> Result<(), ProgramError> {
         let head = self.get_head();
         guard!(self.len() >= count, InvalidQueueAccess);
         self.set_head(&((head + count) % Self::SIZE));
@@ -173,14 +173,14 @@ pub trait RingQueue {
         let tail = self.get_tail();
 
         while ptr != tail {
-            if self.get_data(u64_as_usize_safe(ptr)) == *value { return true }
+            if self.get_data(ptr as usize) == *value { return true }
             ptr = (ptr + 1) % Self::SIZE;
         }
 
         false
     }
 
-    fn len(&self) -> u64 {
+    fn len(&self) -> u32 {
         let head = self.get_head();
         let tail = self.get_tail();
 
@@ -195,7 +195,7 @@ pub trait RingQueue {
         self.len() == 0
     }
 
-    fn empty_slots(&self) -> u64 {
+    fn empty_slots(&self) -> u32 {
         Self::CAPACITY - self.len()
     }
 
@@ -215,27 +215,27 @@ mod tests {
     use super::*;
 
     struct TestQueue<const S: usize> {
-        head: u64,
-        tail: u64,
+        head: u32,
+        tail: u32,
         data: [u32; S],
     }
 
     impl<const S: usize> RingQueue for TestQueue<S> {
         type N = u32;
-        const CAPACITY: u64 = S as u64 - 1;
+        const CAPACITY: u32 = S as u32 - 1;
 
-        fn get_head(&self) -> u64 { self.head }
-        fn set_head(&mut self, value: &u64) { self.head = *value; }
+        fn get_head(&self) -> u32 { self.head }
+        fn set_head(&mut self, value: &u32) { self.head = *value; }
 
-        fn get_tail(&self) -> u64 { self.tail }
-        fn set_tail(&mut self, value: &u64) { self.tail = *value; }
+        fn get_tail(&self) -> u32 { self.tail }
+        fn set_tail(&mut self, value: &u32) { self.tail = *value; }
 
         fn get_data(&self, index: usize) -> u32 { self.data[index] }
         fn set_data(&mut self, index: usize, value: &u32) { self.data[index] = *value; }
     }
 
     impl<const S: usize> TestQueue<S> {
-        pub fn capacity(&self) -> u64 { Self::CAPACITY }
+        pub fn capacity(&self) -> u32 { Self::CAPACITY }
     }
 
     macro_rules! test_queue {
@@ -251,7 +251,7 @@ mod tests {
         for i in 0..queue.capacity() {
             queue.enqueue(i as u32).unwrap();
             assert_eq!(0, queue.view_first().unwrap()); // first element does not change
-            assert_eq!(queue.len(), i as u64 + 1);
+            assert_eq!(queue.len(), i + 1);
         }
     }
 
@@ -262,7 +262,7 @@ mod tests {
         for i in 0..queue.capacity() {
             queue.enqueue(i as u32).unwrap();
             assert_eq!(0, queue.view_first().unwrap()); // first element does not change
-            assert_eq!(queue.len(), i as u64 + 1);
+            assert_eq!(queue.len(), i + 1);
         }
 
         assert_matches!(queue.enqueue(2), Err(_));
@@ -270,7 +270,7 @@ mod tests {
         // Remove and insert one
         for i in 0..queue.capacity() {
             queue.dequeue_first().unwrap();
-            queue.enqueue(i as u32).unwrap();
+            queue.enqueue(i).unwrap();
         }
     }
 
@@ -290,6 +290,7 @@ mod tests {
     #[test]
     fn test_len() {
         test_queue!(queue, 10, 0, 0);
+        assert_eq!(queue.len(), 0);
 
         for start in 0..9 {
             queue.set_head(&start);

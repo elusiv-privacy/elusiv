@@ -22,10 +22,32 @@ pub fn impl_borsh_serde_sized(ast: &syn::DeriveInput) -> TokenStream {
 
     match &ast.data {
         syn::Data::Enum(e) => {
-            for var in e.variants.iter() {
-                sizes.push(size_of_fields(&var.fields));
+            let mut len = quote!{};
+
+            for (i, var) in e.variants.iter().enumerate() {
+                let i = i as u8;
+                let size = size_of_fields(&var.fields);
+
+                if size.is_empty() {
+                    len.extend(quote! { #i => { 0 }, });
+                } else {
+                    len.extend(quote! { #i => { #size }, });
+                }
+                sizes.push(size);
             }
             sizes.retain(|x| !x.is_empty());
+
+            len = if sizes.is_empty() {
+                quote!{ 0 }
+            } else {
+                quote!{
+                    match variant_index {
+                        #len
+                        _ => panic!()
+                    }
+                }
+            };
+
             let mut size = quote!{};
             if !sizes.is_empty() {
                 size = sizes[0].clone();
@@ -39,8 +61,14 @@ pub fn impl_borsh_serde_sized(ast: &syn::DeriveInput) -> TokenStream {
                 impl #impl_generics BorshSerDeSized for #ident #ty_generics #where_clause {
                     const SIZE: usize = 1 #size;
                 }
+
+                impl #impl_generics BorshSerDeSizedEnum for #ident #ty_generics #where_clause {
+                    fn len(variant_index: u8) -> usize {
+                        #len
+                    }
+                }
             }
-        },
+        }
         syn::Data::Struct(s) => {
             sizes.push(size_of_fields(&s.fields));
             let size: TokenStream = sizes.iter().fold(quote!{}, |acc, x| quote!{ #acc #x });
@@ -50,7 +78,7 @@ pub fn impl_borsh_serde_sized(ast: &syn::DeriveInput) -> TokenStream {
                     const SIZE: usize = #size;
                 }
             }
-        },
+        }
         _ => { panic!() }
     }
 }

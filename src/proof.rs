@@ -16,7 +16,7 @@ use crate::state::program_account::{SizedAccount, PDAAccountData};
 use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, LazyField, Lazy, RawU256};
 use crate::fields::{Wrap, G1A, G2A, G2HomProjective};
 use crate::macros::{elusiv_account, guard};
-use crate::bytes::{BorshSerDeSized, ElusivOption, usize_as_u32_safe};
+use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
 
 pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
 pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
@@ -51,7 +51,7 @@ pub struct VerificationAccount {
     prepare_inputs_instructions_count: u32,
     prepare_inputs_instructions: [u16; MAX_PREPARE_INPUTS_INSTRUCTIONS],
 
-    vkey: u8,
+    kind: u8,
     step: VerificationStep,
     state: VerificationState,
 
@@ -80,7 +80,7 @@ pub struct VerificationAccount {
     is_verified: ElusivOption<bool>,
 
     other_data: VerificationAccountData,
-    request: ProofRequest,
+    #[no_getter] request: ProofRequest,
     tree_indices: [u64; MAX_MT_COUNT],
 }
 
@@ -99,12 +99,12 @@ impl<'a> VerificationAccount<'a> {
         &mut self,
         public_inputs: &[RawU256],
         instructions: &Vec<u32>,
-        vkey: u8,
+        kind: u8,
         data: VerificationAccountData,
         request: ProofRequest,
         tree_indices: [u64; MAX_MT_COUNT],
     ) -> ProgramResult {
-        self.set_vkey(&vkey);
+        self.set_kind(&kind);
         self.set_other_data(&data);
         self.set_request(&request);
         for (i, tree_index) in tree_indices.iter().enumerate() {
@@ -161,6 +161,10 @@ impl<'a> VerificationAccount<'a> {
             *m = self.get_tree_indices(i);
         }
         m
+    }
+
+    pub fn get_request(&self) -> ProofRequest {
+        ProofRequest::deserialize_enum_full(&mut &self.request[..]).unwrap()
     }
 }
 
@@ -262,6 +266,7 @@ mod tests {
                 fee_version: 55555,
                 amount: 666666,
                 fee: 123,
+                token_id: 0,
             },
             recipient: RawU256::new(u256_from_str_skip_mr("7777777")),
             current_time: 0,
@@ -279,19 +284,19 @@ mod tests {
 
         let public_inputs = public_inputs.public_signals();
         let instructions = vec![1, 2, 3];
-        let vkey = 255;
+        let kind = 255;
 
         verification_account.setup(
             &public_inputs,
             &instructions,
-            vkey,
+            kind,
             data.clone(),
             request,
             [123, 456],
         ).unwrap();
 
         assert_matches!(verification_account.get_state(), VerificationState::None);
-        assert_eq!(verification_account.get_vkey(), vkey);
+        assert_eq!(verification_account.get_kind(), kind);
         
         assert_eq!(verification_account.get_prepare_inputs_instructions_count() as usize, instructions.len());
         for (i, instruction) in instructions.iter().enumerate() {

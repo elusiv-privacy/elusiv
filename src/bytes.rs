@@ -11,6 +11,25 @@ pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
     }
 }
 
+pub trait BorshSerDeSizedEnum: BorshSerDeSized {
+    fn len(variant_index: u8) -> usize;
+
+    /// Deserializes an enum by reading only `len` bytes of the buffer
+    fn deserialize_enum(buf: &mut &[u8]) -> std::io::Result<Self> {
+        let len = Self::len(buf[0]) + 1;
+        let v = Self::deserialize(&mut &buf[..len])?;
+        Ok(v)
+    }
+
+    /// Deserializes an enum by reading all bytes of the buffer
+    fn deserialize_enum_full(buf: &mut &[u8]) -> std::io::Result<Self> {
+        let len = Self::len(buf[0]) + 1;
+        let v = Self::deserialize(&mut &buf[..len])?;
+        *buf = &buf[Self::SIZE - len..];
+        Ok(v)
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 /// The advantage of `ElusivOption` over `Option` is fixed serialization length
 pub enum ElusivOption<N> {
@@ -314,5 +333,41 @@ mod tests {
         assert_eq!(A::SIZE, 11);
         assert_eq!(B::SIZE, 33);
         assert_eq!(C::SIZE, 11 + 33 + 1);
+    }
+
+    #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug)]
+    enum TestEnum {
+        A { v: [u64; 1] },
+        B { v: [u64; 2] },
+        C {
+            v: [u64; 3],
+            c: u8,
+        },
+    }
+
+    #[test]
+    fn test_enum_len() {
+        assert_eq!(TestEnum::len(0), 8);
+        assert_eq!(TestEnum::len(1), 16);
+        assert_eq!(TestEnum::len(2), 25);
+    }
+
+    #[test]
+    fn test_deserialize_enum() {
+        let a = TestEnum::A { v: [333] };
+        let mut data = a.try_to_vec().unwrap();
+        data.extend(vec![255; TestEnum::SIZE - 8 - 1]);
+        let buf = &mut &data[..];
+        assert_eq!(TestEnum::deserialize_enum(buf).unwrap(), a);
+        assert_eq!(TestEnum::deserialize_enum_full(buf).unwrap(), a);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_deserialize_enum_full() {
+        let a = TestEnum::A { v: [333] };
+        let data = a.try_to_vec().unwrap();
+        let buf = &mut &data[..];
+        _ = TestEnum::deserialize_enum_full(buf);
     }
 }

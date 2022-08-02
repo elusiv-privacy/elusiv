@@ -1,4 +1,4 @@
-use syn::{ Type, DataStruct, Data };
+use syn::{ Type, DataStruct, Data, Field };
 use quote::{ quote, ToTokens };
 use proc_macro2::TokenStream;
 use super::utils::*;
@@ -108,23 +108,25 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
     // Parse fields
     for field in input.fields {
-        let field_name = &field.ident.expect("Field has no name");
+        let field_name = &field.clone().ident.expect("Field has no name");
+
+        fn has_attribute(field: &Field, attr: &str) -> bool {
+            field.attrs.iter().any(|x| *x.path.get_ident().unwrap() == attr)
+        }
+
+        // Attribute that prevents the usage of a getter and setter
+        let lazy = has_attribute(&field, "pub_non_lazy");
 
         let getter_name = ident_with_prefix(field_name, "get_");
         let setter_name = ident_with_prefix(field_name, "set_");
         let all_setter_name = ident_with_prefix(field_name, "set_all_");
         fields.extend(quote! { #field_name, });
 
-        let mut use_getter_setter = true;
-
-        // Attribute that prevents the usage of a getter and setter
-        if field.attrs.iter().any(|x| *x.path.get_ident().unwrap() == "pub_non_lazy") {
-            use_getter_setter = false;
-        }
-
-        match field.ty {
+        match &field.ty {
             Type::Path(type_path) => {  // Any field
                 let ty = type_path.into_token_stream();
+                let use_getter = !has_attribute(&field, "no_getter");
+                let use_setter= !has_attribute(&field, "no_setter");
 
                 init.extend(quote! {
                     let (#field_name, d) = d.split_at_mut(<#ty>::SIZE);
@@ -135,21 +137,26 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     + <#ty>::SIZE
                 });
 
-                if use_getter_setter {
+                if !lazy {
                     // Add mutable backing byte slice
                     definition.extend(quote! { #field_name: &'a mut [u8], });
 
-                    // Getter and setter
-                    functions.extend(quote! {
-                        pub fn #getter_name(&self) -> #ty {
-                            <#ty>::try_from_slice(self.#field_name).unwrap()
-                        }
+                    if use_getter {
+                        functions.extend(quote! {
+                            pub fn #getter_name(&self) -> #ty {
+                                <#ty>::try_from_slice(self.#field_name).unwrap()
+                            }
+                        });
+                    }
 
-                        pub fn #setter_name(&mut self, value: &#ty) {
-                            let v = <#ty>::try_to_vec(value).unwrap();
-                            self.#field_name[..v.len()].copy_from_slice(&v[..]);
-                        }
-                    });
+                    if use_setter {
+                        functions.extend(quote! {
+                            pub fn #setter_name(&mut self, value: &#ty) {
+                                let v = <#ty>::try_to_vec(value).unwrap();
+                                self.#field_name[..v.len()].copy_from_slice(&v[..]);
+                            }
+                        });
+                    }
                 } else {
                     definition.extend(quote! { pub #field_name: #ty, });
 
@@ -160,7 +167,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             }
             Type::Array(type_array) => {    // Array field
                 let ty = type_array.elem.clone().into_token_stream();
-                let field_size = type_array.len;
+                let field_size = type_array.clone().len;
 
                 // Add mutable backing byte slice
                 definition.extend(quote! { #field_name: &'a mut [u8], });

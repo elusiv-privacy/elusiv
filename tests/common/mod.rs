@@ -12,7 +12,7 @@ use solana_program_test::ProgramTestContext;
 use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer};
 use assert_matches::assert_matches;
 use std::{str::FromStr, collections::HashMap};
-use elusiv::{types::{U256, RawU256}, instruction::{UserAccount, WritableUserAccount}, fields::fr_to_u256_le_repr, state::program_account::MultiAccountProgramAccount};
+use elusiv::{types::{U256, RawU256}, instruction::{UserAccount, WritableUserAccount}, fields::fr_to_u256_le_repr, state::program_account::MultiAccountProgramAccount, proof::precompute::PrecomputesAccount};
 use elusiv::fields::fr_to_u256_le;
 use elusiv::processor::BaseCommitmentHashRequest;
 use elusiv::state::{StorageAccount, NullifierAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountData}};
@@ -121,6 +121,7 @@ macro_rules! sized_account {
     };
 }
 
+/// mut? $id: ident, $ty: ty, $offset: expr, $context: ident
 macro_rules! pda_account {
     ($id: ident, $ty: ty, $offset: expr, $context: ident) => {
         pda_account!(data data, $ty, $offset, $context);
@@ -192,6 +193,7 @@ macro_rules! multi_account {
 
 multi_account!(storage_account, StorageAccount);
 multi_account!(nullifier_account, NullifierAccount);
+multi_account!(precomputes_account, PrecomputesAccount);
 
 #[allow(unused_imports)] pub(crate) use queue;
 #[allow(unused_imports)] pub(crate) use queue_mut;

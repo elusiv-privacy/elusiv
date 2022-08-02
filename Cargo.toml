@@ -16,9 +16,9 @@ members = [
 [features]
 instruction-abi = []
 logging = []
-testing = []
 no-entrypoint = []
 test-bpf = []
+test-elusiv = []
 precomputing = []
 
 [dependencies]
@@ -37,7 +37,7 @@ ark-ff = { version = "=0.3.0", default-features = false }
 ark-ec = { version = "=0.3.0", default-features = false }
 
 [dev-dependencies]
-elusiv = { path = ".", features = ["instruction-abi", "testing", "logging", "precomputing"] }
+elusiv = { path = ".", features = ["instruction-abi", "test-elusiv", "logging", "precomputing"] }
 elusiv-utils = { path = "./elusiv-utils", features = ["sdk"] }
 
 solana-program-test = "=1.9.26"

@@ -17,12 +17,12 @@ use ark_ff::{Field, CubicExtParameters, One, Zero, biginteger::BigInteger256, fi
 use ark_ec::models::bn::BnParameters;
 use super::*;
 use super::precompute::PrecomutedValues;
-use crate::bytes::usize_as_u8_safe;
+use crate::bytes::{usize_as_u8_safe, BorshSerDeSizedEnum};
 use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError, CouldNotProcessProof, InvalidAccountState};
 use crate::error::ElusivResult;
 use crate::fields::G2HomProjective;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
 pub enum VerificationStep {
     PublicInputPreparation,
     CombinedMillerLoop,
@@ -777,10 +777,10 @@ fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
     k
 }
 
-#[cfg(feature = "testing")] use crate::types::Proof;
-#[cfg(feature = "testing")] use std::str::FromStr;
+#[cfg(feature = "test-elusiv")] use crate::types::Proof;
+#[cfg(feature = "test-elusiv")] use std::str::FromStr;
 
-#[cfg(feature = "testing")]
+#[cfg(feature = "test-elusiv")]
 pub fn proof_from_str(
     a: (&str, &str, bool),
     b: ((&str, &str), (&str, &str), bool),
@@ -817,7 +817,7 @@ pub fn proof_from_str(
     }
 }
 
-#[cfg(feature = "testing")]
+#[cfg(feature = "test-elusiv")]
 #[allow(clippy::type_complexity)]
 pub fn proof_from_str_projective(
     a: (&str, &str, &str),
@@ -1278,6 +1278,7 @@ mod tests {
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL * 123,
                 fee: 0,
+                token_id: 0,
             },
             recipient: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
             current_time: 0,

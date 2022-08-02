@@ -43,7 +43,7 @@ use crate::commitment::{
 use elusiv_computation::PartialComputation;
 use crate::fields::fr_to_u256_le;
 use borsh::{BorshDeserialize, BorshSerialize};
-use crate::bytes::{BorshSerDeSized, u64_as_u32_safe};
+use crate::bytes::{BorshSerDeSized, u64_as_u32_safe, usize_as_u32_safe};
 use crate::macros::BorshSerDeSized;
 
 pub const MIN_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
@@ -220,7 +220,7 @@ pub fn init_commitment_hash(
 
     let mut queue = CommitmentQueue::new(queue);
     let (batch, batching_rate) = queue.next_batch()?;
-    queue.remove(batch.len() as u64)?;
+    queue.remove(usize_as_u32_safe(batch.len()))?;
 
     // The fee/batch-upgrader logic has to guarantee that there are no lower fees in a batch
     let fee_version = batch.first().unwrap().fee_version;

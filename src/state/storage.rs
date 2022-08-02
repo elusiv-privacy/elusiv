@@ -166,7 +166,7 @@ pub const EMPTY_TREE: [U256; MT_HEIGHT as usize + 1] = [
     [215, 208, 169, 37, 21, 214, 245, 126, 221, 48, 194, 233, 207, 177, 29, 18, 85, 167, 242, 130, 212, 71, 7, 78, 114, 10, 173, 101, 60, 84, 109, 9],
 ];
 
-#[cfg(feature = "testing")]
+#[cfg(feature = "test-elusiv")]
 pub fn empty_root_raw() -> crate::types::RawU256 {
     use crate::fields::{fr_to_u256_le_repr, scalar_skip_mr, u256_to_big_uint};
     crate::types::RawU256::new(

@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use crate::proof::vkey::{SendQuadraVKey, VerificationKey, MigrateUnaryVKey};
 use crate::u64_array;
 use crate::fields::{G1A, G2A, u64_to_u256_skip_mr, u256_to_big_uint, fr_to_u256_le};
 use ark_bn254::Fr;
@@ -155,6 +156,7 @@ pub struct JoinSplitPublicInputs {
     pub fee_version: u64,
     pub amount: u64,
     pub fee: u64,
+    pub token_id: u16,
 }
 
 impl JoinSplitPublicInputs {
@@ -191,6 +193,7 @@ impl BorshDeserialize for JoinSplitPublicInputs {
         let fee_version = u64::deserialize(buf)?;
         let amount = u64::deserialize(buf)?;
         let fee = u64::deserialize(buf)?;
+        let token_id = u16::deserialize(buf)?;
 
         let remaining = (JOIN_SPLIT_MAX_N_ARITY - commitment_count) as usize * (32 + 32);
         *buf = &buf[remaining..];
@@ -204,6 +207,7 @@ impl BorshDeserialize for JoinSplitPublicInputs {
                 fee_version,
                 amount,
                 fee,
+                token_id,
             }
         )
     }
@@ -228,6 +232,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
         self.fee_version.serialize(writer)?;
         self.amount.serialize(writer)?;
         self.fee.serialize(writer)?;
+        self.token_id.serialize(writer)?;
 
         let remaining = (JOIN_SPLIT_MAX_N_ARITY - self.commitment_count) as usize * (32 + 32);
         writer.write_all(&vec![0; remaining])?;
@@ -237,7 +242,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
 }
 
 impl BorshSerDeSized for JoinSplitPublicInputs {
-    const SIZE: usize = 1 + JOIN_SPLIT_MAX_N_ARITY as usize * (32 + 32) + 32 + 8 + 8 + 8;
+    const SIZE: usize = 1 + JOIN_SPLIT_MAX_N_ARITY as usize * (32 + 32) + 32 + 8 + 8 + 8 + 2;
 }
 
 pub trait PublicInputs {
@@ -279,7 +284,7 @@ pub struct MigratePublicInputs {
 pub const MAX_PUBLIC_INPUTS_COUNT: usize = max(SendPublicInputs::PUBLIC_INPUTS_COUNT, MigratePublicInputs::PUBLIC_INPUTS_COUNT);
 
 impl PublicInputs for SendPublicInputs {
-    const PUBLIC_INPUTS_COUNT: usize = 16;
+    const PUBLIC_INPUTS_COUNT: usize = SendQuadraVKey::PUBLIC_INPUTS_COUNT;
     
     fn verify_additional_constraints(&self) -> bool {
         // Maximum `commitment_count` is 4
@@ -334,6 +339,7 @@ impl PublicInputs for SendPublicInputs {
             self.salt,
             self.join_split.commitment,
             RawU256(u64_to_u256_skip_mr(self.join_split.fee_version)),
+            RawU256(u64_to_u256_skip_mr(self.join_split.token_id as u64)),
         ]);
 
         public_signals
@@ -345,7 +351,7 @@ impl PublicInputs for SendPublicInputs {
 }
 
 impl PublicInputs for MigratePublicInputs {
-    const PUBLIC_INPUTS_COUNT: usize = 7;
+    const PUBLIC_INPUTS_COUNT: usize = MigrateUnaryVKey::PUBLIC_INPUTS_COUNT;
     
     fn verify_additional_constraints(&self) -> bool {
         // `commitment_count` is 1
@@ -514,6 +520,7 @@ mod test {
             fee_version: 999,
             amount: 666,
             fee: 777,
+            token_id: 0,
         };
 
         let serialized = inputs.try_to_vec().unwrap();
@@ -538,6 +545,7 @@ mod test {
                 fee_version: 0,
                 amount: 0,
                 fee: 0,
+                token_id: 0,
             },
             recipient: RawU256([0; 32]),
             current_time: 0,
@@ -576,6 +584,7 @@ mod test {
                 fee_version: 0,
                 amount: 50000,
                 fee: 1,
+                token_id: 3,
             },
             recipient: RawU256(u256_from_str_skip_mr("212334656798193948954971085461110323640890639608634923090101683")),
             current_time: 1657927306,
@@ -600,9 +609,11 @@ mod test {
             "2",
             "12986953721358354389598211912988135563583503708016608019642730042605916285029",
             "0",
+            "3",
         ].iter().map(|&p| RawU256(u256_from_str_skip_mr(p))).collect::<Vec<RawU256>>();
 
         assert_eq!(expected, inputs.public_signals());
+        assert_eq!(expected.len(), SendPublicInputs::PUBLIC_INPUTS_COUNT);
     }
 
     #[test]
@@ -616,6 +627,7 @@ mod test {
                 fee_version: 0,
                 amount: 0,
                 fee: 0,
+                token_id: 0,
             },
             current_nsmt_root: RawU256([0; 32]),
             next_nsmt_root: RawU256([0; 32]),
@@ -648,6 +660,7 @@ mod test {
                 fee_version: 0,
                 amount: 50000,
                 fee: 1,
+                token_id: 2,
             },
             current_nsmt_root: RawU256(u256_from_str_skip_mr("21233465679819394895497108546111032364089063960863923090101683")),
             next_nsmt_root: RawU256(u256_from_str_skip_mr("409746283836180593012730668816372135835438959821191292730")),
@@ -664,6 +677,7 @@ mod test {
         ].iter().map(|&p| RawU256(u256_from_str_skip_mr(p))).collect::<Vec<RawU256>>();
 
         assert_eq!(expected, inputs.public_signals());
+        assert_eq!(expected.len(), MigratePublicInputs::PUBLIC_INPUTS_COUNT);
     }
 
     #[test]

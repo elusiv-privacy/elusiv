@@ -6,12 +6,11 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
     let ast_ident = &ast.ident;
 
     let mut matches = quote!{};
-    let mut len = quote!{};
     let mut functions = quote!{};
     let mut abi_functions = quote!{};
 
     if let syn::Data::Enum(e) = &ast.data {
-        for (i, var) in e.variants.clone().iter().enumerate() {
+        for var in e.variants.clone().iter() {
             let ident = &var.ident;
             let name = upper_camel_to_upper_snake(&ident.to_string()).to_lowercase();
             let fn_name_abi: TokenStream = format!("{}_instruction", name).parse().unwrap();
@@ -27,25 +26,13 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             let mut user_accounts = quote!{};
             let mut instruction_accounts = quote!{};
 
-            let mut var_size = quote!{};
             for field in &var.fields {
                 let field_name = field.ident.clone().unwrap();
                 let ty = field.ty.clone();
 
                 fields.extend(quote! { #field_name, });
                 fields_with_type.extend(quote! { #field_name: #ty, });
-
-                if var_size.is_empty() {
-                    var_size.extend(quote!{ <#ty>::SIZE })
-                } else {
-                    var_size.extend(quote!{ + <#ty>::SIZE })
-                }
             }
-            if var_size.is_empty() { var_size = quote!{ 0 } };
-            let i = i as u8;
-            len.extend(quote! {
-                #i => { #var_size },
-            });
 
             // Account attributes
             for (_, attr) in var.attrs.iter().enumerate() {
@@ -319,13 +306,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 }
 
                 #functions
-
-                pub fn len(variant_index: u8) -> usize {
-                    match variant_index {
-                        #len
-                        _ => { 0 }
-                    }
-                }
             }
     
             #[cfg(feature = "instruction-abi")]

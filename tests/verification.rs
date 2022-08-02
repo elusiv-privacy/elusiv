@@ -3,6 +3,8 @@
 #[cfg(not(tarpaulin_include))]
 mod common;
 
+use std::collections::HashMap;
+
 use ark_ec::{ProjectiveCurve, PairingEngine};
 use assert_matches::assert_matches;
 use common::*;
@@ -10,16 +12,17 @@ use common::program_setup::*;
 use elusiv::bytes::{ElusivOption, BorshSerDeSized};
 use elusiv::fields::u256_to_fr_skip_mr;
 use elusiv::instruction::{ElusivInstruction, WritableUserAccount, SignerAccount, WritableSignerAccount, UserAccount};
+use elusiv::proof::precompute::PrecomputesAccount;
 use elusiv::proof::vkey::{VerificationKey, SendQuadraVKey};
 use elusiv::proof::{VerificationAccount, VerificationState, prepare_public_inputs_instructions, COMBINED_MILLER_LOOP_IXS, FINAL_EXPONENTIATION_IXS};
 use elusiv::state::fee::ProgramFee;
 use elusiv::state::governor::{FeeCollectorAccount, GovernorAccount, FEE_COLLECTOR_MINIMUM_BALANCE, PoolAccount};
 use elusiv::state::queue::{CommitmentQueueAccount, CommitmentQueue, Queue, RingQueue};
 use elusiv::state::{empty_root_raw, NullifierAccount};
-use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
+use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData, MultiAccountProgramAccount};
 use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec};
 use elusiv::proof::verifier::proof_from_str;
-use elusiv::processor::ProofRequest;
+use elusiv::processor::{ProofRequest, FinalizeSendData};
 use elusiv_utils::batch_instructions;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
@@ -87,6 +90,7 @@ fn send_requests(program_fee: &ProgramFee) -> Vec<FullSendRequest> {
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
+                    token_id: 0,
                 },
                 recipient: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
                 current_time: 0,
@@ -133,6 +137,7 @@ fn send_requests(program_fee: &ProgramFee) -> Vec<FullSendRequest> {
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
+                    token_id: 0,
                 },
                 recipient: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
                 current_time: 0,
@@ -223,7 +228,7 @@ async fn test_verify_invalid_proof() {
     assert_eq!(verification_account.a.get().0, request.proof.a.0);
     assert_eq!(verification_account.b.get().0, request.proof.b.0);
     assert_eq!(verification_account.c.get().0, request.proof.c.0);
-    assert_eq!(verification_account.get_vkey(), 0);
+    assert_eq!(verification_account.get_kind(), 0);
 
     // Input preparation
     for _ in 0..prepare_inputs_ix_count as u64 {
@@ -272,7 +277,16 @@ async fn test_verify_invalid_proof() {
     let identifier = Pubkey::new(&request.public_inputs.identifier.skip_mr());
     let salt = Pubkey::new(&request.public_inputs.salt.skip_mr());
 
+    let finalize_data = FinalizeSendData {
+        timestamp: 0,
+        total_amount: 0,
+        token_id: 0,
+        mt_index: 0,
+        commitment_index: 0,
+    };
+
     let finalize_ix = ElusivInstruction::finalize_verification_send_instruction(
+        finalize_data,
         0,
         UserAccount(identifier),
         UserAccount(salt),
@@ -414,9 +428,18 @@ async fn test_verify_valid_proof() {
     airdrop(&pool, amount + unadjusted_fee - subvention, &mut context).await;
     assert_eq!(pool_balance + amount + unadjusted_fee, get_balance(&pool, &mut context).await);
 
+    let finalize_data = FinalizeSendData {
+        timestamp: request.public_inputs.current_time,
+        total_amount: request.public_inputs.join_split.total_amount(),
+        token_id: 0,
+        mt_index: 0,
+        commitment_index: 0,
+    };
+
     // Finalize with missing sub-account will fail
     ix_should_fail(
         ElusivInstruction::finalize_verification_send_instruction(
+            finalize_data,
             0,
             UserAccount(identifier),
             UserAccount(salt),
@@ -429,6 +452,7 @@ async fn test_verify_valid_proof() {
     ).await;
 
     let finalize_ix = ElusivInstruction::finalize_verification_send_instruction(
+        finalize_data,
         0,
         UserAccount(identifier),
         UserAccount(salt),
@@ -544,4 +568,55 @@ fn ark_pvk<VKey: VerificationKey>() -> ark_groth16::PreparedVerifyingKey<ark_bn2
 /// Returns the rent required for renting a nullifier_duplicate_account and verification_account
 async fn verification_rent(context: &mut ProgramTestContext) -> u64 {
     get_account_cost(context, PDAAccountData::SIZE).await + get_account_cost(context, VerificationAccount::SIZE).await
+}
+
+#[tokio::test]
+/// Attempt verification before precomputes have been computed
+async fn test_precompute_invalid() {
+    let (mut context, mut client) = setup_verification_tests().await;
+    let (_, nullifier_0, _) = nullifier_accounts(0, &mut context).await;
+    let precomputes_accounts = setup_precomputes(&mut context).await;
+    
+    // Set is_setup to false
+    let pk = PrecomputesAccount::find(None).0;
+    let mut data = get_data(&mut context, pk).await;
+    let mut account = PrecomputesAccount::new(&mut data, HashMap::new()).unwrap();
+    account.set_is_setup(&false);
+    let lamports = get_balance(&pk, &mut context).await;
+    set_account(&mut context, &pk, data, lamports).await;
+
+    pda_account!(governor, GovernorAccount, None, context);
+    let fee = governor.get_program_fee();
+    let request = &send_requests(&fee)[0];
+    let fee_collector = FeeCollectorAccount::find(None).0;
+    airdrop(&fee_collector, fee.base_commitment_subvention, &mut context).await;
+    let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
+    client.airdrop(LAMPORTS_PER_SOL, &mut context).await;
+    let client_balance = LAMPORTS_PER_SOL;
+    assert_eq!(client_balance, client.balance(&mut context).await);
+
+    let ixs = [
+        ElusivInstruction::init_verification_instruction(
+            0,
+            [0, 1],
+            ProofRequest::Send(request.public_inputs.clone()),
+            WritableSignerAccount(client.pubkey),
+            WritableUserAccount(nullifier_duplicate_account),
+            &nullifier_0,
+            &[],
+        ),
+        ElusivInstruction::init_verification_proof_instruction(
+            0,
+            request.proof.try_into().unwrap(),
+            SignerAccount(client.pubkey),
+        ),
+    ];
+
+    tx_should_succeed(&ixs, &mut client, &mut context).await;
+
+    // Input preparation will fail
+    tx_should_fail(&[
+        request_compute_units(1_400_000),
+        ElusivInstruction::compute_verification_instruction(0, &precomputes_accounts)
+    ], &mut client, &mut context).await;
 }

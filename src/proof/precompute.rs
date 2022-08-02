@@ -9,7 +9,7 @@ use crate::proof::vkey::{VerificationKey, SendQuadraVKey, MigrateUnaryVKey};
 use crate::state::program_account::{SizedAccount, PDAAccountData, MultiAccountAccount, MultiAccountAccountData};
 use crate::fields::{Wrap, affine_into_projective};
 use crate::macros::{elusiv_account, guard};
-use crate::bytes::BorshSerDeSized;
+use crate::bytes::{BorshSerDeSized};
 
 const POINT_SIZE: usize = 64;
 const PRECOMPUTED_VALUES_COUNT: usize = 32 * 255;
@@ -19,6 +19,9 @@ pub trait PrecomutedValues<VKey: VerificationKey> {
     /// Sums all precomputed scalar products onto the acc
     /// - scalars: (byte_index, byte) -> scalar 1 would be (0, 1)
     fn sum(&self, acc: &mut G1Projective, public_input: usize, scalars: &[(usize, usize)]);
+
+    #[cfg(feature = "test-elusiv")]
+    fn point(&self, public_input: usize, byte_index: usize, byte: usize) -> G1Affine;
 }
 
 pub const PUBLIC_INPUTS_COUNT: usize = SendQuadraVKey::PUBLIC_INPUTS_COUNT + MigrateUnaryVKey::PUBLIC_INPUTS_COUNT;
@@ -145,10 +148,19 @@ impl<'a, 'b, 't, VKey: VerificationKey + Index> PrecomutedValues<VKey> for Preco
             Ok(x)
         }).unwrap();
     }
+
+    #[cfg(feature = "test-elusiv")]
+    fn point(&self, public_input: usize, byte_index: usize, byte: usize) -> G1Affine {
+        self.try_execute_on_sub_account::<_, G1Affine, ProgramError>(VKey::INDEX, |data| {
+            Ok(
+                Precomputes::<VKey>::new(data).get_point(public_input, byte_index, byte)
+            )
+        }).unwrap()
+    }
 }
 
 /// [Public input precomputing](https://github.com/elusiv-privacy/elusiv/issues/27)
-/// - we choose `k = 8` (=> `32 * 255` permutations), with `n = 32` additions, which means we achieve `O(n / log n)` instead of `O(n)` complexity
+/// - we choose `k := 8` (=> `32 * 255` permutations), with `n = 32` additions, which means we achieve `O(n / log n)` instead of `O(n)` complexity
 pub struct Precomputes<'a, VKey: VerificationKey> {
     pub data: &'a mut [u8],
     phantom: PhantomData<VKey>,
@@ -194,8 +206,8 @@ impl<'a, VKey: VerificationKey> Precomputes<'a, VKey> {
     /// Precomputes 8 identities
     fn precompute_singles(&mut self, public_input: usize, byte_index: usize) {
         let mut ls = self.get_point(public_input, byte_index, 1).into_projective();
-        let h = if byte_index < 31 { 8 } else { 6 };
-        for i in 1..=h {
+        let h = if byte_index == 31 { 7 } else { 8 };
+        for i in 1..=h {    // wrapping mod for max scalars (byte_index = 31), but that's harmless
             ls.double_in_place();
             self.set_point(public_input, byte_index, 1 << i, ls.into_affine());
         }
@@ -283,6 +295,11 @@ impl<'a, VKey: VerificationKey> PrecomutedValues<VKey> for VirtualPrecomputes<'a
             acc.add_assign_mixed(&self.0.get_point(public_input, *byte_index, *byte))
         }
     }
+
+    #[cfg(feature = "test-elusiv")]
+    fn point(&self, public_input: usize, byte_index: usize, byte: usize) -> G1Affine {
+        self.0.get_point(public_input, byte_index, byte)
+    }
 }
 
 #[inline]
@@ -308,8 +325,8 @@ mod tests {
             let l = VKey::gamma_abc_g1(public_input + 1);
             account.0.precompute(public_input);
 
-            for byte_index in 0..31 {
-                for byte in 1..255 {
+            for byte_index in 0..32 {
+                for byte in 1..=255 {
                     let mut scalar = [0u8; 32];
                     scalar[byte_index] = byte as u8;
                     let s = u256_to_big_uint(&scalar);
