@@ -34,7 +34,7 @@ const_assert_eq!(ACCOUNTS_COUNT, 25);
 // The `StorageAccount` contains the active MT that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
-#[elusiv_account(pda_seed = b"storage", multi_account = (U256; ACCOUNTS_COUNT; ACCOUNT_SIZE))]
+#[elusiv_account(pda_seed = b"storage", multi_account = (ACCOUNTS_COUNT; ACCOUNT_SIZE))]
 pub struct StorageAccount {
     pda_data: PDAAccountData,
     multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
@@ -84,7 +84,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
             EMPTY_TREE[MT_HEIGHT as usize - level]
         } else {
             let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
-            self.execute_on_sub_account(account_index, |data| {
+            self.try_execute_on_sub_account(account_index, |data| {
                 U256::try_from_slice(
                     &data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
                 )
@@ -96,18 +96,13 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         assert!(level <= MT_HEIGHT as usize);
         assert!(index < two_pow!(usize_as_u32_safe(level)));
 
-        let mt_index = mt_array_index(index, level);
         let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
-        self.execute_on_sub_account(account_index, |data| {
+        self.try_execute_on_sub_account(account_index, |data| {
             U256::override_slice(
                 value,
                 &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
             )
         }).unwrap();
-
-        if cfg!(test) {
-            self.modify(mt_index, *value);
-        }
     }
 
     pub fn get_root(&self) -> U256 {
@@ -116,8 +111,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: U256) -> bool {
-        let max_history_roots = max(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
-        root == self.get_root() || contains(root, &self.active_mt_root_history[..max_history_roots * 32])
+        let max_history_roots = std::cmp::min(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
+        root == self.get_root() || (max_history_roots > 0 && contains(root, &self.active_mt_root_history[..max_history_roots * 32]))
     }
 
     #[allow(clippy::needless_range_loop)]
@@ -145,8 +140,8 @@ fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
     next_leaf_ptr == 0 || index > (next_leaf_ptr - 1) >> level_inv
 }
 
-
-/// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes
+/// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes (`EMPTY_TREE[MT_HEIGHT]` is the root)
+/// - all values are in mr-form
 pub const EMPTY_TREE: [U256; MT_HEIGHT as usize + 1] = [
     [130, 154, 1, 250, 228, 248, 226, 43, 27, 76, 165, 173, 91, 84, 165, 131, 78, 224, 152, 167, 123, 115, 91, 213, 116, 49, 167, 101, 109, 41, 161, 8],
     [80, 180, 254, 174, 183, 151, 82, 229, 123, 24, 44, 98, 7, 166, 152, 78, 191, 94, 109, 201, 215, 229, 108, 66, 136, 150, 102, 80, 152, 67, 183, 24],
@@ -171,10 +166,18 @@ pub const EMPTY_TREE: [U256; MT_HEIGHT as usize + 1] = [
     [215, 208, 169, 37, 21, 214, 245, 126, 221, 48, 194, 233, 207, 177, 29, 18, 85, 167, 242, 130, 212, 71, 7, 78, 114, 10, 173, 101, 60, 84, 109, 9],
 ];
 
+#[cfg(feature = "test-elusiv")]
+pub fn empty_root_raw() -> crate::types::RawU256 {
+    use crate::fields::{fr_to_u256_le_repr, scalar_skip_mr, u256_to_big_uint};
+    crate::types::RawU256::new(
+        fr_to_u256_le_repr(&scalar_skip_mr(u256_to_big_uint(&EMPTY_TREE[MT_HEIGHT as usize])))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{macros::storage_account, commitment::{poseidon_hash::full_poseidon2_hash, u256_from_str}, fields::u256_to_fr};
+    use crate::{macros::storage_account, commitment::{poseidon_hash::full_poseidon2_hash}, fields::{u256_to_fr_skip_mr, u256_from_str}};
     use ark_bn254::Fr;
     use std::str::FromStr;
 
@@ -192,25 +195,25 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_root_raw() {
+        assert_eq!(empty_root_raw().reduce(), EMPTY_TREE[MT_HEIGHT as usize]);
+    }
+
+    #[test]
     fn test_set_node() {
         storage_account!(mut storage_account);
+        storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
 
         for level in 0..=MT_HEIGHT {
             let last = two_pow!(level) - 1;
 
             // First node
             storage_account.set_node(&[1; 32], 0, level as usize);
-            assert_eq!(
-                *storage_account.modifications.get(&mt_array_index(0, level as usize)).unwrap(),
-                [1; 32]
-            );
+            assert_eq!(storage_account.get_node(0, level as usize), [1; 32]);
 
             // Last node
             storage_account.set_node(&[2; 32], last, level as usize);
-            assert_eq!(
-                *storage_account.modifications.get(&mt_array_index(last, level as usize)).unwrap(),
-                [2; 32]
-            );
+            assert_eq!(storage_account.get_node(last, level as usize), [2; 32]);
         }
     }
 
@@ -303,8 +306,15 @@ mod tests {
         let b = Fr::from_str("10325823052538184185762853738620713863393182243594528391700012489616960720113").unwrap();
         let mut hash = full_poseidon2_hash(a, b);
         for i in 1..MT_HEIGHT as usize {
-            hash = full_poseidon2_hash(hash, u256_to_fr(&EMPTY_TREE[i]));
+            hash = full_poseidon2_hash(hash, u256_to_fr_skip_mr(&EMPTY_TREE[i]));
         }
         assert_eq!(hash, Fr::from_str("2405070960812791252603303680410822171263982421393937538616415344325138142909").unwrap());
+    }
+
+    #[test]
+    fn test_is_root_valid() {
+        storage_account!(storage_account);
+        assert!(storage_account.is_root_valid(EMPTY_TREE[MT_HEIGHT as usize]));
+        assert!(!storage_account.is_root_valid([0; 32]));
     }
 }

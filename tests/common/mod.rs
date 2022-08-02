@@ -6,16 +6,15 @@ pub mod log;
 
 use solana_program::{
     pubkey::Pubkey,
-    instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL,
+    instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL, account_info::{Account, AccountInfo},
 };
 use solana_program_test::ProgramTestContext;
 use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer};
 use assert_matches::assert_matches;
-use std::{str::FromStr};
-use ark_bn254::Fr;
-use elusiv::{types::U256, instruction::{UserAccount, WritableUserAccount}};
-use elusiv::fields::{fr_to_u256_le};
-use elusiv::processor::{BaseCommitmentHashRequest};
+use std::{str::FromStr, collections::HashMap};
+use elusiv::{types::{U256, RawU256}, instruction::{UserAccount, WritableUserAccount}, fields::fr_to_u256_le_repr, state::program_account::MultiAccountProgramAccount, proof::precompute::PrecomputesAccount};
+use elusiv::fields::fr_to_u256_le;
+use elusiv::processor::BaseCommitmentHashRequest;
 use elusiv::state::{StorageAccount, NullifierAccount, program_account::{PDAAccount, MultiAccountAccount, MultiAccountAccountData}};
 
 const DEFAULT_START_BALANCE: u64 = LAMPORTS_PER_SOL;
@@ -26,6 +25,13 @@ pub struct Actor {
 
     // Due to the InvalidRentPayingAccount error, we need to give our client a starting balance (= zero)
     pub start_balance: u64,
+}
+
+impl Clone for Actor {
+    fn clone(&self) -> Self {
+        let keypair = Keypair::from_bytes(&self.keypair.to_bytes()).unwrap();
+        Actor { keypair, pubkey: self.pubkey, start_balance: self.start_balance }
+    }
 }
 
 impl Actor {
@@ -46,7 +52,7 @@ impl Actor {
 
     /// Returns the account's balance - start_balance - failed_signatures * lamports_per_signature
     pub async fn balance(&self, context: &mut ProgramTestContext) -> u64 {
-        get_balance(self.pubkey, context).await - self.start_balance
+        get_balance(&self.pubkey, context).await - self.start_balance
     }
 
     pub async fn airdrop(&self, lamports: u64, context: &mut ProgramTestContext) {
@@ -54,8 +60,8 @@ impl Actor {
     }
 }
 
-pub async fn get_balance(pubkey: Pubkey, context: &mut ProgramTestContext) -> u64 {
-    context.banks_client.get_account(pubkey).await.unwrap().unwrap().lamports
+pub async fn get_balance(pubkey: &Pubkey, context: &mut ProgramTestContext) -> u64 {
+    context.banks_client.get_account(*pubkey).await.unwrap().unwrap().lamports
 }
 
 pub async fn account_does_exist(pubkey: Pubkey, context: &mut ProgramTestContext) -> bool {
@@ -115,11 +121,20 @@ macro_rules! sized_account {
     };
 }
 
+/// mut? $id: ident, $ty: ty, $offset: expr, $context: ident
 macro_rules! pda_account {
-    ($id: ident, $ty: ty, $offset: expr, $prg: ident) => {
-        let pk = <$ty>::find($offset).0;
-        let mut data = &mut get_data(&mut $prg, pk).await[..];
+    ($id: ident, $ty: ty, $offset: expr, $context: ident) => {
+        pda_account!(data data, $ty, $offset, $context);
         let $id = <$ty>::new(&mut data).unwrap();
+    };
+    (mut $id: ident, $ty: ty, $offset: expr, $context: ident) => {
+        pda_account!(data data, $ty, $offset, $context);
+        let mut $id = <$ty>::new(&mut data).unwrap();
+    };
+
+    (data $data: ident, $ty: ty, $offset: expr, $context: ident) => {
+        let pk = <$ty>::find($offset).0;
+        let mut $data = &mut get_data(&mut $context, pk).await[..];
     };
 }
 
@@ -141,48 +156,44 @@ macro_rules! account_info {
     };
 }
 
-pub async fn storage_account<F>(
-    context: &mut ProgramTestContext,
-    f: F,
-) where F: Fn(&StorageAccount) {
-    use solana_program::account_info::Account;
-    use elusiv::state::program_account::MultiAccountProgramAccount;
-
-    let mut data = get_data(context, StorageAccount::find(None).0).await;
-    let pks = elusiv::state::program_account::MultiAccountAccountData::<{StorageAccount::COUNT}>::new(&data).unwrap();
-    let keys = pks.pubkeys.iter().map(|p| p.option().unwrap()).collect::<Vec<Pubkey>>();
-    let mut sub_accounts = std::collections::HashMap::new();
-
-    elusiv_proc_macros::repeat!({
-        account_info!(acc_index, keys[_index], context);
-        sub_accounts.insert(_index, &acc_index);
-    }, 25);
-
-    let storage_account = StorageAccount::new(&mut data, sub_accounts).unwrap();
-    f(&storage_account)
+macro_rules! multi_account {
+    ($id: ident, $ty: ty) => {
+        pub async fn $id<F>(
+            context: &mut ProgramTestContext,
+            pda_offset: Option<u64>,
+            f: F,
+        ) where
+            F: Fn(&$ty),
+        {
+            let mut data = get_data(context, <$ty>::find(pda_offset).0).await;
+            let pks = MultiAccountAccountData::<{<$ty>::COUNT}>::new(&data).unwrap();
+            let keys = pks.pubkeys.iter().map(|p| p.option().unwrap()).collect::<Vec<Pubkey>>();
+        
+            let mut v = vec![];
+            for &key in keys.iter() {
+                let a = context.banks_client.get_account(key).await.unwrap().unwrap();
+                v.push(a);
+            }
+        
+            let accs = v.iter_mut();
+            let mut sub_accounts = HashMap::new();
+            for (i, a) in accs.enumerate() {
+                let (lamports, d, owner, executable, epoch) = a.get();
+                let sub_account = AccountInfo::new(&keys[i], false, false, lamports, d, owner, executable, epoch);
+                sub_accounts.insert(i, sub_account);
+            }
+        
+            let map: HashMap<usize, &AccountInfo> = sub_accounts.iter().map(|(&i, x)| (i, x)).collect();
+        
+            let account = <$ty>::new(&mut data, map).unwrap();
+            f(&account)
+        }
+    };
 }
 
-pub async fn nullifier_account<F>(
-    mt_index: u64,
-    context: &mut ProgramTestContext,
-    f: F,
-) where F: Fn(&NullifierAccount) {
-    use solana_program::account_info::Account;
-    use elusiv::state::program_account::MultiAccountProgramAccount;
-
-    let mut data = get_data(context, NullifierAccount::find(Some(mt_index)).0).await;
-    let pks = elusiv::state::program_account::MultiAccountAccountData::<{NullifierAccount::COUNT}>::new(&data).unwrap();
-    let keys = pks.pubkeys.iter().map(|p| p.option().unwrap()).collect::<Vec<Pubkey>>();
-    let mut sub_accounts = std::collections::HashMap::new();
-
-    elusiv_proc_macros::repeat!({
-        account_info!(acc_index, keys[_index], context);
-        sub_accounts.insert(_index, &acc_index);
-    }, 4);
-
-    let storage_account = NullifierAccount::new(&mut data, sub_accounts).unwrap();
-    f(&storage_account)
-}
+multi_account!(storage_account, StorageAccount);
+multi_account!(nullifier_account, NullifierAccount);
+multi_account!(precomputes_account, PrecomputesAccount);
 
 #[allow(unused_imports)] pub(crate) use queue;
 #[allow(unused_imports)] pub(crate) use queue_mut;
@@ -243,18 +254,23 @@ pub fn nonce_instruction(ix: Instruction) -> Instruction {
     ix
 }
 
-/// Replaces all accounts through invalid accounts with valid data and lamports (except the signer accounts)
-pub async fn invalid_accounts_fuzzing(ix: &Instruction, context: &mut ProgramTestContext) -> Vec<Instruction> {
-    let mut ixs = Vec::new();
+/// Replaces all accounts through invalid accounts with valid data and lamports
+/// - returns the fuzzed instructions and accorsing signers
+pub async fn invalid_accounts_fuzzing(
+    ix: &Instruction,
+    context: &mut ProgramTestContext,
+    original_signer: &Actor,
+) -> Vec<(Instruction, Actor)> {
+    let mut result = Vec::new();
     for (i, acc) in ix.accounts.iter().enumerate() {
-        if acc.is_signer { continue }
+        let signer = if !acc.is_signer { (*original_signer).clone() } else { Actor::new(context).await };
         let mut ix = ix.clone();
 
         // Clone data and lamports
         let id = acc.pubkey;
         let accounts_exists = account_does_exist(id, context).await;
         let data = if accounts_exists { get_data(context, id).await } else { vec![] };
-        let lamports = if accounts_exists { get_balance(id, context).await } else { 100_000 };
+        let lamports = if accounts_exists { get_balance(&id, context).await } else { 100_000 };
         let new_pubkey = Pubkey::new_unique();
         set_account(context, &new_pubkey, data, lamports).await;
 
@@ -264,9 +280,9 @@ pub async fn invalid_accounts_fuzzing(ix: &Instruction, context: &mut ProgramTes
             ix.accounts[i] = AccountMeta::new_readonly(new_pubkey, false);
         }
 
-        ixs.push(ix);
+        result.push((ix, signer));
     }
-    ixs
+    result
 }
 
 /// All fuzzed ix variants should fail and the original ix should afterwards succeed
@@ -279,13 +295,16 @@ pub async fn test_instruction_fuzzing(
 ) {
     let invalid_instructions = invalid_accounts_fuzzing(
         &valid_ix,
-        context
+        context,
+        signer,
     ).await;
 
-    for ix in invalid_instructions {
+    for (ix, signer) in invalid_instructions {
         let mut ixs = prefix_ixs.to_vec();
         ixs.push(ix);
-        tx_should_fail(&ixs, signer, context).await;
+
+        let mut signer = signer.clone();
+        tx_should_fail(&ixs, &mut signer, context).await;
     }
 
     let mut ixs = prefix_ixs.to_vec();
@@ -309,6 +328,7 @@ async fn generate_and_sign_tx(
         &[&signer.keypair],
         context.banks_client.get_latest_blockhash().await.unwrap()
     );
+
     tx
 }
 
@@ -352,13 +372,23 @@ pub async fn ix_should_fail(
 }
 
 pub fn u256_from_str(str: &str) -> U256 {
-    fr_to_u256_le(&Fr::from_str(str).unwrap())
+    fr_to_u256_le(&ark_bn254::Fr::from_str(str).unwrap())
 }
 
-pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u64, min_batching_rate: u32) -> BaseCommitmentHashRequest {
+pub fn u256_from_str_skip_mr(str: &str) -> U256 {
+    fr_to_u256_le_repr(&ark_bn254::Fr::from_str(str).unwrap())
+}
+
+pub fn base_commitment_request(
+    base_commitment: &str,
+    commitment: &str,
+    amount: u64,
+    fee_version: u64,
+    min_batching_rate: u32,
+) -> BaseCommitmentHashRequest {
     BaseCommitmentHashRequest {
-        base_commitment: u256_from_str(bc),
-        commitment: u256_from_str(c),
+        base_commitment: RawU256::new(u256_from_str_skip_mr(base_commitment)),
+        commitment: RawU256::new(u256_from_str_skip_mr(commitment)),
         amount,
         fee_version,
         min_batching_rate,

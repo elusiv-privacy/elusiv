@@ -1,8 +1,5 @@
-//! Bn254 base field modulus: `q = 21888242871839275222246405745257275088696311157297823662689037894645226208583`
-//! Bn254 scalar field modulus: `r = 21888242871839275222246405745257275088548364400416034343698204186575808495617`
-
-use ark_bn254::{Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine};
-use ark_ff::{BigInteger256, PrimeField};
+use ark_bn254::{Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective};
+use ark_ff::{BigInteger256, PrimeField, One};
 use borsh::{BorshSerialize, BorshDeserialize};
 use crate::{types::{U256, u256_to_le_limbs}, bytes::BorshSerDeSized};
 use crate::bytes::slice_to_array;
@@ -15,26 +12,28 @@ macro_rules! u64_array {
     };
 }
 
-const BASE_MODULUS: BigInteger256 = BigInteger256([0x3c208c16d87cfd47, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]);
-pub const SCALAR_MODULUS: BigInteger256 = BigInteger256([4891460686036598785u64, 2896914383306846353u64, 13281191951274694749u64, 3486998266802970665u64]);
+/// Bn254 base field modulus: `q = 21888242871839275222246405745257275088696311157297823662689037894645226208583` in non-mr-form
+//const BASE_MODULUS_RAW: BigInteger256 = BigInteger256([0x3c208c16d87cfd47, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]);
 
-/// Constructs a base field element from an element in montgomery form
-/// - panics if the supplied element is >= the base field modulus `q`
-pub fn safe_base_montgomery(e: BigInteger256) -> Fq {
-    if e < BASE_MODULUS { Fq::new(e) } else { panic!() }
+/// Bn254 scalar field modulus: `r = 21888242871839275222246405745257275088548364400416034343698204186575808495617` in non-mr-form
+pub const SCALAR_MODULUS_RAW: BigInteger256 = BigInteger256([4891460686036598785, 2896914383306846353, 13281191951274694749, 3486998266802970665]);
+
+/// Constructs a base field element from an element that is already in montgomery-reduced-form
+pub fn base_skip_mr(e: BigInteger256) -> Fq {
+    Fq::new(e)
 }
 
-/// Constructs a scalar field element from an element in montgomery form
-/// - panics if the supplied element is >= the scalar field modulus `r`
-pub fn safe_scalar_montgomery(e: BigInteger256) -> Fr {
-    if e < SCALAR_MODULUS { Fr::new(e) } else { panic!() }
+/// Constructs a scalar field element from an element that is already in montgomery-reduced-form
+pub fn scalar_skip_mr(e: BigInteger256) -> Fr {
+    Fr::new(e)
 }
 
-pub fn try_scalar_montgomery(e: BigInteger256) -> Option<Fr> {
-    if e < SCALAR_MODULUS { Some(Fr::new(e)) } else { None }
+/// Checks whether a non-mr-form element is contained in the field
+pub fn is_element_scalar_field(e: BigInteger256) -> bool {
+    e < SCALAR_MODULUS_RAW
 }
 
-/// BigInteger256 efficiently from LE buffer
+/// `BigInteger256` efficiently from LE buffer
 /// - to increase efficiency callers should always assert that $v.len() >= $o + 32 (https://www.reddit.com/r/rust/comments/6anp0d/suggestion_for_a_new_rustc_optimization/dhfzp93/)
 fn le_u256(slice: &[u8]) -> BigInteger256 {
     let l0 = u64_limb(slice, 0);
@@ -42,7 +41,7 @@ fn le_u256(slice: &[u8]) -> BigInteger256 {
     let l2 = u64_limb(slice, 16);
     let l3 = u64_limb(slice, 24);
 
-    BigInteger256([ l0, l1, l2, l3 ])
+    BigInteger256([l0, l1, l2, l3])
 }
 
 pub fn u64_limb(slice: &[u8], offset: usize) -> u64 {
@@ -50,18 +49,16 @@ pub fn u64_limb(slice: &[u8], offset: usize) -> u64 {
 }
 
 /// Deserializes 32 bytes into a base field element
-/// - panics if the serialized value is larger than the field modulus
-macro_rules! fq_montgomery {
-    ($v: expr) => { safe_base_montgomery(le_u256($v)) };
+macro_rules! fq_skip_mr {
+    ($v: expr) => { base_skip_mr(le_u256($v)) };
 }
 
 /// Deserializes 32 bytes into a scalar field element
-/// - panics if the serialized value is larger than the field modulus
-macro_rules! fr_montgomery {
-    ($v: expr) => { safe_scalar_montgomery(le_u256($v)) };
+macro_rules! fr_skip_mr {
+    ($v: expr) => { scalar_skip_mr(le_u256($v)) };
 }
 
-/// Little-endian montgomery-form writing of a base field element
+/// Little-endian montgomery represented value writing of a base field element
 fn write_base_montgomery<W: std::io::Write>(v: Fq, writer: &mut W) -> std::io::Result<()> {
     writer.write_all(&u64::to_le_bytes(v.0.0[0])[..])?;
     writer.write_all(&u64::to_le_bytes(v.0.0[1])[..])?;
@@ -112,7 +109,7 @@ impl BorshSerialize for Wrap<Fr> {
 impl BorshDeserialize for Wrap<Fr> {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
         assert!(buf.len() >= 32);
-        let res = Wrap(fr_montgomery!(buf));
+        let res = Wrap(fr_skip_mr!(buf));
         *buf = &buf[32..];
         Ok(res)
     }
@@ -128,7 +125,7 @@ impl BorshSerialize for Wrap<Fq> {
 impl BorshDeserialize for Wrap<Fq> {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
         assert!(buf.len() >= 32);
-        let res = Wrap(fq_montgomery!(buf));
+        let res = Wrap(fq_skip_mr!(buf));
         *buf = &buf[32..];
         Ok(res)
     }
@@ -146,8 +143,8 @@ impl BorshDeserialize for Wrap<Fq2> {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
         assert!(buf.len() >= 64);
         let res = Fq2::new(
-            fq_montgomery!(buf),
-            fq_montgomery!(&buf[32..])
+            fq_skip_mr!(buf),
+            fq_skip_mr!(&buf[32..])
         );
         *buf = &buf[64..];
         Ok(Wrap(res))
@@ -170,9 +167,9 @@ impl BorshDeserialize for Wrap<Fq6> {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
         assert!(buf.len() >= 192);
         let res = Wrap(Fq6::new(
-            Fq2::new(fq_montgomery!(buf), fq_montgomery!(&buf[32..])),
-            Fq2::new(fq_montgomery!(&buf[64..]), fq_montgomery!(&buf[96..])),
-            Fq2::new(fq_montgomery!(&buf[128..]), fq_montgomery!(&buf[160..])),
+            Fq2::new(fq_skip_mr!(buf), fq_skip_mr!(&buf[32..])),
+            Fq2::new(fq_skip_mr!(&buf[64..]), fq_skip_mr!(&buf[96..])),
+            Fq2::new(fq_skip_mr!(&buf[128..]), fq_skip_mr!(&buf[160..])),
         ));
         *buf = &buf[192..];
         Ok(res)
@@ -203,6 +200,15 @@ pub struct G1A(pub G1Affine);
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct G2A(pub G2Affine);
+impl G2A {
+    pub fn set(&mut self, v: G2Affine) {
+        self.0 = v;
+    }
+
+    pub fn get(&self) -> &G2Affine {
+        &self.0
+    }
+}
 
 // G1A
 impl BorshSerDeSized for G1A { const SIZE: usize = 65; }
@@ -217,8 +223,8 @@ impl BorshSerialize for G1A {
 impl BorshDeserialize for G1A {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
         assert!(buf.len() >= 65);
-        let a = fq_montgomery!(buf);
-        let b = fq_montgomery!(&buf[32..]);
+        let a = fq_skip_mr!(buf);
+        let b = fq_skip_mr!(&buf[32..]);
         *buf = &buf[64..];
         Ok(G1A(G1Affine::new(a, b, bool::deserialize(buf)?)))
     }
@@ -246,8 +252,8 @@ impl BorshSerialize for G2A {
 impl BorshDeserialize for G2A {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
         assert!(buf.len() >= 129);
-        let x = Fq2::new(fq_montgomery!(buf), fq_montgomery!(&buf[32..]));
-        let y = Fq2::new(fq_montgomery!(&buf[64..]), fq_montgomery!(&buf[96..]));
+        let x = Fq2::new(fq_skip_mr!(buf), fq_skip_mr!(&buf[32..]));
+        let y = Fq2::new(fq_skip_mr!(&buf[64..]), fq_skip_mr!(&buf[96..]));
         *buf = &buf[128..];
         Ok(G2A(G2Affine::new(x, y, bool::deserialize(buf)?)))
     }
@@ -282,22 +288,55 @@ impl BorshDeserialize for G2HomProjective {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
         assert!(buf.len() >= 192);
         let res = G2HomProjective {
-            x: Fq2::new(fq_montgomery!(buf), fq_montgomery!(&buf[32..])),
-            y: Fq2::new(fq_montgomery!(&buf[64..]), fq_montgomery!(&buf[96..])),
-            z: Fq2::new(fq_montgomery!(&buf[128..]), fq_montgomery!(&buf[160..])),
+            x: Fq2::new(fq_skip_mr!(buf), fq_skip_mr!(&buf[32..])),
+            y: Fq2::new(fq_skip_mr!(&buf[64..]), fq_skip_mr!(&buf[96..])),
+            z: Fq2::new(fq_skip_mr!(&buf[128..]), fq_skip_mr!(&buf[160..])),
         };
         *buf = &buf[192..];
         Ok(res)
     }
 }
 
-pub fn u256_to_fr(v: &U256) -> Fr {
-    safe_scalar_montgomery(BigInteger256(u256_to_le_limbs(*v)))
+/// Converts an `U256` into a `Fr` without performing a montgomery reduction
+pub fn u256_to_fr_skip_mr(v: &U256) -> Fr {
+    scalar_skip_mr(BigInteger256(u256_to_le_limbs(*v)))
+}
+
+/// Converts an `u64` into a `Fr` by performing a montgomery reduction
+pub fn u64_to_scalar(v: u64) -> Fr {
+    Fr::from_repr(BigInteger256::from(v)).unwrap()
+}
+
+/// Converts an `u64` into a `Fr` without performing a montgomery reduction
+pub fn u64_to_scalar_skip_mr(v: u64) -> Fr {
+    Fr::new(BigInteger256::from(v))
+}
+
+/// Converts an `u64` into a `U256` by performing a montgomery reduction
+pub fn u64_to_u256(v: u64) -> U256 {
+    fr_to_u256_le(&u64_to_scalar(v))
+}
+
+/// Converts an `u64` into a `U256` without performing a montgomery reduction
+pub fn u64_to_u256_skip_mr(v: u64) -> U256 {
+    fr_to_u256_le(&u64_to_scalar_skip_mr(v))
 }
 
 pub fn fr_to_u256_le(fr: &Fr) -> U256 {
     let s = <Wrap<Fr>>::try_to_vec(&Wrap(*fr)).unwrap();
     slice_to_array::<u8, 32>(&s)
+}
+
+pub fn fr_to_u256_le_repr(fr: &Fr) -> U256 {
+    let b = fr.into_repr().0;
+    let mut v = [0; 32];
+    for i in 0..4 {
+        let b = u64::to_le_bytes(b[i]);
+        for j in 0..8 {
+            v[i * 8 + j] = b[j];
+        }
+    }
+    v
 }
 
 pub fn u256_to_big_uint(v: &U256) -> BigInteger256 {
@@ -309,14 +348,27 @@ pub fn big_uint_to_u256(v: &BigInteger256) -> U256 {
     slice_to_array::<u8, 32>(&s)
 }
 
-pub fn u64_to_scalar(v: u64) -> Fr {
-    Fr::from_repr(BigInteger256::from(v)).unwrap()
+pub fn affine_into_projective(a: &G1Affine) -> G1Projective {
+    G1Projective::new(a.x, a.y, Fq::one())
+}
+
+#[cfg(test)] use std::str::FromStr;
+
+#[cfg(test)]
+pub fn u256_from_str(str: &str) -> U256 {
+    fr_to_u256_le(&ark_bn254::Fr::from_str(str).unwrap())
+}
+
+#[cfg(test)]
+pub fn u256_from_str_skip_mr(str: &str) -> U256 {
+    fr_to_u256_le_repr(&ark_bn254::Fr::from_str(str).unwrap())
 }
 
 #[cfg(test)]
 mod tests {
+    use ark_ff::BigInteger;
+
     use super::*;
-    use std::str::FromStr;
 
     macro_rules! test_ser_de {
         ($ty: ty, $v: expr) => {
@@ -328,6 +380,27 @@ mod tests {
             assert_eq!(v, result);
             assert_eq!(buf.len(), 0);
         };
+    }
+
+    #[test]
+    fn test_scalar_mod() {
+        let mut r = Fr::from_str("21888242871839275222246405745257275088548364400416034343698204186575808495616").unwrap().into_repr();
+        r.add_nocarry(&BigInteger256::from(1));
+
+        assert_eq!(SCALAR_MODULUS_RAW, r);
+    }
+
+    #[test]
+    fn test_is_element_scalar_field() {
+        let max = Fr::from_str("21888242871839275222246405745257275088548364400416034343698204186575808495616").unwrap().into_repr();
+
+        let mut x = max;
+        x.add_nocarry(&BigInteger256::from(100));
+
+        assert!(!is_element_scalar_field(x));
+
+        assert!(is_element_scalar_field(max));
+        assert!(is_element_scalar_field(BigInteger256::from(0)));
     }
 
     #[test]
@@ -457,11 +530,23 @@ mod tests {
     fn test_fr_u256_parsing() {
         let f = Fr::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap();
         let u = fr_to_u256_le(&f);
-        assert_eq!(f, u256_to_fr(&u));
+        assert_eq!(f, u256_to_fr_skip_mr(&u));
     }
 
     #[test]
     fn test_u64_to_scalar() {
-        assert_eq!(u64_to_scalar(999), Fr::from_str("999").unwrap());
+        assert_eq!(u64_to_scalar(123), Fr::from_str("123").unwrap());
+        assert_eq!(
+            Fr::from_repr(
+                u64_to_scalar_skip_mr(123).0
+            ).unwrap(),
+            Fr::from_str("123").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_u64_to_u256() {
+        assert_eq!(u64_to_u256(123), u256_from_str("123"));
+        assert_eq!(u64_to_u256_skip_mr(123), u256_from_str_skip_mr("123"));
     }
 }

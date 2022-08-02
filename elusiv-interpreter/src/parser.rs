@@ -181,7 +181,7 @@ fn match_compute_units_head(tokens: &[Token]) -> (Option<CUs>, &[Token]) {
 }
 
 /// Attempts to parse a String into a usize, ignoring any '_' character
-fn try_parse_usize(source: &str) -> Option<usize> {
+pub fn try_parse_usize(source: &str) -> Option<usize> {
     let mut source = String::from(source);
     source.retain(|x| x != '_');
     match source.parse::<usize>() {

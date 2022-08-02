@@ -9,8 +9,9 @@ use solana_program::{
 use crate::commitment::{commitment_hash_computation_instructions, commitments_per_batch, MAX_HT_COMMITMENTS, compute_base_commitment_hash_partial, compute_commitment_hash_partial};
 use crate::macros::guard;
 use crate::state::MT_COMMITMENT_COUNT;
+use crate::state::governor::FEE_COLLECTOR_MINIMUM_BALANCE;
 use crate::state::{StorageAccount, program_account::ProgramAccount};
-use crate::types::U256;
+use crate::types::{U256, RawU256};
 use super::utils::{send_with_system_program, send_from_pool, close_account, open_pda_account_with_offset};
 use crate::state::{
     fee::FeeAccount,
@@ -33,7 +34,7 @@ use crate::error::ElusivError::{
     InvalidFeeVersion,
     InvalidBatchingRate,
 };
-use crate::fields::{try_scalar_montgomery, u256_to_big_uint, u256_to_fr};
+use crate::fields::{is_element_scalar_field, u256_to_big_uint, u256_to_fr_skip_mr};
 use crate::commitment::{
     BaseCommitmentHashingAccount,
     CommitmentHashingAccount,
@@ -42,7 +43,7 @@ use crate::commitment::{
 use elusiv_computation::PartialComputation;
 use crate::fields::fr_to_u256_le;
 use borsh::{BorshDeserialize, BorshSerialize};
-use crate::bytes::{BorshSerDeSized, u64_as_u32_safe};
+use crate::bytes::{BorshSerDeSized, u64_as_u32_safe, usize_as_u32_safe};
 use crate::macros::BorshSerDeSized;
 
 pub const MIN_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
@@ -51,9 +52,9 @@ pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 pub struct BaseCommitmentHashRequest {
-    pub base_commitment: U256,
+    pub base_commitment: RawU256,
     pub amount: u64,
-    pub commitment: U256,   // only there for the case that we need to do duplicate checking (not atm)
+    pub commitment: RawU256,   // only there for the case that we need to do duplicate checking (not atm)
     pub fee_version: u64,
 
     /// The minimum allowed batching rate (since the fee is precomputed with the concrete batching rate)
@@ -67,14 +68,18 @@ pub struct CommitmentHashRequest {
     pub min_batching_rate: u32,
 }
 
+/// poseidon(0, 0)
 const ZERO_BASE_COMMITMENT: Fr = Fr::new(BigInteger256::new([3162363550698150530, 9486080942857866267, 15374008727889305678, 621823773387469172]));
 
+/// poseidon(poseidon(0, 0), 0) in mr-form
+pub const ZERO_COMMITMENT: U256 = [29,226,44,239,152,247,24,127,109,7,41,61,125,1,193,123,69,104,37,230,178,56,26,51,102,9,129,182,119,238,153,4];
+pub const ZERO_COMMITMENT_RAW: U256 = [106,77,49,231,137,82,142,103,122,195,234,157,189,191,2,42,174,41,59,182,21,225,230,119,13,86,164,94,87,82,83,23];
+
 /// Stores a base commitment hash and takes the funds from the sender
-/// - computation: `commitment = h(base_commitment, amount)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
+/// - computation: `commitment = poseidon(base_commitment, amount)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
 #[allow(clippy::too_many_arguments)]
 pub fn store_base_commitment<'a>(
     sender: &AccountInfo<'a>,
-    fee: &FeeAccount,
     governor: &GovernorAccount,
     pool: &AccountInfo<'a>,
     fee_collector: &AccountInfo<'a>,
@@ -87,33 +92,36 @@ pub fn store_base_commitment<'a>(
     guard!(request.amount >= MIN_STORE_AMOUNT, InvalidAmount);
     guard!(request.amount <= MAX_STORE_AMOUNT, InvalidAmount);
 
-    guard!(matches!(try_scalar_montgomery(u256_to_big_uint(&request.base_commitment)), Some(_)), NonScalarValue);
-    guard!(matches!(try_scalar_montgomery(u256_to_big_uint(&request.commitment)), Some(_)), NonScalarValue);
+    guard!(is_element_scalar_field(u256_to_big_uint(&request.base_commitment.skip_mr())), NonScalarValue);
+    guard!(is_element_scalar_field(u256_to_big_uint(&request.commitment.skip_mr())), NonScalarValue);
 
     // Zero-commitment cannot be inserted by user
-    guard!(u256_to_fr(&request.base_commitment) != ZERO_BASE_COMMITMENT, InvalidInstructionData);
+    guard!(u256_to_fr_skip_mr(&request.base_commitment.reduce()) != ZERO_BASE_COMMITMENT, InvalidInstructionData);
 
     guard!(request.fee_version == governor.get_fee_version(), InvalidFeeVersion);
     guard!(request.min_batching_rate == governor.get_commitment_batching_rate(), InvalidBatchingRate);
 
-    // Take amount and fee from sender
-    let fee = fee.get_program_fee();
+    // Take `amount` and `fee` from `sender`
+    let fee = governor.get_program_fee();
     let compensation_fee = fee.base_commitment_hash_fee(request.min_batching_rate);
     let network_fee = fee.base_commitment_network_fee;
-    let subvention = if fee_collector.lamports() >= fee.base_commitment_subvention { fee.base_commitment_subvention } else { 0 };
+    let subvention = if fee_collector.lamports() >= FEE_COLLECTOR_MINIMUM_BALANCE + fee.base_commitment_subvention {
+        fee.base_commitment_subvention
+    } else {
+        0
+    };
 
-    // final_amount = request.amount + compensation_fee - subvention - network_fee;
-    let due_amount = request.amount
-        .checked_add(compensation_fee).ok_or(MATH_ERR)?;
-    guard!(sender.lamports() >= due_amount, InsufficientFunds);
+    // `final_amount = request.amount + compensation_fee - network_fee - subvention`
+    let due_amount = request.amount.checked_add(compensation_fee).ok_or(MATH_ERR)?;
+    guard!(sender.lamports() >= due_amount - subvention, InsufficientFunds);
     let final_amount = due_amount
         .checked_sub(network_fee).ok_or(MATH_ERR)?
         .checked_sub(subvention).ok_or(MATH_ERR)?;
 
-    send_with_system_program(sender, pool, system_program, final_amount)?;
     send_with_system_program(sender, fee_collector, system_program, network_fee)?;
+    send_with_system_program(sender, pool, system_program, final_amount)?;
     if subvention > 0 {
-        send_with_system_program(fee_collector, pool, system_program, subvention)?;
+        send_from_pool(fee_collector, pool, subvention)?;
     }
 
     let mut queue = BaseCommitmentQueue::new(base_commitment_queue);
@@ -138,7 +146,7 @@ pub fn init_base_commitment_hash<'a>(
     // Hashing account setup
     let data = &mut hashing_account.data.borrow_mut()[..];
     let mut hashing_account = BaseCommitmentHashingAccount::new(data)?;
-    hashing_account.reset(request, fee_payer.key.to_bytes())
+    hashing_account.setup(request, fee_payer.key.to_bytes())
 }
 
 pub fn compute_base_commitment_hash<'a>(
@@ -170,7 +178,7 @@ pub fn finalize_base_commitment_hash<'a>(
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(hashing_account.get_fee_payer() == original_fee_payer.key.to_bytes(), InvalidAccount);
     guard!(
-        (hashing_account.get_instruction() as usize) == BaseCommitmentHashComputation::INSTRUCTIONS.len(),
+        (hashing_account.get_instruction() as usize) == BaseCommitmentHashComputation::IX_COUNT,
         ComputationIsNotYetFinished
     );
 
@@ -212,7 +220,7 @@ pub fn init_commitment_hash(
 
     let mut queue = CommitmentQueue::new(queue);
     let (batch, batching_rate) = queue.next_batch()?;
-    queue.remove(batch.len() as u64)?;
+    queue.remove(usize_as_u32_safe(batch.len()))?;
 
     // The fee/batch-upgrader logic has to guarantee that there are no lower fees in a batch
     let fee_version = batch.first().unwrap().fee_version;
@@ -247,7 +255,7 @@ pub fn compute_commitment_hash<'a>(
     send_from_pool(pool, fee_payer, fee.get_program_fee().hash_tx_compensation())
 }
 
-/// Requires batching_rate + 1 calls
+/// Requires `batching_rate + 1` calls
 pub fn finalize_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
     storage_account: &mut StorageAccount,
@@ -279,20 +287,44 @@ pub fn finalize_commitment_hash(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commitment::u256_from_str;
-    use crate::fields::{big_uint_to_u256, SCALAR_MODULUS};
-    use crate::state::{MT_HEIGHT, EMPTY_TREE, mt_array_index};
+    use std::str::FromStr;
+    use crate::commitment::poseidon_hash::full_poseidon2_hash;
+    use crate::fields::{big_uint_to_u256, SCALAR_MODULUS_RAW, u256_from_str_skip_mr, fr_to_u256_le_repr};
+    use crate::state::{MT_HEIGHT, EMPTY_TREE};
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::{zero_account, account, test_account_info, storage_account};
+    use ark_ff::Zero;
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
 
     // TODO: Switch to custom Result type and assert correct Err values
 
     #[test]
+    fn test_zero_commitment() {
+        assert_eq!(
+            fr_to_u256_le(&Fr::from_str("10550412122474489085186760340904980499891544584677836768300371073631951867242").unwrap()),
+            ZERO_COMMITMENT
+        );
+
+        assert_eq!(
+            full_poseidon2_hash(full_poseidon2_hash(Fr::zero(), Fr::zero()), Fr::zero()),
+            u256_to_fr_skip_mr(&ZERO_COMMITMENT)
+        );
+
+        assert_eq!(
+            RawU256::new(ZERO_COMMITMENT_RAW).reduce(),
+            ZERO_COMMITMENT
+        );
+
+        assert_eq!(
+            full_poseidon2_hash(Fr::zero(), Fr::zero()),
+            ZERO_BASE_COMMITMENT
+        );
+    }
+
+    #[test]
     #[allow(clippy::vec_init_then_push)]
     fn test_store_base_commitment() {
-        zero_account!(fee, FeeAccount);
         zero_account!(mut governor, GovernorAccount);
         test_account_info!(sender, 0);
         test_account_info!(pool, 0);
@@ -305,9 +337,9 @@ mod tests {
         governor.set_fee_version(&1);
 
         let valid_request = BaseCommitmentHashRequest {
-            base_commitment: u256_from_str("1"),
+            base_commitment: RawU256::new(u256_from_str_skip_mr("1")),
             amount: LAMPORTS_PER_SOL,
-            commitment: u256_from_str("1"),
+            commitment: RawU256::new(u256_from_str_skip_mr("1")),
             fee_version: 1,
             min_batching_rate: 4,
         };
@@ -324,15 +356,15 @@ mod tests {
 
         // Non-scalar base_commitment
         requests.push(valid_request.clone());
-        requests.last_mut().unwrap().base_commitment = big_uint_to_u256(&SCALAR_MODULUS);
+        requests.last_mut().unwrap().base_commitment = RawU256::new(big_uint_to_u256(&SCALAR_MODULUS_RAW));
 
         // Non-scalar commitment
         requests.push(valid_request.clone());
-        requests.last_mut().unwrap().commitment = big_uint_to_u256(&SCALAR_MODULUS);
+        requests.last_mut().unwrap().commitment = RawU256::new(big_uint_to_u256(&SCALAR_MODULUS_RAW));
         
         // Zero-commitment
         requests.push(valid_request.clone());
-        requests.last_mut().unwrap().base_commitment = fr_to_u256_le(&ZERO_BASE_COMMITMENT);
+        requests.last_mut().unwrap().base_commitment = RawU256::new(fr_to_u256_le_repr(&ZERO_BASE_COMMITMENT));
 
         // Mismatched fee version
         requests.push(valid_request.clone());
@@ -344,7 +376,7 @@ mod tests {
 
         for request in requests {
             assert_matches!(
-                store_base_commitment(&sender, &fee, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, request),
+                store_base_commitment(&sender, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, request),
                 Err(_)
             );
         }
@@ -358,12 +390,12 @@ mod tests {
             }
 
             assert_matches!(
-                store_base_commitment(&sender, &fee, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request.clone()),
+                store_base_commitment(&sender, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request.clone()),
                 Err(_)
             );
         }
 
-        store_base_commitment(&sender, &fee, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request).unwrap();
+        store_base_commitment(&sender, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request).unwrap();
     }
 
     #[test]
@@ -382,9 +414,9 @@ mod tests {
         let mut queue = BaseCommitmentQueue::new(&mut base_commitment_queue);
         queue.enqueue(
             BaseCommitmentHashRequest {
-                base_commitment: u256_from_str("1"),
+                base_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 amount: LAMPORTS_PER_SOL,
-                commitment: u256_from_str("1"),
+                commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 1,
                 min_batching_rate: 4,
             }
@@ -441,14 +473,14 @@ mod tests {
         // Inactive hashing account
         pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
             hashing_account.set_fee_payer(&fee_payer_pk.to_bytes());
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32));
+            hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
         });
         assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
 
         // Invalid original fee payer
         pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
             hashing_account.set_is_active(&true);
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32));
+            hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
         });
         assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
 
@@ -462,7 +494,7 @@ mod tests {
         pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
             hashing_account.set_fee_payer(&fee_payer_pk.to_bytes());
             hashing_account.set_is_active(&true);
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::INSTRUCTIONS.len() as u32));
+            hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
         });
         
         // Commitment queue is full
@@ -622,24 +654,33 @@ mod tests {
         zero_account!(mut hashing_account, CommitmentHashingAccount);
 
         let batching_rate = 4;
+        let commitment_count = commitments_per_batch(batching_rate);
         hashing_account.set_is_active(&true);
         hashing_account.set_batching_rate(&batching_rate);
         hashing_account.set_instruction(&(commitment_hash_computation_instructions(batching_rate).len() as u32));
+
+        for level_inv in 0..=MT_HEIGHT {
+            let level = MT_HEIGHT - level_inv;
+            let level_size = commitment_count >> level;
+            for index in 0..level_size {
+                assert_eq!(storage_account.get_node(index, level as usize), EMPTY_TREE[level_inv as usize]);
+            }
+        }
 
         for _ in 0..=batching_rate {
             finalize_commitment_hash(&mut hashing_account, &mut storage_account).unwrap();
         }
 
-        let commitment_count = commitments_per_batch(batching_rate);
         assert!(!hashing_account.get_is_active());
+        assert!(!hashing_account.get_setup());
         assert_eq!(storage_account.get_next_commitment_ptr(), commitment_count as u32);
 
         // Check that MT is updated
-        for i in 0..=MT_HEIGHT {
-            for j in 0..commitment_count >> (MT_HEIGHT - i) {
-                assert!(
-                    storage_account.modifications.contains_key(&mt_array_index(j, i as usize))
-                );
+        for level_inv in 0..=MT_HEIGHT {
+            let level_size = commitment_count >> level_inv;
+            let level = MT_HEIGHT - level_inv;
+            for index in 0..level_size {
+                assert_ne!(storage_account.get_node(index, level as usize), EMPTY_TREE[level_inv as usize]);
             }
         }
     }

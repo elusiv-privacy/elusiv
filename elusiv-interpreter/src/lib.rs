@@ -3,6 +3,8 @@ mod grammar;
 mod parser;
 mod storage;
 
+use elusiv_utils::batched_instructions_tx_count;
+use parser::try_parse_usize;
 use proc_macro::TokenStream;
 use proc_macro2::{ TokenTree, Delimiter, TokenTree::* };
 use std::iter::IntoIterator;
@@ -11,13 +13,13 @@ use quote::quote;
 use elusiv_computation::compute_unit_optimization;
 
 /// For computations that are so costly, that they cannot be performed in a single step
-/// - this macro splits the computation you describe into `n` separate steps
-/// - after `n` program calls the computation is finished and the result returned
-/// - the interpreter takes care of storage management
-/// - for each type that needs to be used in multiple steps, a object `ram_type: RAM<Type>` is required with the following interface:
-///     - `write(value: Type, index: usize)`
-///     - `read(index: usize) -> Type`
-///     - `inc_frame(offset: usize)` and `inc_frame(offset: usize)` (required for function calls)
+/// - This macro splits the computation you describe into `n` separate steps, all within a specified compute-unit budget.
+/// - After `n` calls the computation is finished and the result is returned.
+/// - The interpreter takes care of storage management between the computation steps.
+/// - Each function requires an argument: `storage: T` with the following specification:
+///     - for each type `Type` that needs to be used in multiple steps,
+///     - a field `ram_type: RAMType<Type>` needs to exist on `storage`,
+///     - where `RAMType` implements `elusiv_computation::RAM`.
 /// 
 /// # Macro output
 /// - a function `name_partial(round: usize, param_0, .., param_k) -> Result<Option<ReturnType>, &'static str>`
@@ -52,6 +54,43 @@ use elusiv_computation::compute_unit_optimization;
 ///     - ids, literals, function calls, arrays, 
 ///     - a safe unwrap expr: `unwrap <<Expr>>` will cause the function to return `Err(_)` if the expr matches `None`
 /// - `Id`s can either be single idents or idents intersected by dots (:: accessors not allowed atm)
+/// 
+/// - **TODO**: add compute-budget documentation
+/// 
+/// # Usage
+/// ```
+/// elusiv_computations!(
+///     main_fn, MainFnPartialComputationType, 1_400_000,
+///     
+///     double(&mut storage: Storage, v: u32) -> u32 {
+///         {   /// 100
+///             let mut a: u32 = v;
+///         }
+///         {   /// 1_000
+///             return 2 * a;
+///         }
+///     }
+/// 
+///     main_fn(&mut storage: Storage, v: u32) -> u32 {
+///         {   /// 100
+///             let a: u32 = v;
+///         }
+///         { 
+///             partial v = double(storage, a) {
+///                 a = v;
+///             }
+///         }
+///         { 
+///             partial v = double(storage, a) {
+///                 a = v;
+///             }
+///         }
+///         {
+///             return a;
+///         }
+///     }
+/// );
+/// ```
 #[proc_macro]
 pub fn elusiv_computations(attrs: TokenStream) -> TokenStream {
     impl_mult_step_computations(attrs.into()).into()
@@ -66,6 +105,8 @@ fn impl_mult_step_computations(stream: proc_macro2::TokenStream) -> proc_macro2:
             TokenTree::Punct(_),
             TokenTree::Ident(computation_name),
             TokenTree::Punct(_),
+            TokenTree::Literal(compute_budget_per_ix),
+            TokenTree::Punct(_),
             tail @ ..
         ] => {
             let mut rounds_map = HashMap::new();
@@ -74,35 +115,29 @@ fn impl_mult_step_computations(stream: proc_macro2::TokenStream) -> proc_macro2:
 
             // Create compute unit stream for last partial computation
             let cus = compute_units_map[&fn_name.to_string()].clone();
-            let optimization = compute_unit_optimization(cus.iter().map(|&x| x as u32).collect());
+            let compute_budget: u32 = try_parse_usize(&compute_budget_per_ix.to_string()).unwrap() as u32;
+            let optimization = compute_unit_optimization(cus.iter().map(|&x| x as u32).collect(), compute_budget);
             let size = optimization.instructions.len();
             let total_rounds = optimization.total_rounds;
             let total_compute_units = optimization.total_compute_units;
             let computation_name: proc_macro2::TokenStream = computation_name.to_string().parse().unwrap();
-            let instructions = optimization.instructions.iter().fold(quote!{}, |acc, x| {
-                let start_round = x.start_round;
-                let rounds = x.rounds;
-                let compute_units = x.compute_units;
-
-                quote! {
-                    #acc
-                    elusiv_computation::PartialComputationInstruction {
-                        start_round: #start_round,
-                        rounds: #rounds,
-                        compute_units: #compute_units,
-                    },
-                }
-            });
+            let instructions = optimization.instructions.iter()
+                .fold(quote!{}, |acc, &rounds| {
+                    assert!(rounds <= u8::MAX as u32);
+                    let rounds: proc_macro2::TokenStream = rounds.to_string().parse().unwrap();
+                    quote! { #acc #rounds, }
+                });
+            let tx_count = batched_instructions_tx_count(optimization.instructions.len(), compute_budget);
 
             quote! {
                 pub struct #computation_name { }
 
                 impl elusiv_computation::PartialComputation<#size> for #computation_name {
-                    const INSTRUCTIONS: [elusiv_computation::PartialComputationInstruction; #size] = [
-                        #instructions
-                    ];
+                    const TX_COUNT: usize = #tx_count;
+                    const INSTRUCTION_ROUNDS: [u8; #size] = [ #instructions ];
                     const TOTAL_ROUNDS: u32 = #total_rounds;
                     const TOTAL_COMPUTE_UNITS: u32 = #total_compute_units;
+                    const COMPUTE_BUDGET_PER_IX: u32 = #compute_budget;
                 }
 
                 #stream

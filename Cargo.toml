@@ -15,9 +15,11 @@ members = [
 
 [features]
 instruction-abi = []
-extended-logging = []
+logging = []
 no-entrypoint = []
 test-bpf = []
+test-elusiv = []
+precomputing = []
 
 [dependencies]
 elusiv-interpreter = { path = "./elusiv-interpreter" }
@@ -35,12 +37,11 @@ ark-ff = { version = "=0.3.0", default-features = false }
 ark-ec = { version = "=0.3.0", default-features = false }
 
 [dev-dependencies]
-elusiv = { path = ".", features = ["instruction-abi", "extended-logging"] }
-elusiv-utils = { path = "./elusiv-utils" }
+elusiv = { path = ".", features = ["instruction-abi", "test-elusiv", "logging", "precomputing"] }
+elusiv-utils = { path = "./elusiv-utils", features = ["sdk"] }
 
 solana-program-test = "=1.9.26"
 solana-sdk = "=1.9.26"
-base64 = "0.13.0"
 
 log = "0.4.17"
 log4rs = "1.1.1"

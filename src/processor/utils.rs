@@ -1,3 +1,4 @@
+use solana_program::pubkey::Pubkey;
 use solana_program::{
     account_info::AccountInfo,
     entrypoint::ProgramResult,
@@ -13,7 +14,7 @@ use crate::error::ElusivError::{
     InvalidAccount,
     InvalidInstructionData,
     InvalidAmount,
-    InvalidAccountBalance
+    InsufficientFunds
 };
 use crate::macros::guard;
 use crate::state::program_account::{
@@ -89,12 +90,24 @@ pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
 ) -> ProgramResult {
     let account_size = T::SIZE;
     let (pk, bump) = T::find(None);
-    let seed = vec![
-        T::SEED.to_vec(),
-        vec![bump]
-    ];
-    let signers_seeds: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
+    let seeds = vec![T::SEED.to_vec(), vec![bump]];
+    let signers_seeds: Vec<&[u8]> = seeds.iter().map(|x| &x[..]).collect();
     guard!(pk == *pda_account.key, InvalidInstructionData);
+
+    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
+}
+
+pub fn open_pda_account<'a>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+    account_size: usize,
+    seeds: &[&[u8]],
+) -> ProgramResult {
+    let mut signers_seeds = seeds.to_owned();
+    let (pubkey, bump) = Pubkey::find_program_address(&signers_seeds[..], &crate::ID);
+    let b = vec![bump];
+    signers_seeds.push(&b);
+    guard!(pubkey == *pda_account.key, InvalidInstructionData);
 
     create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
 }
@@ -113,7 +126,7 @@ pub fn create_pda_account<'a>(
 
     let lamports_required = Rent::get()?.minimum_balance(account_size);
     let space: u64 = account_size.try_into().unwrap();
-    guard!(payer.lamports() >= lamports_required, InvalidAccountBalance);
+    guard!(payer.lamports() >= lamports_required, InsufficientFunds);
 
     // Additional (redundant) check that account does not already exist
     guard!(
@@ -215,5 +228,20 @@ mod tests {
         account!(pda_account, wrong_pda, vec![]);
 
         assert_matches!(open_pda_account_without_offset::<VerificationAccount>(&payer, &pda_account), Err(_));
+    }
+
+    #[test]
+    fn test_open_pda_account() {
+        test_account_info!(payer, 0);
+        let seed = b"test";
+        let seeds = vec![&seed[..], &seed[..]];
+        let pda = Pubkey::find_program_address(&seeds, &crate::ID).0;
+        let wrong_pda = VerificationAccount::find(Some(0)).0;
+
+        account!(pda_account, wrong_pda, vec![]);
+        assert_matches!(open_pda_account(&payer, &pda_account, 1, &seeds), Err(_));
+
+        account!(pda_account, pda, vec![]);
+        assert_matches!(open_pda_account(&payer, &pda_account, 1, &seeds), Ok(_));
     }
 }

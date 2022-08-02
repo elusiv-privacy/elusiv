@@ -8,12 +8,15 @@ use borsh::BorshSerialize;
 use common::*;
 use common::program_setup::*;
 
-use elusiv::state::program_account::MultiAccountAccount;
+use elusiv::proof::precompute::{precompute_account_size2, VKEY_COUNT, PrecomputesAccount, VirtualPrecomputes, PrecomutedValues};
+use elusiv::proof::vkey::{SendQuadraVKey, VerificationKey};
+use elusiv::state::program_account::{MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE};
 use elusiv::state::queue::{RingQueue, BaseCommitmentQueueAccount};
 use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT, EMPTY_TREE};
 use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
 use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, CommitmentHashRequest};
+use elusiv_utils::batch_instructions;
 use solana_program::instruction::{Instruction, AccountMeta};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
@@ -33,7 +36,7 @@ macro_rules! assert_account {
             let data = get_data(&mut $context, <$ty>::find($offset).0).await;
 
             // Check balance and data size
-            assert!(get_balance(<$ty>::find($offset).0, &mut $context).await > 0);
+            assert!(get_balance(&<$ty>::find($offset).0, &mut $context).await > 0);
             assert_eq!(data.len(), <$ty>::SIZE);
 
             // Check pda account fields
@@ -46,14 +49,16 @@ macro_rules! assert_account {
 }
 
 #[tokio::test]
-async fn test_setup_pda_accounts() {
+#[ignore]
+async fn test_setup_initial_accounts() {
     let mut context = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
 
     assert_account!(GovernorAccount, context, None);
     assert_account!(FeeAccount, context, Some(0));
     assert_account!(PoolAccount, context, None);
     assert_account!(FeeCollectorAccount, context, None);
+    assert_account!(PrecomputesAccount, context, None);
 
     assert_account!(CommitmentHashingAccount, context, None);
     assert_account!(CommitmentQueueAccount, context, None);
@@ -62,20 +67,22 @@ async fn test_setup_pda_accounts() {
 
 #[tokio::test]
 #[should_panic]
-async fn test_setup_pda_accounts_duplicate() {
+#[ignore]
+async fn test_setup_initial_accounts_duplicate() {
     let mut context = start_program_solana_program_test().await;
-    setup_pda_accounts(&mut context).await;
-    setup_pda_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_setup_fee_account() {
     let mut context = start_program_solana_program_test().await;
     let mut payer = Actor::new(&mut context).await;
 
     ix_should_succeed(
         ElusivInstruction::setup_governor_account_instruction(
-            SignerAccount(payer.pubkey),
+            WritableSignerAccount(payer.pubkey),
             WritableUserAccount(GovernorAccount::find(None).0)
         ), &mut payer, &mut context
     ).await;
@@ -85,16 +92,19 @@ async fn test_setup_fee_account() {
 
     // Second time will fail
     ix_should_fail(
-        ElusivInstruction::init_new_fee_version_instruction(0, genesis_fee.clone(), SignerAccount(payer.pubkey)),
+        ElusivInstruction::init_new_fee_version_instruction(0, genesis_fee.clone(), WritableSignerAccount(payer.pubkey)),
         &mut payer, &mut context
     ).await;
     
     pda_account!(fee, FeeAccount, Some(0), context);
     assert_eq!(fee.get_program_fee(), genesis_fee);
 
+    pda_account!(governor, GovernorAccount, None, context);
+    assert_eq!(governor.get_program_fee(), genesis_fee);
+
     // Attempting to set a version higher than genesis (0) will fail
     ix_should_fail(
-        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee.clone(), SignerAccount(payer.pubkey)),
+        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee.clone(), WritableSignerAccount(payer.pubkey)),
         &mut payer, &mut context
     ).await;
 
@@ -104,12 +114,13 @@ async fn test_setup_fee_account() {
     });
 
     ix_should_succeed(
-        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee, SignerAccount(payer.pubkey)),
+        ElusivInstruction::init_new_fee_version_instruction(1, genesis_fee, WritableSignerAccount(payer.pubkey)),
         &mut payer, &mut context
     ).await;
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_setup_pda_accounts_invalid_pda() {
     let mut context = start_program_solana_program_test().await;
     let mut payer = Actor::new(&mut context).await;
@@ -117,7 +128,7 @@ async fn test_setup_pda_accounts_invalid_pda() {
     ix_should_fail(
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::CommitmentQueueAccount,
-            SignerAccount(payer.pubkey),
+            WritableSignerAccount(payer.pubkey),
             WritableUserAccount(BaseCommitmentQueueAccount::find(None).0)
         ),
         &mut payer, &mut context
@@ -125,17 +136,19 @@ async fn test_setup_pda_accounts_invalid_pda() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_setup_storage_account() {
     let mut context = start_program_solana_program_test().await;
     let keys = setup_storage_account(&mut context).await;
 
-    storage_account(&mut context, |storage_account| {
+    storage_account(&mut context, None, |storage_account| {
         let pks: Vec<Pubkey> = storage_account.get_multi_account_data().pubkeys.iter().map(|p| p.option().unwrap()).collect();
         assert_eq!(keys, pks);
     }).await;
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_setup_storage_account_duplicate() {
     let mut context = start_program_solana_program_test().await;
     setup_storage_account(&mut context).await;
@@ -151,13 +164,14 @@ async fn test_setup_storage_account_duplicate() {
     tx_should_fail(&[
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::StorageAccount,
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
             WritableUserAccount(StorageAccount::find(None).0),
         )
     ], &mut client, &mut context).await;
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_open_new_merkle_tree() {
     let mut context = start_program_solana_program_test().await;
 
@@ -165,7 +179,7 @@ async fn test_open_new_merkle_tree() {
     for mt_index in 0..3 {
         let keys = create_merkle_tree(&mut context, mt_index).await;
 
-        nullifier_account(mt_index, &mut context, |nullfier_account: &NullifierAccount| {
+        nullifier_account(&mut context, Some(mt_index), |nullfier_account: &NullifierAccount| {
             let pks: Vec<Pubkey> = nullfier_account.get_multi_account_data().pubkeys.iter().map(|p| p.option().unwrap()).collect();
             assert_eq!(keys, pks);
         }).await;
@@ -173,6 +187,7 @@ async fn test_open_new_merkle_tree() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_open_new_merkle_tree_duplicate() {
     let mut context = start_program_solana_program_test().await;
     let mut client = Actor::new(&mut context).await;
@@ -183,7 +198,7 @@ async fn test_open_new_merkle_tree_duplicate() {
         ElusivInstruction::open_multi_instance_account_instruction(
             MultiInstancePDAAccountKind::NullifierAccount,
             0,
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
             WritableUserAccount(StorageAccount::find(Some(0)).0),
         )
     ], &mut client, &mut context).await;
@@ -196,10 +211,11 @@ async fn test_open_new_merkle_tree_duplicate() {
 }
 
 #[tokio::test]
-async fn test_reset_merkle_tree() {
+#[ignore]
+async fn test_close_merkle_tree() {
     let mut context = start_program_solana_program_test().await;
     let mut client = Actor::new(&mut context).await;
-    setup_pda_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
     setup_storage_account(&mut context).await;
 
     create_merkle_tree(&mut context, 0).await;
@@ -245,12 +261,12 @@ async fn test_reset_merkle_tree() {
         &mut client, &mut context
     ).await;
 
-    nullifier_account(0, &mut context, |n: &NullifierAccount| {
+    nullifier_account(&mut context, Some(0), |n: &NullifierAccount| {
         assert_eq!(n.get_root(), EMPTY_TREE[MT_HEIGHT as usize]);
     }).await;
 
     // Check active index
-    storage_account(&mut context, |s: &StorageAccount| {
+    storage_account(&mut context, None, |s: &StorageAccount| {
         assert_eq!(s.get_trees_count(), 1);
         assert_eq!(s.get_next_commitment_ptr(), 0);
         assert_eq!(s.get_mt_roots_count(), 0);
@@ -274,16 +290,17 @@ async fn test_reset_merkle_tree() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_global_sub_account_duplicates() {
     let mut context = start_program_solana_program_test().await;
     let mut client = Actor::new(&mut context).await;
-    setup_pda_accounts(&mut context).await;
+    setup_initial_accounts(&mut context).await;
 
     // Open storage account
     ix_should_succeed(
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::StorageAccount,
-            SignerAccount(client.pubkey),
+            WritableSignerAccount(client.pubkey),
             WritableUserAccount(StorageAccount::find(None).0)
         ), &mut client, &mut context
     ).await;
@@ -292,7 +309,7 @@ async fn test_global_sub_account_duplicates() {
         ElusivInstruction::open_multi_instance_account_instruction(
             MultiInstancePDAAccountKind::NullifierAccount,
             mt_index,
-            SignerAccount(pk),
+            WritableSignerAccount(pk),
             WritableUserAccount(NullifierAccount::find(Some(mt_index)).0)
         )
     }
@@ -302,7 +319,7 @@ async fn test_global_sub_account_duplicates() {
     ix_should_succeed(open_mt(1, client.pubkey), &mut client, &mut context).await;
 
     // Setting in first MT should succeed
-    let account = create_account_rent_exepmt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
+    let account = create_account_rent_exempt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
     ix_should_succeed(
         ElusivInstruction::enable_nullifier_sub_account_instruction(
             0,
@@ -347,7 +364,7 @@ async fn test_global_sub_account_duplicates() {
     ).await;
 
     // Setting a different account at same index should fail
-    let account2 = create_account_rent_exepmt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
+    let account2 = create_account_rent_exempt(&mut context, NullifierAccount::ACCOUNT_SIZE).await;
     ix_should_fail(
         ElusivInstruction::enable_nullifier_sub_account_instruction(
             0,
@@ -359,10 +376,10 @@ async fn test_global_sub_account_duplicates() {
     // Manipulate map size
     let mut data = vec![1; NullifierAccount::ACCOUNT_SIZE];
     data[0] = 0;
-    let lamports = get_balance(account2.pubkey(), &mut context).await;
+    let lamports = get_balance(&account2.pubkey(), &mut context).await;
     set_account(&mut context, &account2.pubkey(), data, lamports).await;
 
-    // Setting a different account a a different index should succeed
+    // Setting a different account at a different index should succeed
     ix_should_succeed(
         ElusivInstruction::enable_nullifier_sub_account_instruction(
             0,
@@ -375,4 +392,166 @@ async fn test_global_sub_account_duplicates() {
     let data = get_data(&mut context, account2.pubkey()).await;
     assert_eq!(data[0], 1);
     assert_eq!(&data[1..5], &[0,0,0,0]);
+}
+
+#[tokio::test]
+async fn test_enable_precomputes_subaccounts() {
+    let mut context = start_program_solana_program_test().await;
+    let mut client = Actor::new(&mut context).await;
+    setup_initial_accounts(&mut context).await;
+
+    // Open storage account
+    ix_should_succeed(
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::StorageAccount,
+            WritableSignerAccount(client.pubkey),
+            WritableUserAccount(StorageAccount::find(None).0)
+        ), &mut client, &mut context
+    ).await;
+
+    // Invalid size
+    let size = precompute_account_size2(0);
+    let account = create_account_rent_exempt(&mut context, size).await;
+    ix_should_fail(
+        ElusivInstruction::enable_precompute_sub_account_instruction(0, WritableUserAccount(account.pubkey())),
+        &mut client, &mut context
+    ).await;
+
+    // Subaccount already in use
+    let size = precompute_account_size2(0) + SUB_ACCOUNT_ADDITIONAL_SIZE;
+    let account = create_account_rent_exempt(&mut context, size).await;
+    let mut data = vec![1];
+    data.extend(vec![0; precompute_account_size2(0)]);
+    let lamports = get_balance(&account.pubkey(), &mut context).await;
+    set_account(&mut context, &account.pubkey(), data, lamports).await;
+    ix_should_fail(
+        ElusivInstruction::enable_precompute_sub_account_instruction(0, WritableUserAccount(account.pubkey())),
+        &mut client, &mut context
+    ).await;
+
+    // Success
+    let account = create_account_rent_exempt(&mut context, size).await;
+    ix_should_succeed(
+        ElusivInstruction::enable_precompute_sub_account_instruction(0, WritableUserAccount(account.pubkey())),
+        &mut client, &mut context
+    ).await;
+
+    let mut data = get_data(&mut context, PrecomputesAccount::find(None).0).await;
+    let precomputes = PrecomputesAccount::new(&mut data, HashMap::new()).unwrap();
+    let pubkeys = precomputes.get_multi_account_data().pubkeys;
+    assert_eq!(pubkeys[0].option().unwrap(), account.pubkey());
+    assert!(pubkeys[1].option().is_none());
+
+    // Index already set
+    let account = create_account_rent_exempt(&mut context, size).await;
+    ix_should_fail(
+        ElusivInstruction::enable_precompute_sub_account_instruction(0, WritableUserAccount(account.pubkey())),
+        &mut client, &mut context
+    ).await;
+}
+
+async fn precompute_test() -> (ProgramTestContext, Actor, Vec<Pubkey>) {
+    let mut context = start_program_solana_program_test().await;
+    let mut client = Actor::new(&mut context).await;
+    setup_initial_accounts(&mut context).await;
+
+    // Enable sub accounts
+    let mut ixs = Vec::new();
+    let mut pubkeys = Vec::new();
+    for i in 0..VKEY_COUNT {
+        let size = precompute_account_size2(i) + SUB_ACCOUNT_ADDITIONAL_SIZE;
+        let account = create_account_rent_exempt(&mut context, size).await;
+        pubkeys.push(account.pubkey());
+        ixs.push(
+            ElusivInstruction::enable_precompute_sub_account_instruction(
+                i as u32,
+                WritableUserAccount(account.pubkey())
+            )
+        );
+    }
+    tx_should_succeed(&ixs, &mut client, &mut context).await;
+
+    (context, client, pubkeys)
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_precompute_full() {
+    // Setup requires multiple thousand tx atm -> no CI integration test possible -> ignore (we use test_precompute_partial instead and unit tests)
+    let (mut context, mut client, pubkeys) = precompute_test().await;
+    let precompute_accounts: Vec<WritableUserAccount> = pubkeys.iter().map(|p| WritableUserAccount(*p)).collect();
+
+    // Init precomputing
+    let ixs = [
+        request_compute_units(1_400_000),
+        ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts),
+    ];
+    
+    for _ in 0..SendQuadraVKey::PUBLIC_INPUTS_COUNT {
+        // Init public input
+        tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+
+        for _ in 0..32 {
+            // Tuples
+            tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+
+            // Quads
+            tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+            tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+            
+            // Octs
+            let txs = batch_instructions(
+                15 * 15,
+                120_000,
+                ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts)
+            );
+            for tx in txs {
+                tx_should_succeed(&tx, &mut client, &mut context).await;
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_precompute_partial() {
+    let (mut context, mut client, pubkeys) = precompute_test().await;
+    let precompute_accounts: Vec<WritableUserAccount> = pubkeys.iter().map(|p| WritableUserAccount(*p)).collect();
+    let ixs = [
+        request_compute_units(1_400_000),
+        ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts),
+    ];
+    tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+
+    // Precompute the first two bytes of the first public input 
+    for _ in 0..2 {
+        // Tuples
+        tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+
+        // Quads
+        tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+        tx_should_succeed(&ixs.clone(), &mut client, &mut context).await;
+        
+        // Octs
+        let txs = batch_instructions(
+            15 * 15,
+            120_000,
+            ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts)
+        );
+        for tx in txs {
+            tx_should_succeed(&tx, &mut client, &mut context).await;
+        }
+    }
+
+    let expected = 1 + 2 * (3 + 15 * 15);
+    let mut data = vec![0; precompute_account_size2(0)];
+    let p = VirtualPrecomputes::<SendQuadraVKey>::new(&mut data);
+    fn cmp<VKey: VerificationKey, A: PrecomutedValues<VKey>, B: PrecomutedValues<VKey>>(a: &A, b: &B) {
+        assert_eq!(a.point(0, 0, 1), b.point(0, 0, 1));
+        assert_eq!(a.point(0, 0, 2), b.point(0, 0, 2));
+    }
+    precomputes_account(&mut context, None, |precomputes| {
+        assert_eq!(precomputes.get_instruction(), expected);
+        cmp(&p, precomputes);
+    }).await;
 }

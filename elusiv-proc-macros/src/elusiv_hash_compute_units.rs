@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use super::utils::*;
-use elusiv_computation::compute_unit_optimization;
+use elusiv_computation::{compute_unit_optimization, MAX_COMPUTE_UNIT_LIMIT};
 
 const FULL_ROUNDS_CUS: u32 = 15411 + 17740 + 600;
 const PARTIAL_ROUNDS_CUS: u32 = 5200 + 17740 + 600;
@@ -31,35 +31,28 @@ pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
         );
     }
 
-    let result = compute_unit_optimization(rounds);
+    let result = compute_unit_optimization(rounds, MAX_COMPUTE_UNIT_LIMIT);
 
     let total_rounds = (hashes * 65) as u32;
     let total_compute_units = result.total_compute_units;
     assert_eq!(result.total_rounds, total_rounds);
     
     let size: TokenStream = result.instructions.len().to_string().parse().unwrap();
-    let instructions = result.instructions.iter().fold(quote!{}, |acc, x| {
-        let start_round = x.start_round;
-        let rounds = x.rounds;
-        let compute_units = x.compute_units;
-
-        quote! {
-            #acc
-            elusiv_computation::PartialComputationInstruction {
-                start_round: #start_round,
-                rounds: #rounds,
-                compute_units: #compute_units,
-            },
-        }
-    });
+    let instructions = result.instructions.iter()
+        .fold(quote!{}, |acc, &rounds| {
+            assert!(rounds <= u8::MAX as u32);
+            let rounds: TokenStream = rounds.to_string().parse().unwrap();
+            quote! { #acc #rounds, }
+        });
+    let max_cus = MAX_COMPUTE_UNIT_LIMIT;
 
     quote! {
         impl elusiv_computation::PartialComputation<#size> for #id {
-            const INSTRUCTIONS: [elusiv_computation::PartialComputationInstruction; #size] = [
-                #instructions
-            ];
+            const TX_COUNT: usize = #size;
+            const INSTRUCTION_ROUNDS: [u8; #size] = [ #instructions ];
             const TOTAL_ROUNDS: u32 = #total_rounds;
             const TOTAL_COMPUTE_UNITS: u32 = #total_compute_units;
+            const COMPUTE_BUDGET_PER_IX: u32 = #max_cus;
         }
     }
 }

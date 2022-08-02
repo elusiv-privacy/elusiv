@@ -2,6 +2,7 @@ mod error;
 mod macros;
 pub mod types;
 pub mod bytes;
+pub mod map;
 pub mod instruction;
 pub mod processor;
 pub mod state;

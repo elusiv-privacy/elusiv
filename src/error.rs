@@ -1,44 +1,31 @@
 use std::fmt;
 use solana_program::program_error::ProgramError;
 
+pub type ElusivResult = Result<(), ElusivError>;
+
 #[derive(Copy, Clone, Debug)]
 pub enum ElusivError {
     InvalidInstructionData,
     InvalidAmount,
     InsufficientFunds,
-    InvalidRecipient,
     InvalidAccount,
-    InvalidAccountSize,
-    InvalidAccountBalance,
+    InvalidAccountState,
     NonScalarValue,
     MissingSubAccount,
-
-    SenderIsNotSigner,
-    SenderIsNotWritable,
+    FeatureNotAvailable,
 
     // Merkle tree
-    MerkleTreeIsNotInitialized,
-    InvalidMerkleTreeAccess,
     InvalidMerkleRoot,
 
     // Nullifier
-    NullifierAlreadyExists,
-    NoRoomForNullifier,
-    InvalidNullifierAccount,
-    NullifierAccountDoesNotExist,
+    CouldNotInsertNullifier,
 
     // Commitment
-    CommitmentAlreadyExists,
     NoRoomForCommitment,
-    Commitment,
-    HashingIsAlreadyComplete,
     InvalidBatchingRate,
 
     // Proof
-    InvalidProof,
     InvalidPublicInputs,
-    InvalidFeePayer,
-    InvalidTimestamp,
     CouldNotProcessProof,
 
     // Queue

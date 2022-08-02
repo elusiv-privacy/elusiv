@@ -6,12 +6,11 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
     let ast_ident = &ast.ident;
 
     let mut matches = quote!{};
-    let mut len = quote!{};
     let mut functions = quote!{};
     let mut abi_functions = quote!{};
 
     if let syn::Data::Enum(e) = &ast.data {
-        for (i, var) in e.variants.clone().iter().enumerate() {
+        for var in e.variants.clone().iter() {
             let ident = &var.ident;
             let name = upper_camel_to_upper_snake(&ident.to_string()).to_lowercase();
             let fn_name_abi: TokenStream = format!("{}_instruction", name).parse().unwrap();
@@ -27,25 +26,13 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             let mut user_accounts = quote!{};
             let mut instruction_accounts = quote!{};
 
-            let mut var_size = quote!{};
             for field in &var.fields {
                 let field_name = field.ident.clone().unwrap();
                 let ty = field.ty.clone();
 
                 fields.extend(quote! { #field_name, });
                 fields_with_type.extend(quote! { #field_name: #ty, });
-
-                if var_size.is_empty() {
-                    var_size.extend(quote!{ <#ty>::SIZE })
-                } else {
-                    var_size.extend(quote!{ + <#ty>::SIZE })
-                }
             }
-            if var_size.is_empty() { var_size = quote!{ 0 } };
-            let i = i as u8;
-            len.extend(quote! {
-                #i => { #var_size },
-            });
 
             // Account attributes
             for (_, attr) in var.attrs.iter().enumerate() {
@@ -97,7 +84,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let account_init_fn = if is_writable { quote!{ new } } else { quote!{ new_readonly } };
 
                 let user_account_type = if is_signer {
-                    if is_writable { quote!{ SignerAccount } } else { quote!{ WritableSignerAccount } }
+                    if is_writable { quote!{ WritableSignerAccount } } else { quote!{ SignerAccount } }
                 } else if is_writable { quote!{ WritableUserAccount } } else { quote!{ UserAccount } };
 
                 match attr_name.as_str() {
@@ -131,7 +118,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                             account = quote!{ &#account };
                         } else {
-                            let ty = program_account_type(sub_attrs[1]);
+                            let ty: TokenStream = String::from(sub_attrs[1]).parse().unwrap();
                             let key: TokenStream = named_sub_attribute("key", sub_attrs[2]).parse().unwrap();
 
                             accounts.extend(quote!{
@@ -146,7 +133,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 account = quote!{ &#account };
                             }
                         }
-
                     }
 
                     // System program `AccountInfo` (usage: <name> <key = ..>)
@@ -171,7 +157,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         // - the seed of the main account plus the index of each sub-account is used to generate their PDAs
 
                         // The PDA account type
-                        let ty = program_account_type(sub_attrs[1]);
+                        let ty: TokenStream = String::from(sub_attrs[1]).parse().unwrap();
 
                         // The PDA offset is an optional field, used to add an offset to the seed (e.g. to index of tree)
                         // - note: you can reference a field from an account added before this one as an offset as well
@@ -183,6 +169,22 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                         // Multi account account
                         let multi_account = sub_attrs.contains(&"multi_accounts");
+
+                        // (For multi accounts): skips all sub-accounts (-> no checks required -> speed up)
+                        let ignore_sub_accounts = sub_attrs.contains(&"ignore_sub_accounts");
+
+                        let skip_abi = sub_attrs.contains(&"skip_abi");
+                        if skip_abi {
+                            let offset_ident: TokenStream = format!("{}_pda_offset", sub_attrs[0]).parse().unwrap();
+                            user_accounts.extend(quote!{ #offset_ident: Option<u64>, });
+                            account_init.push(quote!{
+                                accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#offset_ident).0, #is_signer));
+                            });
+                        } else {
+                            account_init.push(quote!{
+                                accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#pda_offset).0, #is_signer));
+                            });
+                        }
 
                         // PDA verification
                         let find_pda = sub_attrs.contains(&"find_pda"); // does not read the bump byte from the account data
@@ -196,65 +198,31 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             });
                         }
 
-                        account_init.push(quote!{
-                            accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#pda_offset).0, #is_signer));
-                        });
-
                         if multi_account {
-                            let write_check = if !is_writable { quote!{} } else {
-                                quote!{ if !account.is_writable { return Err(InvalidArgument) } }
-                            };
-
-                            // Checks sub-accounts
-                            // - the sub-accounts need to be supplied in the correct order
-                            // - we iterate over the pubkeys of the main-account
-                            // - if a pubkey has not been activated yet, it's skipped
-
                             // Sub-accounts with PDA and ownership check for each
-                            accounts.extend(quote!{
-                                let acc_data = &mut #account.data.borrow_mut()[..];
-                                let fields_check = match MultiAccountAccountData::<{<#ty>::COUNT}>::new(&acc_data) {
-                                    Ok(a) => a,
-                                    Err(_) => return Err(InvalidArgument)
-                                };
-                                let mut accounts = std::collections::HashMap::new();
-                                let mut iter_before = account_info_iter.clone();
+                            if !ignore_sub_accounts {
+                                accounts.extend(quote!{
+                                    let accounts = <#ty>::find_sub_accounts::<_, #ty, {<#ty>::COUNT}>(
+                                        #account,
+                                        program_id,
+                                        #is_writable,
+                                        account_info_iter,
+                                    )?;
+                                    let acc_data = &mut #account.data.borrow_mut()[..];
+                                });
 
-                                let mut i = 0;
-                                while i < <#ty>::COUNT {
-                                    // Get next account
-                                    match next_account_info(account_info_iter) {
-                                        Ok(account) => {
-                                            // Find matching pubkey
-                                            for j in i..<#ty>::COUNT {
-                                                // Compare pubkeys
-                                                match fields_check.pubkeys[j] {
-                                                    crate::bytes::ElusivOption::Some(pk) => if *account.key != pk { continue },
-                                                    crate::bytes::ElusivOption::None => continue
-                                                }
-
-                                                #write_check
-
-                                                i = j;
-                                                if account.owner != program_id { return Err(IllegalOwner) }
-                                                accounts.insert(i, account);
-                                            }
-
-                                            i += 1;
-                                        }
-                                        Err(_) => { break; }
+                                user_accounts.extend(quote!{ #account: &[#user_account_type], });
+                                account_init.push(quote!{
+                                    for account in #account {
+                                        accounts.push(AccountMeta::#account_init_fn(account.0, #is_signer));
                                     }
-                                }
-
-                                let account_info_iter = &mut iter_before.skip(accounts.len());
-                            });
-
-                            user_accounts.extend(quote!{ #account: &[#user_account_type], });
-                            account_init.push(quote!{
-                                for account in #account {
-                                    accounts.push(AccountMeta::#account_init_fn(account.0, #is_signer));
-                                }
-                            });
+                                });
+                            } else {
+                                accounts.extend(quote!{
+                                    let acc_data = &mut #account.data.borrow_mut()[..];
+                                    let mut accounts = std::collections::HashMap::new();
+                                });
+                            }
 
                             if as_account_info {
                                 accounts.extend(quote!{
@@ -305,7 +273,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
             functions.extend(quote!{
                 pub fn #fn_name(program_id: &Pubkey, accounts: &[AccountInfo], #fields_with_type) -> ProgramResult {
-                    let account_info_iter = &mut accounts.iter();
+                    let mut account_info_iter = &mut accounts.iter();
                     #accounts
                     processor::#fn_name(#signature #fields)
                 }
@@ -338,13 +306,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 }
 
                 #functions
-
-                pub fn len(variant_index: u8) -> usize {
-                    match variant_index {
-                        #len
-                        _ => { 0 }
-                    }
-                }
             }
     
             #[cfg(feature = "instruction-abi")]
@@ -354,8 +315,4 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
     
         }
     } else { panic!("Only enums can be instructions") }
-}
-
-fn program_account_type(name: &str) -> TokenStream {
-    (String::from(name) + "Account").parse().unwrap()
 }

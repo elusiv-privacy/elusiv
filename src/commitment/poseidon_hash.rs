@@ -1,7 +1,7 @@
 use ark_ff::{Field, Zero};
 use ark_bn254::Fr;
 use borsh::{BorshSerialize, BorshDeserialize};
-use crate::{types::U256, fields::{fr_to_u256_le, u256_to_fr}, bytes::BorshSerDeSized};
+use crate::{types::U256, fields::{fr_to_u256_le, u256_to_fr_skip_mr}, bytes::BorshSerDeSized};
 
 use super::poseidon_constants::*;
 
@@ -62,9 +62,9 @@ impl BorshDeserialize for BinarySpongeHashingState {
         let v = <[U256; 3]>::deserialize(buf)?;
         Ok(
             BinarySpongeHashingState([
-                u256_to_fr(&v[0]),
-                u256_to_fr(&v[1]),
-                u256_to_fr(&v[2]),
+                u256_to_fr_skip_mr(&v[0]),
+                u256_to_fr_skip_mr(&v[1]),
+                u256_to_fr_skip_mr(&v[2]),
             ])
         )
     }
@@ -163,7 +163,7 @@ mod tests {
     fn test_mt_default_values() {
         let mut a = full_poseidon2_hash(Fr::zero(), Fr::zero());
         for empty_value in EMPTY_TREE {
-            assert_eq!(a, u256_to_fr(&empty_value));
+            assert_eq!(a, u256_to_fr_skip_mr(&empty_value));
             a = full_poseidon2_hash(a, a);
         }
     }

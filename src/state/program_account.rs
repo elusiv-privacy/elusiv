@@ -1,7 +1,8 @@
 //! Traits used to represent types of accounts, owned by the program
 
+use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::account_info::AccountInfo;
+use solana_program::account_info::{AccountInfo, next_account_info};
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 use crate::macros::BorshSerDeSized;
@@ -17,7 +18,7 @@ pub trait ProgramAccount<'a>: SizedAccount {
     fn new(d: &'a mut [u8]) -> Result<Self::T, ProgramError>;
 }
 
-pub trait MultiAccountProgramAccount<'a, 'b, 't>: SizedAccount {
+pub trait MultiAccountProgramAccount<'a, 'b, 't> {
     type T: SizedAccount;
 
     fn new(
@@ -118,37 +119,95 @@ pub trait MultiInstancePDAAccount: PDAAccount {
     }
 }
 
-/// 1 MiB sub-account size
-/// - we don't use 10 MiB (`solana_program::system_instruction::MAX_PERMITTED_DATA_LENGTH`) for increased fetching/rent efficiency
-pub const MIN_ACCOUNT_SIZE: usize = 1048576;
+macro_rules! sub_account_safe {
+    ($id: ident, $self: ident, $account_index: expr) => {
+        let account = unsafe { $self.get_account_unsafe($account_index)? };
+        let data = &mut account.data.borrow_mut()[..];
+        let $id = SubAccount::new(data); 
+    };
+}
 
 /// Allows for storing data across multiple accounts (needed for data sized >10 MiB)
 /// - these accounts can be PDAs, but will most likely be data accounts (size > 10 KiB)
 /// - by default all these accounts are assumed to have the same size = `ACCOUNT_SIZE`
 /// - important: `ACCOUNT_SIZE` needs to contain `SUB_ACCOUNT_ADDITIONAL_SIZE`
 pub trait MultiAccountAccount<'t>: PDAAccount {
-    type T: BorshSerDeSized;
-
     /// The count of subsidiary accounts
     const COUNT: usize;
 
     /// The size of subsidiary accounts
     const ACCOUNT_SIZE: usize;
 
-    #[deprecated(note="Never call this function. Use `execute_on_sub_account` instead.")]
-    fn get_account(&self, account_index: usize) -> Result<&AccountInfo<'t>, ProgramError>;
+    /// Finds all `n elem [0; COUNT]` available sub-accounts
+    /// - the sub-accounts need to be supplied in correct order
+    /// - any account that has been set (`pubkeys[i] == Some(_)`) can be used
+    fn find_sub_accounts<'a, 'b, I, T, const COUNT: usize>(
+        main_account: &'a AccountInfo<'b>,
+        program_id: &Pubkey,
+        writable: bool,
+        account_info_iter: &mut I,
+    ) -> Result<HashMap<usize, &'a AccountInfo<'b>>, ProgramError>
+    where
+        I: Iterator<Item = &'a AccountInfo<'b>> + Clone,
+        T: PDAAccount + MultiAccountAccount<'b>,
+    {
+        assert_eq!(COUNT, Self::COUNT);
+
+        let acc_data = &mut main_account.data.borrow_mut()[..];
+        let fields_check = MultiAccountAccountData::<{COUNT}>::new(acc_data).or(Err(ProgramError::InvalidArgument))?;
+
+        let mut accounts = HashMap::new();
+        let mut remaining_iter = account_info_iter.clone();
+        let mut i = 0;
+        while i < Self::COUNT {
+            match next_account_info(account_info_iter) {
+                Ok(account) => {
+                    for j in i..Self::COUNT {
+                        match fields_check.pubkeys[j].option() {
+                            Some(pk) => if *account.key != pk { continue },
+                            None => continue,
+                        }
+
+                        if account.owner != program_id {
+                            return Err(ProgramError::IllegalOwner);
+                        }
+                        if writable && !account.is_writable {
+                            return Err(ProgramError::InvalidArgument)
+                        }
+
+                        accounts.insert(j, account);
+                        next_account_info(&mut remaining_iter)?;
+                        i = j;
+                        break;
+                    }
+                    i += 1;
+                }
+                Err(_) => break,
+            }
+        }
+
+        *account_info_iter = remaining_iter;
+        Ok(accounts)
+    }
+
+    /// Returns the sub-account for the specified index
+    /// 
+    /// # Safety
+    /// - Each sub-account has to be serialized using the `SubAccount` struct.
+    /// - Modifiying/accessing without the `SubAccount` struct, can lead to undefined behaviour.
+    /// - Use `execute_on_sub_account` instead of `get_account_unsafe` directly.
+    unsafe fn get_account_unsafe(&self, account_index: usize) -> Result<&AccountInfo<'t>, ProgramError>;
 
     /// Ensures that the fields of `SubAccount` are not manipulated on a sub-account
-    #[allow(deprecated)]
-    fn execute_on_sub_account<F, T, E>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> Result<T, E> {
-        let account = self.get_account(account_index)?;
-        let data = &mut account.data.borrow_mut()[..];
-        let account = SubAccount::new(data);
+    fn try_execute_on_sub_account<F, T, E>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> Result<T, E> {
+        sub_account_safe!(account, self, account_index);
         f(account.data).or(Err(ProgramError::InvalidAccountData))
     }
 
-    /// Can be used to track modifications (just important for test functions)
-    fn modify(&mut self, index: usize, value: Self::T);
+    fn execute_on_sub_account<F, T>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> T {
+        sub_account_safe!(account, self, account_index);
+        Ok(f(account.data))
+    }
 }
 
 /// Size required for the `is_in_use` boolean
@@ -176,30 +235,229 @@ impl<'a> SubAccount<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::macros::account;
+    use std::collections::HashMap;
+    use elusiv_proc_macros::repeat;
 
-    struct PDATest { }
+    struct TestPDAAccount { }
 
-    impl PDAAccount for PDATest {
+    impl PDAAccount for TestPDAAccount {
         const SEED: &'static [u8] = b"ABC";
     }
 
     #[test]
     fn test_pda_account() {
-        assert_ne!(PDATest::find(None), PDATest::find(Some(0)));
-        assert_ne!(PDATest::find(Some(0)), PDATest::find(Some(1)));
+        assert_ne!(TestPDAAccount::find(None), TestPDAAccount::find(Some(0)));
+        assert_ne!(TestPDAAccount::find(Some(0)), TestPDAAccount::find(Some(1)));
     }
 
     #[test]
     fn test_sub_account() {
         let mut data = vec![0; 100];
-        let mut acc = SubAccount::new(&mut data);
+        let mut account = SubAccount::new(&mut data);
 
-        assert!(!acc.get_is_in_use());
-        acc.set_is_in_use(true);
-        assert!(acc.get_is_in_use());
-        acc.set_is_in_use(false);
-        assert!(!acc.get_is_in_use());
+        assert!(!account.get_is_in_use());
+        account.set_is_in_use(true);
+        assert!(account.get_is_in_use());
+        account.set_is_in_use(false);
+        assert!(!account.get_is_in_use());
 
-        assert_eq!(acc.data.len(), 99);
+        assert_eq!(account.data.len(), 99);
+    }
+
+    struct TestMultiAccount<'a, 'b> {
+        pub pubkeys: [ElusivOption<Pubkey>; SUB_ACCOUNT_COUNT],
+        pub accounts: std::collections::HashMap<usize, &'a AccountInfo<'b>>,
+    }
+
+    impl<'a, 'b> PDAAccount for TestMultiAccount<'a, 'b> {
+        const SEED: &'static [u8] = b"ABC";
+    }
+
+    impl<'a, 'b> MultiAccountAccount<'b> for TestMultiAccount<'a, 'b> {
+        const COUNT: usize = SUB_ACCOUNT_COUNT;
+        const ACCOUNT_SIZE: usize = 2;
+
+        unsafe fn get_account_unsafe(&self, account_index: usize) -> Result<&AccountInfo<'b>, ProgramError> {
+            Ok(self.accounts[&account_index])
+        }
+    }
+
+    impl<'a, 'b> TestMultiAccount<'a, 'b> {
+        fn serialize(&self) -> Vec<u8> {
+            let mut v = Vec::new();
+            v.extend(vec![0; 3]);
+            v.extend(self.pubkeys.try_to_vec().unwrap());
+            v
+        }
+    }
+
+    const SUB_ACCOUNT_COUNT: usize = 3;
+
+    macro_rules! test_multi_account {
+        ($accounts: ident, $pubkeys: ident) => {
+            let mut accounts = HashMap::new();
+            let mut pubkeys = [ElusivOption::None; SUB_ACCOUNT_COUNT];
+
+            repeat!({
+                let pk = solana_program::pubkey::Pubkey::new_unique();
+                account!(account_index, pk, vec![1, 0]);
+                accounts.insert(_index, &account_index);
+
+                pubkeys[_index] = ElusivOption::Some(pk);
+            }, 3);
+
+            let $accounts = accounts;
+            let $pubkeys = pubkeys;
+
+        };
+
+        ($id: ident) => {
+            test_multi_account!(accounts, pubkeys);
+            let $id = TestMultiAccount { pubkeys, accounts };
+        };
+        (mut $id: ident) => {
+            test_multi_account!(accounts, pubkeys);
+            let mut $id = TestMultiAccount { pubkeys, accounts };
+        };
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_get_account_unsafe() {
+        test_multi_account!(account);
+        unsafe { _ = account.get_account_unsafe(3); }
+    }
+
+    #[test]
+    fn test_try_execute_on_sub_account() {
+        test_multi_account!(account);
+
+        for i in 0..SUB_ACCOUNT_COUNT {
+            assert_eq!(
+                account.try_execute_on_sub_account::<_, usize, ProgramError>(i, |data| {
+                    data[0] = i as u8 + 1;
+                    Ok(42)
+                }).unwrap(),
+                42
+            );
+        }
+
+        for i in 0..SUB_ACCOUNT_COUNT {
+            assert_eq!(account.accounts[&i].data.borrow()[1], i as u8 + 1);
+        }
+    }
+
+    #[test]
+    fn test_execute_on_sub_account() {
+        test_multi_account!(account);
+
+        for i in 0..SUB_ACCOUNT_COUNT {
+            account.execute_on_sub_account(i, |data| {
+                data[0] = i as u8 + 1;
+            }).unwrap();
+        }
+
+        for i in 0..SUB_ACCOUNT_COUNT {
+            assert_eq!(account.accounts[&i].data.borrow()[1], i as u8 + 1);
+        }
+    }
+
+    fn test_find(
+        pubkey_is_setup: [bool; SUB_ACCOUNT_COUNT],
+        accounts: Vec<Option<usize>>,
+        expected: Vec<usize>,
+    ) {
+        test_multi_account!(mut account);
+        for (i, &is_setup) in pubkey_is_setup.iter().enumerate() {
+            if is_setup { continue }
+            account.pubkeys[i] = ElusivOption::None;
+        }
+
+        let data = account.serialize();
+        let pk = solana_program::pubkey::Pubkey::new_unique();
+        account!(main_account, pk, data);
+
+        let pk = solana_program::pubkey::Pubkey::new_unique();
+        account!(unused_account, pk, vec![1, 0]);
+
+        let account_info_iter = &mut accounts.iter().map(|a| match a {
+            Some(i) => account.accounts[i],
+            None => &unused_account,
+        });
+        let len_prev = account_info_iter.len();
+        let map = TestMultiAccount::find_sub_accounts::<_, TestMultiAccount, {SUB_ACCOUNT_COUNT}>(
+            &main_account,
+            &crate::ID,
+            false,
+            account_info_iter,
+        ).unwrap();
+        assert_eq!(len_prev, account_info_iter.len() + map.len());
+
+        let mut keys: Vec<usize> = map.iter().map(|(&k, _)| k).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, expected);
+        for key in keys {
+            assert_eq!(map[&key].key, account.accounts[&key].key);
+        }
+    }
+
+    #[test]
+    fn test_find_sub_accounts() {
+        // All none
+        test_find(
+            [false, false, false],
+            vec![Some(0), Some(1), Some(2)],
+            vec![]
+        );
+
+        // First account set
+        test_find(
+            [true, false, false],
+            vec![Some(0), Some(1), Some(2)],
+            vec![0]
+        );
+
+        // Middle account set
+        test_find(
+            [false, true, false],
+            vec![Some(0), Some(1), Some(2)],
+            vec![1]
+        );
+
+        // Last account set
+        test_find(
+            [false, false, true],
+            vec![Some(0), Some(1), Some(2)],
+            vec![2]
+        );
+
+        // Different account at start
+        test_find(
+            [true, true, true],
+            vec![None, Some(0), Some(1), Some(2)],
+            vec![]
+        );
+
+        // Wrong order
+        test_find(
+            [true, true, true],
+            vec![Some(2), Some(1), Some(0)],
+            vec![2]
+        );
+
+        // Correct order
+        test_find(
+            [true, true, true],
+            vec![Some(0), Some(1), Some(2)],
+            vec![0, 1, 2]
+        );
+
+        // Accounts at end ignored
+        test_find(
+            [true, true, true],
+            vec![Some(0), Some(1), Some(2), None, None],
+            vec![0, 1, 2]
+        );
     }
 }
