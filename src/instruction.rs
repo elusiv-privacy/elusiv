@@ -132,13 +132,18 @@ pub enum ElusivInstruction {
     // Finalizing proofs that finished 
     #[acc(identifier_account)]
     #[acc(salt_account)]
-    #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
+    #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
     #[pda(storage_account, StorageAccount, { multi_accounts, ignore_sub_accounts })]
-    #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, multi_accounts, skip_abi })]
-    #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi  })]
     FinalizeVerificationSend {
         data: FinalizeSendData,
+        verification_account_index: u32,
+    },
+
+    #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
+    #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, multi_accounts, skip_abi })]
+    #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi  })]
+    FinalizeVerificationSendNullifiers {
         verification_account_index: u32,
     },
 
@@ -147,6 +152,7 @@ pub enum ElusivInstruction {
     #[pda(fee, FeeAccount, pda_offset = Some(fee_version))]
     #[pda(pool, PoolAccount, { writable, account_info })]
     #[pda(fee_collector, FeeCollectorAccount, { writable, account_info })]
+    #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable, account_info })]
     #[acc(nullifier_duplicate_account, { writable, owned })]
     FinalizeVerificationTransfer {

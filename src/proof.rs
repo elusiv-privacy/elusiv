@@ -35,6 +35,7 @@ pub enum VerificationState {
     ProofSetup,
 
     // Finalization
+    InsertNullifiers,
     Finalized,
     Closed,
 }

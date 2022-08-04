@@ -385,38 +385,67 @@ async fn test_verify_invalid_proof() {
         commitment_index: 0,
     };
 
-    let finalize_ix = ElusivInstruction::finalize_verification_send_instruction(
-        finalize_data,
-        0,
-        UserAccount(identifier),
-        UserAccount(salt),
-        Some(0),
-        &[WritableUserAccount(writable_nullifier_0[0].0)],
-        Some(1),
-        &[],
-    );
+    let finalize_ixs = [
+        ElusivInstruction::finalize_verification_send_instruction(
+            finalize_data,
+            0,
+            UserAccount(identifier),
+            UserAccount(salt),
+        ),
+        ElusivInstruction::finalize_verification_send_nullifiers_instruction(
+            0,
+            Some(0),
+            &[WritableUserAccount(writable_nullifier_0[0].0)],
+            Some(1),
+            &[],
+        ),
+        ElusivInstruction::finalize_verification_transfer_instruction(
+            0,
+            0,
+            WritableUserAccount(recipient),
+            WritableUserAccount(client.pubkey),
+            WritableUserAccount(nullifier_duplicate_account),
+        ),
+    ];
 
-    // Two finalizes will fail
-    tx_should_fail(&[finalize_ix.clone(), finalize_ix.clone()], &mut client, &mut context).await;
+    // 3 before 1
+    ix_should_fail(finalize_ixs[2].clone(), &mut client, &mut context).await;
 
-    // Finalize
-    ix_should_succeed(finalize_ix.clone(), &mut client, &mut context).await;
+    // 2 before 1
+    ix_should_fail(finalize_ixs[1].clone(), &mut client, &mut context).await;
 
-    let finalize_transfer_ix = ElusivInstruction::finalize_verification_transfer_instruction(
-        0,
-        0,
-        WritableUserAccount(recipient),
-        WritableUserAccount(client.pubkey),
-        WritableUserAccount(nullifier_duplicate_account),
-    );
+    // 1 twice
+    tx_should_fail(&[finalize_ixs[0].clone(), finalize_ixs[0].clone()], &mut client, &mut context).await;
 
-    // Two finalize transfers will fail
-    tx_should_fail(&[finalize_transfer_ix.clone(), finalize_transfer_ix.clone()], &mut client, &mut context).await;
+    // Finalize 1/3
+    ix_should_succeed(finalize_ixs[0].clone(), &mut client, &mut context).await;
+    pda_account!(verification_account, VerificationAccount, Some(0), &mut context);
+    assert_matches!(verification_account.get_state(), VerificationState::Finalized);
 
-    ix_should_succeed(finalize_transfer_ix.clone(), &mut client, &mut context).await;
+    // 2 will fail for invalid proof
+    ix_should_fail(finalize_ixs[1].clone(), &mut client, &mut context).await;
 
-    // Second finalize transfer will fail
-    ix_should_fail(finalize_ix, &mut client, &mut context).await;
+    insert_nullifier_hashes(&mut context, 1000, &[]).await;
+
+    // Invalid nullifier_duplicate_account
+    ix_should_fail(
+        ElusivInstruction::finalize_verification_transfer_instruction(
+            0,
+            0,
+            WritableUserAccount(recipient),
+            WritableUserAccount(client.pubkey),
+            WritableUserAccount(CommitmentQueueAccount::find(None).0),
+        ),
+        &mut client, &mut context
+    ).await;
+
+    // Update fee version in the mean time (will not affect the fee)
+    set_single_pda_account!(GovernorAccount, &mut context, None, |acc: &mut GovernorAccount| {
+        acc.set_fee_version(&1);
+    });
+
+    // Finalize 3/3
+    ix_should_succeed(finalize_ixs[2].clone(), &mut client, &mut context).await;
 
     // Subvention and rent transferred to fee_collector
     assert_eq!(pool_balance, get_balance(&pool, &mut context).await);
@@ -536,13 +565,47 @@ async fn test_verify_valid_proof() {
         commitment_index: 0,
     };
 
-    // Finalize with missing sub-account will fail
-    ix_should_fail(
+    let finalize_ixs = [
         ElusivInstruction::finalize_verification_send_instruction(
             finalize_data,
             0,
             UserAccount(identifier),
             UserAccount(salt),
+        ),
+        ElusivInstruction::finalize_verification_send_nullifiers_instruction(
+            0,
+            Some(0),
+            &[WritableUserAccount(writable_nullifier_0[0].0)],
+            Some(1),
+            &[],
+        ),
+        ElusivInstruction::finalize_verification_transfer_instruction(
+            0,
+            0,
+            WritableUserAccount(recipient),
+            WritableUserAccount(client.pubkey),
+            WritableUserAccount(nullifier_duplicate_account),
+        ),
+    ];
+
+    // 3 before 1
+    ix_should_fail(finalize_ixs[2].clone(), &mut client, &mut context).await;
+
+    // 2 before 1
+    ix_should_fail(finalize_ixs[1].clone(), &mut client, &mut context).await;
+
+    // 1 twice
+    tx_should_fail(&[finalize_ixs[0].clone(), finalize_ixs[0].clone()], &mut client, &mut context).await;
+
+    // Finalize 1/3
+    ix_should_succeed(finalize_ixs[0].clone(), &mut client, &mut context).await;
+    pda_account!(verification_account, VerificationAccount, Some(0), &mut context);
+    assert_matches!(verification_account.get_state(), VerificationState::InsertNullifiers);
+
+    // 2/3 with missing sub-account will fail
+    ix_should_fail(
+        ElusivInstruction::finalize_verification_send_nullifiers_instruction(
+            0,
             Some(0),
             &[],
             Some(1),
@@ -551,28 +614,17 @@ async fn test_verify_valid_proof() {
         &mut client, &mut context
     ).await;
 
-    let finalize_ix = ElusivInstruction::finalize_verification_send_instruction(
-        finalize_data,
-        0,
-        UserAccount(identifier),
-        UserAccount(salt),
-        Some(0),
-        &[WritableUserAccount(writable_nullifier_0[0].0)],
-        Some(1),
-        &[],
-    );
-
-    // Two finalizes will fail
-    tx_should_fail(&[finalize_ix.clone(), finalize_ix.clone()], &mut client, &mut context).await;
+    // 2/3 twice
+    tx_should_fail(&[finalize_ixs[1].clone(), finalize_ixs[1].clone()], &mut client, &mut context).await;
     let nullifier_hashes = request.public_inputs.join_split.nullifier_hashes.clone();
 
     insert_nullifier_hashes(&mut context, 1000, &[]).await;
 
-    // Finalize (without transfer ix -> one extra tx sent)
+    // Finalize 2/3
     tx_should_succeed(
         &[
             request_compute_units(1_400_000),
-            finalize_ix.clone(),
+            finalize_ixs[1].clone(),
         ],
         &mut client, &mut context,
     ).await;
@@ -599,33 +651,23 @@ async fn test_verify_valid_proof() {
         &mut client, &mut context
     ).await;
 
-    let finalize_transfer_ix = ElusivInstruction::finalize_verification_transfer_instruction(
-        0,
-        0,
-        WritableUserAccount(recipient),
-        WritableUserAccount(client.pubkey),
-        WritableUserAccount(nullifier_duplicate_account),
-    );
-
     // Update fee version in the mean time (will not affect the fee)
     set_single_pda_account!(GovernorAccount, &mut context, None, |acc: &mut GovernorAccount| {
         acc.set_fee_version(&1);
     });
 
-    // Two finalize transfers will fail
-    tx_should_fail(&[finalize_transfer_ix.clone(), finalize_transfer_ix.clone()], &mut client, &mut context).await;
+    // 2 twice
+    tx_should_fail(&[finalize_ixs[2].clone(), finalize_ixs[2].clone()], &mut client, &mut context).await;
 
-    ix_should_succeed(finalize_transfer_ix.clone(), &mut client, &mut context).await;
-
-    // Second finalize transfer will fail
-    ix_should_fail(finalize_ix, &mut client, &mut context).await;
+    // Finalize 3/3
+    ix_should_succeed(finalize_ixs[2].clone(), &mut client, &mut context).await;
 
     let network_fee = fee.proof_verification_network_fee(amount);
     let reward = fee.relayer_proof_reward;
 
     // Tx cost compensation, reward and rent paid to fee_payer
     assert_eq!(
-        client_balance + reward - fee.lamports_per_tx,
+        client_balance + reward - 2 * fee.lamports_per_tx,
         client.balance(&mut context).await
     );
 
@@ -740,10 +782,7 @@ async fn test_three_commitments_single_mt() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_four_commitments_single_mt() {
-    // Memory optimization required!
-
     let (mut context, mut client) = setup_verification_tests().await;
     pda_account!(governor, GovernorAccount, None, &mut context);
     let fee = governor.get_program_fee();
@@ -929,6 +968,9 @@ async fn test_valid_proof_single_mt(
             0,
             UserAccount(identifier),
             UserAccount(salt),
+        ),
+        ElusivInstruction::finalize_verification_send_nullifiers_instruction(
+            0,
             Some(0),
             &[WritableUserAccount(writable_nullifier_0[0].0)],
             Some(1),

@@ -286,16 +286,15 @@ pub struct FinalizeSendData {
     pub commitment_index: u32,
 }
 
-/// First part of the finalization of Send/Merge proofs
-#[allow(clippy::too_many_arguments)]
-pub fn finalize_verification_send<'a, 'b, 'c>(
+/// First finalize instruction
+/// - for valid proof finalization: `finalize_verification_send, `finalize_verification_send_nullifiers`, `finalize_verification_transfer`
+/// - for invalid proof: `finalize_verification_send`, `finalize_verification_transfer`
+pub fn finalize_verification_send(
     identifier_account: &AccountInfo,
     salt_account: &AccountInfo,
-    verification_account: &mut VerificationAccount,
     commitment_hash_queue: &mut CommitmentQueueAccount,
+    verification_account: &mut VerificationAccount,
     storage_account: &StorageAccount,
-    n_acc_0: &mut NullifierAccount<'a, 'b, 'c>,
-    n_acc_1: &mut NullifierAccount<'a, 'b, 'c>,
 
     data: FinalizeSendData,
     _verification_account_index: u32,
@@ -317,7 +316,6 @@ pub fn finalize_verification_send<'a, 'b, 'c>(
         ProofRequest::Merge(public_inputs) => public_inputs,
         _ => return Err(FeatureNotAvailable.into())
     };
-    let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
 
     guard!(identifier_account.key.to_bytes() == public_inputs.identifier.skip_mr(), InvalidAccount);
     guard!(salt_account.key.to_bytes() == public_inputs.salt.skip_mr(), InvalidAccount);
@@ -325,7 +323,7 @@ pub fn finalize_verification_send<'a, 'b, 'c>(
     let (commitment_index, mt_index) = minimum_commitment_mt_index(
         storage_account.get_trees_count(),
         storage_account.get_next_commitment_ptr(),
-        commitment_queue.len()
+        CommitmentQueue::new(commitment_hash_queue).len()
     );
     guard!(data.timestamp == public_inputs.current_time, InvalidInstructionData);
     guard!(data.total_amount == public_inputs.join_split.total_amount(), InvalidInstructionData);
@@ -333,20 +331,40 @@ pub fn finalize_verification_send<'a, 'b, 'c>(
     guard!(data.commitment_index == commitment_index, InvalidInstructionData);
     guard!(data.mt_index == mt_index, InvalidInstructionData);
 
-    commitment_queue.enqueue(
-        CommitmentHashRequest {
-            commitment: public_inputs.join_split.commitment.reduce(),
-            fee_version: public_inputs.join_split.fee_version,
-            min_batching_rate: verification_account.get_other_data().min_batching_rate,
-        }
-    )?;
+    verification_account.set_state(&VerificationState::InsertNullifiers);
+
+    Ok(())
+}
+
+pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
+    verification_account: &mut VerificationAccount,
+    n_acc_0: &mut NullifierAccount<'a, 'b, 'c>,
+    n_acc_1: &mut NullifierAccount<'a, 'b, 'c>,
+
+    _verification_account_index: u32,
+) -> ProgramResult {
+    guard!(matches!(verification_account.get_state(), VerificationState::InsertNullifiers), InvalidAccountState);
+
+    let request = verification_account.get_request();
+    let public_inputs = match request {
+        ProofRequest::Send(public_inputs) => public_inputs,
+        ProofRequest::Merge(public_inputs) => public_inputs,
+        _ => return Err(FeatureNotAvailable.into())
+    };
 
     let nullifier_accounts: [&mut NullifierAccount<'a, 'b, 'c>; MAX_MT_COUNT] = [n_acc_0, n_acc_1];
-    let nullifier_hashes = group_nullifier_hashes(&public_inputs.join_split);
-    for (i, nullifier_hashes) in nullifier_hashes.iter().enumerate() {
-        for &nullifier_hash in nullifier_hashes {
-            nullifier_accounts[i].try_insert_nullifier_hash(nullifier_hash)?;
-        }
+    let mut tree_index = 0;
+    for (i, root) in public_inputs.join_split.roots.iter().enumerate() {
+        let nullifier_hash = public_inputs.join_split.nullifier_hashes[i].reduce();
+        let index = match root {
+            Some(_) => {
+                let t = tree_index;
+                tree_index += 1;
+                t
+            }
+            None => 0,
+        };
+        nullifier_accounts[index].try_insert_nullifier_hash(nullifier_hash)?;
     }
 
     verification_account.set_state(&VerificationState::Finalized);
@@ -361,6 +379,7 @@ pub fn finalize_verification_transfer<'a>(
     fee: &FeeAccount,
     pool: &AccountInfo<'a>,
     fee_collector: &AccountInfo<'a>,
+    commitment_hash_queue: &mut CommitmentQueueAccount,
     verification_account_info: &AccountInfo<'a>,
     nullifier_duplicate_account: &AccountInfo<'a>,
 
@@ -393,7 +412,7 @@ pub fn finalize_verification_transfer<'a>(
         return Ok(())
     }
 
-    let amount = if let ProofRequest::Send(public_inputs) = request {
+    let amount = if let ProofRequest::Send(public_inputs) = &request {
         // Send `amount` to `recipient`
         guard!(recipient.key.to_bytes() == public_inputs.recipient.skip_mr(), InvalidAccount);
         send_from_pool(pool, recipient, public_inputs.join_split.amount)?;
@@ -418,6 +437,16 @@ pub fn finalize_verification_transfer<'a>(
         close_account(original_fee_payer, verification_account_info)?;
         close_account(original_fee_payer, nullifier_duplicate_account)?;
     }
+
+    let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
+    let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
+    commitment_queue.enqueue(
+        CommitmentHashRequest {
+            commitment: join_split.commitment.reduce(),
+            fee_version: join_split.fee_version,
+            min_batching_rate: data.min_batching_rate,
+        }
+    )?;
 
     verification_account.set_state(&VerificationState::Closed);
 
@@ -519,23 +548,6 @@ fn check_join_split_public_inputs(
     Ok(())
 }
 
-fn group_nullifier_hashes(
-    public_inputs: &JoinSplitPublicInputs,
-) -> Vec<Vec<U256>> {
-    let mut nullifier_hashes = Vec::new();
-    for (i, root) in public_inputs.roots.iter().enumerate() {
-        match root {
-            Some(_) => {
-                nullifier_hashes.push(vec![public_inputs.nullifier_hashes[i].reduce()]);
-            }
-            None => {
-                nullifier_hashes[0].push(public_inputs.nullifier_hashes[i].reduce());
-            }
-        }
-    }
-    nullifier_hashes
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,7 +561,7 @@ mod tests {
     use crate::proof::{COMBINED_MILLER_LOOP_IXS, FINAL_EXPONENTIATION_IXS, proof_from_str};
     use crate::state::fee::ProgramFee;
     use crate::state::governor::{PoolAccount, FeeCollectorAccount};
-    use crate::state::{EMPTY_TREE, MT_HEIGHT, empty_root_raw};
+    use crate::state::empty_root_raw;
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::{two_pow, zero_account, account, test_account_info, storage_account, nullifier_account, hash_map};
     use crate::types::{RawU256, Proof, compute_fee_rec};
@@ -923,7 +935,7 @@ mod tests {
 
     #[test]
     fn test_finalize_verification_send_valid() {
-        finalize_send_test!(send_public_inputs, v_account, v_data, queue, n_acc_0, n_acc_1, nullifier_duplicate_pda, finalize_data);
+        finalize_send_test!(send_public_inputs, v_account, v_data, queue, _n, _n, nullifier_duplicate_pda, finalize_data);
         let identifier_pk = Pubkey::new(&send_public_inputs.identifier.skip_mr());
         let salt_pk = Pubkey::new(&send_public_inputs.salt.skip_mr());
         account!(identifier, identifier_pk, vec![]);
@@ -933,7 +945,7 @@ mod tests {
         // Verification is not finished
         v_account.set_is_verified(&ElusivOption::None);
         assert_matches!(
-            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, finalize_data, 0),
+            finalize_verification_send(&identifier, &salt, &mut queue, &mut v_account, &storage, finalize_data, 0),
             Err(_)
         );
 
@@ -942,7 +954,7 @@ mod tests {
         { // Invalid identifier
             account!(identifier, salt_pk, vec![]); 
             assert_matches!(
-                finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, finalize_data, 0),
+                finalize_verification_send(&identifier, &salt, &mut queue, &mut v_account, &storage, finalize_data, 0),
                 Err(_)
             );
         }
@@ -950,7 +962,7 @@ mod tests {
         { // Invalid salt
             account!(salt, identifier_pk, vec![]); 
             assert_matches!(
-                finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, finalize_data, 0),
+                finalize_verification_send(&identifier, &salt, &mut queue, &mut v_account, &storage, finalize_data, 0),
                 Err(_)
             );
         }
@@ -964,59 +976,22 @@ mod tests {
             mutate(&finalize_data, |d| { d.mt_index = 1 }),
         ] {
             assert_matches!(
-                finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, invalid_data, 0),
+                finalize_verification_send(&identifier, &salt, &mut queue, &mut v_account, &storage, invalid_data, 0),
                 Err(_)
             );
         }
 
-        { // Commitment queue is full
-            let mut queue = CommitmentQueue::new(&mut queue);
-            for _ in 0..CommitmentQueue::CAPACITY {
-                queue.enqueue(
-                    CommitmentHashRequest {
-                        commitment: [0; 32],
-                        fee_version: 0,
-                        min_batching_rate: 0,
-                    }
-                ).unwrap();
-            }
-        }
-        assert_matches!(
-            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, finalize_data, 0),
-            Err(_)
-        );
-
-        let mut data = vec![0; CommitmentQueueAccount::SIZE];
-        let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
-
-        // Nullifier duplicate
-        n_acc_0.try_insert_nullifier_hash(send_public_inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
-        assert_matches!(
-            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, finalize_data, 0),
-            Err(_)
-        );
-
-        let mut data = vec![0; CommitmentQueueAccount::SIZE];
-        let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
-        nullifier_account!(mut n_acc_0);
-
         // Success
         assert_matches!(
-            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, finalize_data, 0),
+            finalize_verification_send(&identifier, &salt, &mut queue, &mut v_account, &storage, finalize_data, 0),
             Ok(())
         );
 
-        assert_matches!(v_account.get_state(), VerificationState::Finalized);
-        {
-            let queue = CommitmentQueue::new(&mut queue);
-            assert_eq!(queue.len(), 1);
-            let commitment = queue.view_first().unwrap();
-            assert_eq!(commitment.commitment, send_public_inputs.join_split.commitment.reduce());
-        }
+        assert_matches!(v_account.get_state(), VerificationState::InsertNullifiers);
 
         // Called twice
         assert_matches!(
-            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, finalize_data, 0),
+            finalize_verification_send(&identifier, &salt, &mut queue, &mut v_account, &storage, finalize_data, 0),
             Err(_)
         );
     }
@@ -1024,7 +999,7 @@ mod tests {
     #[test]
     #[allow(unused_mut)]
     fn test_finalize_verification_send_invalid() {
-        finalize_send_test!(send_public_inputs, v_account, v_data, queue, n_acc_0, n_acc_1, nullifier_duplicate_pda, finalize_data);
+        finalize_send_test!(send_public_inputs, v_account, v_data, queue, _n, _n, nullifier_duplicate_pda, finalize_data);
         let identifier_pk = Pubkey::new(&send_public_inputs.identifier.skip_mr());
         let salt_pk = Pubkey::new(&send_public_inputs.salt.skip_mr());
         account!(identifier, identifier_pk, vec![]);
@@ -1033,7 +1008,7 @@ mod tests {
         storage_account!(storage);
 
         assert_matches!(
-            finalize_verification_send(&identifier, &salt, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, finalize_data, 0),
+            finalize_verification_send(&identifier, &salt, &mut queue, &mut v_account, &storage, finalize_data, 0),
             Ok(())
         );        
         assert_matches!(v_account.get_state(), VerificationState::Finalized);
@@ -1072,14 +1047,11 @@ mod tests {
         let mut data = vec![0; CommitmentQueueAccount::SIZE];
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
 
-        nullifier_account!(mut n_acc_0);
-        nullifier_account!(mut n_acc_1);
-
         let finalize_data = FinalizeSendData { timestamp: 0, total_amount: 0, token_id: 0, mt_index: 0, commitment_index: 0 };
         storage_account!(storage);
 
         assert_matches!(
-            finalize_verification_send(&acc, &acc, &mut v_account, &mut queue, &storage, &mut n_acc_0, &mut n_acc_1, finalize_data, 0),
+            finalize_verification_send(&acc, &acc, &mut queue, &mut v_account, &storage, finalize_data, 0),
             Err(_)
         );
     }
@@ -1092,9 +1064,40 @@ mod tests {
     }
 
     #[test]
+    fn test_finalize_verification_send_nullifiers() {
+        finalize_send_test!(send_public_inputs, v_account, v_data, _q, n_acc_0, n_acc_1, nullifier_duplicate_pda, _f);
+
+        // inalize_verification_send not called
+        v_account.set_state(&VerificationState::InsertNullifiers);
+
+        // Nullifier duplicate
+        n_acc_0.try_insert_nullifier_hash(send_public_inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
+        assert_matches!(
+            finalize_verification_send_nullifiers(&mut v_account, &mut n_acc_0, &mut n_acc_1, 0),
+            Err(_)
+        );
+
+        nullifier_account!(mut n_acc_0);
+
+        // Success
+        assert_matches!(
+            finalize_verification_send_nullifiers(&mut v_account, &mut n_acc_0, &mut n_acc_1, 0),
+            Ok(())
+        );
+
+        assert_matches!(v_account.get_state(), VerificationState::Finalized);
+
+        // Called twice
+        assert_matches!(
+            finalize_verification_send_nullifiers(&mut v_account, &mut n_acc_0, &mut n_acc_1, 0),
+            Err(_)
+        );
+    }
+
+    #[test]
     #[allow(unused_mut)]
     fn test_finalize_verification_transfer() {
-        finalize_send_test!(send_public_inputs, v_account, v_data, _q, _n, _n, nullifier_duplicate_pda, _f);
+        finalize_send_test!(send_public_inputs, v_account, v_data, queue, _n, _n, nullifier_duplicate_pda, _f);
 
         let recipient_pk = Pubkey::new(&send_public_inputs.recipient.skip_mr());
         account!(recipient, recipient_pk, vec![]);
@@ -1113,7 +1116,7 @@ mod tests {
 
         // Finalize not called prior
         assert_matches!(
-            finalize_verification_transfer(&recipient, &fee_payer, &fee, &pool, &collector, &v_acc, &nullifier, 0, 0),
+            finalize_verification_transfer(&recipient, &fee_payer, &fee, &pool, &collector, &mut queue, &v_acc, &nullifier, 0, 0),
             Err(_)
         );
 
@@ -1122,74 +1125,60 @@ mod tests {
 
         // Invalid original_fee_payer
         assert_matches!(
-            finalize_verification_transfer(&recipient, &recipient, &fee, &pool, &collector, &v_acc, &nullifier, 0, 0),
+            finalize_verification_transfer(&recipient, &recipient, &fee, &pool, &collector, &mut queue, &v_acc, &nullifier, 0, 0),
             Err(_)
         );
 
         // Invalid nullifier_duplicate_account
         assert_matches!(
-            finalize_verification_transfer(&recipient, &fee_payer, &fee, &pool, &collector, &v_acc, &recipient, 0, 0),
+            finalize_verification_transfer(&recipient, &fee_payer, &fee, &pool, &collector, &mut queue, &v_acc, &recipient, 0, 0),
             Err(_)
         );
 
         // Invalid recipient
         assert_matches!(
-            finalize_verification_transfer(&fee_payer, &fee_payer, &fee, &pool, &collector, &v_acc, &nullifier, 0, 0),
+            finalize_verification_transfer(&fee_payer, &fee_payer, &fee, &pool, &collector, &mut queue, &v_acc, &nullifier, 0, 0),
             Err(_)
         );
 
         // Invalid fee version
         assert_matches!(
-            finalize_verification_transfer(&recipient, &fee_payer, &fee, &pool, &collector, &v_acc, &nullifier, 0, 1),
+            finalize_verification_transfer(&recipient, &fee_payer, &fee, &pool, &collector, &mut queue, &v_acc, &nullifier, 0, 1),
             Err(_)
         );
 
+        { // Commitment queue is full
+            let mut queue = CommitmentQueue::new(&mut queue);
+            for _ in 0..CommitmentQueue::CAPACITY {
+                queue.enqueue(
+                    CommitmentHashRequest {
+                        commitment: [0; 32],
+                        fee_version: 0,
+                        min_batching_rate: 0,
+                    }
+                ).unwrap();
+            }
+        }
         assert_matches!(
-            finalize_verification_transfer(&recipient, &fee_payer, &fee, &pool, &collector, &v_acc, &nullifier, 0, 0),
+            finalize_verification_transfer(&recipient, &fee_payer, &fee, &pool, &collector, &mut queue, &v_acc, &nullifier, 0, 1),
+            Err(_)
+        );
+
+        let mut data = vec![0; CommitmentQueueAccount::SIZE];
+        let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
+
+        assert_matches!(
+            finalize_verification_transfer(&recipient, &fee_payer, &fee, &pool, &collector, &mut queue, &v_acc, &nullifier, 0, 0),
             Ok(())
         );
 
         let data = &mut v_acc.data.borrow_mut()[..];
         let verification_account = VerificationAccount::new(data).unwrap();
         assert_matches!(verification_account.get_state(), VerificationState::Closed);
-    }
-
-    #[test]
-    fn test_group_nullifier_hashes() {
-        let public_inputs = JoinSplitPublicInputs {
-            commitment_count: 4,
-            roots: vec![
-                Some(RawU256::new(EMPTY_TREE[MT_HEIGHT as usize])),
-                None,
-                Some(RawU256::new(EMPTY_TREE[MT_HEIGHT as usize])),
-                None,
-            ],
-            nullifier_hashes: vec![
-                RawU256::new(u256_from_str_skip_mr("0")),
-                RawU256::new(u256_from_str_skip_mr("1")),
-                RawU256::new(u256_from_str_skip_mr("2")),
-                RawU256::new(u256_from_str_skip_mr("3")),
-            ],
-            commitment: RawU256::new(u256_from_str_skip_mr("1")),
-            fee_version: 0,
-            amount: LAMPORTS_PER_SOL,
-            fee: 123,
-            token_id: 0,
-        };
-
-        assert_eq!(
-            group_nullifier_hashes(&public_inputs),
-            vec![
-                vec![
-                    u256_from_str("0"),
-                    u256_from_str("1"),
-                    u256_from_str("3"),
-                ],
-                vec![
-                    u256_from_str("2"),
-                ]
-            ]
-        );
+        let mut queue = CommitmentQueue::new(&mut queue);
+        assert_eq!(queue.len(), 1);
+        let commitment = queue.view_first().unwrap();
+        assert_eq!(commitment.commitment, send_public_inputs.join_split.commitment.reduce());
     }
 
     #[test]
