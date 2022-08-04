@@ -369,9 +369,8 @@ pub fn u256_from_str_skip_mr(str: &str) -> U256 {
 
 #[cfg(test)]
 mod tests {
-    use ark_ff::BigInteger;
-
     use super::*;
+    use ark_ff::BigInteger;
 
     macro_rules! test_ser_de {
         ($ty: ty, $v: expr) => {

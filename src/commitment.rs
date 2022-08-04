@@ -12,7 +12,9 @@ use crate::state::{StorageAccount, HISTORY_ARRAY_COUNT};
 use crate::types::U256;
 use crate::bytes::{BorshSerDeSized, usize_as_u32_safe};
 use crate::state::program_account::{SizedAccount, PDAAccountData};
-use crate::fields::{u64_to_scalar, u256_to_fr_skip_mr, fr_to_u256_le};
+use crate::fields::{u256_to_fr_skip_mr, fr_to_u256_le};
+use ark_bn254::Fr;
+use ark_ff::{BigInteger256, PrimeField};
 use solana_program::program_error::ProgramError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;
@@ -60,7 +62,7 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
         self.set_state(
             &BinarySpongeHashingState::new(
                 u256_to_fr_skip_mr(&request.base_commitment.reduce()),
-                u64_to_scalar(request.amount),
+                Fr::from_repr(BigInteger256([request.amount, request.token_id as u64, 0, 0])).unwrap(),
                 false,
             )
         );
@@ -418,9 +420,10 @@ pub fn base_commitment_request(
 #[cfg(test)]
 mod tests {
     use std::cmp::max;
+    use std::str::FromStr;
 
     use super::*;
-    use crate::fields::{u256_from_str, u64_to_u256_skip_mr, u64_to_scalar_skip_mr};
+    use crate::fields::{u256_from_str, u64_to_u256_skip_mr, u64_to_scalar_skip_mr, u64_to_scalar};
     use crate::state::EMPTY_TREE;
     use crate::state::program_account::{ProgramAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::storage_account;
@@ -765,7 +768,7 @@ mod tests {
         assert_eq!(account.get_state().0, [
             Fr::zero(),
             u256_to_fr_skip_mr(&request.base_commitment.reduce()),
-            u64_to_scalar(request.amount),
+            Fr::from_str("36893488147419103565").unwrap(), // 333 + 18446744073709551616 * 2
         ]);
         assert_eq!(account.get_fee_payer(), fee_payer);
         assert_eq!(account.get_fee_version(), request.fee_version);

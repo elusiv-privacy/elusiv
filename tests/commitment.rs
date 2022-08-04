@@ -64,7 +64,7 @@ async fn test_base_commitment() {
     let requests = requests(1);
     let lamports_per_tx = lamports_per_signature(&mut context).await;
 
-    pda_account!(governor, GovernorAccount, None, context);
+    pda_account!(governor, GovernorAccount, None, &mut context);
     let fee = governor.get_program_fee();
 
     let sol_pool = PoolAccount::find(None).0;
@@ -128,7 +128,7 @@ async fn test_base_commitment() {
     );
 
     // Check the queue for the first request
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), context);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), &mut context);
     assert_eq!(queue.len(), 1);
     assert_eq!(queue.view_first().unwrap(), requests[0]);
 
@@ -152,7 +152,7 @@ async fn test_base_commitment() {
     );
 
     // Check the queue for the second request
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), context);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), &mut context);
     assert_eq!(queue.len(), 2);
     assert_eq!(queue.view_first().unwrap(), requests[0]);
     assert_eq!(queue.view(1).unwrap(), requests[1]);
@@ -173,7 +173,7 @@ async fn test_base_commitment() {
     assert_eq!(0, relayer_a.balance(&mut context).await);
 
     // First request has been dequeued
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), context);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), &mut context);
     assert_eq!(queue.len(), 1);
 
     // Second init through B will fail, since the hash_account at 0 already exists
@@ -199,12 +199,12 @@ async fn test_base_commitment() {
     assert_eq!(0, relayer_b.balance(&mut context).await);
 
     // Queue should now be empty
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), context);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), &mut context);
     assert_eq!(queue.len(), 0);
 
     // New hash_account with the request
     assert!(account_does_exist(BaseCommitmentHashingAccount::find(Some(0)).0, &mut context).await);
-    pda_account!(hash_account, BaseCommitmentHashingAccount, Some(0), context);
+    pda_account!(hash_account, BaseCommitmentHashingAccount, Some(0), &mut context);
     assert_eq!(hash_account.get_fee_version(), 0);
     assert_eq!(hash_account.get_fee_payer(), relayer_a.pubkey.to_bytes());
     assert_eq!(hash_account.get_instruction(), 0);
@@ -294,7 +294,7 @@ async fn test_base_commitment() {
     ix_should_fail(compute_ix.clone(), &mut relayer_a, &mut context).await;
 
     // Check commitment queue for the correct hash
-    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, context);
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, &mut context);
     let commitment = queue.view_first().unwrap();
     assert_eq!(queue.len(), 1);
     assert_eq!(commitment.commitment, requests[0].commitment.reduce());
@@ -515,7 +515,7 @@ async fn test_base_commitment_full_queue() {
         }
     }).await;
 
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), context);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), &mut context);
     assert_eq!(queue.len(), BaseCommitmentQueue::CAPACITY - 1);
     assert_eq!(queue.empty_slots(), 1);
 
@@ -530,7 +530,7 @@ async fn test_base_commitment_full_queue() {
     ix_should_succeed(ix.clone(), &mut client, &mut context).await;
 
     // Now queue is full
-    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), context);
+    queue!(queue, BaseCommitmentQueue, BaseCommitmentQueueAccount, Some(0), &mut context);
     assert_eq!(queue.len(), BaseCommitmentQueue::CAPACITY);
     assert_eq!(queue.empty_slots(), 0);
 
@@ -546,7 +546,7 @@ async fn test_single_commitment() {
     let requests = requests(0);
     let lamports_per_tx = lamports_per_signature(&mut context).await;
 
-    pda_account!(fee, FeeAccount, Some(0), context);
+    pda_account!(fee, FeeAccount, Some(0), &mut context);
     let fee = fee.get_program_fee();
 
     let sol_pool = PoolAccount::find(None).0;
@@ -584,10 +584,10 @@ async fn test_single_commitment() {
     let pool_lamports = 2 * hash_fee + amounts;
     airdrop(&sol_pool, pool_lamports, &mut context).await;
 
-    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, context);
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, &mut context);
     assert_eq!(queue.len(), 2);
 
-    pda_account!(hashing_account, CommitmentHashingAccount, None, context);
+    pda_account!(hashing_account, CommitmentHashingAccount, None, &mut context);
     assert!(!hashing_account.get_is_active());
 
     // Init succeeds
@@ -600,7 +600,7 @@ async fn test_single_commitment() {
         &mut relayer_a, &mut context
     ).await;
 
-    pda_account!(hashing_account, CommitmentHashingAccount, None, context);
+    pda_account!(hashing_account, CommitmentHashingAccount, None, &mut context);
     assert!(hashing_account.get_is_active());
     assert_eq!(hashing_account.get_fee_version(), 0);
     assert_eq!(hashing_account.get_hash_tree(0), requests[0].commitment.reduce());
@@ -611,7 +611,7 @@ async fn test_single_commitment() {
     }
 
     // Queue size is reduced
-    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, context);
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, &mut context);
     assert_eq!(queue.len(), 1);
 
     // Second init fails, since a hashing is already active
@@ -672,7 +672,7 @@ async fn test_single_commitment() {
     ix_should_succeed(finalize_ix.clone(), &mut relayer_a, &mut context).await;
 
     // Hashing account is now inactive
-    pda_account!(hashing_account, CommitmentHashingAccount, None, context);
+    pda_account!(hashing_account, CommitmentHashingAccount, None, &mut context);
     assert!(!hashing_account.get_is_active());
 
     // Pool lost 1 hash_fee
@@ -742,7 +742,7 @@ async fn test_commitment_full_queue() {
         }
     }).await;
 
-    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, context);
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, &mut context);
     assert_eq!(queue.len(), CommitmentQueue::CAPACITY);
     assert_eq!(queue.empty_slots(), 0);
 
@@ -1011,7 +1011,7 @@ async fn test_commitment_hash_with_batching_rate(
     }).await;
 
     // Queue should be empty
-    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, context);
+    queue!(queue, CommitmentQueue, CommitmentQueueAccount, None, &mut context);
     assert_eq!(queue.len(), 0);
 }
 

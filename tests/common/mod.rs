@@ -108,8 +108,8 @@ macro_rules! queue_mut {
 }
 
 macro_rules! queue {
-    ($id: ident, $ty: ty, $ty_account: ty, $offset: expr, $prg: ident) => {
-        let mut queue = get_data(&mut $prg, <$ty_account>::find($offset).0).await;
+    ($id: ident, $ty: ty, $ty_account: ty, $offset: expr, $context: expr) => {
+        let mut queue = get_data($context, <$ty_account>::find($offset).0).await;
         let mut queue = <$ty_account>::new(&mut queue[..]).unwrap();
         let $id = <$ty>::new(&mut queue);
     };
@@ -123,18 +123,18 @@ macro_rules! sized_account {
 
 /// mut? $id: ident, $ty: ty, $offset: expr, $context: ident
 macro_rules! pda_account {
-    ($id: ident, $ty: ty, $offset: expr, $context: ident) => {
+    ($id: ident, $ty: ty, $offset: expr, $context: expr) => {
         pda_account!(data data, $ty, $offset, $context);
         let $id = <$ty>::new(&mut data).unwrap();
     };
-    (mut $id: ident, $ty: ty, $offset: expr, $context: ident) => {
+    (mut $id: ident, $ty: ty, $offset: expr, $context: expr) => {
         pda_account!(data data, $ty, $offset, $context);
         let mut $id = <$ty>::new(&mut data).unwrap();
     };
 
-    (data $data: ident, $ty: ty, $offset: expr, $context: ident) => {
+    (data $data: ident, $ty: ty, $offset: expr, $context: expr) => {
         let pk = <$ty>::find($offset).0;
-        let mut $data = &mut get_data(&mut $context, pk).await[..];
+        let mut $data = &mut get_data($context, pk).await[..];
     };
 }
 

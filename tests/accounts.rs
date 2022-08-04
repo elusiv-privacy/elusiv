@@ -96,10 +96,10 @@ async fn test_setup_fee_account() {
         &mut payer, &mut context
     ).await;
     
-    pda_account!(fee, FeeAccount, Some(0), context);
+    pda_account!(fee, FeeAccount, Some(0), &mut context);
     assert_eq!(fee.get_program_fee(), genesis_fee);
 
-    pda_account!(governor, GovernorAccount, None, context);
+    pda_account!(governor, GovernorAccount, None, &mut context);
     assert_eq!(governor.get_program_fee(), genesis_fee);
 
     // Attempting to set a version higher than genesis (0) will fail
