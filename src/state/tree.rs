@@ -2,7 +2,7 @@ use crate::macros::{elusiv_account, two_pow, guard};
 use crate::map::{ElusivSet, ElusivMapError};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
-use crate::types::U256;
+use crate::types::{U256, OrdU256};
 use crate::bytes::*;
 use crate::error::ElusivError::{CouldNotInsertNullifier};
 use super::program_account::{SizedAccount, PDAAccountData, MultiAccountAccountData, MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE};
@@ -12,7 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
 
 /// We store nullifiers with the `NullifierMap` data structure for efficient searching and later N-SMT construction
-pub type NullifierMap<'a> = ElusivSet<'a, U256, NULLIFIERS_PER_ACCOUNT>;
+pub type NullifierMap<'a> = ElusivSet<'a, OrdU256, NULLIFIERS_PER_ACCOUNT>;
 
 const NULLIFIERS_PER_ACCOUNT: usize = two_pow!(16);
 const ACCOUNT_SIZE: usize = NullifierMap::SIZE + SUB_ACCOUNT_ADDITIONAL_SIZE;
@@ -27,7 +27,7 @@ pub struct NullifierAccount {
     multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
 
     root: U256, // this value is only valid, after the active tree has been closed
-    nullifier_hash_count: u64,
+    nullifier_hash_count: u32,
 }
 
 /// Tree account after archiving (only a single collapsed N-SMT root)
@@ -40,49 +40,39 @@ pub struct ArchivedTreeAccount {
 }
 
 impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
-    /// Returns the index of the sub-account/NullifierMap that will store the next nullifier_hash
-    /// - returns `None` if there is no room for a nullifier_hash
-    fn nullifier_map_index(&self) -> Option<usize> {
-        let count = u64_as_usize_safe(self.get_nullifier_hash_count());
-        if count >= NULLIFIERS_COUNT { return None }
-        Some(count / NULLIFIERS_PER_ACCOUNT)
-    }
-
     pub fn can_insert_nullifier_hash(&self, nullifier_hash: U256) -> Result<bool, ProgramError> {
         let count = self.get_nullifier_hash_count();
-        guard!(count < NULLIFIERS_COUNT as u64, CouldNotInsertNullifier);
+        guard!(count < usize_as_u32_safe(NULLIFIERS_COUNT), CouldNotInsertNullifier);
+        let nmap_index = count as usize / NULLIFIERS_PER_ACCOUNT;
+        let nullifier_hash = OrdU256(nullifier_hash);
 
-        if let Some(nmap_index) = self.nullifier_map_index() {
-            let repr = nullifier_hash;
-            for i in 0..=nmap_index {
-                let contains = self.try_execute_on_sub_account::<_, _, ProgramError>(i, |data| {
-                    let mut map = NullifierMap::new(data);
-                    let result = map.contains(&repr).is_some();
-                    Ok(result)
-                })?;
+        for i in 0..=nmap_index {
+            let contains = self.execute_on_sub_account(i, |data| {
+                let mut map = NullifierMap::new(data);
+                map.contains(&nullifier_hash).is_some()
+            })?;
 
-                if contains { return Ok(false) }
-            }
-            return Ok(true)
+            if contains { return Ok(false) }
         }
-        Ok(false)
+        Ok(true)
     }
 
     pub fn try_insert_nullifier_hash(&mut self, nullifier_hash: U256) -> ProgramResult {
         let count = self.get_nullifier_hash_count();
-        guard!(count < NULLIFIERS_COUNT as u64, CouldNotInsertNullifier);
+        guard!(count < usize_as_u32_safe(NULLIFIERS_COUNT), CouldNotInsertNullifier);
         self.set_nullifier_hash_count(&(count + 1));
+        let nullifier_hash = OrdU256(nullifier_hash);
 
         let mut account_index = 0;
         let mut value = Some(nullifier_hash);
-        while value.is_some() {
-            let insertion = self.try_execute_on_sub_account::<_, Option<(U256, ())>, ElusivMapError<()>>(account_index, |data| {
+        while let Some(nullifier_hash) = value {
+            let insertion = self.try_execute_on_sub_account::<_, _, ElusivMapError<()>>(account_index, |data| {
                 NullifierMap::new(data).try_insert_default(nullifier_hash)
             });
 
-            value = match insertion {
-                Ok(None) => None,
-                Ok(Some((k, _))) => Some(k),
+            match insertion {
+                Ok(Some((k, _))) => value = Some(k),
+                Ok(None) => return Ok(()),
                 Err(_) => return Err(CouldNotInsertNullifier.into()),
             };
 
@@ -101,18 +91,7 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use super::super::program_account::MultiAccountProgramAccount;
-    use crate::{fields::u256_from_str, macros::nullifier_account};
-
-    #[test]
-    fn test_nullifier_map_index() {
-        nullifier_account!(mut nullifier_account);
-        for i in 1..=NullifierAccount::COUNT {
-            assert_eq!(nullifier_account.nullifier_map_index().unwrap(), i - 1);
-            nullifier_account.set_nullifier_hash_count(&((i * NULLIFIERS_PER_ACCOUNT) as u64));
-        }
-        nullifier_account.set_nullifier_hash_count(&(NULLIFIERS_COUNT as u64 + 1));
-        assert!(nullifier_account.nullifier_map_index().is_none());
-    }
+    use crate::{fields::{u256_from_str, u64_to_u256_skip_mr}, macros::nullifier_account};
 
     #[test]
     fn test_can_insert_nullifier_hash() {
@@ -130,8 +109,6 @@ mod tests {
 
     #[test]
     fn test_try_insert_nullifier_hash() {
-        // Note: true fuctional test only with integration tests
-
         nullifier_account!(mut nullifier_account);
 
         // Successfull insertion
@@ -140,8 +117,45 @@ mod tests {
         assert!(!nullifier_account.can_insert_nullifier_hash(u256_from_str("123")).unwrap());
 
         // Full
-        nullifier_account.set_nullifier_hash_count(&(NULLIFIERS_COUNT as u64 - 1));
+        nullifier_account.set_nullifier_hash_count(&(NULLIFIERS_COUNT as u32 - 1));
         nullifier_account.try_insert_nullifier_hash(u256_from_str("0")).unwrap();
         assert_matches!(nullifier_account.try_insert_nullifier_hash(u256_from_str("1")), Err(_));
+    }
+
+    #[test]
+    fn test_full_insertions() {
+        nullifier_account!(mut nullifier_account); 
+        let count = NULLIFIERS_PER_ACCOUNT as u64 * 2 + 1;
+
+        for i in (0..count).rev() {
+            nullifier_account.try_insert_nullifier_hash(u64_to_u256_skip_mr(i)).unwrap();
+        }
+
+        for i in 0..count {
+            assert!(!nullifier_account.can_insert_nullifier_hash(u64_to_u256_skip_mr(i)).unwrap());
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_full_insertions_max() {
+        nullifier_account!(mut nullifier_account); 
+        let count = NULLIFIERS_COUNT as u64;
+
+        for i in (0..count).rev() {
+            match nullifier_account.try_insert_nullifier_hash(u64_to_u256_skip_mr(i)) {
+                Ok(_) => {}
+                Err(_) => panic!("{}", i)
+            }
+        }
+
+        for i in 0..count {
+            assert!(!nullifier_account.can_insert_nullifier_hash(u64_to_u256_skip_mr(i)).unwrap());
+        }
+
+        assert_matches!(
+            nullifier_account.try_insert_nullifier_hash(u64_to_u256_skip_mr(count)),
+            Err(_)
+        );
     }
 }

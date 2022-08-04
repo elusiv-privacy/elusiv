@@ -305,7 +305,7 @@ async fn test_global_sub_account_duplicates() {
         ), &mut client, &mut context
     ).await;
 
-    fn open_mt(mt_index: u64, pk: Pubkey) -> Instruction {
+    fn open_mt(mt_index: u32, pk: Pubkey) -> Instruction {
         ElusivInstruction::open_multi_instance_account_instruction(
             MultiInstancePDAAccountKind::NullifierAccount,
             mt_index,

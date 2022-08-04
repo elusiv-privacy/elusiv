@@ -319,7 +319,10 @@ pub fn u64_to_u256(v: u64) -> U256 {
 
 /// Converts an `u64` into a `U256` without performing a montgomery reduction
 pub fn u64_to_u256_skip_mr(v: u64) -> U256 {
-    fr_to_u256_le(&u64_to_scalar_skip_mr(v))
+    let mut u = [0; 32];
+    let v = v.to_le_bytes();
+    u[..8].copy_from_slice(&v[..]);
+    u
 }
 
 pub fn fr_to_u256_le(fr: &Fr) -> U256 {
@@ -546,7 +549,7 @@ mod tests {
 
     #[test]
     fn test_u64_to_u256() {
-        assert_eq!(u64_to_u256(123), u256_from_str("123"));
-        assert_eq!(u64_to_u256_skip_mr(123), u256_from_str_skip_mr("123"));
+        assert_eq!(u64_to_u256(123456789123456789), u256_from_str("123456789123456789"));
+        assert_eq!(u64_to_u256_skip_mr(123456789123456789), u256_from_str_skip_mr("123456789123456789"));
     }
 }

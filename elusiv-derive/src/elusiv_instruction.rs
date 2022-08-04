@@ -149,7 +149,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         });
                     }
 
-                    // PDA accounts (usage: <name> <AccountType> <pda_offset: u64 = ..>? <account_info>? <multi_account>? <ownership>)
+                    // PDA accounts (usage: <name> <AccountType> <pda_offset: u32 = ..>? <account_info>? <multi_account>? <ownership>)
                     "pda" => {
                         // Every PDA account needs to implement the trait `elusiv::state::program_account::PDAAccount`
                         // - this trait allows us to verify PDAs
@@ -176,7 +176,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         let skip_abi = sub_attrs.contains(&"skip_abi");
                         if skip_abi {
                             let offset_ident: TokenStream = format!("{}_pda_offset", sub_attrs[0]).parse().unwrap();
-                            user_accounts.extend(quote!{ #offset_ident: Option<u64>, });
+                            user_accounts.extend(quote!{ #offset_ident: Option<u32>, });
                             account_init.push(quote!{
                                 accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#offset_ident).0, #is_signer));
                             });

@@ -69,13 +69,13 @@ pub fn send_from_pool<'a>(
 pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
-    pda_offset: u64,
+    pda_offset: u32,
 ) -> ProgramResult {
     let account_size = T::SIZE;
     let (pk, bump) = T::find(Some(pda_offset));
     let seed = vec![
         T::SEED.to_vec(),
-        u64::to_le_bytes(pda_offset).to_vec(),
+        u32::to_le_bytes(pda_offset).to_vec(),
         vec![bump]
     ];
     let signers_seeds: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();

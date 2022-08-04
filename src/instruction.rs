@@ -45,7 +45,7 @@ pub enum ElusivInstruction {
     #[sys(system_program, key = system_program::ID)]
     #[pda(base_commitment_queue, BaseCommitmentQueueAccount, pda_offset = Some(base_commitment_queue_index), { writable })]
     StoreBaseCommitment {
-        base_commitment_queue_index: u64,
+        base_commitment_queue_index: u32,
         request: BaseCommitmentHashRequest,
     },
 
@@ -55,8 +55,8 @@ pub enum ElusivInstruction {
     #[sys(system_program, key = system_program::ID, { ignore })]
     #[pda(hashing_account, BaseCommitmentHashingAccount, pda_offset = Some(hash_account_index), { writable, account_info, find_pda })]
     InitBaseCommitmentHash {
-        base_commitment_queue_index: u64,
-        hash_account_index: u64,
+        base_commitment_queue_index: u32,
+        hash_account_index: u32,
     },
 
     #[acc(fee_payer, { writable, signer })]
@@ -64,8 +64,8 @@ pub enum ElusivInstruction {
     #[pda(sol_pool, PoolAccount, { writable, account_info })]
     #[pda(hashing_account, BaseCommitmentHashingAccount, pda_offset = Some(hash_account_index), { writable })]
     ComputeBaseCommitmentHash {
-        hash_account_index: u64,
-        fee_version: u64,
+        hash_account_index: u32,
+        fee_version: u32,
         nonce: u64,
     },
 
@@ -73,7 +73,7 @@ pub enum ElusivInstruction {
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(hashing_account, BaseCommitmentHashingAccount, pda_offset = Some(hash_account_index), { writable, account_info })]
     FinalizeBaseCommitmentHash {
-        hash_account_index: u64,
+        hash_account_index: u32,
     },
 
     // Hashes 1-N commitments in a new MT-root
@@ -90,7 +90,7 @@ pub enum ElusivInstruction {
     #[pda(sol_pool, PoolAccount, { writable, account_info })]
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
     ComputeCommitmentHash {
-        fee_version: u64,
+        fee_version: u32,
         nonce: u64,
     },
 
@@ -110,15 +110,15 @@ pub enum ElusivInstruction {
     #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(tree_indices[1]), { multi_accounts })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     InitVerification {
-        verification_account_index: u64,
-        tree_indices: [u64; MAX_MT_COUNT],
+        verification_account_index: u32,
+        tree_indices: [u32; MAX_MT_COUNT],
         request: ProofRequest,
     },
 
     #[acc(fee_payer, { signer })]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
     InitVerificationProof {
-        verification_account_index: u64,
+        verification_account_index: u32,
         proof: RawProof
     },
 
@@ -126,7 +126,7 @@ pub enum ElusivInstruction {
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
     #[pda(precomputes_account, PrecomputesAccount, { multi_accounts })]
     ComputeVerification {
-        verification_account_index: u64,
+        verification_account_index: u32,
     },
 
     // Finalizing proofs that finished 
@@ -139,7 +139,7 @@ pub enum ElusivInstruction {
     #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi  })]
     FinalizeVerificationSend {
         data: FinalizeSendData,
-        verification_account_index: u64,
+        verification_account_index: u32,
     },
 
     #[acc(recipient, { writable })]
@@ -150,8 +150,8 @@ pub enum ElusivInstruction {
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable, account_info })]
     #[acc(nullifier_duplicate_account, { writable, owned })]
     FinalizeVerificationTransfer {
-        verification_account_index: u64,
-        fee_version: u64,
+        verification_account_index: u32,
+        fee_version: u32,
     },
 
     // Set the next MT as the active MT
@@ -159,7 +159,7 @@ pub enum ElusivInstruction {
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(active_nullifier_account, NullifierAccount, pda_offset = Some(active_mt_index), { writable, multi_accounts })]
     ResetActiveMerkleTree {
-        active_mt_index: u64,
+        active_mt_index: u32,
     },
 
     // Archives a `NullifierAccount` into a N-SMT (Nullifier-Sparse-Merkle-Tree)
@@ -169,7 +169,7 @@ pub enum ElusivInstruction {
     #[acc(archived_tree_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     ArchiveClosedMerkleTree {
-        closed_mt_index: u64,
+        closed_mt_index: u32,
     },
 
     // Opens one `PDAAccount` with offset = None
@@ -186,7 +186,7 @@ pub enum ElusivInstruction {
     #[sys(system_program, key = system_program::ID, { ignore })]
     OpenMultiInstanceAccount {
         kind: MultiInstancePDAAccountKind,
-        pda_offset: u64,
+        pda_offset: u32,
     },
 
     #[pda(storage_account, StorageAccount, { account_info, writable })]
@@ -198,7 +198,7 @@ pub enum ElusivInstruction {
     #[pda(nullifier_account, NullifierAccount, pda_offset = Some(mt_index), { account_info, writable })]
     #[acc(sub_account, { owned, writable })]
     EnableNullifierSubAccount {
-        mt_index: u64,
+        mt_index: u32,
         sub_account_index: u32,
     },
 
@@ -220,7 +220,7 @@ pub enum ElusivInstruction {
     #[pda(governor, GovernorAccount, { writable })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount)]
     UpgradeGovernorState {
-        fee_version: u64,
+        fee_version: u32,
         batching_rate: u32,
     },
 
@@ -229,7 +229,7 @@ pub enum ElusivInstruction {
     #[pda(fee, FeeAccount, pda_offset = Some(fee_version), { writable, account_info, find_pda })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     InitNewFeeVersion {
-        fee_version: u64,
+        fee_version: u32,
         program_fee: ProgramFee,
     },
 }

@@ -43,7 +43,7 @@ use crate::commitment::{
 use elusiv_computation::PartialComputation;
 use crate::fields::fr_to_u256_le;
 use borsh::{BorshDeserialize, BorshSerialize};
-use crate::bytes::{BorshSerDeSized, u64_as_u32_safe, usize_as_u32_safe};
+use crate::bytes::{BorshSerDeSized, usize_as_u32_safe};
 use crate::macros::BorshSerDeSized;
 
 pub const MIN_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
@@ -54,8 +54,9 @@ pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
 pub struct BaseCommitmentHashRequest {
     pub base_commitment: RawU256,
     pub amount: u64,
+    pub token_id: u16,
     pub commitment: RawU256,   // only there for the case that we need to do duplicate checking (not atm)
-    pub fee_version: u64,
+    pub fee_version: u32,
 
     /// The minimum allowed batching rate (since the fee is precomputed with the concrete batching rate)
     pub min_batching_rate: u32,
@@ -86,7 +87,7 @@ pub fn store_base_commitment<'a>(
     system_program: &AccountInfo<'a>,
     base_commitment_queue: &mut BaseCommitmentQueueAccount,
 
-    _base_commitment_queue_index: u64,
+    _base_commitment_queue_index: u32,
     request: BaseCommitmentHashRequest,
 ) -> ProgramResult {
     guard!(request.amount >= MIN_STORE_AMOUNT, InvalidAmount);
@@ -134,8 +135,8 @@ pub fn init_base_commitment_hash<'a>(
     base_commitment_queue: &mut BaseCommitmentQueueAccount,
     hashing_account: &AccountInfo<'a>,
 
-    _base_commitment_queue_index: u64,
-    hash_account_index: u64,
+    _base_commitment_queue_index: u32,
+    hash_account_index: u32,
 ) -> ProgramResult {
     // `fee_payer` rents `hashing_account`
     open_pda_account_with_offset::<BaseCommitmentHashingAccount>(fee_payer, hashing_account, hash_account_index)?;
@@ -155,8 +156,8 @@ pub fn compute_base_commitment_hash<'a>(
     pool: &AccountInfo<'a>,
     hashing_account: &mut BaseCommitmentHashingAccount,
 
-    _hash_account_index: u64,
-    fee_version: u64,
+    _hash_account_index: u32,
+    fee_version: u32,
     _nonce: u64,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
@@ -171,7 +172,7 @@ pub fn finalize_base_commitment_hash<'a>(
     commitment_hash_queue: &mut CommitmentQueueAccount,
     hashing_account_info: &AccountInfo<'a>,
 
-    _hash_account_index: u64,
+    _hash_account_index: u32,
 ) -> ProgramResult {
     let data = &mut hashing_account_info.data.borrow_mut()[..];
     let mut hashing_account = BaseCommitmentHashingAccount::new(data)?;
@@ -187,7 +188,7 @@ pub fn finalize_base_commitment_hash<'a>(
     commitment_queue.enqueue(
         CommitmentHashRequest {
             commitment: fr_to_u256_le(&commitment),
-            fee_version: u64_as_u32_safe(hashing_account.get_fee_version()),
+            fee_version: hashing_account.get_fee_version(),
             min_batching_rate: hashing_account.get_min_batching_rate(),
         }
     )?;
@@ -236,7 +237,7 @@ pub fn init_commitment_hash(
         commitments[i] = batch[i].commitment;
     }
 
-    hashing_account.reset(batching_rate, fee_version as u64, &commitments)
+    hashing_account.reset(batching_rate, fee_version, &commitments)
 }
 
 pub fn compute_commitment_hash<'a>(
@@ -245,7 +246,7 @@ pub fn compute_commitment_hash<'a>(
     pool: &AccountInfo<'a>,
     hashing_account: &mut CommitmentHashingAccount,
 
-    fee_version: u64,
+    fee_version: u32,
     _nonce: u64,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
@@ -339,6 +340,7 @@ mod tests {
         let valid_request = BaseCommitmentHashRequest {
             base_commitment: RawU256::new(u256_from_str_skip_mr("1")),
             amount: LAMPORTS_PER_SOL,
+            token_id: 0,
             commitment: RawU256::new(u256_from_str_skip_mr("1")),
             fee_version: 1,
             min_batching_rate: 4,
@@ -416,6 +418,7 @@ mod tests {
             BaseCommitmentHashRequest {
                 base_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 amount: LAMPORTS_PER_SOL,
+                token_id: 0,
                 commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 1,
                 min_batching_rate: 4,

@@ -40,12 +40,12 @@ fn requests(batching_rate: u32) -> Vec<BaseCommitmentHashRequest> {
         base_commitment_request(
             "8337064132573119120838379738103457054645361649757131991036638108422638197362",
             "139214303935475888711984321184227760578793579443975701453971046059378311483",
-            LAMPORTS_PER_SOL, 0, batching_rate,
+            LAMPORTS_PER_SOL, 0, 0, batching_rate,
         ),
         base_commitment_request(
             "8337064132573119120838379738103457054645361649757131991036638108422638197362",
             "21186803555845400161937398579081414146527572885637089779856221229551142844794",
-            20 * LAMPORTS_PER_SOL, 0, batching_rate,
+            20 * LAMPORTS_PER_SOL, 0, 0, batching_rate,
         ),
     ]
 }
@@ -347,6 +347,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 base_commitment: request.base_commitment,
                 commitment: request.commitment,
                 amount: MIN_STORE_AMOUNT,
+                token_id: 0,
                 fee_version: 1,
                 min_batching_rate: 0,
             },
@@ -360,6 +361,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 base_commitment: request.base_commitment,
                 commitment: request.commitment,
                 amount: MIN_STORE_AMOUNT,
+                token_id: 0,
                 fee_version: 0,
                 min_batching_rate: 1,
             },
@@ -373,6 +375,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 base_commitment: request.base_commitment,
                 commitment: request.commitment,
                 amount: MIN_STORE_AMOUNT - 1,
+                token_id: 0,
                 fee_version: 0,
                 min_batching_rate: 0,
             },
@@ -386,6 +389,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 base_commitment: request.base_commitment,
                 commitment: request.commitment,
                 amount: MAX_STORE_AMOUNT + 1,
+                token_id: 0,
                 fee_version: 0,
                 min_batching_rate: 0,
             },
@@ -399,6 +403,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 base_commitment: RawU256::new(big_uint_to_u256(&SCALAR_MODULUS_RAW)),
                 commitment: request.commitment,
                 amount: MIN_STORE_AMOUNT,
+                token_id: 0,
                 fee_version: 0,
                 min_batching_rate: 0,
             },
@@ -412,6 +417,7 @@ async fn test_base_commitment_store_invalid_inputs() {
                 base_commitment: request.base_commitment,
                 commitment: RawU256::new(big_uint_to_u256(&SCALAR_MODULUS_RAW)),
                 amount: MIN_STORE_AMOUNT,
+                token_id: 0,
                 fee_version: 0,
                 min_batching_rate: 0,
             },
@@ -696,7 +702,7 @@ async fn test_single_commitment() {
 }
 
 async fn set_finished_base_commitment_hash(
-    hash_account_index: u64,
+    hash_account_index: u32,
     commitment: &U256,
     original_fee_payer: &Pubkey,
     context: &mut ProgramTestContext,

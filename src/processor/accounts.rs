@@ -75,7 +75,7 @@ pub fn open_multi_instance_account<'a>(
     pda_account: &AccountInfo<'a>,
 
     kind: MultiInstancePDAAccountKind,
-    pda_offset: u64,
+    pda_offset: u32,
 ) -> ProgramResult {
     match kind {
         MultiInstancePDAAccountKind::BaseCommitmentQueueAccount => {
@@ -111,7 +111,7 @@ pub fn enable_nullifier_sub_account(
     nullifier_account: &AccountInfo,
     sub_account: &AccountInfo,
 
-    _merkle_tree_index: u64,
+    _merkle_tree_index: u32,
     sub_account_index: u32,
 ) -> ProgramResult {
     // Note: we don't zero-check these accounts, BUT we need to manipulate the maps we store in each account and set the size to zero 
@@ -159,7 +159,7 @@ pub fn reset_active_merkle_tree(
     queue: &mut CommitmentQueueAccount,
     active_nullifier_account: &mut NullifierAccount,
 
-    active_merkle_tree_index: u64,
+    active_merkle_tree_index: u32,
 ) -> ProgramResult {
     guard!(storage_account.get_trees_count() == active_merkle_tree_index, InvalidInstructionData);
 
@@ -196,7 +196,7 @@ pub fn archive_closed_merkle_tree<'a>(
     _nullifier_account: &mut NullifierAccount,
     _archived_tree_account: &AccountInfo<'a>,
 
-    closed_merkle_tree_index: u64,
+    closed_merkle_tree_index: u32,
 ) -> ProgramResult {
     guard!(storage_account.get_trees_count() > closed_merkle_tree_index, InvalidInstructionData);
     panic!("N-SMT not implemented yet");
@@ -224,7 +224,7 @@ pub fn upgrade_governor_state(
     _governor_account: &mut GovernorAccount,
     _commitment_queue: &CommitmentQueueAccount,
 
-    _fee_version: u64,
+    _fee_version: u32,
     _batching_rate: u32,
 ) -> ProgramResult {
     todo!("Not implemented yet");
@@ -239,7 +239,7 @@ pub fn init_new_fee_version<'a>(
     governor: &mut GovernorAccount,
     new_fee: &AccountInfo<'a>,
 
-    fee_version: u64,
+    fee_version: u32,
     program_fee: ProgramFee,
 ) -> ProgramResult {
     // Note: we have no upgrade-authroity check here since with the current setup it's impossible to have a fee version higher than zero, so will be added once that changes

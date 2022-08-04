@@ -34,7 +34,7 @@ pub struct BaseCommitmentHashingAccount {
     instruction: u32,
     round: u32,
 
-    fee_version: u64,
+    fee_version: u32,
     fee_payer: U256,
     is_active: bool,
 
@@ -172,7 +172,7 @@ pub struct CommitmentHashingAccount {
     instruction: u32,
     round: u32,
 
-    fee_version: u64,
+    fee_version: u32,
     is_active: bool,
 
     setup: bool,
@@ -254,7 +254,7 @@ impl<'a> CommitmentHashingAccount<'a> {
     pub fn reset(
         &mut self,
         batching_rate: u32,
-        fee_version: u64,
+        fee_version: u32,
         commitments: &[U256],
     ) -> Result<(), ProgramError> {
         guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
@@ -398,13 +398,20 @@ impl<'a> CommitmentHashingAccount<'a> {
 }
 
 #[cfg(test)]
-pub fn base_commitment_request(bc: &str, c: &str, amount: u64, fee_version: u64, min_batching_rate: u32) -> BaseCommitmentHashRequest {
+pub fn base_commitment_request(
+    bc: &str,
+    c: &str,
+    amount: u64,
+    token_id: u16, 
+    fee_version: u32,
+    min_batching_rate: u32,
+) -> BaseCommitmentHashRequest {
     use crate::{fields::u256_from_str_skip_mr, types::RawU256};
 
     BaseCommitmentHashRequest {
         base_commitment: RawU256::new(u256_from_str_skip_mr(bc)),
         commitment: RawU256::new(u256_from_str_skip_mr(c)),
-        amount, fee_version, min_batching_rate
+        amount, token_id, fee_version, min_batching_rate
     }
 }
 
@@ -670,7 +677,7 @@ mod tests {
             base_commitment_request(
                 "8337064132573119120838379738103457054645361649757131991036638108422638197362",
                 "139214303935475888711984321184227760578793579443975701453971046059378311483",
-                LAMPORTS_PER_SOL, 0,
+                LAMPORTS_PER_SOL, 0, 0,
                 0,
             ),
         ];
@@ -746,6 +753,7 @@ mod tests {
         let request = BaseCommitmentHashRequest {
             base_commitment: RawU256::new([1; 32]),
             amount: 333,
+            token_id: 2,
             commitment: RawU256::new([2; 32]),
             fee_version: 444,
             min_batching_rate: 555,

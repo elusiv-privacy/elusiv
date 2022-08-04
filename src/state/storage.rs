@@ -43,10 +43,10 @@ pub struct StorageAccount {
     next_commitment_ptr: u32,
 
     // The amount of already finished (closed) MTs
-    trees_count: u64,
+    trees_count: u32,
 
     // The amount of archived MTs
-    archived_count: u64,
+    archived_count: u32,
 
     // Stores the last HISTORY_ARRAY_COUNT roots of the active tree
     active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],

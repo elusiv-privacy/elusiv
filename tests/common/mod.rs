@@ -156,11 +156,12 @@ macro_rules! account_info {
     };
 }
 
+
 macro_rules! multi_account {
     ($id: ident, $ty: ty) => {
         pub async fn $id<F>(
             context: &mut ProgramTestContext,
-            pda_offset: Option<u64>,
+            pda_offset: Option<u32>,
             f: F,
         ) where
             F: Fn(&$ty),
@@ -220,7 +221,7 @@ pub async fn storage_accounts(context: &mut ProgramTestContext) ->
 
 const NULLIFIER_SUB_ACCOUNT_SIZE: usize = NullifierAccount::COUNT;
 
-pub async fn nullifier_accounts(mt_index: u64, context: &mut ProgramTestContext) ->
+pub async fn nullifier_accounts(mt_index: u32, context: &mut ProgramTestContext) ->
 (
     Vec<Pubkey>,
     [UserAccount; NULLIFIER_SUB_ACCOUNT_SIZE],
@@ -383,13 +384,15 @@ pub fn base_commitment_request(
     base_commitment: &str,
     commitment: &str,
     amount: u64,
-    fee_version: u64,
+    token_id: u16,
+    fee_version: u32,
     min_batching_rate: u32,
 ) -> BaseCommitmentHashRequest {
     BaseCommitmentHashRequest {
         base_commitment: RawU256::new(u256_from_str_skip_mr(base_commitment)),
         commitment: RawU256::new(u256_from_str_skip_mr(commitment)),
         amount,
+        token_id,
         fee_version,
         min_batching_rate,
     }

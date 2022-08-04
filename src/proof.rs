@@ -81,7 +81,7 @@ pub struct VerificationAccount {
 
     other_data: VerificationAccountData,
     #[no_getter] request: ProofRequest,
-    tree_indices: [u64; MAX_MT_COUNT],
+    tree_indices: [u32; MAX_MT_COUNT],
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug, Clone)]
@@ -102,7 +102,7 @@ impl<'a> VerificationAccount<'a> {
         kind: u8,
         data: VerificationAccountData,
         request: ProofRequest,
-        tree_indices: [u64; MAX_MT_COUNT],
+        tree_indices: [u32; MAX_MT_COUNT],
     ) -> ProgramResult {
         self.set_kind(&kind);
         self.set_other_data(&data);
@@ -155,7 +155,7 @@ impl<'a> VerificationAccount<'a> {
         Ok(())
     }
     
-    pub fn all_tree_indices(&self) -> [u64; MAX_MT_COUNT] {
+    pub fn all_tree_indices(&self) -> [u32; MAX_MT_COUNT] {
         let mut m = [0; MAX_MT_COUNT];
         for (i, m) in m.iter_mut().enumerate() {
             *m = self.get_tree_indices(i);

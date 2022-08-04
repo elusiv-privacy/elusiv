@@ -35,6 +35,25 @@ impl RawU256 {
     pub fn skip_mr_ref(&self) -> &U256 { &self.0 }
 }
 
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Eq, Clone, Copy, Debug)]
+pub struct OrdU256(pub U256);
+
+impl PartialOrd for OrdU256 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let a = u256_to_big_uint(&self.0);
+        let b = u256_to_big_uint(&other.0);
+        a.partial_cmp(&b)
+    }
+}
+
+impl Ord for OrdU256 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let a = u256_to_big_uint(&self.0);
+        let b = u256_to_big_uint(&other.0);
+        a.cmp(&b)
+    }
+}
+
 pub trait LazyField<'a>: BorshSerDeSized {
     fn new(data: &'a mut [u8]) -> Self;
     fn serialize(&mut self);
@@ -75,13 +94,10 @@ impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
         }
     }
 
+    /// Sets and serializes the value
     pub fn set(&mut self, value: &N) {
         self.value = Some(value.clone());
         self.modified = true;
-    }
-
-    pub fn set_serialize(&mut self, value: &N) {
-        self.set(value);
         self.serialize();
     }
 }
@@ -153,7 +169,7 @@ pub struct JoinSplitPublicInputs {
     pub roots: Vec<Option<RawU256>>,
     pub nullifier_hashes: Vec<RawU256>,
     pub commitment: RawU256,
-    pub fee_version: u64,
+    pub fee_version: u32,
     pub amount: u64,
     pub fee: u64,
     pub token_id: u16,
@@ -190,7 +206,7 @@ impl BorshDeserialize for JoinSplitPublicInputs {
         let roots = roots.iter().map(|&r| if r.0 == [0; 32] { None } else { Some(r) }).collect();
         let nullifier_hashes = deserialze_vec(buf, commitment_count as usize)?;
         let commitment = RawU256::deserialize(buf)?;
-        let fee_version = u64::deserialize(buf)?;
+        let fee_version = u32::deserialize(buf)?;
         let amount = u64::deserialize(buf)?;
         let fee = u64::deserialize(buf)?;
         let token_id = u16::deserialize(buf)?;
@@ -242,7 +258,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
 }
 
 impl BorshSerDeSized for JoinSplitPublicInputs {
-    const SIZE: usize = 1 + JOIN_SPLIT_MAX_N_ARITY as usize * (32 + 32) + 32 + 8 + 8 + 8 + 2;
+    const SIZE: usize = 1 + JOIN_SPLIT_MAX_N_ARITY as usize * (32 + 32) + 32 + 4 + 8 + 8 + 2;
 }
 
 pub trait PublicInputs {
@@ -338,7 +354,7 @@ impl PublicInputs for SendPublicInputs {
             self.identifier,
             self.salt,
             self.join_split.commitment,
-            RawU256(u64_to_u256_skip_mr(self.join_split.fee_version)),
+            RawU256(u64_to_u256_skip_mr(self.join_split.fee_version as u64)),
             RawU256(u64_to_u256_skip_mr(self.join_split.token_id as u64)),
         ]);
 
@@ -375,7 +391,7 @@ impl PublicInputs for MigratePublicInputs {
             self.join_split.commitment,
             self.current_nsmt_root,
             self.next_nsmt_root,
-            RawU256(u64_to_u256_skip_mr(self.join_split.fee_version)),
+            RawU256(u64_to_u256_skip_mr(self.join_split.fee_version as u64)),
             RawU256(u64_to_u256_skip_mr(self.join_split.total_amount())),
         ]
     }

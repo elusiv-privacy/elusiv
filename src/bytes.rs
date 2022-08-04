@@ -110,28 +110,22 @@ pub const fn div_ceiling(divident: u64, divisor: u64) -> u64 {
     (divident + divisor - 1) / divisor
 }
 
+macro_rules! safe_num_downcast {
+    ($id: ident, $h: ty, $l: ty) => {
+        pub const fn $id(u: $h) -> $l {
+            if u > <$l>::MAX as $h { panic!() }
+            u as $l
+        }
+    };
+}
+
+safe_num_downcast!(u64_as_u32_safe, u64, u32);
+safe_num_downcast!(usize_as_u32_safe, usize, u32);
+safe_num_downcast!(usize_as_u16_safe, usize, u16);
+safe_num_downcast!(usize_as_u8_safe, usize, u8);
+
 pub const fn u64_as_usize_safe(u: u64) -> usize {
     u64_as_u32_safe(u) as usize
-}
-
-pub const fn u64_as_u32_safe(u: u64) -> u32 {
-    if u > u32::MAX as u64 { panic!() }
-    u as u32
-}
-
-pub const fn usize_as_u32_safe(u: usize) -> u32 {
-    if u > u32::MAX as usize { panic!() }
-    u as u32
-}
-
-pub const fn usize_as_u16_safe(u: usize) -> u16 {
-    if u > u16::MAX as usize { panic!() }
-    u as u16
-}
-
-pub const fn usize_as_u8_safe(u: usize) -> u8 {
-    if u > u8::MAX as usize { panic!() }
-    u as u8
 }
 
 macro_rules! impl_borsh_sized {
@@ -228,6 +222,26 @@ mod tests {
         assert_eq!(Pubkey::SIZE, Pubkey::new_unique().try_to_vec().unwrap().len());
     }
 
+    macro_rules! test_safe_downcast {
+        ($fn: ident, $test_a: ident, $test_b: ident, $h: ty, $l: ty) => {
+            #[test]
+            fn $test_a() {
+                assert_eq!($fn(<$l>::MAX as $h), <$l>::MAX);
+            }
+
+            #[test]
+            #[should_panic]
+            fn $test_b() {
+                let _ = $fn(<$l>::MAX as $h + 1);
+            }
+        };
+    }
+
+    test_safe_downcast!(u64_as_u32_safe, test_u64_as_u32_safe, test_u64_as_u32_safe_panic, u64, u32);
+    test_safe_downcast!(usize_as_u32_safe, test_usize_as_u32_safe, test_usize_as_u32_safe_panic, usize, u32);
+    test_safe_downcast!(usize_as_u16_safe, test_usize_as_u16_safe, test_usize_as_u16_safe_panic, usize, u16);
+    test_safe_downcast!(usize_as_u8_safe, test_usize_as_u8_safe, test_usize_as_u8_safe_panic, usize, u8);
+
     #[test]
     fn test_u64_as_usize_safe() {
         assert_eq!(u64_as_usize_safe(u32::MAX as u64), u32::MAX as usize);
@@ -237,50 +251,6 @@ mod tests {
     #[should_panic]
     fn test_u64_as_usize_safe_panic() {
         assert_eq!(u64_as_usize_safe(u32::MAX as u64 + 1), u32::MAX as usize + 1);
-    }
-
-    #[test]
-    fn test_u64_as_u32_safe() {
-        assert_eq!(u64_as_u32_safe(u32::MAX as u64), u32::MAX);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_u64_as_u32_safe_panic() {
-        assert_eq!(u64_as_u32_safe(u32::MAX as u64 + 1), u32::MAX);
-    }
-
-    #[test]
-    fn test_usize_as_u32_safe() {
-        assert_eq!(usize_as_u32_safe(u32::MAX as usize), u32::MAX);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_usize_as_u32_safe_panic() {
-        assert_eq!(usize_as_u32_safe(u32::MAX as usize + 1), u32::MAX);
-    }
-
-    #[test]
-    fn test_usize_as_u16_safe() {
-        assert_eq!(usize_as_u16_safe(u16::MAX as usize), u16::MAX);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_usize_as_u16_safe_panic() {
-        assert_eq!(usize_as_u16_safe(u16::MAX as usize + 1), u16::MAX);
-    }
-
-    #[test]
-    fn test_usize_as_u8_safe() {
-        assert_eq!(usize_as_u8_safe(u8::MAX as usize), u8::MAX);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_usize_as_u8_safe_panic() {
-        assert_eq!(usize_as_u8_safe(u8::MAX as usize + 1), u8::MAX);
     }
 
     #[test]
@@ -369,5 +339,11 @@ mod tests {
         let data = a.try_to_vec().unwrap();
         let buf = &mut &data[..];
         _ = TestEnum::deserialize_enum_full(buf);
+    }
+
+    #[test]
+    fn test_elusiv_option() {
+        assert_eq!(ElusivOption::Some("abc").option(), Some("abc"));
+        assert_eq!(ElusivOption::<u8>::None.option(), None);
     }
 }

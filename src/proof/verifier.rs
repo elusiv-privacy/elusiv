@@ -77,7 +77,7 @@ pub fn prepare_public_inputs<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
     if round + rounds as usize == VKey::PREPARE_PUBLIC_INPUTS_ROUNDS {
         let prepared_inputs = result.ok_or(CouldNotProcessProof)?;
 
-        verifier_account.prepared_inputs.set_serialize(&G1A(prepared_inputs));
+        verifier_account.prepared_inputs.set(&G1A(prepared_inputs));
 
         verifier_account.set_step(&VerificationStep::CombinedMillerLoop);
         verifier_account.set_round(&0);
@@ -122,14 +122,14 @@ pub fn combined_miller_loop<VKey: VerificationKey>(
         let f = result.ok_or(CouldNotProcessProof)?;
 
         // Add `f` for the final exponentiation
-        verifier_account.f.set_serialize(&Wrap(f));
+        verifier_account.f.set(&Wrap(f));
 
         verifier_account.set_step(&VerificationStep::FinalExponentiation);
         verifier_account.set_round(&0);
         verifier_account.set_instruction(&0);
     } else {
-        verifier_account.r.set_serialize(&r);
-        verifier_account.alt_b.set_serialize(&alt_b);
+        verifier_account.r.set(&r);
+        verifier_account.alt_b.set(&alt_b);
 
         verifier_account.set_round(&usize_as_u32_safe(round + rounds));
         verifier_account.set_instruction(&(instruction as u32 + 1));
@@ -159,7 +159,7 @@ pub fn final_exponentiation<VKey: VerificationKey>(
 
     if round + rounds == FinalExponentiation::TOTAL_ROUNDS as usize {
         let v = result.ok_or(CouldNotProcessProof)?;
-        verifier_account.f.set_serialize(&Wrap(v));
+        verifier_account.f.set(&Wrap(v));
 
         // Final verification, we check:
         // https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
@@ -891,9 +891,9 @@ mod tests {
         proof: Proof,
         public_inputs: &[U256],
     ) {
-        storage.a.set_serialize(&proof.a);
-        storage.b.set_serialize(&proof.b);
-        storage.c.set_serialize(&proof.c);
+        storage.a.set(&proof.a);
+        storage.b.set(&proof.b);
+        storage.c.set(&proof.c);
         storage.set_state(&VerificationState::ProofSetup);
 
         for (i, &public_input) in public_inputs.iter().enumerate() {
@@ -1126,11 +1126,11 @@ mod tests {
 
         // Second version
         storage!(storage);
-        storage.a.set_serialize(&proof.a);
-        storage.b.set_serialize(&proof.b);
-        storage.c.set_serialize(&proof.c);
+        storage.a.set(&proof.a);
+        storage.b.set(&proof.b);
+        storage.c.set(&proof.c);
         storage.set_step(&VerificationStep::CombinedMillerLoop);
-        storage.prepared_inputs.set_serialize(&G1A(prepared_inputs));
+        storage.prepared_inputs.set(&G1A(prepared_inputs));
 
         for i in 0..COMBINED_MILLER_LOOP_IXS {
             let round = storage.get_round();
@@ -1252,7 +1252,7 @@ mod tests {
         // Second version
         storage!(storage);
         storage.set_step(&VerificationStep::FinalExponentiation);
-        storage.f.set_serialize(&Wrap(f()));
+        storage.f.set(&Wrap(f()));
 
         for i in 0..FINAL_EXPONENTIATION_IXS {
             let round = storage.get_round();

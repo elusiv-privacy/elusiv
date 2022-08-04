@@ -95,7 +95,7 @@ pub async fn setup_storage_account<'a>(context: &mut ProgramTestContext) -> Vec<
 
 pub async fn create_merkle_tree(
     context: &mut ProgramTestContext,
-    mt_index: u64,
+    mt_index: u32,
 ) -> Vec<Pubkey> {
     let mut instructions = vec![
         ElusivInstruction::open_multi_instance_account_instruction(
@@ -185,7 +185,7 @@ macro_rules! set_single_pda_account {
 
 pub async fn set_pda_account<A: SizedAccount + PDAAccount, F>(
     context: &mut ProgramTestContext,
-    offset: Option<u64>,
+    offset: Option<u32>,
     setup: F,
 )
 where F: Fn(&mut [u8])

@@ -40,7 +40,7 @@ use crate::proof::{
     vkey::{SendQuadraVKey, MigrateUnaryVKey},
 };
 use crate::types::{RawProof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, Proof, RawU256};
-use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, u64_as_u32_safe, usize_as_u32_safe};
+use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
 use borsh::{BorshSerialize, BorshDeserialize};
 
 use super::CommitmentHashRequest;
@@ -74,7 +74,7 @@ macro_rules! proof_request {
 }
 
 impl ProofRequest {
-    pub fn fee_version(&self) -> u64 {
+    pub fn fee_version(&self) -> u32 {
         proof_request!(self, public_inputs, public_inputs.join_split_inputs().fee_version)
     }
 
@@ -103,8 +103,8 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     n_acc_0: &NullifierAccount<'a, 'b, 'd>,
     n_acc_1: &NullifierAccount<'a, 'b, 'd>,
 
-    verification_account_index: u64,
-    tree_indices: [u64; MAX_MT_COUNT],
+    verification_account_index: u32,
+    tree_indices: [u32; MAX_MT_COUNT],
     request: ProofRequest,
 ) -> ProgramResult {
     let vkey = request.variant_index();
@@ -216,7 +216,7 @@ pub fn init_verification_proof(
     fee_payer: &AccountInfo,
     verification_account: &mut VerificationAccount,
 
-    _verification_account_index: u64,
+    _verification_account_index: u32,
     proof: RawProof,
 ) -> ProgramResult {
     guard!(matches!(verification_account.get_state(), VerificationState::None), InvalidAccountState);
@@ -224,9 +224,9 @@ pub fn init_verification_proof(
     guard!(verification_account.get_other_data().fee_payer.skip_mr() == fee_payer.key.to_bytes(), InvalidAccount);
 
     let proof: Proof = proof.try_into()?;
-    verification_account.a.set_serialize(&proof.a);
-    verification_account.b.set_serialize(&proof.b);
-    verification_account.c.set_serialize(&proof.c);
+    verification_account.a.set(&proof.a);
+    verification_account.b.set(&proof.b);
+    verification_account.c.set(&proof.c);
 
     verification_account.set_state(&VerificationState::ProofSetup);
 
@@ -238,7 +238,7 @@ pub fn compute_verification(
     verification_account: &mut VerificationAccount,
     precomputes_account: &PrecomputesAccount,
 
-    _verification_account_index: u64,
+    _verification_account_index: u32,
 ) -> ProgramResult {
     guard!(precomputes_account.get_is_setup(), InvalidAccountState);
     guard!(
@@ -280,7 +280,7 @@ pub struct FinalizeSendData {
     pub token_id: u16,
 
     /// Estimated index of the MT in which the next-commitment will be inserted
-    pub mt_index: u64,
+    pub mt_index: u32,
 
     /// Estimated index of the next-commitment in the MT
     pub commitment_index: u32,
@@ -298,7 +298,7 @@ pub fn finalize_verification_send<'a, 'b, 'c>(
     n_acc_1: &mut NullifierAccount<'a, 'b, 'c>,
 
     data: FinalizeSendData,
-    _verification_account_index: u64,
+    _verification_account_index: u32,
 ) -> ProgramResult {
     guard!(matches!(verification_account.get_state(), VerificationState::ProofSetup), InvalidAccountState);
 
@@ -336,7 +336,7 @@ pub fn finalize_verification_send<'a, 'b, 'c>(
     commitment_queue.enqueue(
         CommitmentHashRequest {
             commitment: public_inputs.join_split.commitment.reduce(),
-            fee_version: u64_as_u32_safe(public_inputs.join_split.fee_version),
+            fee_version: public_inputs.join_split.fee_version,
             min_batching_rate: verification_account.get_other_data().min_batching_rate,
         }
     )?;
@@ -364,8 +364,8 @@ pub fn finalize_verification_transfer<'a>(
     verification_account_info: &AccountInfo<'a>,
     nullifier_duplicate_account: &AccountInfo<'a>,
 
-    _verification_account_index: u64,
-    fee_version: u64,
+    _verification_account_index: u32,
+    fee_version: u32,
 ) -> ProgramResult {
     let data = &mut verification_account_info.data.borrow_mut()[..];
     let mut verification_account = VerificationAccount::new(data)?;
@@ -435,21 +435,21 @@ fn is_vec_duplicate_free<T: std::cmp::Eq + std::hash::Hash + std::clone::Clone>(
 
 /// Computes the minimum index of a commitment and it's corresponding MT-index
 fn minimum_commitment_mt_index(
-    mt_index: u64,
+    mt_index: u32,
     commitment_count: u32,
     commitment_queue_len: u32,
-) -> (u32, u64) {
+) -> (u32, u32) {
     let count = usize_as_u32_safe(MT_COMMITMENT_COUNT);
     let index = (commitment_count + commitment_queue_len) % count;
     let mt_offset = (commitment_count + commitment_queue_len) / count;
-    (index, mt_index + mt_offset as u64)
+    (index, mt_index + mt_offset)
 }
 
 fn check_join_split_public_inputs(
     public_inputs: &JoinSplitPublicInputs,
     storage_account: &StorageAccount,
     nullifier_accounts: [&NullifierAccount; 2],
-    tree_indices: &[u64; MAX_MT_COUNT],
+    tree_indices: &[u32; MAX_MT_COUNT],
 ) -> ProgramResult {
     // Check that the resulting commitment is not the zero-commitment
     guard!(public_inputs.commitment.skip_mr() != ZERO_COMMITMENT_RAW, InvalidPublicInputs);
@@ -619,8 +619,8 @@ mod tests {
         account!(nullifier_duplicate_account, nullifier_duplicate_pda, vec![1]);
 
         struct InitVerificationTest {
-            verification_account_index: u64,
-            tree_indices: [u64; MAX_MT_COUNT],
+            verification_account_index: u32,
+            tree_indices: [u32; MAX_MT_COUNT],
             request: ProofRequest,
             success: bool,
         }

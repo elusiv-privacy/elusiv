@@ -10,7 +10,7 @@ use assert_matches::assert_matches;
 use common::*;
 use common::program_setup::*;
 use elusiv::bytes::{ElusivOption, BorshSerDeSized};
-use elusiv::fields::u256_to_fr_skip_mr;
+use elusiv::fields::{u256_to_fr_skip_mr, u64_to_u256};
 use elusiv::instruction::{ElusivInstruction, WritableUserAccount, SignerAccount, WritableSignerAccount, UserAccount};
 use elusiv::proof::precompute::PrecomputesAccount;
 use elusiv::proof::vkey::{VerificationKey, SendQuadraVKey};
@@ -18,9 +18,9 @@ use elusiv::proof::{VerificationAccount, VerificationState, prepare_public_input
 use elusiv::state::fee::ProgramFee;
 use elusiv::state::governor::{FeeCollectorAccount, GovernorAccount, FEE_COLLECTOR_MINIMUM_BALANCE, PoolAccount};
 use elusiv::state::queue::{CommitmentQueueAccount, CommitmentQueue, Queue, RingQueue};
-use elusiv::state::{empty_root_raw, NullifierAccount};
+use elusiv::state::{empty_root_raw, NullifierAccount, NullifierMap};
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData, MultiAccountProgramAccount};
-use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec};
+use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec, OrdU256};
 use elusiv::proof::verifier::proof_from_str;
 use elusiv::processor::{ProofRequest, FinalizeSendData};
 use elusiv_utils::batch_instructions;
@@ -464,13 +464,37 @@ async fn test_verify_valid_proof() {
 
     // Two finalizes will fail
     tx_should_fail(&[finalize_ix.clone(), finalize_ix.clone()], &mut client, &mut context).await;
+    let nullifier_hashes = request.public_inputs.join_split.nullifier_hashes.clone();
+
+    let nullifier_hash_count = 1000;
+    let nullifier_pda = NullifierAccount::find(Some(0)).0;
+    let mut data = get_data(&mut context, nullifier_pda).await;
+    let mut n = NullifierAccount::new(&mut data, HashMap::new()).unwrap();
+    let sub_account_pk = n.get_multi_account_data().pubkeys[0].option().unwrap();
+    {
+        let mut data = get_data(&mut context, sub_account_pk).await;
+        let mut map = NullifierMap::new(&mut data[1..]);
+        for i in 0..=nullifier_hash_count as u64 + 1  {
+            map.try_insert_default(OrdU256(u64_to_u256(i))).unwrap();
+        }
+        let lamports = get_balance(&sub_account_pk, &mut context).await;
+        set_account(&mut context, &sub_account_pk, data, lamports).await;
+    }
+    n.set_nullifier_hash_count(&nullifier_hash_count);
+    let lamports = get_balance(&nullifier_pda, &mut context).await;
+    set_account(&mut context, &nullifier_pda, data, lamports).await;
 
     // Finalize (without transfer ix -> one extra tx sent)
-    ix_should_succeed(finalize_ix.clone(), &mut client, &mut context).await;
+    tx_should_succeed(
+        &[
+            request_compute_units(1_400_000),
+            finalize_ix.clone(),
+        ],
+        &mut client, &mut context,
+    ).await;
 
-    let nullifier_hashes = request.public_inputs.join_split.nullifier_hashes.clone();
     nullifier_account(&mut context, Some(0), |n: &NullifierAccount| {
-        assert_eq!(n.get_nullifier_hash_count(), 2);
+        assert_eq!(n.get_nullifier_hash_count(), nullifier_hash_count + 2);
         assert!(!n.can_insert_nullifier_hash(nullifier_hashes[0].reduce()).unwrap());
         assert!(!n.can_insert_nullifier_hash(nullifier_hashes[1].reduce()).unwrap());
     }).await;
