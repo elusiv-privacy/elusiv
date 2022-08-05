@@ -13,57 +13,106 @@ use crate::bytes::BorshSerDeSized;
 use crate::error::ElusivError::{
     InvalidAccount,
     InvalidInstructionData,
-    InvalidAmount,
     InsufficientFunds
 };
-use crate::macros::guard;
+use crate::macros::{guard, pda_account};
+use crate::state::governor::{PoolAccount, FeeCollectorAccount};
 use crate::state::program_account::{
     PDAAccountData,
     PDAAccount,
-    SizedAccount
+    SizedAccount, ProgramAccount
 };
+use crate::token::{Token, Lamports, TokenAuthorityAccount};
 
-/// Sends `lamports` from `sender` to `recipient`
-pub fn send_with_system_program<'a>(
-    sender: &AccountInfo<'a>,
-    recipient: &AccountInfo<'a>,
-    system_program: &AccountInfo<'a>,
-    lamports: u64,
+use super::MATH_ERR;
+
+pub fn transfer_token<'a>(
+    source: &AccountInfo<'a>,
+    source_token_account: &AccountInfo<'a>,
+    destination: &AccountInfo<'a>,
+    token_program: &AccountInfo<'a>,
+    token: Token,
 ) -> ProgramResult {
-    // Check that system_program is correct
+    if token.token_id() == 0 {
+        if *source.owner == crate::ID && !source.key.is_on_curve() {
+            transfer_lamports_from_pda_checked(
+                source,
+                destination,
+                Lamports(token.amount()),
+            )
+        } else {
+            transfer_with_system_program(
+                source,
+                destination,
+                token_program,
+                Lamports(token.amount()),
+            )
+        }
+    } else {
+        transfer_with_token_program(
+            source,
+            source_token_account,
+            destination,
+            token_program,
+            token.amount(),
+        )
+    }
+}
+
+fn transfer_with_system_program<'a>(
+    source: &AccountInfo<'a>,
+    destination: &AccountInfo<'a>,
+    system_program: &AccountInfo<'a>,
+    lamports: Lamports,
+) -> ProgramResult {
     guard!(*system_program.key == system_program::ID, InvalidAccount);
 
-    // Transfer funds from sender
     let instruction = solana_program::system_instruction::transfer(
-        sender.key,
-        recipient.key,
-        lamports 
+        source.key,
+        destination.key,
+        lamports.0,
     );
     
     solana_program::program::invoke_signed(
         &instruction,
         &[
-            sender.clone(),
-            recipient.clone(),
+            source.clone(),
+            destination.clone(),
             system_program.clone(),
         ],
         &[],
     )    
 }
 
-/// Sends from a program owned pool
-pub fn send_from_pool<'a>(
-    pool: &AccountInfo<'a>,
-    recipient: &AccountInfo<'a>,
+fn transfer_with_token_program<'a>(
+    source: &AccountInfo<'a>,
+    source_token_account: &AccountInfo<'a>,
+    destination_token_account: &AccountInfo<'a>,
+    token_program: &AccountInfo<'a>,
     amount: u64,
 ) -> ProgramResult {
-    **pool.try_borrow_mut_lamports()? = pool.lamports().checked_sub(amount)
-        .ok_or_else(|| ProgramError::from(InvalidAmount))?;
+    guard!(*token_program.key == spl_token::ID, InvalidAccount);
+    guard!(*source_token_account.owner == spl_token::ID, InvalidAccount);
 
-    **recipient.try_borrow_mut_lamports()? = recipient.lamports().checked_add(amount)
-        .ok_or_else(|| ProgramError::from(InvalidAmount))?;
+    let instruction = spl_token::instruction::transfer(
+        token_program.key,
+        destination_token_account.key,
+        destination_token_account.key,
+        source.key,
+        &[source.key],
+        amount,
+    )?;
 
-    Ok(())
+    solana_program::program::invoke_signed(
+        &instruction,
+        &[
+            source.clone(),
+            source_token_account.clone(),
+            destination_token_account.clone(),
+            token_program.clone(),
+        ],
+        &[],
+    )
 }
 
 pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
@@ -166,15 +215,65 @@ pub fn create_pda_account<'a>(
     Ok(())
 }
 
+pub unsafe fn transfer_lamports_from_pda<'a>(
+    pda: &AccountInfo<'a>,
+    recipient: &AccountInfo<'a>,
+    lamports: Lamports,
+) -> ProgramResult {
+    **pda.try_borrow_mut_lamports()? = pda.lamports().checked_sub(lamports.0)
+        .ok_or(MATH_ERR)?;
+
+    **recipient.try_borrow_mut_lamports()? = recipient.lamports().checked_add(lamports.0)
+    .ok_or(MATH_ERR)?;
+
+    Ok(())
+}
+
+pub fn transfer_lamports_from_pda_checked<'a>(
+    pda: &AccountInfo<'a>,
+    recipient: &AccountInfo<'a>,
+    lamports: Lamports,
+) -> ProgramResult {
+    let pda_lamports = pda.lamports();
+    let pda_size = pda.data_len();
+    let rent_lamports = Rent::get()?.minimum_balance(pda_size);
+
+    if pda_lamports.checked_sub(lamports.0).ok_or(MATH_ERR)? < rent_lamports {
+        return Err(ProgramError::AccountNotRentExempt)
+    }
+
+    unsafe {
+        transfer_lamports_from_pda(pda, recipient, lamports)
+    }
+}
+
 pub fn close_account<'a>(
     payer: &AccountInfo<'a>,
     account: &AccountInfo<'a>,
 ) -> ProgramResult {
-    let lamports = account.lamports();
-    send_from_pool(account, payer, lamports)
+    let lamports = Lamports(account.lamports());
+    unsafe {
+        transfer_lamports_from_pda(account, payer, lamports)
+    }
 }
 
-#[cfg(test)]
+pub fn verify_program_token_accounts(
+    fee_collector: &AccountInfo,
+    fee_collector_account: &AccountInfo,
+    pool: &AccountInfo,
+    pool_account: &AccountInfo,
+    token_id: u16,
+) -> ProgramResult {
+    pda_account!(fee_collector, FeeCollectorAccount, fee_collector);
+    fee_collector.enforce_token_account(token_id, fee_collector_account)?;
+
+    pda_account!(pool, PoolAccount, pool);
+    pool.enforce_token_account(token_id, pool_account)?;
+
+    Ok(())
+}
+
+/*#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{macros::{test_account_info, account}, proof::VerificationAccount};
@@ -244,4 +343,4 @@ mod tests {
         account!(pda_account, pda, vec![]);
         assert_matches!(open_pda_account(&payer, &pda_account, 1, &seeds), Ok(_));
     }
-}
+}*/

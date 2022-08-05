@@ -405,18 +405,21 @@ impl PublicInputs for MigratePublicInputs {
 pub fn compute_fee_rec<VKey: crate::proof::vkey::VerificationKey, P: PublicInputs>(
     public_inputs: &mut P,
     program_fee: &crate::state::fee::ProgramFee,
+    price: &crate::token::TokenPrice,
 ) {
     let fee = program_fee.proof_verification_fee(
         crate::proof::prepare_public_inputs_instructions::<VKey>(
             &public_inputs.public_signals_skip_mr()
         ).len(),
         0,
-        public_inputs.join_split_inputs().amount
-    ) - program_fee.proof_subvention;
+        public_inputs.join_split_inputs().amount,
+        public_inputs.join_split_inputs().token_id,
+        price,
+    ).unwrap().amount();
 
     if fee != public_inputs.join_split_inputs().fee {
         public_inputs.set_fee(fee);
-        compute_fee_rec::<VKey, P>(public_inputs, program_fee)
+        compute_fee_rec::<VKey, P>(public_inputs, program_fee, price)
     }
 }
 
@@ -429,7 +432,7 @@ pub fn u256_to_le_limbs(v: U256) -> [u64; 4] {
     ]
 }
 
-/// Can be used to split a number > p into two public inputs
+/// Can be used to split a number > scalar field modulus (like Curve25519 keys) into two public inputs
 pub fn split_u256_into_limbs(v: U256) -> [U256; 2] {
     let mut a = v;
     for i in 0..16 { a[i + 16] = 0; }

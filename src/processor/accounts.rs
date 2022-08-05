@@ -9,7 +9,7 @@ use crate::{state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
     program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData, SubAccount, SUB_ACCOUNT_ADDITIONAL_SIZE},
     StorageAccount,
-    queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount, CommitmentQueue, Queue},
+    queue::{CommitmentQueueAccount, CommitmentQueue, Queue},
     fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
 }, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe, processor::MATH_ERR, proof::precompute::{PrecomputesAccount, precompute_account_size2}, map::ElusivMap};
 use crate::commitment::{CommitmentHashingAccount};
@@ -65,7 +65,6 @@ pub fn open_single_instance_account<'a>(
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum MultiInstancePDAAccountKind {
-    BaseCommitmentQueueAccount,
     NullifierAccount,
 }
 
@@ -78,9 +77,6 @@ pub fn open_multi_instance_account<'a>(
     pda_offset: u32,
 ) -> ProgramResult {
     match kind {
-        MultiInstancePDAAccountKind::BaseCommitmentQueueAccount => {
-            open_pda_account_with_offset::<BaseCommitmentQueueAccount>(payer, pda_account, pda_offset)
-        }
         MultiInstancePDAAccountKind::NullifierAccount => {
             open_pda_account_with_offset::<NullifierAccount>(payer, pda_account, pda_offset)
         }
@@ -315,7 +311,7 @@ fn verify_extern_data_account(
     Ok(())
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
@@ -502,4 +498,4 @@ mod tests {
         let mut map = Map::new(data);
         assert!(map.is_empty());
     }
-}
+}*/

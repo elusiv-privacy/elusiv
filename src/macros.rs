@@ -21,6 +21,18 @@ macro_rules! two_pow {
     };
 }
 
+/// mut? $id: ident, $ty: ty, $account_info: ident
+macro_rules! pda_account {
+    ($id: ident, $ty: ty, $account_info: ident) => {
+        let mut data = &mut $account_info.data.borrow_mut()[..];
+        let $id = <$ty>::new(&mut data)?;
+    };
+    (mut $id: ident, $ty: ty, $account_info: ident) => {
+        let mut data = &mut $account_info.data.borrow_mut()[..];
+        let mut $id = <$ty>::new(&mut data)?;
+    };
+}
+
 #[cfg(test)]
 macro_rules! hash_map {
     (internal $id: ident, $x:expr, $y:expr) => {
@@ -125,6 +137,7 @@ macro_rules! nullifier_account {
 
 pub(crate) use guard;
 pub(crate) use two_pow;
+pub(crate) use pda_account;
 
 #[cfg(test)] pub(crate) use hash_map;
 #[cfg(test)] pub(crate) use account;

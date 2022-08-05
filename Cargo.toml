@@ -3,6 +3,7 @@ name = "elusiv"
 version = "0.1.0"
 edition = "2021"
 publish = false
+repository = "https://github.com/elusiv-privacy/elusiv"
 
 [workspace]
 members = [
@@ -15,11 +16,14 @@ members = [
 
 [features]
 instruction-abi = []
+precomputing = []
+
+devnet = []
 logging = []
 no-entrypoint = []
+
 test-bpf = []
 test-elusiv = []
-precomputing = []
 
 [dependencies]
 elusiv-interpreter = { path = "./elusiv-interpreter" }
@@ -28,6 +32,8 @@ elusiv-proc-macros = { path = "./elusiv-proc-macros" }
 elusiv-computation = { path = "./elusiv-computation" }
 
 solana-program = "=1.9.26"
+spl-token = { version = "3.2.0", features = ["no-entrypoint"] }
+pyth-sdk-solana = "0.4.2"
 
 static_assertions = "1.1.0"
 borsh = { version = "0.9.3", features = ["const-generics"] }
@@ -43,10 +49,11 @@ elusiv-utils = { path = "./elusiv-utils", features = ["sdk"] }
 solana-program-test = "=1.9.26"
 solana-sdk = "=1.9.26"
 
+regex = "1.5.6"
+rand = "0.8.5"
+
 log = "0.4.17"
 log4rs = "1.1.1"
-rand = "0.8.5"
-regex = "1.5.6"
 
 assert_matches = "1.5.0"
 ark-groth16 = { version = "=0.3.0", default-features = false }
