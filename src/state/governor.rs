@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use crate::token::{TokenAuthorityAccount, TOKENS};
+use crate::token::{TokenAuthorityAccount, SPL_TOKEN_COUNT};
 use crate::{macros::elusiv_account, types::U256};
 use crate::bytes::{BorshSerDeSized, ElusivOption};
 use crate::state::program_account::SizedAccount;
@@ -21,13 +21,23 @@ pub struct GovernorAccount {
     program_version: u32,
 }
 
-const TOKEN_COUNT: usize = TOKENS.len();
-
 macro_rules! impl_token_authority {
     ($ty: ident) => {
-        impl<'a> TokenAuthorityAccount<'a> for $ty<'a> {
-            fn get_token_account(&self, token_id: u16) -> U256 {
-                self.get_token_account(token_id as usize).option().unwrap()
+        impl<'a> TokenAuthorityAccount for $ty<'a> {
+            unsafe fn get_token_account_unchecked(&self, token_id: u16) -> Option<U256> {
+                if token_id == 0 {
+                    return None
+                }
+
+                self.get_token_account(token_id as usize - 1).option()
+            }
+
+            unsafe fn set_token_account_unchecked(&mut self, token_id: u16, key: &solana_program::pubkey::Pubkey) {
+                if token_id == 0 {
+                    return
+                }
+
+                self.set_token_account(token_id as usize - 1, &ElusivOption::Some(key.to_bytes()));
             }
         }
     };
@@ -39,11 +49,11 @@ impl_token_authority!(FeeCollectorAccount);
 #[elusiv_account(pda_seed = b"pool")]
 pub struct PoolAccount {
     pda_data: PDAAccountData,
-    token_account: [ElusivOption<U256>; TOKEN_COUNT],
+    token_account: [ElusivOption<U256>; SPL_TOKEN_COUNT],
 }
 
 #[elusiv_account(pda_seed = b"fee_collector")]
 pub struct FeeCollectorAccount {
     pda_data: PDAAccountData,
-    token_account: [ElusivOption<U256>; TOKEN_COUNT],
+    token_account: [ElusivOption<U256>; SPL_TOKEN_COUNT],
 }

@@ -30,12 +30,12 @@ pub struct ProgramFee {
     /// Per join-split-amount fee in basis points
     pub proof_network_fee: BasisPointFee, 
 
-    /// Used only as privacy mining incentive to push rewards for relayers without increasing user costs
+    /// Used only as privacy mining incentive to push rewards for wardens without increasing user costs
     pub base_commitment_subvention: Lamports,
     pub proof_subvention: Lamports,
 
-    pub relayer_hash_tx_reward: Lamports,
-    pub relayer_proof_reward: Lamports,
+    pub warden_hash_tx_reward: Lamports,
+    pub warden_proof_reward: Lamports,
 
     /// Current tx count for init, combined miller loop, final exponentiation and finalization (dynamic tx for input preparation ignored)
     pub proof_base_tx_count: u64,
@@ -65,7 +65,7 @@ impl ProgramFee {
 }
 
 #[elusiv_account(pda_seed = b"fee")]
-/// Specifies the program fees and compensation for relayers
+/// Specifies the program fees and compensation for wardens
 /// - multiple fee-accounts can exist
 /// - each one has it's own version as its pda-offset
 /// - the `GovernorAccount` defines the most-recent version
@@ -76,7 +76,7 @@ pub struct FeeAccount {
 
 impl ProgramFee {
     pub fn hash_tx_compensation(&self) -> Lamports {
-        Lamports(self.lamports_per_tx.0 + self.relayer_hash_tx_reward.0)
+        Lamports(self.lamports_per_tx.0 + self.warden_hash_tx_reward.0)
     }
 
     pub fn base_commitment_hash_computation_fee(&self) -> Lamports {
@@ -100,7 +100,7 @@ impl ProgramFee {
     ) -> Lamports {
         let amount = (input_preparation_tx_count + u64_as_usize_safe(self.proof_base_tx_count)) as u64
             * self.lamports_per_tx.0
-            + self.relayer_proof_reward.0;
+            + self.warden_proof_reward.0;
         Lamports(amount)
     }
 

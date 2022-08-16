@@ -7,7 +7,7 @@ use solana_program::{
 };
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex, pda_account};
 use crate::processor::ZERO_COMMITMENT_RAW;
-use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token, verify_program_token_accounts};
+use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token};
 use crate::proof::precompute::PrecomputesAccount;
 use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState};
 use crate::state::MT_COMMITMENT_COUNT;
@@ -176,7 +176,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     let commitment_hash_fee = fee.commitment_hash_computation_fee(min_batching_rate);
     let commitment_hash_fee_token = commitment_hash_fee.into_token(&price, token_id)?;
     let network_fee = Token::new_checked(token_id, fee.proof_network_fee.calc(join_split.amount))?;
-    verify_program_token_accounts(fee_collector, fee_collector_account, pool, pool_account, token_id)?;
+    //verify_program_token_accounts(fee_collector, fee_collector_account, pool, pool_account, token_id)?;
 
     // `fee_collector` transfers `subvention` to `pool`
     transfer_token(

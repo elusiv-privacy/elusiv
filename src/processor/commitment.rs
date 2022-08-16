@@ -8,8 +8,9 @@ use solana_program::{
 };
 use crate::commitment::{commitment_hash_computation_instructions, commitments_per_batch, MAX_HT_COMMITMENTS, compute_base_commitment_hash_partial, compute_commitment_hash_partial};
 use crate::macros::{guard, pda_account};
-use crate::processor::utils::{transfer_token, transfer_lamports_from_pda_checked, verify_program_token_accounts};
+use crate::processor::utils::{transfer_token, verify_pool, verify_fee_collector, transfer_with_system_program, transfer_token_from_pda, transfer_lamports_from_pda_checked};
 use crate::state::MT_COMMITMENT_COUNT;
+use crate::state::governor::FeeCollectorAccount;
 use crate::state::{StorageAccount, program_account::ProgramAccount};
 use crate::token::{Token, TokenPrice};
 use crate::types::{U256, RawU256};
@@ -110,6 +111,7 @@ pub fn store_base_commitment<'a>(
     governor: &GovernorAccount,
     hashing_account: &AccountInfo<'a>,
     token_program: &AccountInfo<'a>,
+    system_program: &AccountInfo<'a>,
 
     hash_account_index: u32,
     request: BaseCommitmentHashRequest,
@@ -133,9 +135,12 @@ pub fn store_base_commitment<'a>(
         fee.base_commitment_hash_computation_fee() + fee.commitment_hash_computation_fee(request.min_batching_rate)
     )?;
     let computation_fee_token = computation_fee.into_token(&price, token_id)?;
-    verify_program_token_accounts(fee_collector, fee_collector_account, pool, pool_account, token_id)?;
+    let network_fee = Token::new(token_id, fee.base_commitment_network_fee.calc(amount.amount()));
 
-    // `sender` transfers `computation_fee_token` - `subvention` to `fee_payer`,
+    verify_pool(pool, pool_account, token_id)?;
+    verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
+
+    // `sender` transfers `computation_fee_token` - `subvention` (as token) to `fee_payer`,
     transfer_token(
         sender,
         sender_account,
@@ -144,20 +149,15 @@ pub fn store_base_commitment<'a>(
         (computation_fee_token - subvention)?,
     )?;
 
-    // `fee_collector` transfers `subvention` to `fee_payer`,
-    transfer_token(
-        fee_collector,
-        fee_collector_account,
-        fee_payer_account,
-        token_program,
-        subvention,
+    // `fee_payer` transfers `computation_fee` (as lamports) to `pool`,
+    transfer_with_system_program(
+        fee_payer,
+        pool,
+        system_program,
+        computation_fee,
     )?;
 
-    // `fee_payer` transfers `computation_fee` to `pool`,
-    transfer_lamports_from_pda_checked(fee_payer, pool, computation_fee)?;
-
-    // `sender` transfers `network_fee` to `fee_collector`
-    let network_fee = Token::new(token_id, fee.base_commitment_network_fee.calc(amount.amount()));
+    // `sender` transfers `network_fee` (as token) to `fee_collector`
     transfer_token(
         sender,
         sender_account,
@@ -166,7 +166,7 @@ pub fn store_base_commitment<'a>(
         network_fee,
     )?;
 
-    // `sender` transfers `amount` to `pool`
+    // `sender` transfers `amount` (as token) to `pool`
     transfer_token(
         sender,
         sender_account,
@@ -182,12 +182,22 @@ pub fn store_base_commitment<'a>(
         hash_account_index,
     )?;
 
+    // `fee_collector` transfers `subvention` (as token) to `fee_payer`,
+    transfer_token_from_pda::<FeeCollectorAccount>(
+        fee_collector,
+        fee_collector_account,
+        fee_payer_account,
+        token_program,
+        subvention,
+        None,
+    )?;
+
     // `hashing_account` setup
     pda_account!(mut hashing_account, BaseCommitmentHashingAccount, hashing_account);
-    hashing_account.setup(request, fee_payer_account.key.to_bytes())
+    hashing_account.setup(request, fee_payer.key.to_bytes())
 }
 
-// TODO: add functionality to relayer to compute other uncomputed base-commitments
+// TODO: add functionality to warden to compute other uncomputed base-commitments
 pub fn compute_base_commitment_hash(
     hashing_account: &mut BaseCommitmentHashingAccount,
 
@@ -201,12 +211,8 @@ pub fn compute_base_commitment_hash(
 #[allow(clippy::too_many_arguments)]
 pub fn finalize_base_commitment_hash<'a>(
     original_fee_payer: &AccountInfo<'a>,
-
     pool: &AccountInfo<'a>,
-    pool_account: &AccountInfo<'a>,
-
     fee: &FeeAccount,
-    token_program: &AccountInfo<'a>,
     hashing_account_info: &AccountInfo<'a>,
     commitment_hash_queue: &mut CommitmentQueueAccount,
 
@@ -222,13 +228,11 @@ pub fn finalize_base_commitment_hash<'a>(
         ComputationIsNotYetFinished
     );
 
-    // `pool` transfers `base_commitment_hash_fee` to `original_fee_payer`
-    transfer_token(
+    // `pool` transfers `base_commitment_hash_fee` to `original_fee_payer` (as lamports)
+    transfer_lamports_from_pda_checked(
         pool,
-        pool_account,
         original_fee_payer,
-        token_program,
-        fee.get_program_fee().base_commitment_hash_computation_fee().into_token_strict(),
+        fee.get_program_fee().base_commitment_hash_computation_fee(),
     )?;
 
     let commitment = hashing_account.get_state().result();
@@ -302,12 +306,10 @@ pub fn compute_commitment_hash<'a>(
 
     compute_commitment_hash_partial(hashing_account)?;
 
-    transfer_token(
-        pool,
+    transfer_lamports_from_pda_checked(
         pool,
         fee_payer,
-        pool,    // system program not needed here (uses PDA)
-        fee.get_program_fee().hash_tx_compensation().into_token_strict(),
+        fee.get_program_fee().hash_tx_compensation(),
     )
 }
 

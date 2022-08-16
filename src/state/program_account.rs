@@ -65,8 +65,26 @@ pub trait PDAAccount {
     }
 
     fn is_valid_pubkey(account: &AccountInfo, offset: PDAOffset, pubkey: &Pubkey) -> Result<bool, ProgramError> {
-        let bump = account.data.borrow()[0];
+        let bump = Self::get_bump(account);
         Ok(Self::pubkey(offset, bump)? == *pubkey)
+    }
+
+    fn get_bump(account: &AccountInfo) -> u8 {
+        account.data.borrow()[0]
+    }
+
+    fn signers_seeds(pda_offset: PDAOffset, bump: u8) -> Vec<Vec<u8>> {
+        match pda_offset {
+            Some(pda_offset) => vec![
+                Self::SEED.to_vec(),
+                u32::to_le_bytes(pda_offset).to_vec(),
+                vec![bump]
+            ],
+            None => vec![
+                Self::SEED.to_vec(),
+                vec![bump]
+            ]
+        }
     }
 } 
 

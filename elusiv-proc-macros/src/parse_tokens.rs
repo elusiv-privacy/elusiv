@@ -15,7 +15,8 @@ struct Token {
     mint: String,
     mint_devnet: String,
     active: bool,
-    decimals: u8,
+    decimals: Option<u8>,
+    price_base_exp: Option<u8>,
     min: u64,
     max: u64,
     pyth_usd_price_mainnet: String,
@@ -40,12 +41,20 @@ pub fn impl_parse_tokens(attrs: TokenStream) -> TokenStream {
 
     for (i, token) in tokens.token.iter().enumerate() {
         let sym: TokenStream = format!("{}_TOKEN_ID", token.symbol).parse().unwrap();
+        let sym_fn: TokenStream = format!("{}_token", token.symbol.to_lowercase()).parse().unwrap();
         let id = i as u16;
         symbols.extend(quote!{
+            #[cfg(feature = "instruction-abi")]
             pub const #sym: u16 = #id;
+
+            #[cfg(feature = "instruction-abi")]
+            pub const fn #sym_fn() -> ElusivToken {
+                TOKENS[#i]
+            }
         });
 
-        let decimals = token.decimals;
+        let decimals = token.decimals.unwrap_or_default();
+        let price_base_exp = token.price_base_exp.unwrap_or_default();
         let min = token.min;
         let max = token.max;
         let mint = if devnet {
@@ -63,6 +72,7 @@ pub fn impl_parse_tokens(attrs: TokenStream) -> TokenStream {
             ElusivToken {
                 mint: Pubkey::new_from_array(#mint),
                 decimals: #decimals,
+                price_base_exp: #price_base_exp,
                 pyth_usd_price_key: Pubkey::new_from_array(#pyth_usd_price_key),
                 min: #min,
                 max: #max,

@@ -1,11 +1,11 @@
 # Tokens supported by the the Elusiv Program
 
 [[token]]
-symbol = "SOL"
-mint = "So11111111111111111111111111111111111111112"
-mint_devnet = "So11111111111111111111111111111111111111112"
+symbol = "LAMPORTS"
+mint = "11111111111111111111111111111111"
+mint_devnet = "11111111111111111111111111111111"
 active = true
-decimals = 9
+price_base_exp = 9
 min = 1_000
 max = 100_000_000_000
 # https://pyth.network/price-feeds/crypto-sol-usd

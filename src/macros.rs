@@ -33,6 +33,16 @@ macro_rules! pda_account {
     };
 }
 
+/*macro_rules! log {
+    ($msg: expr) => {
+        #[cfg(feature = "testing")]
+        solana_program::msg!($msg);
+    };
+    ($($arg:tt)*) => (
+        solana_program::msg!($($arg)*)
+    );
+}*/
+
 #[cfg(test)]
 macro_rules! hash_map {
     (internal $id: ident, $x:expr, $y:expr) => {
@@ -49,14 +59,20 @@ macro_rules! hash_map {
 
 // Test macros
 #[cfg(test)]
+/// $id: ident, $pubkey: expr, $data: expr, ($owner: expr)?
 macro_rules! account {
     ($id: ident, $pubkey: expr, $data: expr) => {
-        crate::macros::account!($id, $pubkey, data, $data);
+        let pubkey = $pubkey;
+        crate::macros::account!($id, pubkey, data, $data, crate::id());
     };
-    ($id: ident, $pubkey: expr, $data_id: ident, $data: expr) => {
+    ($id: ident, $pubkey: expr, $data: expr, $owner: expr) => {
+        let pubkey = $pubkey;
+        crate::macros::account!($id, pubkey, data, $data, $owner);
+    };
+    ($id: ident, $pubkey: expr, $data_id: ident, $data: expr, $owner: expr) => {
         let mut lamports = u64::MAX / 2;
         let mut $data_id = $data;
-        let owner = crate::id();
+        let owner = $owner;
         let $id = solana_program::account_info::AccountInfo::new(
             &$pubkey,
             false, false, &mut lamports,
@@ -69,11 +85,15 @@ macro_rules! account {
 }
 
 #[cfg(test)]
-/// $id: ident, $data_size: expr
+/// $id: ident, $data_size: expr, $owner: expr?
 macro_rules! test_account_info {
     ($id: ident, $data_size: expr) => {
         let pk = solana_program::pubkey::Pubkey::new_unique();
         crate::macros::account!($id, pk, vec![0; $data_size]) 
+    };
+    ($id: ident, $data_size: expr, $owner: expr) => {
+        let pk = solana_program::pubkey::Pubkey::new_unique();
+        crate::macros::account!($id, pk, vec![0; $data_size], $owner) 
     };
 }
 
@@ -138,6 +158,7 @@ macro_rules! nullifier_account {
 pub(crate) use guard;
 pub(crate) use two_pow;
 pub(crate) use pda_account;
+//pub(crate) use log;
 
 #[cfg(test)] pub(crate) use hash_map;
 #[cfg(test)] pub(crate) use account;

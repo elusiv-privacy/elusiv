@@ -40,6 +40,7 @@ pub struct BaseCommitmentHashingAccount {
     fee_payer: U256,
     is_active: bool,
 
+    token_id: u16,
     state: BinarySpongeHashingState,
     min_batching_rate: u32,
 }
@@ -57,6 +58,7 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
         self.set_fee_version(&request.fee_version);
 
         self.set_min_batching_rate(&request.min_batching_rate);
+        self.set_token_id(&request.token_id);
 
         // Reset hashing state
         self.set_state(

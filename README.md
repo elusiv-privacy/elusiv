@@ -28,8 +28,8 @@ This results in the dynamic library _dist/elusiv.so_.
 - All tests: `bash bin/test`
 
 ## Supported tokens
-All supported tokens can be found in [Token.toml](https://github.com/elusiv-privacy/elusiv/blob/master/Cargo.toml).
-On-chain price data is provided by [Pyth](https://pyth.network/), but [Chainlink](https://chain.link/) support will be added as well.
+All supported tokens can be found in [Token.toml](https://github.com/elusiv-privacy/elusiv/blob/master/Token.toml).
+On-chain price data is provided by [Pyth](https://pyth.network/).
 
 ## Program interaction
 ### Rust instruction API

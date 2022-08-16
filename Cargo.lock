@@ -818,6 +818,7 @@ dependencies = [
  "ark-groth16",
  "assert_matches",
  "borsh",
+ "bytemuck",
  "elusiv",
  "elusiv-computation",
  "elusiv-derive",

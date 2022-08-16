@@ -5,8 +5,13 @@ use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum};
 use crate::state::fee::ProgramFee;
 use crate::types::RawProof;
 use super::processor;
-use super::processor::{BaseCommitmentHashRequest};
-use crate::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, ProofRequest, MAX_MT_COUNT, FinalizeSendData};
+use super::processor::BaseCommitmentHashRequest;
+use crate::processor::{
+    SingleInstancePDAAccountKind,
+    MultiInstancePDAAccountKind,
+    TokenAuthorityAccountKind,
+    ProofRequest, MAX_MT_COUNT, FinalizeSendData,
+};
 use crate::state::queue::CommitmentQueueAccount;
 use crate::state::{
     program_account::{
@@ -22,6 +27,7 @@ use crate::state::{
 };
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::proof::{VerificationAccount, precompute::PrecomputesAccount};
+use solana_program::instruction::Instruction;
 use solana_program::{
     system_program,
     account_info::{next_account_info, AccountInfo},
@@ -40,18 +46,18 @@ pub enum ElusivInstruction {
     // Client sends `base_commitment` and `amount` to be stored in the Elusiv program
     #[acc(sender, { signer })]
     #[acc(sender_account, { writable })]
-    #[acc(fee_payer, { signer })]
+    #[acc(fee_payer, { writable, signer })]
     #[acc(fee_payer_account, { writable })]
-    #[pda(pool, PoolAccount, { account_info })]
-    #[acc(pool_account, { signer, writable })]
-    #[pda(fee_collector, FeeCollectorAccount, { account_info })]
-    #[acc(fee_collector_account, { signer, writable })]
+    #[pda(pool, PoolAccount, { writable, account_info })]
+    #[acc(pool_account, { writable })]
+    #[pda(fee_collector, FeeCollectorAccount, { writable, account_info })]
+    #[acc(fee_collector_account, { writable })]
     #[acc(sol_price_account)]
     #[acc(token_price_account)]
     #[pda(governor, GovernorAccount)]
     #[pda(hashing_account, BaseCommitmentHashingAccount, pda_offset = Some(hash_account_index), { writable, account_info, find_pda })]
     #[acc(token_program)]   // if `token_id = 0` { `system_program` } else { `token_program` }
-    #[sys(system_program, key = system_program::ID, { ignore })]
+    #[sys(system_program, key = system_program::ID)]
     StoreBaseCommitment {
         hash_account_index: u32,
         request: BaseCommitmentHashRequest,
@@ -64,10 +70,8 @@ pub enum ElusivInstruction {
     },
 
     #[acc(original_fee_payer, { writable })]
-    #[pda(pool, PoolAccount, { account_info })]
-    #[acc(pool_account, { signer, writable })]
+    #[pda(pool, PoolAccount, { writable, account_info })]
     #[pda(fee, FeeAccount, pda_offset = Some(fee_version))]
-    #[acc(token_program)]   // if `token_id = 0` { `system_program` } else { `token_program` }
     #[pda(hashing_account, BaseCommitmentHashingAccount, pda_offset = Some(hash_account_index), { writable, account_info })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     FinalizeBaseCommitmentHash {
@@ -84,9 +88,9 @@ pub enum ElusivInstruction {
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
     InitCommitmentHash,
 
-    #[acc(fee_payer, { signer })]
+    #[acc(fee_payer, { writable, signer })]
     #[pda(fee, FeeAccount, pda_offset = Some(fee_version))]
-    #[pda(pool, PoolAccount, { account_info })]
+    #[pda(pool, PoolAccount, { writable, account_info })]
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
     ComputeCommitmentHash {
         fee_version: u32,
@@ -203,6 +207,18 @@ pub enum ElusivInstruction {
         pda_offset: u32,
     },
 
+    #[acc(payer, { writable, signer })]
+    #[acc(pda_account, { writable })]
+    #[acc(token_account, { writable, signer })]
+    #[acc(mint_account)]
+    #[acc(rent_sysvar, key = Rent::id())]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    #[sys(token_program, key = spl_token::ID, { ignore })]
+    EnableTokenAccount {
+        kind: TokenAuthorityAccountKind,
+        token_id: u16,
+    },
+
     #[pda(storage_account, StorageAccount, { account_info, writable })]
     #[acc(sub_account, { owned, writable })]
     EnableStorageSubAccount {
@@ -292,6 +308,30 @@ pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instructi
             WritableUserAccount(PrecomputesAccount::find(None).0)
         ),
     ]
+}
+
+#[cfg(feature = "instruction-abi")]
+impl ElusivInstruction {
+    pub fn store_base_commitment_sol_instruction(
+        hash_account_index: u32,
+        request: BaseCommitmentHashRequest,
+        client: Pubkey,
+        warden: Pubkey,
+    ) -> Instruction {
+        ElusivInstruction::store_base_commitment_instruction(
+            hash_account_index,
+            request,
+            SignerAccount(client),
+            WritableUserAccount(client),
+            WritableSignerAccount(warden),
+            WritableUserAccount(warden),
+            WritableUserAccount(PoolAccount::find(None).0),
+            WritableUserAccount(FeeCollectorAccount::find(None).0),
+            UserAccount(system_program::id()),
+            UserAccount(system_program::id()),
+            UserAccount(system_program::id()),
+        )
+    }
 }
 
 #[cfg(feature = "instruction-abi")]
