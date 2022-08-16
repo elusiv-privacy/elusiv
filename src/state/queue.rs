@@ -7,7 +7,7 @@ use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty, InvalidFeeVersion, In
 use crate::macros::guard;
 use crate::bytes::*;
 use crate::macros::*;
-use crate::processor::{BaseCommitmentHashRequest, CommitmentHashRequest};
+use crate::processor::CommitmentHashRequest;
 use super::program_account::{SizedAccount, ProgramAccount, PDAAccountData, MultiInstancePDAAccount};
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
@@ -65,9 +65,6 @@ pub trait Queue<'a, 'b, Account: ProgramAccount<'a>> {
     type T;
     fn new(account: &'b mut Account) -> Self::T;
 }
-
-// Base commitment queue
-queue_account!(BaseCommitmentQueue, BaseCommitmentQueueAccount, b"base_commitment_queue", 101, BaseCommitmentHashRequest, 10);
 
 // Queue used for storing commitments that should sequentially inserted into the active MT
 queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest, 1);
@@ -208,11 +205,9 @@ pub trait RingQueue {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
-
-    use crate::{commitment::MAX_COMMITMENT_BATCHING_RATE, fields::{u64_to_scalar, fr_to_u256_le}};
-
     use super::*;
+    use assert_matches::assert_matches;
+    use crate::{commitment::MAX_COMMITMENT_BATCHING_RATE, fields::{u64_to_scalar, fr_to_u256_le}};
 
     struct TestQueue<const S: usize> {
         head: u32,

@@ -5,14 +5,21 @@ use solana_program::{
     sysvar::Sysvar,
     rent::Rent, program_error::ProgramError,
 };
-use crate::{state::{
+use crate::state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
     program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData, SubAccount, SUB_ACCOUNT_ADDITIONAL_SIZE},
     StorageAccount,
-    queue::{CommitmentQueueAccount, BaseCommitmentQueueAccount, CommitmentQueue, Queue},
+    queue::{CommitmentQueueAccount, CommitmentQueue, Queue},
     fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
-}, commitment::DEFAULT_COMMITMENT_BATCHING_RATE, bytes::usize_as_u32_safe, processor::MATH_ERR, proof::precompute::{PrecomputesAccount, precompute_account_size2}, map::ElusivMap};
-use crate::commitment::{CommitmentHashingAccount};
+};
+use crate::commitment::{CommitmentHashingAccount, DEFAULT_COMMITMENT_BATCHING_RATE};
+use crate::{
+    bytes::usize_as_u32_safe,
+    processor::MATH_ERR,
+    proof::precompute::{PrecomputesAccount, precompute_account_size2},
+    map::ElusivMap,
+    token::TokenAuthorityAccount,
+};
 use crate::error::ElusivError::{
     InvalidAccount,
     InvalidInstructionData,
@@ -65,7 +72,6 @@ pub fn open_single_instance_account<'a>(
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum MultiInstancePDAAccountKind {
-    BaseCommitmentQueueAccount,
     NullifierAccount,
 }
 
@@ -78,13 +84,65 @@ pub fn open_multi_instance_account<'a>(
     pda_offset: u32,
 ) -> ProgramResult {
     match kind {
-        MultiInstancePDAAccountKind::BaseCommitmentQueueAccount => {
-            open_pda_account_with_offset::<BaseCommitmentQueueAccount>(payer, pda_account, pda_offset)
-        }
         MultiInstancePDAAccountKind::NullifierAccount => {
             open_pda_account_with_offset::<NullifierAccount>(payer, pda_account, pda_offset)
         }
     }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
+pub enum TokenAuthorityAccountKind {
+    Pool,
+    FeeCollector,
+}
+
+pub fn enable_token_account<'a>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+    token_account: &AccountInfo<'a>,
+    mint_account: &AccountInfo<'a>,
+    rent_sysvar: &AccountInfo<'a>,
+
+    kind: TokenAuthorityAccountKind,
+    token_id: u16,
+) -> ProgramResult {
+    match kind {
+        TokenAuthorityAccountKind::Pool => {
+            create_token_account::<PoolAccount>(payer, pda_account, token_account, mint_account, rent_sysvar, token_id)?;
+            pda_account!(mut account, PoolAccount, pda_account);
+            account.try_set_token_account(token_id, token_account.key)?;
+        }
+        TokenAuthorityAccountKind::FeeCollector => {
+            create_token_account::<FeeCollectorAccount>(payer, pda_account, token_account, mint_account, rent_sysvar, token_id)?;
+            pda_account!(mut account, FeeCollectorAccount, pda_account);
+            account.try_set_token_account(token_id, token_account.key)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn create_token_account<'a, T: TokenAuthorityAccount + ProgramAccount<'a, T = T>>(
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+    token_account: &AccountInfo<'a>,
+    mint_account: &AccountInfo<'a>,
+    rent_sysvar: &AccountInfo<'a>,
+
+    token_id: u16,
+) -> ProgramResult {
+    guard!(T::is_valid_pubkey(pda_account, None, pda_account.key)?, InvalidAccount);
+
+    create_token_account_for_pda_authority::<T>(
+        payer,
+        pda_account,
+        token_account,
+        mint_account,
+        rent_sysvar,
+        token_id,
+    )?;
+
+    Ok(())
 }
 
 /// Enables the supplied sub-account for the `StorageAccount`
@@ -315,7 +373,7 @@ fn verify_extern_data_account(
     Ok(())
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
@@ -502,4 +560,4 @@ mod tests {
         let mut map = Map::new(data);
         assert!(map.is_empty());
     }
-}
+}*/

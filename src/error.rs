@@ -13,6 +13,8 @@ pub enum ElusivError {
     NonScalarValue,
     MissingSubAccount,
     FeatureNotAvailable,
+    UnsupportedToken,
+    OracleError,
 
     // Merkle tree
     InvalidMerkleRoot,

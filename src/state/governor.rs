@@ -1,7 +1,7 @@
-use crate::macros::elusiv_account;
-use crate::bytes::BorshSerDeSized;
 use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::native_token::LAMPORTS_PER_SOL;
+use crate::token::{TokenAuthorityAccount, SPL_TOKEN_COUNT};
+use crate::{macros::elusiv_account, types::U256};
+use crate::bytes::{BorshSerDeSized, ElusivOption};
 use crate::state::program_account::SizedAccount;
 use super::{program_account::PDAAccountData, fee::ProgramFee};
 
@@ -21,15 +21,39 @@ pub struct GovernorAccount {
     program_version: u32,
 }
 
-#[elusiv_account(pda_seed = b"sol_pool")]
-pub struct PoolAccount {
-    pda_data: PDAAccountData,
+macro_rules! impl_token_authority {
+    ($ty: ident) => {
+        impl<'a> TokenAuthorityAccount for $ty<'a> {
+            unsafe fn get_token_account_unchecked(&self, token_id: u16) -> Option<U256> {
+                if token_id == 0 {
+                    return None
+                }
+
+                self.get_token_account(token_id as usize - 1).option()
+            }
+
+            unsafe fn set_token_account_unchecked(&mut self, token_id: u16, key: &solana_program::pubkey::Pubkey) {
+                if token_id == 0 {
+                    return
+                }
+
+                self.set_token_account(token_id as usize - 1, &ElusivOption::Some(key.to_bytes()));
+            }
+        }
+    };
 }
 
-pub const FEE_COLLECTOR_MINIMUM_BALANCE: u64 = LAMPORTS_PER_SOL;
+impl_token_authority!(PoolAccount);
+impl_token_authority!(FeeCollectorAccount);
+
+#[elusiv_account(pda_seed = b"pool")]
+pub struct PoolAccount {
+    pda_data: PDAAccountData,
+    token_account: [ElusivOption<U256>; SPL_TOKEN_COUNT],
+}
 
 #[elusiv_account(pda_seed = b"fee_collector")]
-/// Collects the network fees
 pub struct FeeCollectorAccount {
     pda_data: PDAAccountData,
+    token_account: [ElusivOption<U256>; SPL_TOKEN_COUNT],
 }

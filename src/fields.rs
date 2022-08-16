@@ -355,14 +355,14 @@ pub fn affine_into_projective(a: &G1Affine) -> G1Projective {
     G1Projective::new(a.x, a.y, Fq::one())
 }
 
-#[cfg(test)] use std::str::FromStr;
+#[cfg(feature = "test-elusiv")] use std::str::FromStr;
 
-#[cfg(test)]
+#[cfg(feature = "test-elusiv")]
 pub fn u256_from_str(str: &str) -> U256 {
     fr_to_u256_le(&ark_bn254::Fr::from_str(str).unwrap())
 }
 
-#[cfg(test)]
+#[cfg(feature = "test-elusiv")]
 pub fn u256_from_str_skip_mr(str: &str) -> U256 {
     fr_to_u256_le_repr(&ark_bn254::Fr::from_str(str).unwrap())
 }

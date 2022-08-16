@@ -21,7 +21,29 @@ macro_rules! two_pow {
     };
 }
 
-#[cfg(test)]
+/// mut? $id: ident, $ty: ty, $account_info: ident
+macro_rules! pda_account {
+    ($id: ident, $ty: ty, $account_info: ident) => {
+        let mut data = &mut $account_info.data.borrow_mut()[..];
+        let $id = <$ty>::new(&mut data)?;
+    };
+    (mut $id: ident, $ty: ty, $account_info: ident) => {
+        let mut data = &mut $account_info.data.borrow_mut()[..];
+        let mut $id = <$ty>::new(&mut data)?;
+    };
+}
+
+/*macro_rules! log {
+    ($msg: expr) => {
+        #[cfg(feature = "testing")]
+        solana_program::msg!($msg);
+    };
+    ($($arg:tt)*) => (
+        solana_program::msg!($($arg)*)
+    );
+}*/
+
+/*#[cfg(test)]
 macro_rules! hash_map {
     (internal $id: ident, $x:expr, $y:expr) => {
         $id.insert($x, $y);
@@ -33,18 +55,24 @@ macro_rules! hash_map {
         let mut $id = std::collections::HashMap::new(); 
         hash_map!(internal $id, $($x, $y),+)
     };
-}
+}*/
 
 // Test macros
 #[cfg(test)]
+/// $id: ident, $pubkey: expr, $data: expr, ($owner: expr)?
 macro_rules! account {
     ($id: ident, $pubkey: expr, $data: expr) => {
-        crate::macros::account!($id, $pubkey, data, $data);
+        let pubkey = $pubkey;
+        crate::macros::account!($id, pubkey, data, $data, crate::id());
     };
-    ($id: ident, $pubkey: expr, $data_id: ident, $data: expr) => {
+    ($id: ident, $pubkey: expr, $data: expr, $owner: expr) => {
+        let pubkey = $pubkey;
+        crate::macros::account!($id, pubkey, data, $data, $owner);
+    };
+    ($id: ident, $pubkey: expr, $data_id: ident, $data: expr, $owner: expr) => {
         let mut lamports = u64::MAX / 2;
         let mut $data_id = $data;
-        let owner = crate::id();
+        let owner = $owner;
         let $id = solana_program::account_info::AccountInfo::new(
             &$pubkey,
             false, false, &mut lamports,
@@ -57,15 +85,19 @@ macro_rules! account {
 }
 
 #[cfg(test)]
-/// $id: ident, $data_size: expr
+/// $id: ident, $data_size: expr, $owner: expr?
 macro_rules! test_account_info {
     ($id: ident, $data_size: expr) => {
         let pk = solana_program::pubkey::Pubkey::new_unique();
         crate::macros::account!($id, pk, vec![0; $data_size]) 
     };
+    ($id: ident, $data_size: expr, $owner: expr) => {
+        let pk = solana_program::pubkey::Pubkey::new_unique();
+        crate::macros::account!($id, pk, vec![0; $data_size], $owner) 
+    };
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 macro_rules! zero_account {
     (mut $id: ident, $ty: ty) => {
         let mut data = vec![0; <$ty>::SIZE];
@@ -75,7 +107,7 @@ macro_rules! zero_account {
         let mut data = vec![0; <$ty>::SIZE];
         let $id = <$ty>::new(&mut data).unwrap();
     };
-}
+}*/
 
 #[cfg(test)]
 macro_rules! storage_account {
@@ -125,10 +157,12 @@ macro_rules! nullifier_account {
 
 pub(crate) use guard;
 pub(crate) use two_pow;
+pub(crate) use pda_account;
+//pub(crate) use log;
 
-#[cfg(test)] pub(crate) use hash_map;
+//#[cfg(test)] pub(crate) use hash_map;
 #[cfg(test)] pub(crate) use account;
 #[cfg(test)] pub(crate) use test_account_info;
-#[cfg(test)] pub(crate) use zero_account;
+//#[cfg(test)] pub(crate) use zero_account;
 #[cfg(test)] pub(crate) use storage_account;
 #[cfg(test)] pub(crate) use nullifier_account;

@@ -26,7 +26,7 @@ pub type ElusivSet<'a, K, const CAPACITY: usize> = ElusivMap<'a, K, (), CAPACITY
 
 #[derive(BorshSerDeSized, BorshSerDePlaceholder, ByteBackedJIT, Debug)]
 /// Write efficient, append only, JIT deserializing, insertion sorted map with a maximum capacity
-/// - upper bound for `CAPACITY` is `2^16`
+/// - upper bound (inclusive) for `CAPACITY` is `2^16`
 /// - containment check: `O(log CAPACITY)`
 /// - minimum/maximum key insertion: `O(1)` for search and write
 /// - other value insertion: `O(log CAPACITY)` for search, `O(1)` for write

@@ -13,6 +13,7 @@ use vkey::VerificationKey;
 use crate::error::ElusivError;
 use crate::processor::{ProofRequest, MAX_MT_COUNT};
 use crate::state::program_account::{SizedAccount, PDAAccountData};
+use crate::token::Lamports;
 use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, LazyField, Lazy, RawU256};
 use crate::fields::{Wrap, G1A, G2A, G2HomProjective};
 use crate::macros::{elusiv_account, guard};
@@ -32,6 +33,7 @@ const MAX_PREPARE_INPUTS_INSTRUCTIONS: usize = MAX_PUBLIC_INPUTS_COUNT * 10;
 pub enum VerificationState {
     // Init
     None,
+    FeeTransferred,
     ProofSetup,
 
     // Finalization
@@ -88,11 +90,24 @@ pub struct VerificationAccount {
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug, Clone)]
 pub struct VerificationAccountData {
     pub fee_payer: RawU256,
-    pub nullifier_duplicate_pda: RawU256,
     pub min_batching_rate: u32,
 
-    /// The fee including a potential subvention
-    pub unadjusted_fee: u64,
+    pub token_id: u16,
+
+    /// In `token_id`-Token
+    pub subvention: u64,
+
+    /// In `token_id`-Token
+    pub network_fee: u64,
+
+    /// In `Lamports`
+    pub commitment_hash_fee: Lamports,
+
+    /// In `token_id`-Token
+    pub commitment_hash_fee_token: u64,
+
+    /// In `token_id`-Token
+    pub proof_verification_fee: u64,
 }
 
 impl<'a> VerificationAccount<'a> {
@@ -101,12 +116,10 @@ impl<'a> VerificationAccount<'a> {
         public_inputs: &[RawU256],
         instructions: &Vec<u32>,
         kind: u8,
-        data: VerificationAccountData,
         request: ProofRequest,
         tree_indices: [u32; MAX_MT_COUNT],
     ) -> ProgramResult {
         self.set_kind(&kind);
-        self.set_other_data(&data);
         self.set_request(&request);
         for (i, tree_index) in tree_indices.iter().enumerate() {
             self.set_tree_indices(i, tree_index);
@@ -131,12 +144,9 @@ impl<'a> VerificationAccount<'a> {
         self.set_prepare_inputs_instructions_count(&usize_as_u32_safe(instructions.len()));
 
         // It's guaranteed that the cast to u16 here is safe (see super::proof::vkey)
-        let mut instructions: Vec<u16> = instructions.iter().map(|&x| x as u16).collect();
-        instructions.extend(vec![0; MAX_PREPARE_INPUTS_INSTRUCTIONS - instructions.len()]);
-
-        let instructions: [u16; MAX_PREPARE_INPUTS_INSTRUCTIONS] = instructions.try_into().unwrap();
-        let bytes = instructions.try_to_vec()?;
-        self.set_all_prepare_inputs_instructions(&bytes[..]);
+        for (i, &instruction) in instructions.iter().enumerate() {
+            self.set_prepare_inputs_instructions(i, &(instruction as u16));
+        }
 
         Ok(())
     }
@@ -243,7 +253,7 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
@@ -364,4 +374,4 @@ mod tests {
         assert_eq!(ram.data.len(), 3);
         assert_eq!(ram.changes.len(), 3);
     }
-}
+}*/

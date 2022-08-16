@@ -119,7 +119,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
         let getter_name = ident_with_prefix(field_name, "get_");
         let setter_name = ident_with_prefix(field_name, "set_");
-        let all_setter_name = ident_with_prefix(field_name, "set_all_");
+        //let all_setter_name = ident_with_prefix(field_name, "set_all_");
         fields.extend(quote! { #field_name, });
 
         match &field.ty {
@@ -195,12 +195,12 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         self.#field_name[offset..][..v.len()].copy_from_slice(&v[..]);
                     }
 
-                    pub fn #all_setter_name(&mut self, v: &[u8]) {
+                    /*pub fn #all_setter_name(&mut self, v: &[u8]) {
                         assert!(v.len() == self.#field_name.len());
                         for i in 0..v.len() {
                             self.#field_name[i] = v[i];
                         }
-                    }
+                    }*/
                 });
             }
             _ => { panic!("Invalid field in struct") }

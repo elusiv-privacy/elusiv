@@ -8,6 +8,7 @@ pub mod processor;
 pub mod state;
 pub mod fields;
 pub mod proof;
+pub mod token;
 pub mod commitment;
 pub mod entrypoint;
 

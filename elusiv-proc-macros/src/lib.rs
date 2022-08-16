@@ -3,12 +3,14 @@ extern crate proc_macro;
 mod elusiv_account;
 mod elusiv_hash_compute_units;
 mod repeat;
+mod parse_tokens;
 mod utils;
 
 use syn::{ parse_macro_input, DeriveInput };
 use elusiv_account::impl_elusiv_account;
 use elusiv_hash_compute_units::impl_elusiv_hash_compute_units;
 use repeat::impl_repeat;
+use parse_tokens::impl_parse_tokens;
 
 /// Just-in-time mutable-byte-slice-backed serialization account
 /// - every field is represented by a `&mut [u8]`
@@ -52,4 +54,10 @@ pub fn elusiv_hash_compute_units(input: proc_macro::TokenStream) -> proc_macro::
 #[proc_macro]
 pub fn repeat(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     impl_repeat(input.into()).into()
+}
+
+/// Parses Token.toml
+#[proc_macro]
+pub fn elusiv_tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    impl_parse_tokens(input.into()).into()
 }
