@@ -1,9 +1,9 @@
 //! Tests the base commitment and commitment hashing
 
 mod common;
+use common::*;
 use ark_bn254::Fr;
 use ark_ff::Zero;
-use common::*;
 use elusiv::{
     token::{USDC_TOKEN_ID, TokenAuthorityAccount, LAMPORTS_TOKEN_ID, Token, Lamports, TokenPrice},
     processor::{BaseCommitmentHashRequest, CommitmentHashRequest},
@@ -28,7 +28,7 @@ async fn test_setup_spl_token_and_pyth() {
     let mut test = ElusivProgramTest::start_with_setup().await;
     let mut client = test.new_actor().await;
 
-    test.create_spl_token(USDC_TOKEN_ID).await;
+    test.create_spl_token(USDC_TOKEN_ID, true).await;
     client.open_token_account(USDC_TOKEN_ID, 1_000_000, &mut test).await;
     assert_eq!(client.balance(USDC_TOKEN_ID, &mut test).await, 1_000_000);
 
@@ -115,7 +115,7 @@ async fn test_store_base_commitment_lamports_transfer() {
 #[tokio::test]
 async fn test_store_base_commitment_token_transfer() {
     let mut test = ElusivProgramTest::start_with_setup().await;
-    test.create_spl_token(USDC_TOKEN_ID).await;
+    test.create_spl_token(USDC_TOKEN_ID, true).await;
 
     let mut client = test.new_actor().await;
     client.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
@@ -434,7 +434,7 @@ async fn test_base_commitment_token() {
     let mut client = test.new_actor().await;
     let mut warden = test.new_actor().await;
 
-    test.create_spl_token(USDC_TOKEN_ID).await;
+    test.create_spl_token(USDC_TOKEN_ID, true).await;
     client.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
 

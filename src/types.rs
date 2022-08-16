@@ -423,6 +423,15 @@ pub fn compute_fee_rec<VKey: crate::proof::vkey::VerificationKey, P: PublicInput
     }
 }
 
+#[cfg(feature = "instruction-abi")]
+pub fn compute_fee_rec_lamports<VKey: crate::proof::vkey::VerificationKey, P: PublicInputs>(
+    public_inputs: &mut P,
+    program_fee: &crate::state::fee::ProgramFee,
+) {
+    use crate::token::TokenPrice;
+    compute_fee_rec::<VKey, P>(public_inputs, program_fee, &TokenPrice::new_lamports())
+}
+
 pub fn u256_to_le_limbs(v: U256) -> [u64; 4] {
     [
         u64::from_le_bytes(u64_array!(v, 0)),

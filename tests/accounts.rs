@@ -92,7 +92,7 @@ async fn test_enable_token_account() {
     }
 
     for token_id in 1..=SPL_TOKEN_COUNT as u16 {
-        test.create_spl_token(token_id).await;
+        test.create_spl_token(token_id, false).await;
         tets_setup_single_token_account!(token_id, PoolAccount, TokenAuthorityAccountKind::Pool, test);
         tets_setup_single_token_account!(token_id, FeeCollectorAccount, TokenAuthorityAccountKind::FeeCollector, test);
     }
@@ -102,8 +102,8 @@ async fn test_enable_token_account() {
 async fn test_enable_token_account_duplicates() {
     let mut test = ElusivProgramTest::start().await;
     test.setup_initial_pdas().await;
-    test.create_spl_token(1).await;
-    test.create_spl_token(2).await;
+    test.create_spl_token(1, false).await;
+    test.create_spl_token(2, false).await;
 
     let token_account = Keypair::new();
     let ix = enable_token_account_ix::<PoolAccount>(&mut test, 1, token_account.pubkey(), TokenAuthorityAccountKind::Pool);

@@ -13,7 +13,7 @@
 </div>
 
 # Elusiv
-Scaling privacy with compliance in mind for the [Solana](https://github.com/solana-labs/solana) blockchain.
+Scaling privacy with compliance for the [Solana](https://github.com/solana-labs/solana) blockchain.
 
 ## Building
 Build using `cargo-build-bpf` [release version 1.9.28](https://github.com/solana-labs/solana/releases/tag/v1.9.28):

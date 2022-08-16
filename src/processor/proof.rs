@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use solana_program::pubkey::Pubkey;
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
@@ -7,10 +8,11 @@ use solana_program::{
 };
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex, pda_account};
 use crate::processor::ZERO_COMMITMENT_RAW;
-use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token};
+use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token, verify_pool, verify_fee_collector, transfer_token_from_pda, transfer_lamports_from_pda_checked};
 use crate::proof::precompute::PrecomputesAccount;
 use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState};
 use crate::state::MT_COMMITMENT_COUNT;
+use crate::state::governor::{FeeCollectorAccount, PoolAccount};
 use crate::state::program_account::PDAAccountData;
 use crate::state::queue::{CommitmentQueue, CommitmentQueueAccount, Queue, RingQueue};
 use crate::state::{
@@ -88,29 +90,23 @@ impl ProofRequest {
 /// We only allow two distinct MTs in a join-split (merge can be used to reduce the amount of MTs)
 pub const MAX_MT_COUNT: usize = 2;
 
+macro_rules! nullifier_duplicate_account_pda_seed {
+    ($id: ident, $nullifier_hashes: expr) => {
+        let nullifier_hashes: Vec<U256> = $nullifier_hashes.iter().map(|n| n.skip_mr()).collect();
+        let $id = nullifier_hashes.iter().map(|n| &n[..]).collect::<Vec<&[u8]>>();
+    };
+}
+
 #[allow(clippy::too_many_arguments)]
 /// Initializes a new proof verification
 pub fn init_verification<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'a>,
-    fee_payer_token_account: &AccountInfo<'a>,
-    pool: &AccountInfo<'a>,
-    pool_account: &AccountInfo<'a>,
-    fee_collector: &AccountInfo<'a>,
-    fee_collector_account: &AccountInfo<'a>,
-
-    sol_usd_price_account: &AccountInfo,
-    token_usd_price_account: &AccountInfo,
-
-    governor: &GovernorAccount,
     verification_account: &AccountInfo<'a>,
     nullifier_duplicate_account: &AccountInfo<'a>,
-    token_program: &AccountInfo<'a>,
-    system_program: &AccountInfo<'a>,
-
     recipient: &AccountInfo,
     storage_account: &StorageAccount,
-    n_acc_0: &NullifierAccount<'b, 'c, 'd>,
-    n_acc_1: &NullifierAccount<'b, 'c, 'd>,
+    nullifier_account0: &NullifierAccount<'b, 'c, 'd>,
+    nullifier_account1: &NullifierAccount<'b, 'c, 'd>,
 
     verification_account_index: u32,
     tree_indices: [u32; MAX_MT_COUNT],
@@ -142,11 +138,10 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
             guard!(recipient.key.to_bytes() == public_inputs.recipient.skip_mr(), InvalidAccount);
             guard!(verify_token_account(recipient, public_inputs.join_split.token_id)?, InvalidAccount);
 
-            if cfg!(not(test)) {
-                let clock = Clock::get()?;
-                let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();
-                guard!(is_timestamp_valid(public_inputs.current_time, current_timestamp), InvalidInstructionData);
-            }
+            let clock = Clock::get()?;
+            let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();
+            guard!(is_timestamp_valid(public_inputs.current_time, current_timestamp), InvalidInstructionData);
+
             &public_inputs.join_split
         }
         ProofRequest::Merge(public_inputs) => {
@@ -162,46 +157,13 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     check_join_split_public_inputs(
         join_split,
         storage_account,
-        [n_acc_0, n_acc_1],
+        [nullifier_account0, nullifier_account1],
         &tree_indices,
     )?;
 
-    guard!(request.fee_version() == governor.get_fee_version(), InvalidFeeVersion);
-    let token_id = join_split.token_id;
-    let price = TokenPrice::new(sol_usd_price_account, token_usd_price_account, token_id)?;
-    let min_batching_rate = governor.get_commitment_batching_rate();
-    let fee = governor.get_program_fee();
-    let subvention = fee.proof_subvention.into_token(&price, token_id)?;
-    let proof_verification_fee = fee.proof_verification_computation_fee(instructions.len()).into_token(&price, token_id)?;
-    let commitment_hash_fee = fee.commitment_hash_computation_fee(min_batching_rate);
-    let commitment_hash_fee_token = commitment_hash_fee.into_token(&price, token_id)?;
-    let network_fee = Token::new_checked(token_id, fee.proof_network_fee.calc(join_split.amount))?;
-    //verify_program_token_accounts(fee_collector, fee_collector_account, pool, pool_account, token_id)?;
-
-    // `fee_collector` transfers `subvention` to `pool`
-    transfer_token(
-        fee_collector,
-        fee_collector_account,
-        pool_account,
-        token_program,
-        subvention,
-    )?;
-
-    // `fee_payer` transfers `commitment_hash_fee` to `pool`
-    transfer_token(
-        fee_payer,
-        fee_payer,
-        pool,
-        system_program,
-        commitment_hash_fee.into_token_strict(),
-    )?;
-
-    let fee = (((commitment_hash_fee_token + proof_verification_fee)? + network_fee)? - subvention)?;
-    guard!(fee.amount() == join_split.fee, InvalidPublicInputs);
-
     // Open `nullifier_duplicate_account`
-    let nullifier_hashes: Vec<U256> = join_split.nullifier_hashes.iter().map(|n| n.skip_mr()).collect();
-    let nullifier_hashes: Vec<&[u8]> = nullifier_hashes.iter().map(|n| &n[..]).collect();
+    // - this account is used to prevent two proof verifications (of the same nullifier-hashes) at the same time
+    nullifier_duplicate_account_pda_seed!(nullifier_hashes, join_split.nullifier_hashes);
     open_pda_account(
         fee_payer,
         nullifier_duplicate_account,
@@ -215,31 +177,102 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         verification_account,
         verification_account_index
     )?;
-    let data = &mut verification_account.data.borrow_mut()[..];
-    let mut verification_account = VerificationAccount::new(data)?;
 
+    pda_account!(mut verification_account, VerificationAccount, verification_account);
     verification_account.setup(
         &raw_public_inputs,
         &instructions,
         vkey,
-        VerificationAccountData {
-            fee_payer: RawU256::new(fee_payer_token_account.key.to_bytes()),
-            nullifier_duplicate_pda: RawU256::new(nullifier_duplicate_account.key.to_bytes()),
-            min_batching_rate,
-            subvention: subvention.amount(),
-            commitment_hash_fee,
-            commitment_hash_fee_token: commitment_hash_fee_token.amount(),
-            proof_verification_fee: proof_verification_fee.amount(),
-            network_fee: network_fee.amount(),
-        },
         request,
         tree_indices,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn init_verification_transfer_fee<'a>(
+    fee_payer: &AccountInfo<'a>,
+    fee_payer_token_account: &AccountInfo<'a>,
+
+    pool: &AccountInfo<'a>,
+    pool_account: &AccountInfo<'a>,
+
+    fee_collector: &AccountInfo<'a>,
+    fee_collector_account: &AccountInfo<'a>,
+
+    sol_usd_price_account: &AccountInfo,
+    token_usd_price_account: &AccountInfo,
+
+    governor: &GovernorAccount,
+    verification_account: &mut VerificationAccount,
+    token_program: &AccountInfo<'a>,
+    system_program: &AccountInfo<'a>,
+
+    _verification_account_index: u32,
+) -> ProgramResult {
+    guard!(matches!(verification_account.get_state(), VerificationState::None), InvalidAccountState);
+
+    let request = verification_account.get_request();
+    let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
+
+    guard!(request.fee_version() == governor.get_fee_version(), InvalidFeeVersion);
+
+    let token_id = join_split.token_id;
+    let price = TokenPrice::new(sol_usd_price_account, token_usd_price_account, token_id)?;
+    let min_batching_rate = governor.get_commitment_batching_rate();
+    let fee = governor.get_program_fee();
+    let subvention = fee.proof_subvention.into_token(&price, token_id)?;
+    let input_preparation_tx_count = verification_account.get_prepare_inputs_instructions_count() as usize;
+    let proof_verification_fee = fee.proof_verification_computation_fee(input_preparation_tx_count).into_token(&price, token_id)?;
+    let commitment_hash_fee = fee.commitment_hash_computation_fee(min_batching_rate);
+    let commitment_hash_fee_token = commitment_hash_fee.into_token(&price, token_id)?;
+    let network_fee = Token::new_checked(token_id, fee.proof_network_fee.calc(join_split.amount))?;
+
+    let fee = (((commitment_hash_fee_token + proof_verification_fee)? + network_fee)? - subvention)?;
+    guard!(fee.amount() == join_split.fee, InvalidPublicInputs);
+
+    verify_pool(pool, pool_account, token_id)?;
+    verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
+
+    // `fee_payer` transfers `commitment_hash_fee` to `pool` (lamports)
+    transfer_token(
+        fee_payer,
+        fee_payer,
+        pool,
+        system_program,
+        commitment_hash_fee.into_token_strict(),
+    )?;
+
+    // `fee_collector` transfers `subvention` to `pool` (token)
+    transfer_token_from_pda::<FeeCollectorAccount>(
+        fee_collector,
+        fee_collector_account,
+        pool_account,
+        token_program,
+        subvention,
+        None,
+    )?;
+
+    verification_account.set_other_data(
+        &VerificationAccountData {
+            fee_payer: RawU256::new(fee_payer_token_account.key.to_bytes()),
+            min_batching_rate,
+            token_id,
+            subvention: subvention.amount(),
+            network_fee: network_fee.amount(),
+            commitment_hash_fee,
+            commitment_hash_fee_token: commitment_hash_fee_token.amount(),
+            proof_verification_fee: proof_verification_fee.amount(),
+        }
+    );
+
+    verification_account.set_state(&VerificationState::FeeTransferred);
+
+    Ok(())
+}
+
 /// Called once after `init_verification` to initialize the proof's public inputs
 /// - Note: has to be called by the original `fee_payer`, that called `init_verification`
-/// - depending on the MT-count this has to be called in a different tx than the init-tx
+/// - depending on the MT-count this has to be called in a different tx than the init-tx (-> require fee_payer signature)
 pub fn init_verification_proof(
     fee_payer: &AccountInfo,
     verification_account: &mut VerificationAccount,
@@ -247,7 +280,7 @@ pub fn init_verification_proof(
     _verification_account_index: u32,
     proof: RawProof,
 ) -> ProgramResult {
-    guard!(matches!(verification_account.get_state(), VerificationState::None), InvalidAccountState);
+    guard!(matches!(verification_account.get_state(), VerificationState::FeeTransferred), InvalidAccountState);
     guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
     guard!(verification_account.get_other_data().fee_payer.skip_mr() == fee_payer.key.to_bytes(), InvalidAccount);
 
@@ -366,8 +399,8 @@ pub fn finalize_verification_send(
 
 pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
     verification_account: &mut VerificationAccount,
-    n_acc_0: &mut NullifierAccount<'a, 'b, 'c>,
-    n_acc_1: &mut NullifierAccount<'a, 'b, 'c>,
+    nullifier_account0: &mut NullifierAccount<'a, 'b, 'c>,
+    nullifier_account1: &mut NullifierAccount<'a, 'b, 'c>,
 
     _verification_account_index: u32,
 ) -> ProgramResult {
@@ -380,7 +413,7 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
         _ => return Err(FeatureNotAvailable.into())
     };
 
-    let nullifier_accounts: [&mut NullifierAccount<'a, 'b, 'c>; MAX_MT_COUNT] = [n_acc_0, n_acc_1];
+    let nullifier_accounts: [&mut NullifierAccount<'a, 'b, 'c>; MAX_MT_COUNT] = [nullifier_account0, nullifier_account1];
     let mut tree_index = 0;
     for (i, root) in public_inputs.join_split.roots.iter().enumerate() {
         let nullifier_hash = public_inputs.join_split.nullifier_hashes[i].reduce();
@@ -413,7 +446,6 @@ pub fn finalize_verification_transfer<'a>(
     verification_account_info: &AccountInfo<'a>,
     nullifier_duplicate_account: &AccountInfo<'a>,
     token_program: &AccountInfo<'a>,
-    system_program: &AccountInfo<'a>,
 
     _verification_account_index: u32,
 ) -> ProgramResult {
@@ -423,11 +455,13 @@ pub fn finalize_verification_transfer<'a>(
     let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
 
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
-    guard!(nullifier_duplicate_account.key.to_bytes() == data.nullifier_duplicate_pda.skip_mr(), InvalidAccount);
-
+    nullifier_duplicate_account_pda_seed!(nullifier_hashes, join_split.nullifier_hashes);
+    guard!(*nullifier_duplicate_account.key == Pubkey::find_program_address(&nullifier_hashes, &crate::id()).0, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
 
     let token_id = join_split.token_id;
+    verify_pool(pool, pool_account, token_id)?;
+    verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
 
     if let ElusivOption::Some(false) = verification_account.get_is_verified() {
         // `rent` and `commitment_hash_fee` flow to `fee_collector`
@@ -435,23 +469,21 @@ pub fn finalize_verification_transfer<'a>(
         close_account(fee_collector, nullifier_duplicate_account)?;
         verification_account.set_state(&VerificationState::Closed);
 
-        // `pool` transfers `subvention` to `fee_collector`
-        let subvention = Token::new_checked(token_id, data.subvention)?;
-        transfer_token(
+        // `pool` transfers `subvention` to `fee_collector` (token)
+        transfer_token_from_pda::<PoolAccount>(
             pool,
             pool_account,
             fee_collector_account,
             token_program,
-            subvention,
+            Token::new(token_id, data.subvention),
+            None,
         )?;
 
-        // `pool` transfers `commitment_hash_fee` to `fee_collector`
-        transfer_token(
+        // `pool` transfers `commitment_hash_fee` to `fee_collector` (lamports)
+        transfer_lamports_from_pda_checked(
             pool,
-            pool_account,
             fee_collector,
-            system_program,
-            data.commitment_hash_fee.into_token_strict(),
+            data.commitment_hash_fee,
         )?;
 
         return Ok(())
@@ -460,39 +492,42 @@ pub fn finalize_verification_transfer<'a>(
     if let ProofRequest::Send(public_inputs) = &request {
         guard!(recipient.key.to_bytes() == public_inputs.recipient.skip_mr(), InvalidAccount);
 
-        // `pool` transfers `amount` to `recipient`
-        transfer_token(
+        // `pool` transfers `amount` to `recipient` (token)
+        transfer_token_from_pda::<PoolAccount>(
             pool,
             pool_account,
             recipient,
             token_program,
-            Token::new_checked(token_id, public_inputs.join_split.amount)?,
+            Token::new(token_id, public_inputs.join_split.amount),
+            None,
         )?;
     }
 
-    // `pool` transfers `commitment_hash_fee_token + proof_verification_fee` to `fee_payer`
-    transfer_token(
+    // `pool` transfers `commitment_hash_fee_token (incl. subvention) + proof_verification_fee` to `fee_payer` (token)
+    transfer_token_from_pda::<PoolAccount>(
         pool,
         pool_account,
         original_fee_payer,
         token_program,
         (
-            Token::new_checked(token_id, data.commitment_hash_fee_token)? +
-            Token::new_checked(token_id, data.proof_verification_fee)?
-        )?
+            Token::new(token_id, data.commitment_hash_fee_token) +
+            Token::new(token_id, data.proof_verification_fee)
+        )?,
+        None,
     )?;
 
-    // `pool` transfers `network_fee` to `fee_collector`
-    transfer_token(
+    // `pool` transfers `network_fee` to `fee_collector` (token)
+    transfer_token_from_pda::<PoolAccount>(
         pool,
         pool_account,
         fee_collector_account,
         token_program,
-        Token::new_checked(token_id, data.network_fee)?,
+        Token::new(token_id, data.network_fee),
+        None,
     )?;
 
     // Close `verification_account` and `nullifier_duplicate_account`
-    if cfg!(not(test)) {
+    if !cfg!(test) {
         close_account(original_fee_payer, verification_account_info)?;
         close_account(original_fee_payer, nullifier_duplicate_account)?;
     }
@@ -535,7 +570,7 @@ fn minimum_commitment_mt_index(
 fn check_join_split_public_inputs(
     public_inputs: &JoinSplitPublicInputs,
     storage_account: &StorageAccount,
-    nullifier_accounts: [&NullifierAccount; 2],
+    nullifier_accounts: [&NullifierAccount; MAX_MT_COUNT],
     tree_indices: &[u32; MAX_MT_COUNT],
 ) -> ProgramResult {
     // Check that the resulting commitment is not the zero-commitment

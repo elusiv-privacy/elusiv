@@ -186,7 +186,7 @@ impl ElusivProgramTest {
         )
     }
 
-    pub async fn create_spl_token(&mut self, token_id: u16) {
+    pub async fn create_spl_token(&mut self, token_id: u16, enable_program_token_accounts: bool) {
         assert!(token_id != 0);
         assert!(!self.spl_tokens.contains(&token_id));
         let token = TOKENS[token_id as usize];
@@ -205,9 +205,10 @@ impl ElusivProgramTest {
         self.set_account_rent_exempt(&token.mint, &data[..], &spl_token::id()).await;
         self.spl_tokens.push(token_id);
 
-        // Enable program token accounts
-        enable_program_token_account::<PoolAccount>(self, token_id, TokenAuthorityAccountKind::Pool).await;
-        enable_program_token_account::<FeeCollectorAccount>(self, token_id, TokenAuthorityAccountKind::FeeCollector).await;
+        if enable_program_token_accounts {
+            enable_program_token_account::<PoolAccount>(self, token_id, TokenAuthorityAccountKind::Pool).await;
+            enable_program_token_account::<FeeCollectorAccount>(self, token_id, TokenAuthorityAccountKind::FeeCollector).await;
+        }
     }
 
     pub async fn set_token_to_usd_price_pyth(
@@ -291,7 +292,7 @@ impl ElusivProgramTest {
         token_id: u16,
     ) {
         if !self.spl_tokens.contains(&token_id) {
-            self.create_spl_token(token_id).await;
+            self.create_spl_token(token_id, true).await;
         }
 
         let token = TOKENS[token_id as usize];

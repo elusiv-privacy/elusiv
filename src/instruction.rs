@@ -102,19 +102,10 @@ pub enum ElusivInstruction {
     FinalizeCommitmentHash,
 
     // Proof verification initialization
-    #[acc(fee_payer, { signer })]
-    #[acc(fee_payer_account, { writable })]
-    #[pda(pool, PoolAccount, { account_info })]
-    #[acc(pool_account, { signer, writable })]
-    #[pda(fee_collector, FeeCollectorAccount, { account_info })]
-    #[acc(fee_collector_account, { signer, writable })]
-    #[acc(sol_price_account)]
-    #[acc(token_price_account)]
-    #[pda(governor, GovernorAccount)]
+    #[acc(fee_payer, { writable, signer })]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable, account_info, find_pda })]
     #[acc(nullifier_duplicate_account, { writable })]
-    #[acc(token_program)]   // if `token_id = 0` { `system_program` } else { `token_program` }
-    #[sys(system_program, key = system_program::ID)]
+    #[sys(system_program, key = system_program::ID, { ignore })]
     #[acc(recipient)]
     #[pda(storage_account, StorageAccount, { multi_accounts, ignore_sub_accounts })]
     #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(tree_indices[0]), { multi_accounts })]
@@ -123,6 +114,22 @@ pub enum ElusivInstruction {
         verification_account_index: u32,
         tree_indices: [u32; MAX_MT_COUNT],
         request: ProofRequest,
+    },
+
+    #[acc(fee_payer, { writable, signer })]
+    #[acc(fee_payer_account, { writable })]
+    #[pda(pool, PoolAccount, { writable, account_info })]
+    #[acc(pool_account, { writable })]
+    #[pda(fee_collector, FeeCollectorAccount, { writable, account_info })]
+    #[acc(fee_collector_account, { writable })]
+    #[acc(sol_price_account)]
+    #[acc(token_price_account)]
+    #[pda(governor, GovernorAccount)]
+    #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
+    #[acc(token_program)]   // if `token_id = 0` { `system_program` } else { `token_program` }
+    #[sys(system_program, key = system_program::ID)]
+    InitVerificationTransferFee {
+        verification_account_index: u32,
     },
 
     #[acc(fee_payer, { signer })]
@@ -160,14 +167,14 @@ pub enum ElusivInstruction {
     #[acc(recipient, { writable })]
     #[acc(original_fee_payer, { writable })]
     #[pda(pool, PoolAccount, { account_info })]
-    #[acc(pool_account, { signer, writable })]
+    #[acc(pool_account, { writable })]
     #[pda(fee_collector, FeeCollectorAccount, { account_info })]
-    #[acc(fee_collector_account, { signer, writable })]
+    #[acc(fee_collector_account, { writable })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable, account_info })]
     #[acc(nullifier_duplicate_account, { writable, owned })]
     #[acc(token_program)]   // if `token_id = 0` { `system_program` } else { `token_program` }
-    #[sys(system_program, key = system_program::ID)]
+    #[sys(system_program, key = system_program::ID, { ignore })]
     FinalizeVerificationTransfer {
         verification_account_index: u32,
     },
@@ -332,6 +339,22 @@ impl ElusivInstruction {
             UserAccount(system_program::id()),
         )
     }
+
+    pub fn init_verification_transfer_fee_sol_instruction(
+        verification_account_index: u32,
+        warden: Pubkey,
+    ) -> Instruction {
+        ElusivInstruction::init_verification_transfer_fee_instruction(
+            verification_account_index,
+            WritableSignerAccount(warden),
+            WritableUserAccount(warden),
+            WritableUserAccount(PoolAccount::find(None).0),
+            WritableUserAccount(FeeCollectorAccount::find(None).0),
+            UserAccount(spl_token::id()),
+            UserAccount(spl_token::id()),
+            UserAccount(spl_token::id()),
+        )
+    }
 }
 
 #[cfg(feature = "instruction-abi")]
@@ -362,6 +385,6 @@ mod tests {
 
     #[test]
     fn test_instruction_tag() {
-        assert_eq!(2, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 0, }));
+        assert_eq!(1, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 0, }));
     }
 }

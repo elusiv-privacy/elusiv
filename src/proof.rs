@@ -33,6 +33,7 @@ const MAX_PREPARE_INPUTS_INSTRUCTIONS: usize = MAX_PUBLIC_INPUTS_COUNT * 10;
 pub enum VerificationState {
     // Init
     None,
+    FeeTransferred,
     ProofSetup,
 
     // Finalization
@@ -89,8 +90,9 @@ pub struct VerificationAccount {
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug, Clone)]
 pub struct VerificationAccountData {
     pub fee_payer: RawU256,
-    pub nullifier_duplicate_pda: RawU256,
     pub min_batching_rate: u32,
+
+    pub token_id: u16,
 
     /// In `token_id`-Token
     pub subvention: u64,
@@ -114,12 +116,10 @@ impl<'a> VerificationAccount<'a> {
         public_inputs: &[RawU256],
         instructions: &Vec<u32>,
         kind: u8,
-        data: VerificationAccountData,
         request: ProofRequest,
         tree_indices: [u32; MAX_MT_COUNT],
     ) -> ProgramResult {
         self.set_kind(&kind);
-        self.set_other_data(&data);
         self.set_request(&request);
         for (i, tree_index) in tree_indices.iter().enumerate() {
             self.set_tree_indices(i, tree_index);
@@ -144,12 +144,8 @@ impl<'a> VerificationAccount<'a> {
         self.set_prepare_inputs_instructions_count(&usize_as_u32_safe(instructions.len()));
 
         // It's guaranteed that the cast to u16 here is safe (see super::proof::vkey)
-        let mut instructions: Vec<u16> = instructions.iter().map(|&x| x as u16).collect();
-        instructions.extend(vec![0; MAX_PREPARE_INPUTS_INSTRUCTIONS - instructions.len()]);
-
-        let instructions: [u16; MAX_PREPARE_INPUTS_INSTRUCTIONS] = instructions.try_into().unwrap();
-        for (i, instruction) in instructions.iter().enumerate() {
-            self.set_prepare_inputs_instructions(i, instruction);
+        for (i, &instruction) in instructions.iter().enumerate() {
+            self.set_prepare_inputs_instructions(i, &(instruction as u16));
         }
 
         Ok(())

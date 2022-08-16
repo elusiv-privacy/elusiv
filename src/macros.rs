@@ -43,7 +43,7 @@ macro_rules! pda_account {
     );
 }*/
 
-#[cfg(test)]
+/*#[cfg(test)]
 macro_rules! hash_map {
     (internal $id: ident, $x:expr, $y:expr) => {
         $id.insert($x, $y);
@@ -55,7 +55,7 @@ macro_rules! hash_map {
         let mut $id = std::collections::HashMap::new(); 
         hash_map!(internal $id, $($x, $y),+)
     };
-}
+}*/
 
 // Test macros
 #[cfg(test)]
@@ -97,7 +97,7 @@ macro_rules! test_account_info {
     };
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 macro_rules! zero_account {
     (mut $id: ident, $ty: ty) => {
         let mut data = vec![0; <$ty>::SIZE];
@@ -107,7 +107,7 @@ macro_rules! zero_account {
         let mut data = vec![0; <$ty>::SIZE];
         let $id = <$ty>::new(&mut data).unwrap();
     };
-}
+}*/
 
 #[cfg(test)]
 macro_rules! storage_account {
@@ -160,9 +160,9 @@ pub(crate) use two_pow;
 pub(crate) use pda_account;
 //pub(crate) use log;
 
-#[cfg(test)] pub(crate) use hash_map;
+//#[cfg(test)] pub(crate) use hash_map;
 #[cfg(test)] pub(crate) use account;
 #[cfg(test)] pub(crate) use test_account_info;
-#[cfg(test)] pub(crate) use zero_account;
+//#[cfg(test)] pub(crate) use zero_account;
 #[cfg(test)] pub(crate) use storage_account;
 #[cfg(test)] pub(crate) use nullifier_account;
