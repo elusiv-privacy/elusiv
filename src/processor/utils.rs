@@ -23,7 +23,7 @@ use crate::state::program_account::{
     PDAAccount,
     SizedAccount, ProgramAccount, PDAOffset,
 };
-use crate::token::{Token, Lamports, TokenAuthorityAccount, TOKENS, SPLToken};
+use crate::token::{Token, Lamports, TokenAuthorityAccount, TOKENS, SPLToken, SPL_TOKEN_COUNT};
 use super::MATH_ERR;
 
 pub fn transfer_token<'a>(
@@ -130,6 +130,7 @@ fn transfer_with_token_program<'a>(
     signers_seeds: &[&[&[u8]]],
 ) -> ProgramResult {
     guard!(*token_program.key == spl_token::ID, InvalidAccount);
+
     guard!(*source_token_account.owner == spl_token::ID, InvalidAccount);   // redundant
     guard!(*destination_token_account.owner == spl_token::ID, InvalidAccount);
 
@@ -267,6 +268,8 @@ pub fn create_token_account<'a>(
     rent_sysvar: &AccountInfo<'a>,
     token_id: u16,
 ) -> ProgramResult {
+    guard!(token_id > 0 && token_id as usize <= SPL_TOKEN_COUNT, InvalidInstructionData);
+
     // For unit testing we exit
     if cfg!(test) {
         return Ok(());
@@ -332,10 +335,12 @@ pub fn transfer_lamports_from_pda_checked<'a>(
 ) -> ProgramResult {
     let pda_lamports = pda.lamports();
     let pda_size = pda.data_len();
-    let rent_lamports = Rent::get()?.minimum_balance(pda_size);
 
-    if pda_lamports.checked_sub(lamports.0).ok_or(MATH_ERR)? < rent_lamports {
-        return Err(ProgramError::AccountNotRentExempt)
+    if !cfg!(test) {
+        let rent_lamports = Rent::get()?.minimum_balance(pda_size);
+        if pda_lamports.checked_sub(lamports.0).ok_or(MATH_ERR)? < rent_lamports {
+            return Err(ProgramError::AccountNotRentExempt)
+        }
     }
 
     unsafe {
@@ -412,10 +417,8 @@ mod tests {
         test_account_info!(source, 0);
         test_account_info!(destination, 0);
 
-        let system_program = system_program::id();
-        let invalid_system_program = Pubkey::new_unique();
-        account!(system_program, system_program, vec![]);
-        account!(invalid_system_program, invalid_system_program, vec![]);
+        account!(system_program, system_program::id(), vec![]);
+        account!(invalid_system_program, Pubkey::new_unique(), vec![]);
 
         assert_matches!(
             transfer_with_system_program(&source, &destination, &invalid_system_program, Lamports(100)),
@@ -430,18 +433,15 @@ mod tests {
 
     #[test]
     fn test_transfer_with_token_program() {
-        let token_program = spl_token::id();
-
         test_account_info!(source, 0);
-        test_account_info!(source_token_account, 0, token_program);
-        test_account_info!(destination, 0, token_program);
+        test_account_info!(source_token_account, 0, spl_token::id());
+        test_account_info!(destination, 0, spl_token::id());
 
         test_account_info!(invalid_source_token_account, 0);
         test_account_info!(invalid_destination, 0);
 
-        let invalid_token_program = Pubkey::new_unique();
-        account!(token_program, token_program, vec![]);
-        account!(invalid_token_program, invalid_token_program, vec![]);
+        account!(token_program, spl_token::id(), vec![]);
+        account!(invalid_token_program, Pubkey::new_unique(), vec![]);
 
         assert_matches!(
             transfer_with_token_program(
@@ -495,8 +495,7 @@ mod tests {
     #[test]
     fn test_open_pda_account_with_offset() {
         test_account_info!(payer, 0);
-        let correct_pda = VerificationAccount::find(Some(3)).0;
-        account!(pda_account, correct_pda, vec![]);
+        account!(pda_account, VerificationAccount::find(Some(3)).0, vec![]);
 
         assert_matches!(
             open_pda_account_with_offset::<VerificationAccount>(&payer, &pda_account, 2),
@@ -512,10 +511,8 @@ mod tests {
     #[test]
     fn test_open_pda_account_without_offset() {
         test_account_info!(payer, 0);
-        let correct_pda = VerificationAccount::find(None).0;
-        let invalid_pda = VerificationAccount::find(Some(0)).0;
-        account!(pda_account, correct_pda, vec![]);
-        account!(invalid_pda_account, invalid_pda, vec![]);
+        account!(pda_account, VerificationAccount::find(None).0, vec![]);
+        account!(invalid_pda_account, VerificationAccount::find(Some(0)).0, vec![]);
 
         assert_matches!(
             open_pda_account_without_offset::<VerificationAccount>(&payer, &invalid_pda_account),
@@ -563,10 +560,8 @@ mod tests {
 
     #[test]
     fn test_transfer_lamports_from_pda() {
-        let pda = Pubkey::new_unique();
-        let recipient = Pubkey::new_unique();
-        account!(pda, pda, vec![]);
-        account!(recipient, recipient, vec![]);
+        account!(pda, Pubkey::new_unique(), vec![]);
+        account!(recipient, Pubkey::new_unique(), vec![]);
 
         unsafe {
             // Underflow
@@ -591,10 +586,8 @@ mod tests {
 
     #[test]
     fn test_close_account() {
-        let account = Pubkey::new_unique();
-        let payer = Pubkey::new_unique();
-        account!(account, account, vec![]);
-        account!(payer, payer, vec![]);
+        account!(account, Pubkey::new_unique(), vec![]);
+        account!(payer, Pubkey::new_unique(), vec![]);
 
         let start_balance = account.lamports();
 
@@ -611,8 +604,8 @@ mod tests {
         let token_account_pk1 = Pubkey::new_unique();
         let mut data = vec![0; PoolAccount::SIZE];
         let mut pool = PoolAccount::new(&mut data).unwrap();
-        pool.set_token_account(0, &ElusivOption::Some(token_account_pk0.to_bytes()));
-        pool.set_token_account(1, &ElusivOption::Some(token_account_pk1.to_bytes()));
+        pool.set_accounts(0, &ElusivOption::Some(token_account_pk0.to_bytes()));
+        pool.set_accounts(1, &ElusivOption::Some(token_account_pk1.to_bytes()));
 
         let pool_pda = PoolAccount::find(None).0;
         account!(pool, pool_pda, data);

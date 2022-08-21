@@ -27,7 +27,6 @@ use crate::state::{
 };
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::proof::{VerificationAccount, precompute::PrecomputesAccount};
-use solana_program::instruction::Instruction;
 use solana_program::{
     system_program,
     account_info::{next_account_info, AccountInfo},
@@ -166,6 +165,7 @@ pub enum ElusivInstruction {
 
     #[acc(recipient, { writable })]
     #[acc(original_fee_payer, { writable })]
+    #[acc(original_fee_payer_account, { writable })]
     #[pda(pool, PoolAccount, { account_info })]
     #[acc(pool_account, { writable })]
     #[pda(fee_collector, FeeCollectorAccount, { account_info })]
@@ -324,7 +324,7 @@ impl ElusivInstruction {
         request: BaseCommitmentHashRequest,
         client: Pubkey,
         warden: Pubkey,
-    ) -> Instruction {
+    ) -> solana_program::instruction::Instruction {
         ElusivInstruction::store_base_commitment_instruction(
             hash_account_index,
             request,
@@ -343,7 +343,7 @@ impl ElusivInstruction {
     pub fn init_verification_transfer_fee_sol_instruction(
         verification_account_index: u32,
         warden: Pubkey,
-    ) -> Instruction {
+    ) -> solana_program::instruction::Instruction {
         ElusivInstruction::init_verification_transfer_fee_instruction(
             verification_account_index,
             WritableSignerAccount(warden),

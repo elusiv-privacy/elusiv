@@ -187,7 +187,7 @@ impl JoinSplitPublicInputs {
     }
 }
 
-const JOIN_SPLIT_MAX_N_ARITY: u8 = 4;
+pub const JOIN_SPLIT_MAX_N_ARITY: u8 = 4;
 
 fn deserialze_vec<N: BorshDeserialize>(buf: &mut &[u8], len: usize) -> std::io::Result<Vec<N>> {
     let mut v = Vec::new();

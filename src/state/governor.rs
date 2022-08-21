@@ -29,7 +29,7 @@ macro_rules! impl_token_authority {
                     return None
                 }
 
-                self.get_token_account(token_id as usize - 1).option()
+                self.get_accounts(token_id as usize - 1).option()
             }
 
             unsafe fn set_token_account_unchecked(&mut self, token_id: u16, key: &solana_program::pubkey::Pubkey) {
@@ -37,7 +37,7 @@ macro_rules! impl_token_authority {
                     return
                 }
 
-                self.set_token_account(token_id as usize - 1, &ElusivOption::Some(key.to_bytes()));
+                self.set_accounts(token_id as usize - 1, &ElusivOption::Some(key.to_bytes()));
             }
         }
     };
@@ -49,11 +49,11 @@ impl_token_authority!(FeeCollectorAccount);
 #[elusiv_account(pda_seed = b"pool")]
 pub struct PoolAccount {
     pda_data: PDAAccountData,
-    token_account: [ElusivOption<U256>; SPL_TOKEN_COUNT],
+    accounts: [ElusivOption<U256>; SPL_TOKEN_COUNT],
 }
 
 #[elusiv_account(pda_seed = b"fee_collector")]
 pub struct FeeCollectorAccount {
     pda_data: PDAAccountData,
-    token_account: [ElusivOption<U256>; SPL_TOKEN_COUNT],
+    accounts: [ElusivOption<U256>; SPL_TOKEN_COUNT],
 }

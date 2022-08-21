@@ -233,6 +233,7 @@ pub trait TokenAuthorityAccount: PDAAccount {
     }
 }
 
+/// Ensures that a given account is able to receive the specified token
 pub fn verify_token_account(
     account: &AccountInfo,
     token_id: u16,
@@ -392,21 +393,24 @@ pub fn pyth_price_account_data(price: &Price) -> Result<Vec<u8>, TokenError> {
 }
 
 #[cfg(test)]
+pub fn spl_token_account_data(token_id: u16) -> Vec<u8> {
+    let account = spl_token::state::Account {
+        mint: elusiv_token(token_id).unwrap().mint,
+        state: spl_token::state::AccountState::Initialized,
+        ..Default::default()
+    };
+    let mut data = vec![0; spl_token::state::Account::LEN];
+    spl_token::state::Account::pack(account, &mut data[..]).unwrap();
+    data
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::macros::account;
+    use crate::macros::{account, pyth_price_account_info};
     use assert_matches::assert_matches;
     use pyth_sdk_solana::Price;
     use solana_program::native_token::LAMPORTS_PER_SOL;
-    use spl_token::state::AccountState;
-
-    macro_rules! pyth_price_account_info {
-        ($id: ident, $token_id: ident, $price: expr) => {
-            let data = pyth_price_account_data(&$price).unwrap();
-            let key = TOKENS[$token_id as usize].pyth_usd_price_key;
-            crate::macros::account!($id, key, data);
-        };
-    }
 
     macro_rules! test_token_id {
         ($id: ident, $id_num: literal, $fn: ident) => {
@@ -555,14 +559,7 @@ mod tests {
         assert!(verify_token_account(&sol_account, 0).unwrap());
         assert!(!verify_token_account(&sol_account, 1).unwrap());
 
-        let usdc_account = spl_token::state::Account {
-            mint: usdc_token().mint,
-            state: AccountState::Initialized,
-            ..Default::default()
-        };
-        let mut data = vec![0; spl_token::state::Account::LEN];
-        spl_token::state::Account::pack(usdc_account, &mut data[..]).unwrap();
-
+        let data = spl_token_account_data(USDC_TOKEN_ID);
         account!(usdc_account, Pubkey::new_unique(), data.clone());
         assert!(!verify_token_account(&usdc_account, 1).unwrap());
 

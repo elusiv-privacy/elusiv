@@ -27,14 +27,12 @@ pub type ElusivSet<'a, K, const CAPACITY: usize> = ElusivMap<'a, K, (), CAPACITY
 #[derive(BorshSerDeSized, BorshSerDePlaceholder, ByteBackedJIT, Debug)]
 /// Write efficient, append only, JIT deserializing, insertion sorted map with a maximum capacity
 /// - upper bound (inclusive) for `CAPACITY` is `2^16`
-/// - containment check: `O(log CAPACITY)`
-/// - minimum/maximum key insertion: `O(1)` for search and write
-/// - other value insertion: `O(log CAPACITY)` for search, `O(1)` for write
 pub struct ElusivMap<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> {
     len: Lazy<'a, u32>,
 
     min_ptr: Lazy<'a, u16>,
     max_ptr: Lazy<'a, u16>,
+    // TODO: switch to a multi-mid-ptr system (log N pointers) to drastically increase efficiency
     //mid_ptr: Lazy<'a, u16>,
 
     /// The map is represented as a circular, singly linked list

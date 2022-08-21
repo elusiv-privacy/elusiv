@@ -129,11 +129,10 @@ async fn test_store_base_commitment_token_transfer() {
     pda_account!(fee_collector, FeeCollectorAccount, None, test);
     let fee_collector_account = Pubkey::new(& unsafe { fee_collector.get_token_account_unchecked(USDC_TOKEN_ID).unwrap() });
 
-    let sol_price_account = test.token_to_usd_price_pyth_account(0);
-    let token_price_account = test.token_to_usd_price_pyth_account(USDC_TOKEN_ID);
-
     let sol_usd_price = Price { price: 41, conf: 0, expo: 0};
     let usdc_usd_price = Price { price: 1, conf: 0, expo: 0 };
+    let sol_price_account = test.token_to_usd_price_pyth_account(0);
+    let token_price_account = test.token_to_usd_price_pyth_account(USDC_TOKEN_ID);
     test.set_token_to_usd_price_pyth(0, sol_usd_price).await;
     test.set_token_to_usd_price_pyth(USDC_TOKEN_ID, usdc_usd_price).await;
 

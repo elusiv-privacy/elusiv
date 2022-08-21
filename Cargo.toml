@@ -32,11 +32,11 @@ elusiv-proc-macros = { path = "./elusiv-proc-macros" }
 elusiv-computation = { path = "./elusiv-computation" }
 
 solana-program = "=1.9.26"
-spl-token = { version = "3.2.0", features = ["no-entrypoint"] }
-pyth-sdk-solana = "0.4.2"
+spl-token = { version = "=3.2.0", features = ["no-entrypoint"] }
+pyth-sdk-solana = "=0.4.2"
 
 static_assertions = "1.1.0"
-borsh = { version = "0.9.3", features = ["const-generics"] }
+borsh = { version = "=0.9.3", features = ["const-generics"] }
 bytemuck = { version = "1.7.2", optional = true }
 
 ark-bn254 = "=0.3.0"
@@ -53,8 +53,8 @@ solana-sdk = "=1.9.26"
 regex = "1.5.6"
 rand = "0.8.5"
 
-log = "0.4.17"
-log4rs = "1.1.1"
+# log = "0.4.17"
+# log4rs = "1.1.1"
 
 assert_matches = "1.5.0"
 ark-groth16 = { version = "=0.3.0", default-features = false }

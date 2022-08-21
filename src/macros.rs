@@ -57,7 +57,15 @@ macro_rules! hash_map {
     };
 }*/
 
-// Test macros
+#[cfg(test)]
+macro_rules! pyth_price_account_info {
+    ($id: ident, $token_id: ident, $price: expr) => {
+        let data = crate::token::pyth_price_account_data(&$price).unwrap();
+        let key = crate::token::TOKENS[$token_id as usize].pyth_usd_price_key;
+        crate::macros::account!($id, key, data);
+    };
+}
+
 #[cfg(test)]
 /// $id: ident, $pubkey: expr, $data: expr, ($owner: expr)?
 macro_rules! account {
@@ -70,7 +78,7 @@ macro_rules! account {
         crate::macros::account!($id, pubkey, data, $data, $owner);
     };
     ($id: ident, $pubkey: expr, $data_id: ident, $data: expr, $owner: expr) => {
-        let mut lamports = u64::MAX / 2;
+        let mut lamports = u32::MAX as u64;
         let mut $data_id = $data;
         let owner = $owner;
         let $id = solana_program::account_info::AccountInfo::new(
@@ -97,7 +105,7 @@ macro_rules! test_account_info {
     };
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 macro_rules! zero_account {
     (mut $id: ident, $ty: ty) => {
         let mut data = vec![0; <$ty>::SIZE];
@@ -107,7 +115,7 @@ macro_rules! zero_account {
         let mut data = vec![0; <$ty>::SIZE];
         let $id = <$ty>::new(&mut data).unwrap();
     };
-}*/
+}
 
 #[cfg(test)]
 macro_rules! storage_account {
@@ -155,14 +163,27 @@ macro_rules! nullifier_account {
     };
 }
 
+#[cfg(test)]
+macro_rules! token_pda_account {
+    ($id: ident, $token_account_id: ident, $ty: ty, $token_id: expr) => {
+        test_account_info!($token_account_id, 0, spl_token::id());
+        let mut data = vec![0; <$ty>::SIZE];
+        let mut pool = <$ty>::new(&mut data).unwrap();
+        pool.set_accounts($token_id as usize - 1, &ElusivOption::Some($token_account_id.key.to_bytes()));
+        account!($id, <$ty>::find(None).0, data); 
+    };
+}
+
 pub(crate) use guard;
 pub(crate) use two_pow;
 pub(crate) use pda_account;
 //pub(crate) use log;
 
 //#[cfg(test)] pub(crate) use hash_map;
+#[cfg(test)] pub(crate) use pyth_price_account_info;
 #[cfg(test)] pub(crate) use account;
 #[cfg(test)] pub(crate) use test_account_info;
-//#[cfg(test)] pub(crate) use zero_account;
+#[cfg(test)] pub(crate) use zero_account;
 #[cfg(test)] pub(crate) use storage_account;
 #[cfg(test)] pub(crate) use nullifier_account;
+#[cfg(test)] pub(crate) use token_pda_account;

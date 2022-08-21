@@ -90,6 +90,8 @@ pub struct VerificationAccount {
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug, Clone)]
 pub struct VerificationAccountData {
     pub fee_payer: RawU256,
+    pub fee_payer_account: RawU256,
+
     pub min_batching_rate: u32,
 
     pub token_id: u16,

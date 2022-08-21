@@ -362,7 +362,7 @@ fn verify_extern_data_account(
 
     // Check rent-exemption
     if cfg!(test) { // only unit-testing (since we have no ledger there)
-        guard!(account.lamports() >= u64::MAX / 2, InvalidInstructionData);
+        guard!(account.lamports() >= u32::MAX as u64, InvalidInstructionData);
     } else {
         guard!(account.lamports() >= Rent::get()?.minimum_balance(data_len), InvalidInstructionData);
     }
@@ -373,14 +373,13 @@ fn verify_extern_data_account(
     Ok(())
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
+    use std::collections::HashMap;
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
-    use crate::{macros::account, state::{program_account::{PDAAccount, SizedAccount, MultiAccountProgramAccount}, queue::RingQueue}, processor::CommitmentHashRequest, types::U256};
+    use crate::{macros::account, state::{program_account::{PDAAccount, SizedAccount, MultiAccountProgramAccount}, queue::RingQueue}, processor::CommitmentHashRequest, types::U256, token::SPL_TOKEN_COUNT};
 
     #[test]
     fn test_open_single_instance_account() {
@@ -407,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_open_multi_instance_account() {
-        let valid_pda = BaseCommitmentQueueAccount::find(Some(0)).0;
+        let valid_pda = NullifierAccount::find(Some(0)).0;
         account!(pda_account, valid_pda, vec![]);
 
         let payer_pk = Pubkey::new_unique();
@@ -415,14 +414,14 @@ mod tests {
 
         // Invalid offset
         assert_matches!(
-            open_multi_instance_account(&payer, &pda_account, MultiInstancePDAAccountKind::BaseCommitmentQueueAccount, 1),
+            open_multi_instance_account(&payer, &pda_account, MultiInstancePDAAccountKind::NullifierAccount, 1),
             Err(_)
         );
 
         // Valid offset
         account!(pda_account, valid_pda, vec![]);
         assert_matches!(
-            open_multi_instance_account(&payer, &pda_account, MultiInstancePDAAccountKind::BaseCommitmentQueueAccount, 0),
+            open_multi_instance_account(&payer, &pda_account, MultiInstancePDAAccountKind::NullifierAccount, 0),
             Ok(_)
         );
     }
@@ -434,22 +433,22 @@ mod tests {
         let mut d = storage_account.get_multi_account_data();
         d.pubkeys[0] = ElusivOption::Some(Pubkey::new_unique());
         storage_account.set_multi_account_data(&d);
-
-        let pk = StorageAccount::find(None).0;
-        account!(storage, pk, data);
+        account!(storage, StorageAccount::find(None).0, data);
 
         // Account has invalid size
-        let pk = Pubkey::new_unique();
-        account!(sub_account, pk, vec![0; StorageAccount::ACCOUNT_SIZE - 1]);
+        account!(sub_account, Pubkey::new_unique(), vec![0; StorageAccount::ACCOUNT_SIZE - 1]);
         assert_matches!(enable_storage_sub_account(&storage, &sub_account, 0), Err(_));
 
         // Account has already been setup
-        let pk = Pubkey::new_unique();
-        account!(sub_account, pk, vec![0; StorageAccount::ACCOUNT_SIZE]);
+        account!(sub_account, Pubkey::new_unique(), vec![0; StorageAccount::ACCOUNT_SIZE]);
         assert_matches!(enable_storage_sub_account(&storage, &sub_account, 0), Err(_));
 
         // Success at different index
         assert_matches!(enable_storage_sub_account(&storage, &sub_account, 3), Ok(()));
+        assert_eq!(sub_account.data.borrow()[0], 1);
+
+        // Account already is use
+        assert_matches!(enable_storage_sub_account(&storage, &sub_account, 1), Err(_));
     }
 
     #[test]
@@ -459,22 +458,22 @@ mod tests {
         let mut d = nullifier_account.get_multi_account_data();
         d.pubkeys[0] = ElusivOption::Some(Pubkey::new_unique());
         nullifier_account.set_multi_account_data(&d);
-
-        let pk = NullifierAccount::find(Some(0)).0;
-        account!(nullifier, pk, data);
+        account!(nullifier, NullifierAccount::find(Some(0)).0, data);
 
         // Account has invalid size
-        let pk = Pubkey::new_unique();
-        account!(sub_account, pk, vec![0; NullifierAccount::ACCOUNT_SIZE - 1]);
+        account!(sub_account, Pubkey::new_unique(), vec![0; NullifierAccount::ACCOUNT_SIZE - 1]);
         assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 0), Err(_));
 
         // Account has already been setup
-        let pk = Pubkey::new_unique();
-        account!(sub_account, pk, vec![0; NullifierAccount::ACCOUNT_SIZE]);
+        account!(sub_account, Pubkey::new_unique(), vec![0; NullifierAccount::ACCOUNT_SIZE]);
         assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 0), Err(_));
 
-        // Success at different index
+        // Success at different index with
         assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 3), Ok(()));
+        assert_eq!(sub_account.data.borrow()[0], 1);
+
+        // Account already is use
+        assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 1), Err(_));
     }
 
     #[test]
@@ -560,4 +559,62 @@ mod tests {
         let mut map = Map::new(data);
         assert!(map.is_empty());
     }
-}*/
+
+    #[test]
+    fn test_enable_token_account() {
+        let (pda, bump) = PoolAccount::find(None);
+        let mut data = vec![0; PoolAccount::SIZE];
+        data[0] = bump;
+        account!(pool, pda, data);
+
+        let token_account_pk = Pubkey::new_unique();
+        account!(token_account, token_account_pk, vec![]);
+        account!(acc, Pubkey::new_unique(), vec![]);
+
+        assert_matches!(
+            enable_token_account(&acc, &pool, &token_account, &acc, &acc, TokenAuthorityAccountKind::Pool, 0),
+            Err(_)
+        );
+
+        assert_matches!(
+            enable_token_account(&acc, &pool, &token_account, &acc, &acc, TokenAuthorityAccountKind::FeeCollector, 1),
+            Err(_)
+        );
+
+        assert_matches!(
+            enable_token_account(&acc, &pool, &token_account, &acc, &acc, TokenAuthorityAccountKind::Pool, 1),
+            Ok(())
+        );
+        
+        // Verify that account has been set
+        let data = &mut pool.data.borrow_mut()[..];
+        let pool = PoolAccount::new(data).unwrap();
+        assert_eq!(pool.get_token_account(1).unwrap(), token_account_pk.to_bytes());
+    }
+
+    #[test]
+    fn test_create_token_account() {
+        let (pda, bump) = PoolAccount::find(None);
+        account!(pool, pda, vec![bump, 0, 0]);
+
+        let (pda, bump) = FeeCollectorAccount::find(None);
+        account!(fee_collector, pda, vec![bump, 0, 0]);
+
+        account!(acc, Pubkey::new_unique(), vec![]);
+
+        assert_matches!(
+            create_token_account::<PoolAccount>(&acc, &fee_collector, &acc, &acc, &acc, 1),
+            Err(_)
+        );
+
+        assert_matches!(
+            create_token_account::<PoolAccount>(&acc, &pool, &acc, &acc, &acc, SPL_TOKEN_COUNT as u16 + 1),
+            Err(_)
+        );
+
+        assert_matches!(
+            create_token_account::<PoolAccount>(&acc, &pool, &acc, &acc, &acc, 1),
+            Ok(())
+        );
+    }
+}

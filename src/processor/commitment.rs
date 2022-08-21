@@ -1,11 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::BigInteger256;
 use solana_program::program_error::ProgramError;
-use solana_program::{
-    entrypoint::ProgramResult,
-    account_info::AccountInfo,
-    native_token::LAMPORTS_PER_SOL,
-};
+use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::commitment::{commitment_hash_computation_instructions, commitments_per_batch, MAX_HT_COMMITMENTS, compute_base_commitment_hash_partial, compute_commitment_hash_partial};
 use crate::macros::{guard, pda_account};
 use crate::processor::utils::{transfer_token, verify_pool, verify_fee_collector, transfer_with_system_program, transfer_token_from_pda, transfer_lamports_from_pda_checked};
@@ -46,8 +42,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use crate::bytes::{BorshSerDeSized, usize_as_u32_safe};
 use crate::macros::BorshSerDeSized;
 
-pub const MIN_STORE_AMOUNT: u64 = LAMPORTS_PER_SOL / 10;
-pub const MAX_STORE_AMOUNT: u64 = u64::MAX / 100;
 pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
@@ -87,13 +81,13 @@ pub const ZERO_COMMITMENT_RAW: U256 = [
 ];
 
 /// Stores a base commitment hash and takes the funds from the sender
-/// - initialize computation: `commitment = poseidon(base_commitment, amount + token_id * 2^64)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
+/// - initializes the computation: `commitment = poseidon(base_commitment, amount + token_id * 2^64)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
 /// - signatures of both `sender` and `fee_payer` are required
 /// - `sender`: wants to store the commitment (pays amount and fee)
 /// - `fee_payer`:
+///     - opens a `BaseCommitmentHashingAccount` for the computation
 ///     - performs the hash computation
 ///     - swaps fee from token into lamports (for tx compensation of the commitment hash)
-///     - opens a `BaseCommitmentHashingAccount` for the computation
 #[allow(clippy::too_many_arguments)]
 pub fn store_base_commitment<'a>(
     sender: &AccountInfo<'a>,
@@ -140,7 +134,7 @@ pub fn store_base_commitment<'a>(
     verify_pool(pool, pool_account, token_id)?;
     verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
 
-    // `sender` transfers `computation_fee_token` - `subvention` (as token) to `fee_payer`,
+    // `sender` transfers `computation_fee_token` - `subvention` to `fee_payer` (token)
     transfer_token(
         sender,
         sender_account,
@@ -149,7 +143,7 @@ pub fn store_base_commitment<'a>(
         (computation_fee_token - subvention)?,
     )?;
 
-    // `fee_payer` transfers `computation_fee` (as lamports) to `pool`,
+    // `fee_payer` transfers `computation_fee` to `pool` (lamports)
     transfer_with_system_program(
         fee_payer,
         pool,
@@ -157,7 +151,7 @@ pub fn store_base_commitment<'a>(
         computation_fee,
     )?;
 
-    // `sender` transfers `network_fee` (as token) to `fee_collector`
+    // `sender` transfers `network_fee` to `fee_collector` (token)
     transfer_token(
         sender,
         sender_account,
@@ -166,7 +160,7 @@ pub fn store_base_commitment<'a>(
         network_fee,
     )?;
 
-    // `sender` transfers `amount` (as token) to `pool`
+    // `sender` transfers `amount` to `pool` (token)
     transfer_token(
         sender,
         sender_account,
@@ -182,7 +176,7 @@ pub fn store_base_commitment<'a>(
         hash_account_index,
     )?;
 
-    // `fee_collector` transfers `subvention` (as token) to `fee_payer`,
+    // `fee_collector` transfers `subvention` to `fee_payer` (token)
     transfer_token_from_pda::<FeeCollectorAccount>(
         fee_collector,
         fee_collector_account,
@@ -197,7 +191,7 @@ pub fn store_base_commitment<'a>(
     hashing_account.setup(request, fee_payer.key.to_bytes())
 }
 
-// TODO: add functionality to warden to compute other uncomputed base-commitments
+// TODO: add functionality for a Warden to compute other uncomputed base-commitments (initiated by other Wardens)
 pub fn compute_base_commitment_hash(
     hashing_account: &mut BaseCommitmentHashingAccount,
 
@@ -228,7 +222,7 @@ pub fn finalize_base_commitment_hash<'a>(
         ComputationIsNotYetFinished
     );
 
-    // `pool` transfers `base_commitment_hash_fee` to `original_fee_payer` (as lamports)
+    // `pool` transfers `base_commitment_hash_fee` to `original_fee_payer` (lamports)
     transfer_lamports_from_pda_checked(
         pool,
         original_fee_payer,
@@ -342,20 +336,24 @@ pub fn finalize_commitment_hash(
     Ok(())
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::str::FromStr;
+    use crate::bytes::ElusivOption;
     use crate::commitment::poseidon_hash::full_poseidon2_hash;
     use crate::fields::{big_uint_to_u256, SCALAR_MODULUS_RAW, u256_from_str_skip_mr, fr_to_u256_le_repr};
+    use crate::state::governor::PoolAccount;
     use crate::state::{MT_HEIGHT, EMPTY_TREE};
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
-    use crate::macros::{zero_account, account, test_account_info, storage_account};
+    use crate::macros::{zero_account, account, test_account_info, storage_account, pyth_price_account_info, token_pda_account};
+    use crate::token::{LAMPORTS_TOKEN_ID, lamports_token, USDC_TOKEN_ID, usdc_token};
     use ark_ff::Zero;
     use assert_matches::assert_matches;
+    use pyth_sdk_solana::Price;
+    use solana_program::native_token::LAMPORTS_PER_SOL;
     use solana_program::pubkey::Pubkey;
-
-    // TODO: Switch to custom Result type and assert correct Err values
+    use solana_program::system_program;
 
     #[test]
     fn test_zero_commitment() {
@@ -381,191 +379,258 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::vec_init_then_push)]
-    fn test_store_base_commitment() {
-        zero_account!(mut governor, GovernorAccount);
-        test_account_info!(sender, 0);
+    fn test_store_base_commitment_lamports() {
+        zero_account!(mut g, GovernorAccount);
+        test_account_info!(s, 0);   // sender
+        test_account_info!(f, 0);   // fee_payer
         test_account_info!(pool, 0);
-        test_account_info!(fee_collector, 0);
-        zero_account!(mut base_commitment_queue, BaseCommitmentQueueAccount);
-        let sys_program_pk = solana_program::system_program::ID;
-        account!(system_program, sys_program_pk, vec![]);
+        test_account_info!(fee_c, 0);   // fee_collector
+        test_account_info!(any, 0);
+        account!(sys, system_program::id(), vec![]);
+        account!(spl, spl_token::id(), vec![]);
+        account!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
 
-        governor.set_commitment_batching_rate(&4);
-        governor.set_fee_version(&1);
+        g.set_commitment_batching_rate(&4);
+        g.set_fee_version(&1);
 
-        let valid_request = BaseCommitmentHashRequest {
+        let request = BaseCommitmentHashRequest {
             base_commitment: RawU256::new(u256_from_str_skip_mr("1")),
             amount: LAMPORTS_PER_SOL,
-            token_id: 0,
+            token_id: LAMPORTS_TOKEN_ID,
             commitment: RawU256::new(u256_from_str_skip_mr("1")),
             fee_version: 1,
             min_batching_rate: 4,
         };
 
-        let mut requests = Vec::new();
-
         // Amount too low
-        requests.push(valid_request.clone());
-        requests.last_mut().unwrap().amount = MIN_STORE_AMOUNT - 1;
+        let mut requests = vec![request.clone()];
+        requests.last_mut().unwrap().amount = lamports_token().min - 1;
 
         // Amount too high
-        requests.push(valid_request.clone());
-        requests.last_mut().unwrap().amount = MAX_STORE_AMOUNT + 1;
+        requests.push(request.clone());
+        requests.last_mut().unwrap().amount = lamports_token().max + 1;
 
         // Non-scalar base_commitment
-        requests.push(valid_request.clone());
+        requests.push(request.clone());
         requests.last_mut().unwrap().base_commitment = RawU256::new(big_uint_to_u256(&SCALAR_MODULUS_RAW));
 
         // Non-scalar commitment
-        requests.push(valid_request.clone());
+        requests.push(request.clone());
         requests.last_mut().unwrap().commitment = RawU256::new(big_uint_to_u256(&SCALAR_MODULUS_RAW));
         
         // Zero-commitment
-        requests.push(valid_request.clone());
+        requests.push(request.clone());
         requests.last_mut().unwrap().base_commitment = RawU256::new(fr_to_u256_le_repr(&ZERO_BASE_COMMITMENT));
 
-        // Mismatched fee version
-        requests.push(valid_request.clone());
+        // Mismatched fee_version
+        requests.push(request.clone());
         requests.last_mut().unwrap().fee_version = 0;
 
         // Invalid min_batching_rate
-        requests.push(valid_request.clone());
+        requests.push(request.clone());
         requests.last_mut().unwrap().min_batching_rate = 0;
 
         for request in requests {
             assert_matches!(
-                store_base_commitment(&sender, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, request),
+                store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, request),
                 Err(_)
             );
         }
 
-        // Base commitment queue is full
-        {
-            zero_account!(mut base_commitment_queue, BaseCommitmentQueueAccount);
-            let mut queue = BaseCommitmentQueue::new(&mut base_commitment_queue);
-            for _ in 0..BaseCommitmentQueue::CAPACITY {
-                queue.enqueue(valid_request.clone()).unwrap();
-            }
+        // Invalid pool_account
+        assert_matches!(
+            store_base_commitment(&s, &s, &f, &f, &pool, &any, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, request.clone()),
+            Err(_)
+        );
 
-            assert_matches!(
-                store_base_commitment(&sender, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request.clone()),
-                Err(_)
-            );
-        }
+        // Invalid fee_collector_account
+        assert_matches!(
+            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &any, &any, &any, &g, &hashing_acc, &sys, &sys, 0, request.clone()),
+            Err(_)
+        );
 
-        store_base_commitment(&sender, &governor, &pool, &fee_collector, &system_program, &mut base_commitment_queue, 0, valid_request).unwrap();
+        // Invalid token_program
+        assert_matches!(
+            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &pool, &any, &any, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            Err(_)
+        );
+
+        // Mismatch between PDA and offset
+        assert_matches!(
+            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &pool, &any, &any, &g, &hashing_acc, &sys, &sys, 1, request.clone()),
+            Err(_)
+        );
+
+        assert_matches!(
+            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, request),
+            Ok(())
+        );
     }
 
     #[test]
-    fn test_init_base_commitment_hash() {
-        let hashing_pda = BaseCommitmentHashingAccount::find(Some(0)).0;
-        account!(hashing_account, hashing_pda, vec![0; BaseCommitmentHashingAccount::SIZE]);
-        test_account_info!(fee_payer, 0);
-        zero_account!(mut base_commitment_queue, BaseCommitmentQueueAccount);
+    fn test_store_base_commitment_token() {
+        zero_account!(g, GovernorAccount);
+        test_account_info!(s, 0);   // sender
+        test_account_info!(f, 0);   // fee_payer
+        test_account_info!(s_token, 0, spl_token::id());
+        test_account_info!(f_token, 0, spl_token::id());
+        token_pda_account!(pool, pool_token, PoolAccount, USDC_TOKEN_ID);
+        token_pda_account!(fee_c, fee_c_token, PoolAccount, USDC_TOKEN_ID);
+        account!(sys, system_program::id(), vec![]);
+        account!(spl, spl_token::id(), vec![]);
+        account!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
 
-        // Empty queue
+        let sol_usd = Price { price: 39, conf: 1, expo: 0 };
+        let usdc_usd = Price { price: 1, conf: 1, expo: 0 };
+        pyth_price_account_info!(sol, LAMPORTS_TOKEN_ID, sol_usd);
+        pyth_price_account_info!(usdc, USDC_TOKEN_ID, usdc_usd);
+
+        let request = BaseCommitmentHashRequest {
+            base_commitment: RawU256::new(u256_from_str_skip_mr("1")),
+            amount: 1_000_000,
+            token_id: USDC_TOKEN_ID,
+            commitment: RawU256::new(u256_from_str_skip_mr("1")),
+            fee_version: 0,
+            min_batching_rate: 0,
+        };
+
+        // Amount too low
+        let mut requests = vec![request.clone()];
+        requests.last_mut().unwrap().amount = usdc_token().min - 1;
+
+        // Amount too high
+        requests.push(request.clone());
+        requests.last_mut().unwrap().amount = usdc_token().max + 1;
+
+        for request in requests {
+            assert_matches!(
+                store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request),
+                Err(_)
+            );
+        }
+
+        // Invalid pool_account
         assert_matches!(
-            init_base_commitment_hash(&fee_payer, &mut base_commitment_queue, &hashing_account, 0, 0),
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &fee_c_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
             Err(_)
         );
 
-        let mut queue = BaseCommitmentQueue::new(&mut base_commitment_queue);
-        queue.enqueue(
-            BaseCommitmentHashRequest {
-                base_commitment: RawU256::new(u256_from_str_skip_mr("1")),
-                amount: LAMPORTS_PER_SOL,
-                token_id: 0,
-                commitment: RawU256::new(u256_from_str_skip_mr("1")),
-                fee_version: 1,
-                min_batching_rate: 4,
-            }
-        ).unwrap();
-
-        // Mismatch between PDA and index
+        // Invalid fee_collector_account
         assert_matches!(
-            init_base_commitment_hash(&fee_payer, &mut base_commitment_queue, &hashing_account, 0, 1),
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &pool_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
             Err(_)
         );
 
-        init_base_commitment_hash(&fee_payer, &mut base_commitment_queue, &hashing_account, 0, 0).unwrap();
+        // Invalid token_program
+        assert_matches!(
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &sys, &sys, 0, request.clone()),
+            Err(_)
+        );
+
+        // Mismatch between PDA and offset
+        assert_matches!(
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 1, request.clone()),
+            Err(_)
+        );
+
+        // Invalid sender_account
+        assert_matches!(
+            store_base_commitment(&s, &s, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            Err(_)
+        );
+
+        // Invalid fee_collector_account
+        assert_matches!(
+            store_base_commitment(&s, &s_token, &f, &f, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            Err(_)
+        );
+
+        // Invalid sol_usd_price_account
+        assert_matches!(
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &usdc, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            Err(_)
+        );
+
+        // Invalid token_usd_price_account
+        assert_matches!(
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &sol, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            Err(_)
+        );
+
+        assert_matches!(
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request),
+            Ok(())
+        );
     }
 
     #[test]
     fn test_compute_base_commitment_hash() {
         zero_account!(mut hashing_account, BaseCommitmentHashingAccount);
-        zero_account!(fee, FeeAccount);
-        test_account_info!(pool, 0);
-        test_account_info!(fee_payer, 0);
 
-        // Failure for inactive account 
-        assert_matches!(
-            compute_base_commitment_hash(&fee_payer, &fee, &pool, &mut hashing_account, 0, 0, 0),
-            Err(_)
-        );
+        // Inactive
+        assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0, 0), Err(_));
 
-        // Failure for invalid fee_version
         hashing_account.set_is_active(&true);
-        assert_matches!(
-            compute_base_commitment_hash(&fee_payer, &fee, &pool, &mut hashing_account, 0, 1, 0),
-            Err(_)
-        );
 
-        compute_base_commitment_hash(&fee_payer, &fee, &pool, &mut hashing_account, 0, 0, 0).unwrap();
-    }
+        for _ in 0..BaseCommitmentHashComputation::IX_COUNT {
+            assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0, 0), Ok(()));
+        }
 
-    macro_rules! pda_account_info {
-        ($id: ident, $ty: ty, $f: expr) => {
-            let mut data = vec![0; <$ty>::SIZE];
-            let mut tmp_acc = <$ty>::new(&mut data).unwrap();
-            $f(&mut tmp_acc);
-            let pk = <$ty>::find(Some(0)).0;
-            account!($id, pk, data);
-        };
+        // Additional computations will fail
+        assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0, 0), Err(_));
+        assert_eq!(hashing_account.get_state().result(), Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap());
     }
 
     #[test]
-    fn test_finalize_base_commitment_hash() {
-        let fee_payer_pk = Pubkey::new_unique();
-        account!(fee_payer, fee_payer_pk, vec![0]);
-        zero_account!(mut queue, CommitmentQueueAccount);
+    fn test_finalize_base_commitment_hash() -> ProgramResult {
+        account!(fee_payer, Pubkey::new_unique(), vec![0]);
+        account!(h_account, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
+        zero_account!(mut q, CommitmentQueueAccount);
+        zero_account!(fee, FeeAccount);
+        test_account_info!(pool, 0);
 
         // Inactive hashing account
-        pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
-            hashing_account.set_fee_payer(&fee_payer_pk.to_bytes());
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
-        });
-        assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
+        {
+            pda_account!(mut h, BaseCommitmentHashingAccount, h_account);
+            h.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
+            h.set_fee_payer(&fee_payer.key.to_bytes());
+        }
+        assert_matches!(finalize_base_commitment_hash(&fee_payer, &pool, &fee, &h_account, &mut q, 0, 0), Err(_));
 
         // Invalid original fee payer
-        pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
-            hashing_account.set_is_active(&true);
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
-        });
-        assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
+        {
+            pda_account!(mut h, BaseCommitmentHashingAccount, h_account);
+            h.set_is_active(&true);
+            h.set_fee_payer(&[0; 32]);
+        }
+        assert_matches!(finalize_base_commitment_hash(&fee_payer, &pool, &fee, &h_account, &mut q, 0, 0), Err(_));
 
         // Computation not finished
-        pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
-            hashing_account.set_fee_payer(&fee_payer_pk.to_bytes());
-            hashing_account.set_is_active(&true);
-        });
-        assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
+        {
+            pda_account!(mut h, BaseCommitmentHashingAccount, h_account);
+            h.set_instruction(&0);
+            h.set_fee_payer(&fee_payer.key.to_bytes());
+        }
+        assert_matches!(finalize_base_commitment_hash(&fee_payer, &pool, &fee, &h_account, &mut q, 0, 0), Err(_));
 
-        pda_account_info!(hashing_account, BaseCommitmentHashingAccount, |hashing_account: &mut BaseCommitmentHashingAccount| {
-            hashing_account.set_fee_payer(&fee_payer_pk.to_bytes());
-            hashing_account.set_is_active(&true);
-            hashing_account.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
-        });
+        // Invalid fee version
+        assert_matches!(finalize_base_commitment_hash(&fee_payer, &pool, &fee, &h_account, &mut q, 0, 1), Err(_));
         
         // Commitment queue is full
-        let mut q = CommitmentQueue::new(&mut queue);
-        for _ in 0..CommitmentQueue::CAPACITY {
-            q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 0, fee_version: 0 }).unwrap();
-        }
-        assert_matches!(finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0), Err(_));
+        {
+            pda_account!(mut h, BaseCommitmentHashingAccount, h_account);
+            h.set_instruction(&(BaseCommitmentHashComputation::IX_COUNT as u32));
 
-        zero_account!(mut queue, CommitmentQueueAccount);
-        finalize_base_commitment_hash(&fee_payer, &mut queue, &hashing_account, 0).unwrap();
+            let mut q = CommitmentQueue::new(&mut q);
+            for _ in 0..CommitmentQueue::CAPACITY {
+                q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 0, fee_version: 0 }).unwrap();
+            }
+        }
+        assert_matches!(finalize_base_commitment_hash(&fee_payer, &pool, &fee, &h_account, &mut q, 0, 0), Err(_));
+
+        zero_account!(mut q, CommitmentQueueAccount);
+        assert_matches!(finalize_base_commitment_hash(&fee_payer, &pool, &fee, &h_account, &mut q, 0, 0), Ok(()));
+        Ok(())
     }
 
     #[test]
@@ -744,4 +809,4 @@ mod tests {
             }
         }
     }
-}*/
+}
