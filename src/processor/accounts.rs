@@ -235,12 +235,13 @@ fn is_mt_full(
     storage_account: &StorageAccount,
     queue: &CommitmentQueue,
 ) -> Result<bool, ProgramError> {
-    let commitments = storage_account.get_next_commitment_ptr() as usize;
-    if commitments >= MT_COMMITMENT_COUNT {
+    if storage_account.is_full() {
         return Ok(true)
     }
 
-    if commitments + queue.next_batch()?.0.len() >= MT_COMMITMENT_COUNT {
+    let commitments_count = storage_account.get_next_commitment_ptr() as usize;
+    let queue_len = queue.next_batch()?.0.len();
+    if commitments_count + queue_len >= MT_COMMITMENT_COUNT {
         return Ok(true)
     }
 

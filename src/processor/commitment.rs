@@ -23,6 +23,7 @@ use crate::state::{
 use crate::error::ElusivError::{
     InvalidAccount,
     InvalidInstructionData,
+    ComputationIsNotYetStarted,
     ComputationIsNotYetFinished,
     ComputationIsAlreadyFinished,
     NonScalarValue,
@@ -198,7 +199,7 @@ pub fn compute_base_commitment_hash(
     _hash_account_index: u32,
     _nonce: u32,
 ) -> ProgramResult {
-    guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
+    guard!(hashing_account.get_is_active(), ComputationIsNotYetStarted);
     compute_base_commitment_hash_partial(hashing_account)
 }
 
@@ -215,7 +216,7 @@ pub fn finalize_base_commitment_hash<'a>(
 ) -> ProgramResult {
     pda_account!(mut hashing_account, BaseCommitmentHashingAccount, hashing_account_info);
     guard!(hashing_account.get_fee_version() == fee_version, InvalidFeeVersion);
-    guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
+    guard!(hashing_account.get_is_active(), ComputationIsNotYetStarted);
     guard!(hashing_account.get_fee_payer() == original_fee_payer.key.to_bytes(), InvalidAccount);
     guard!(
         (hashing_account.get_instruction() as usize) == BaseCommitmentHashComputation::IX_COUNT,
@@ -295,7 +296,7 @@ pub fn compute_commitment_hash<'a>(
     fee_version: u32,
     _nonce: u32,
 ) -> ProgramResult {
-    guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
+    guard!(hashing_account.get_is_active(), ComputationIsNotYetStarted);
     guard!(hashing_account.get_fee_version() == fee_version, InvalidFeeVersion);
 
     compute_commitment_hash_partial(hashing_account)?;
@@ -312,7 +313,7 @@ pub fn finalize_commitment_hash(
     hashing_account: &mut CommitmentHashingAccount,
     storage_account: &mut StorageAccount,
 ) -> ProgramResult {
-    guard!(hashing_account.get_is_active(), ComputationIsNotYetFinished);
+    guard!(hashing_account.get_is_active(), ComputationIsNotYetStarted);
 
     let finalization_ix = hashing_account.get_finalization_ix();
     let batching_rate = hashing_account.get_batching_rate();

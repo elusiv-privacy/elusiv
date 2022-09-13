@@ -110,14 +110,13 @@ pub fn transfer_with_system_program<'a>(
         lamports.0,
     );
     
-    solana_program::program::invoke_signed(
+    solana_program::program::invoke(
         &instruction,
         &[
             source.clone(),
             destination.clone(),
             system_program.clone(),
         ],
-        &[],
     )    
 }
 
