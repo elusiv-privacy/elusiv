@@ -87,7 +87,7 @@ pub struct VerificationAccount {
     tree_indices: [u32; MAX_MT_COUNT],
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug, Clone, Default)]
 pub struct VerificationAccountData {
     pub fee_payer: RawU256,
     pub fee_payer_account: RawU256,
@@ -115,6 +115,7 @@ pub struct VerificationAccountData {
 impl<'a> VerificationAccount<'a> {
     pub fn setup(
         &mut self,
+        signer: RawU256,
         public_inputs: &[RawU256],
         instructions: &Vec<u32>,
         kind: u8,
@@ -133,6 +134,9 @@ impl<'a> VerificationAccount<'a> {
         }
 
         self.setup_public_inputs_instructions(instructions)?;
+
+        // Remembers the authorized signer
+        self.set_other_data(&VerificationAccountData { fee_payer: signer, ..Default::default() });
 
         Ok(())
     }

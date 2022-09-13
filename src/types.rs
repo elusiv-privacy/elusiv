@@ -15,7 +15,7 @@ use crate::macros::BorshSerDeSized;
 pub type U256 = [u8; 32];
 
 /// A U256 in non-montgomery reduction form
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug, Default)]
 pub struct RawU256(U256);
 
 impl RawU256 {

@@ -158,7 +158,7 @@ impl Sub for Token {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug, Default)]
 pub struct Lamports(pub u64);
 
 impl Lamports {

@@ -100,6 +100,7 @@ macro_rules! nullifier_duplicate_account_pda_seed {
 #[allow(clippy::too_many_arguments)]
 /// Initializes a new proof verification
 /// - subsequent calls of `init_verification_transfer_fee` and `init_verification_proof` required to start the computation
+/// - both need to be called by the same signer (-> the fee structure "enforces" `init_verification_transfer_fee` to be called in the same transaction)
 pub fn init_verification<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'a>,
     verification_account: &AccountInfo<'a>,
@@ -184,6 +185,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
 
     pda_account!(mut verification_account, VerificationAccount, verification_account);
     verification_account.setup(
+        RawU256::new(fee_payer.key.to_bytes()),
         &raw_public_inputs,
         &instructions,
         vkey,
@@ -214,6 +216,7 @@ pub fn init_verification_transfer_fee<'a>(
     _verification_account_index: u32,
 ) -> ProgramResult {
     guard!(matches!(verification_account.get_state(), VerificationState::None), InvalidAccountState);
+    guard!(verification_account.get_other_data().fee_payer.skip_mr() == fee_payer.key.to_bytes(), InvalidAccount);
 
     let request = verification_account.get_request();
     let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
@@ -280,6 +283,7 @@ pub fn init_verification_transfer_fee<'a>(
 /// Called once after `init_verification` to initialize the proof's public inputs
 /// - Note: has to be called by the original `fee_payer`, that called `init_verification`
 /// - depending on the MT-count this has to be called in a different tx than the init-tx (-> require fee_payer signature)
+/// - this is required, due to tx-byte size limits
 pub fn init_verification_proof(
     fee_payer: &AccountInfo,
     verification_account: &mut VerificationAccount,
@@ -827,6 +831,14 @@ mod tests {
 
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
         verification_acc.set_prepare_inputs_instructions_count(&(instructions.len() as u32));
+        verification_acc.set_other_data(&VerificationAccountData { fee_payer: RawU256::new(f.key.to_bytes()), ..Default::default() });
+
+        // Invalid fee_payer
+        test_account_info!(f2, 0); 
+        assert_matches!(
+            init_verification_transfer_fee(&f2, &f, &pool, &pool, &fee_c, &fee_c, &any, &any, &g, &mut verification_acc, &sys, &sys, 0),
+            Err(_)
+        );
 
         // Invalid verification account state
         verification_acc.set_state(&VerificationState::FeeTransferred);
@@ -924,6 +936,7 @@ mod tests {
 
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
         verification_acc.set_prepare_inputs_instructions_count(&(instructions.len() as u32));
+        verification_acc.set_other_data(&VerificationAccountData { fee_payer: RawU256::new(f.key.to_bytes()), ..Default::default() });
 
         // Invalid fee
         inputs.join_split.fee += 1;
@@ -1118,9 +1131,15 @@ mod tests {
     
             let mut $v_data = vec![0; VerificationAccount::SIZE];
             let mut v_account = VerificationAccount::new(&mut $v_data).unwrap();
-            v_account.setup(&[], &vec![0], 0, ProofRequest::Send($public_inputs.clone()), [0, 1]).unwrap();
+            let fee_payer = RawU256::new(Pubkey::new_unique().to_bytes());
+            v_account.setup(fee_payer, &[], &vec![0], 0, ProofRequest::Send($public_inputs.clone()), [0, 1]).unwrap();
             v_account.set_state(&VerificationState::ProofSetup);
             v_account.set_is_verified(&ElusivOption::Some(true));
+            v_account.set_other_data(&VerificationAccountData {
+                fee_payer,
+                fee_payer_account: fee_payer,
+                ..Default::default()
+            });
 
             nullifier_duplicate_account_pda_seed!(seeds, $public_inputs.join_split.nullifier_hashes);
             let $nullifier_duplicate_pda = Pubkey::find_program_address(&seeds[..], &crate::id()).0;
@@ -1275,7 +1294,7 @@ mod tests {
         nullifier_account!(mut n_acc_0);
         nullifier_account!(mut n_acc_1);
 
-        // inalize_verification_send not called
+        // finalize_verification_send not called
         verification_acc.set_state(&VerificationState::InsertNullifiers);
 
         // Nullifier duplicate
@@ -1307,7 +1326,8 @@ mod tests {
     fn test_finalize_verification_transfer_lamports() -> ProgramResult {
         finalize_send_test!(LAMPORTS_TOKEN_ID, public_inputs, verification_acc_data, nullifier_duplicate_pda, _finalize_data);
         account!(recipient, Pubkey::new(&public_inputs.recipient.skip_mr()), vec![]);
-        account!(f, Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr()), vec![]);  // fee_payer
+        let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
+        account!(f, fee_payer, vec![]);  // fee_payer
         test_account_info!(pool, 0);
         test_account_info!(fee_c, 0);
         test_account_info!(any, 0);
@@ -1397,7 +1417,7 @@ mod tests {
     fn test_finalize_verification_transfer_token() -> ProgramResult {
         finalize_send_test!(USDC_TOKEN_ID, public_inputs, verification_acc_data, nullifier_duplicate_pda, _finalize_data);
         account!(recipient, Pubkey::new(&public_inputs.recipient.skip_mr()), vec![], spl_token::id());
-        let fee_payer = Pubkey::new(&[0; 32]);
+        let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
         account!(f, fee_payer, vec![]);  // fee_payer
         account!(f_token, fee_payer, vec![], spl_token::id());  // fee_payer
         token_pda_account!(pool, pool_token, PoolAccount, USDC_TOKEN_ID);

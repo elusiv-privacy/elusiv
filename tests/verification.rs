@@ -14,7 +14,7 @@ use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions};
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
 use elusiv::state::empty_root_raw;
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
-use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec};
+use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof};
 use elusiv::proof::verifier::proof_from_str;
 use elusiv::processor::{ProofRequest, FinalizeSendData};
 use solana_program::native_token::LAMPORTS_PER_SOL;
@@ -197,13 +197,98 @@ fn send_request(index: usize) -> FullSendRequest {
 }
 
 #[tokio::test]
-#[ignore]
-async fn test_init_proof() {
-    panic!()
+async fn test_init_proof_signers() {
+    let mut test = start_verification_test().await;
+    let warden = test.new_actor().await;
+    let warden2 = test.new_actor().await;
+    let nullifier_accounts = test.nullifier_accounts(0).await;
+
+    let fee = test.genesis_fee().await;
+    let mut request = send_request(0);
+    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &fee);
+
+    let pool = PoolAccount::find(None).0;
+    let fee_collector = FeeCollectorAccount::find(None).0;
+    let recipient = Pubkey::new(&request.public_inputs.recipient.skip_mr());
+    let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
+    let subvention = fee.proof_subvention;
+    let commitment_hash_fee = fee.commitment_hash_computation_fee(0);
+
+    let verification_account_rent = test.rent(VerificationAccount::SIZE).await;
+    let nullifier_duplicate_account_rent = test.rent(PDAAccountData::SIZE).await;
+    warden.airdrop(
+        LAMPORTS_TOKEN_ID,
+        verification_account_rent.0 + nullifier_duplicate_account_rent.0,
+        &mut test,
+    ).await;
+    warden.airdrop(LAMPORTS_TOKEN_ID, commitment_hash_fee.0, &mut test).await;
+    warden2.airdrop(LAMPORTS_TOKEN_ID, commitment_hash_fee.0, &mut test).await;
+    test.airdrop_lamports(&fee_collector, subvention.0).await;
+
+    test.ix_should_succeed(
+        ElusivInstruction::init_verification_instruction(
+            0,
+            [0, 1],
+            ProofRequest::Send(request.public_inputs.clone()),
+            WritableSignerAccount(warden.pubkey),
+            WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(recipient),
+            &user_accounts(&[nullifier_accounts[0]]),
+            &[],
+        ),
+        &[&warden.keypair],
+    ).await;
+
+    // Invalid signer calls `init_verification_transfer_fee`
+    test.ix_should_fail(
+        ElusivInstruction::init_verification_transfer_fee_instruction(
+            0,
+            WritableSignerAccount(warden2.pubkey),
+            WritableUserAccount(warden2.pubkey),
+            WritableUserAccount(pool),
+            WritableUserAccount(fee_collector),
+            UserAccount(system_program::id()),
+            UserAccount(system_program::id()),
+            UserAccount(system_program::id()),
+        ),
+        &[&warden2.keypair],
+    ).await;
+
+    test.ix_should_succeed(
+        ElusivInstruction::init_verification_transfer_fee_instruction(
+            0,
+            WritableSignerAccount(warden.pubkey),
+            WritableUserAccount(warden.pubkey),
+            WritableUserAccount(pool),
+            WritableUserAccount(fee_collector),
+            UserAccount(system_program::id()),
+            UserAccount(system_program::id()),
+            UserAccount(system_program::id()),
+        ),
+        &[&warden.keypair],
+    ).await;
+
+    // Invalid signer calls `init_verification_proof`
+    test.ix_should_fail(
+        ElusivInstruction::init_verification_proof_instruction(
+            0,
+            RawProof([0; RawProof::SIZE]),
+            SignerAccount(warden2.pubkey),
+        ),
+        &[&warden2.keypair],
+    ).await;
+
+    test.ix_should_succeed(
+        ElusivInstruction::init_verification_proof_instruction(
+            0,
+            RawProof([0; RawProof::SIZE]),
+            SignerAccount(warden.pubkey),
+        ),
+        &[&warden.keypair],
+    ).await;
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_init_proof_lamports() {
     let mut test = start_verification_test().await;
     let warden = test.new_actor().await;
@@ -270,7 +355,6 @@ async fn test_init_proof_lamports() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_init_proof_token() {
     let mut test = start_verification_test().await;
     test.create_spl_token(USDC_TOKEN_ID, true).await;
@@ -386,7 +470,6 @@ async fn test_finalize_proof() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_finalize_proof_lamports() {
     let mut test = start_verification_test().await;
     let warden = test.new_actor().await;
