@@ -182,7 +182,7 @@ pub enum ElusivInstruction {
     // Set the next MT as the active MT
     #[pda(storage_account, StorageAccount, { writable, multi_accounts })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
-    #[pda(active_nullifier_account, NullifierAccount, pda_offset = Some(active_mt_index), { writable, multi_accounts })]
+    #[pda(active_nullifier_account, NullifierAccount, pda_offset = Some(active_mt_index), { writable, multi_accounts, ignore_sub_accounts })]
     ResetActiveMerkleTree {
         active_mt_index: u32,
     },

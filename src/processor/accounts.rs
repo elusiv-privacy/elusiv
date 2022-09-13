@@ -224,9 +224,9 @@ pub fn reset_active_merkle_tree(
     let queue = CommitmentQueue::new(queue);
     guard!(is_mt_full(storage_account, &queue)?, MerkleTreeIsNotFullYet);
 
-    storage_account.reset();
     storage_account.set_trees_count(&(active_merkle_tree_index.checked_add(1).ok_or(MATH_ERR)?));
     active_nullifier_account.set_root(&storage_account.get_root());
+    storage_account.reset();
 
     Ok(())
 }
