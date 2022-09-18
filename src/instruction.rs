@@ -113,6 +113,7 @@ pub enum ElusivInstruction {
         verification_account_index: u32,
         tree_indices: [u32; MAX_MT_COUNT],
         request: ProofRequest,
+        skip_nullifier_pda: bool,
     },
 
     #[acc(fee_payer, { writable, signer })]

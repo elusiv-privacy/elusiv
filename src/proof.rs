@@ -92,6 +92,9 @@ pub struct VerificationAccountData {
     pub fee_payer: RawU256,
     pub fee_payer_account: RawU256,
 
+    /// Flag that can be used to skip the renting of a nullifier_pda (if it already exists)
+    pub skip_nullifier_pda: bool,
+
     pub min_batching_rate: u32,
 
     pub token_id: u16,
@@ -113,9 +116,11 @@ pub struct VerificationAccountData {
 }
 
 impl<'a> VerificationAccount<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn setup(
         &mut self,
         signer: RawU256,
+        skip_nullifier_pda: bool,
         public_inputs: &[RawU256],
         instructions: &Vec<u32>,
         kind: u8,
@@ -136,7 +141,13 @@ impl<'a> VerificationAccount<'a> {
         self.setup_public_inputs_instructions(instructions)?;
 
         // Remembers the authorized signer
-        self.set_other_data(&VerificationAccountData { fee_payer: signer, ..Default::default() });
+        self.set_other_data(
+            &VerificationAccountData {
+                fee_payer: signer,
+                skip_nullifier_pda,
+                ..Default::default()
+            }
+        );
 
         Ok(())
     }

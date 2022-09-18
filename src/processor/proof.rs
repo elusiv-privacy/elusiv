@@ -113,6 +113,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     verification_account_index: u32,
     tree_indices: [u32; MAX_MT_COUNT],
     request: ProofRequest,
+    skip_nullifier_pda: bool,
 ) -> ProgramResult {
     let vkey = request.variant_index();
     let raw_public_inputs = proof_request!(
@@ -168,13 +169,20 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
 
     // Open `nullifier_duplicate_account`
     // - this account is used to prevent two proof verifications (of the same nullifier-hashes) at the same time
+    // - using `skip_nullifier_pda` a second verification can be initialized, for more details see OS-ELV-ADV-05
     nullifier_duplicate_account_pda_seed!(nullifier_hashes, join_split.nullifier_hashes);
-    open_pda_account(
-        fee_payer,
-        nullifier_duplicate_account,
-        PDAAccountData::SIZE,
-        &nullifier_hashes,
-    )?;
+    if skip_nullifier_pda {
+        if nullifier_duplicate_account.lamports() == 0 {
+            return Err(InvalidInstructionData.into())
+        }
+    } else {
+        open_pda_account(
+            fee_payer,
+            nullifier_duplicate_account,
+            PDAAccountData::SIZE,
+            &nullifier_hashes,
+        )?;
+    }
 
     // Open `VerificationAccount`
     open_pda_account_with_offset::<VerificationAccount>(
@@ -186,6 +194,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     pda_account!(mut verification_account, VerificationAccount, verification_account);
     verification_account.setup(
         RawU256::new(fee_payer.key.to_bytes()),
+        skip_nullifier_pda,
         &raw_public_inputs,
         &instructions,
         vkey,
@@ -216,7 +225,9 @@ pub fn init_verification_transfer_fee<'a>(
     _verification_account_index: u32,
 ) -> ProgramResult {
     guard!(matches!(verification_account.get_state(), VerificationState::None), InvalidAccountState);
-    guard!(verification_account.get_other_data().fee_payer.skip_mr() == fee_payer.key.to_bytes(), InvalidAccount);
+
+    let other_data = verification_account.get_other_data();
+    guard!(other_data.fee_payer.skip_mr() == fee_payer.key.to_bytes(), InvalidAccount);
 
     let request = verification_account.get_request();
     let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
@@ -265,6 +276,7 @@ pub fn init_verification_transfer_fee<'a>(
         &VerificationAccountData {
             fee_payer: RawU256::new(fee_payer.key.to_bytes()),
             fee_payer_account: RawU256::new(fee_payer_token_account.key.to_bytes()),
+            skip_nullifier_pda: other_data.skip_nullifier_pda,
             min_batching_rate,
             token_id,
             subvention: subvention.amount(),
@@ -415,6 +427,7 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
 
     _verification_account_index: u32,
 ) -> ProgramResult {
+    // TODO: Handle the case in which a duplicate verification has failed (funds flow to fee-collector)
     guard!(matches!(verification_account.get_state(), VerificationState::InsertNullifiers), InvalidAccountState);
 
     let request = verification_account.get_request();
@@ -479,7 +492,10 @@ pub fn finalize_verification_transfer<'a>(
     if let ElusivOption::Some(false) = verification_account.get_is_verified() {
         // `rent` and `commitment_hash_fee` flow to `fee_collector`
         close_account(fee_collector, verification_account_info)?;
-        close_account(fee_collector, nullifier_duplicate_account)?;
+        if !data.skip_nullifier_pda {
+            close_account(fee_collector, nullifier_duplicate_account)?;
+        }
+
         verification_account.set_state(&VerificationState::Closed);
 
         // `pool` transfers `subvention` to `fee_collector` (token)
@@ -541,7 +557,9 @@ pub fn finalize_verification_transfer<'a>(
 
     // Close `verification_account` and `nullifier_duplicate_account`
     close_account(original_fee_payer, verification_account_info)?;
-    close_account(original_fee_payer, nullifier_duplicate_account)?;
+    if !data.skip_nullifier_pda {
+        close_account(original_fee_payer, nullifier_duplicate_account)?;
+    }
 
     let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
     commitment_queue.enqueue(
@@ -718,11 +736,13 @@ mod tests {
 
         account!(n_duplicate_acc, inputs.join_split.nullifier_duplicate_pda().0, vec![1]);
 
+        // TODO: test skip nullifier pda
+
         // Commitment-count too low
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.commitment_count = 0;
-            }))),
+            })), false),
             Err(_)
         );
 
@@ -730,7 +750,7 @@ mod tests {
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.commitment_count = JOIN_SPLIT_MAX_N_ARITY + 1;
-            }))),
+            })), false),
             Err(_)
         );
 
@@ -738,7 +758,7 @@ mod tests {
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.roots[0] = Some(RawU256::new(u256_from_str_skip_mr("1")));
-            }))),
+            })), false),
             Err(_)
         );
 
@@ -746,13 +766,13 @@ mod tests {
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.roots[0] = None;
-            }))),
+            })), false),
             Err(_)
         );
 
         // Mismatched tree indices
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [1, 0], Send(inputs.clone())),
+            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [1, 0], Send(inputs.clone()), false),
             Err(_)
         );
 
@@ -760,14 +780,14 @@ mod tests {
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.commitment = RawU256::new(ZERO_COMMITMENT_RAW);
-            }))),
+            })), false),
             Err(_)
         );
 
         // Nullifier already exists
         n.try_insert_nullifier_hash(inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(inputs.clone())),
+            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(inputs.clone()), false),
             Err(_)
         );
         
@@ -775,7 +795,7 @@ mod tests {
         nullifier_account!(n);
         account!(invalid_n_duplicate_acc, VerificationAccount::find(Some(0)).0, vec![1]);
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &invalid_n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(inputs.clone())),
+            init_verification(&fee_payer, &v_acc, &invalid_n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(inputs.clone()), false),
             Err(_)
         );
 
@@ -787,12 +807,12 @@ mod tests {
                     current_nsmt_root: RawU256::new([0; 32]),
                     next_nsmt_root: RawU256::new([0; 32]),
                 }
-            )),
+            ), false),
             Err(_)
         );
 
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(inputs)),
+            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(inputs), false),
             Ok(())
         );
     }
@@ -1132,7 +1152,7 @@ mod tests {
             let mut $v_data = vec![0; VerificationAccount::SIZE];
             let mut v_account = VerificationAccount::new(&mut $v_data).unwrap();
             let fee_payer = RawU256::new(Pubkey::new_unique().to_bytes());
-            v_account.setup(fee_payer, &[], &vec![0], 0, ProofRequest::Send($public_inputs.clone()), [0, 1]).unwrap();
+            v_account.setup(fee_payer, false, &[], &vec![0], 0, ProofRequest::Send($public_inputs.clone()), [0, 1]).unwrap();
             v_account.set_state(&VerificationState::ProofSetup);
             v_account.set_is_verified(&ElusivOption::Some(true));
             v_account.set_other_data(&VerificationAccountData {

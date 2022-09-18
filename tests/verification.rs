@@ -230,6 +230,7 @@ async fn test_init_proof_signers() {
             0,
             [0, 1],
             ProofRequest::Send(request.public_inputs.clone()),
+            false,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
             UserAccount(recipient),
@@ -311,19 +312,46 @@ async fn test_init_proof_lamports() {
         &mut test,
     ).await;
 
-    // Failure: recipient is spl-token-account
-
-    test.ix_should_succeed(
+    let init_verification_instruction = |v_index: u32, skip_nullifier_pda: bool| {
         ElusivInstruction::init_verification_instruction(
-            0,
+            v_index,
             [0, 1],
             ProofRequest::Send(request.public_inputs.clone()),
+            skip_nullifier_pda,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
             UserAccount(recipient),
             &user_accounts(&[nullifier_accounts[0]]),
             &[],
-        ),
+        )
+    };
+
+    // TODO: Failure: recipient is spl-token-account
+
+    // Failure if skip_nullifier_pda := true (and nullifier_pda does not exist)
+    test.ix_should_fail(
+        init_verification_instruction(0, true),
+        &[&warden.keypair],
+    ).await;
+
+    test.ix_should_succeed(
+        init_verification_instruction(0, false),
+        &[&warden.keypair],
+    ).await;
+
+    assert_eq!(0, warden.lamports(&mut test).await);
+
+    warden.airdrop(LAMPORTS_TOKEN_ID, verification_account_rent.0, &mut test).await;
+
+    // Testing duplicate verifications (allowed when flag is set)
+    // Failure if skip_nullifier_pda := false (and nullifier_pda exists)
+    test.ix_should_fail(
+        init_verification_instruction(1, false),
+        &[&warden.keypair],
+    ).await;
+    // Success if skip_nullifier_pda := true (and nullifier_pda exists)
+    test.ix_should_succeed(
+        init_verification_instruction(1, true),
         &[&warden.keypair],
     ).await;
 
@@ -399,6 +427,7 @@ async fn test_init_proof_token() {
                 0,
                 [0, 1],
                 ProofRequest::Send(request.public_inputs.clone()),
+                false,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
                 UserAccount(recipient),
@@ -417,6 +446,7 @@ async fn test_init_proof_token() {
             0,
             [0, 1],
             ProofRequest::Send(request.public_inputs.clone()),
+            false,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
             UserAccount(recipient_token_account),
@@ -508,6 +538,7 @@ async fn test_finalize_proof_lamports() {
                 0,
                 [0, 1],
                 ProofRequest::Send(request.public_inputs.clone()),
+                false,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
                 UserAccount(recipient.pubkey),
@@ -665,6 +696,7 @@ async fn test_finalize_proof_token() {
                 0,
                 [0, 1],
                 ProofRequest::Send(request.public_inputs.clone()),
+                false,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
                 UserAccount(recipient_token_account),
@@ -777,6 +809,123 @@ async fn test_finalize_proof_token() {
 
     // Pool contains computation_fee (lamports)
     assert_eq!(commitment_hash_fee.0, test.pda_lamports(&PoolAccount::find(None).0, FeeCollectorAccount::SIZE).await.0);
+}
+
+
+#[tokio::test]
+async fn test_finalize_proof_skip_nullifier_pda() {
+    // TODO: skip_nullifier_pda := true --> nullifier_pda account will not be closed
+
+    let mut test = start_verification_test().await;
+    let warden = test.new_actor().await;
+    let recipient = test.new_actor().await;
+    let nullifier_accounts = test.nullifier_accounts(0).await;
+    let pool = PoolAccount::find(None).0;
+    let fee_collector = FeeCollectorAccount::find(None).0;
+    let mut request = send_request(0);
+    request.public_inputs.recipient = RawU256::new(recipient.pubkey.to_bytes());
+    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &test.genesis_fee().await);
+    let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
+    let identifier = Pubkey::new(&request.public_inputs.identifier.skip_mr());
+    let salt = Pubkey::new(&request.public_inputs.salt.skip_mr());
+
+    warden.airdrop(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL, &mut test).await;
+    test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
+    test.airdrop_lamports(&pool, LAMPORTS_PER_SOL * 1000).await;
+
+    let init_instructions = |v_index: u32, skip_nullifier_pda: bool| {
+        [
+            ElusivInstruction::init_verification_instruction(
+                v_index,
+                [0, 1],
+                ProofRequest::Send(request.public_inputs.clone()),
+                skip_nullifier_pda,
+                WritableSignerAccount(warden.pubkey),
+                WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(recipient.pubkey),
+                &user_accounts(&[nullifier_accounts[0]]),
+                &[],
+            ),
+            ElusivInstruction::init_verification_transfer_fee_sol_instruction(
+                v_index,
+                warden.pubkey,
+            ),
+            ElusivInstruction::init_verification_proof_instruction(
+                v_index,
+                request.proof.try_into().unwrap(),
+                SignerAccount(warden.pubkey),
+            ),
+        ]
+    };
+
+    // Three verifications of the same proof (the last one is simulated as an invalid proof)
+    test.tx_should_succeed(&init_instructions(0, false), &[&warden.keypair]).await;
+    test.tx_should_succeed(&init_instructions(1, true), &[&warden.keypair]).await;
+    test.tx_should_succeed(&init_instructions(2, true), &[&warden.keypair]).await;
+
+    // Skip computations
+    for (i, is_valid) in (0..3).zip([true, true, false]) {
+        test.set_pda_account::<VerificationAccount, _>(Some(i), |data| {
+            let mut verification_account = VerificationAccount::new(data).unwrap();
+            verification_account.set_is_verified(&ElusivOption::Some(is_valid));
+        }).await;
+    }
+
+    // TODO: skip_nullifier_pda := true --> nullifier_pda account will not be closed
+
+    let finalize = |v_index: u32, is_valid: bool| {
+        let ixs = [
+            ElusivInstruction::finalize_verification_send_instruction(
+                FinalizeSendData {
+                    timestamp: 0,
+                    total_amount: request.public_inputs.join_split.total_amount(),
+                    token_id: 0,
+                    mt_index: 0,
+                    commitment_index: 0,
+                },
+                v_index,
+                UserAccount(identifier),
+                UserAccount(salt),
+            ),
+            ElusivInstruction::finalize_verification_send_nullifiers_instruction(
+                v_index,
+                Some(0),
+                &writable_user_accounts(&[nullifier_accounts[0]]),
+                Some(1),
+                &[],
+            ),
+            ElusivInstruction::finalize_verification_transfer_instruction(
+                v_index,
+                WritableUserAccount(recipient.pubkey),
+                WritableUserAccount(warden.pubkey),
+                WritableUserAccount(warden.pubkey),
+                WritableUserAccount(pool),
+                WritableUserAccount(fee_collector),
+                WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(system_program::id()),
+            ),
+        ];
+
+        if is_valid {
+            ixs.to_vec()
+        } else {
+            vec![ixs[0].clone(), ixs[2].clone()]
+        }
+    };
+
+    // Invalid verification (will not close nullifier_duplicate_pda)
+    test.tx_should_succeed_simple(&finalize(2, false)).await;
+
+    // 2. verification is faster than 1. (will not close nullifier_duplicate_pda)
+    test.tx_should_succeed_simple(&finalize(1, true)).await;
+
+    // 1. verification is unable to complete
+    test.tx_should_fail_simple(&finalize(0, true)).await;
+
+    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(1)).0).await);
+    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(2)).0).await);
+    assert!(test.account_does_exist(&VerificationAccount::find(Some(0)).0).await);
+    assert!(test.account_does_exist(&nullifier_duplicate_account).await);
 }
 
 #[tokio::test]
