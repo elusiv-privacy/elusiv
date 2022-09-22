@@ -25,9 +25,11 @@ pub fn batch_instructions(
 
     let batch_size = 1_400_000 / compute_units_per_ix as usize;
     let mut ixs = vec![
-        ComputeBudgetInstruction::request_units(batch_size as u32 * compute_units_per_ix, 0)
+        ComputeBudgetInstruction::set_compute_unit_limit(batch_size as u32 * compute_units_per_ix),
     ];
-    for _ in 0..batch_size { ixs.push(ix.clone()); }
+    for _ in 0..batch_size {
+        ixs.push(ix.clone());
+    }
 
     for _ in 0..total_ix_count / batch_size {
         v.push(ixs.clone());
@@ -36,9 +38,11 @@ pub fn batch_instructions(
     let remaining_ix_count = total_ix_count % batch_size;
     if remaining_ix_count > 0 {
         let mut ixs = vec![
-            ComputeBudgetInstruction::request_units(compute_units_per_ix * remaining_ix_count as u32, 0)
+            ComputeBudgetInstruction::set_compute_unit_limit(batch_size as u32 * compute_units_per_ix),
         ];
-        for _ in 0..remaining_ix_count { ixs.push(ix.clone()); }
+        for _ in 0..remaining_ix_count {
+            ixs.push(ix.clone());
+        }
         v.push(ixs);
     }
 

@@ -342,6 +342,10 @@ mod tests {
     #[test]
     fn test_send_quadra_precompute() {
         test_full_precompute::<SendQuadraVKey>();
+    }
+
+    #[test]
+    fn test_migrate_unary_precompute() {
         test_full_precompute::<MigrateUnaryVKey>();
     }
 

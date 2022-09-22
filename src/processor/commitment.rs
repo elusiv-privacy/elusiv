@@ -476,7 +476,7 @@ mod tests {
         test_account_info!(s_token, 0, spl_token::id());
         test_account_info!(f_token, 0, spl_token::id());
         token_pda_account!(pool, pool_token, PoolAccount, USDC_TOKEN_ID);
-        token_pda_account!(fee_c, fee_c_token, PoolAccount, USDC_TOKEN_ID);
+        token_pda_account!(fee_c, fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
         account!(sys, system_program::id(), vec![]);
         account!(spl, spl_token::id(), vec![]);
         account!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);

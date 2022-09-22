@@ -8,7 +8,7 @@ use solana_program::{
 };
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex, pda_account};
 use crate::processor::ZERO_COMMITMENT_RAW;
-use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token, verify_pool, verify_fee_collector, transfer_token_from_pda, transfer_lamports_from_pda_checked};
+use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token, verify_pool, verify_fee_collector, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent};
 use crate::proof::precompute::PrecomputesAccount;
 use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState};
 use crate::state::MT_COMMITMENT_COUNT;
@@ -38,7 +38,7 @@ use crate::proof::{
     VerificationAccount,
     vkey::{SendQuadraVKey, MigrateUnaryVKey},
 };
-use crate::token::{Token, verify_token_account, TokenPrice};
+use crate::token::{Token, verify_token_account, TokenPrice, verify_associated_token_account, Lamports, elusiv_token};
 use crate::types::{RawProof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, Proof, RawU256};
 use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
 use borsh::{BorshSerialize, BorshDeserialize};
@@ -137,9 +137,11 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     let join_split = match &request {
         ProofRequest::Send(public_inputs) => {
             guard!(public_inputs.verify_additional_constraints(), InvalidPublicInputs);
+            guard!(recipient.key.to_bytes() == public_inputs.recipient.address, InvalidAccount);
 
-            guard!(recipient.key.to_bytes() == public_inputs.recipient.skip_mr(), InvalidAccount);
-            guard!(verify_token_account(recipient, public_inputs.join_split.token_id)?, InvalidAccount);
+            if public_inputs.recipient.is_non_associated_token_account {
+                guard!(verify_token_account(recipient, public_inputs.join_split.token_id)?, InvalidAccount);
+            }
 
             if !cfg!(test) {
                 let clock = Clock::get()?;
@@ -233,7 +235,6 @@ pub fn init_verification_transfer_fee<'a>(
     let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
 
     guard!(request.fee_version() == governor.get_fee_version(), InvalidFeeVersion);
-
     let token_id = join_split.token_id;
     let price = TokenPrice::new(sol_usd_price_account, token_usd_price_account, token_id)?;
     let min_batching_rate = governor.get_commitment_batching_rate();
@@ -251,13 +252,26 @@ pub fn init_verification_transfer_fee<'a>(
     verify_pool(pool, pool_account, token_id)?;
     verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
 
-    // `fee_payer` transfers `commitment_hash_fee` to `pool` (lamports)
+    let mut associated_token_account_rent = Lamports(0);
+    let mut associated_token_account_rent_token = 0;
+
+    if let ProofRequest::Send(public_inputs) = request {
+        // If the sender wants to send to an associated token account, enough Lamports (and the correct amount of tokens) need to be reserved for renting it
+        // - because of this guard here, `init_verification` and `init_verification_transfer_fee` should be part of a single tx, otherwise the transfer could get stuck
+        if !public_inputs.recipient.is_non_associated_token_account {
+            associated_token_account_rent = spl_token_account_rent()?;
+            associated_token_account_rent_token = associated_token_account_rent.into_token(&price, token_id)?.amount();
+            guard!(public_inputs.join_split.amount >= associated_token_account_rent_token, InvalidPublicInputs);
+        }
+    }
+
+    // `fee_payer` transfers `commitment_hash_fee` (+ `associated_token_account_rent`)? to `pool` (lamports)
     transfer_token(
         fee_payer,
         fee_payer,
         pool,
         system_program,
-        commitment_hash_fee.into_token_strict(),
+        (commitment_hash_fee + associated_token_account_rent)?.into_token_strict(),
     )?;
 
     // `fee_collector` transfers `subvention` to `pool` (token)
@@ -284,6 +298,7 @@ pub fn init_verification_transfer_fee<'a>(
             commitment_hash_fee,
             commitment_hash_fee_token: commitment_hash_fee_token.amount(),
             proof_verification_fee: proof_verification_fee.amount(),
+            associated_token_account_rent: associated_token_account_rent_token,
         }
     );
 
@@ -458,19 +473,15 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn finalize_verification_transfer<'a>(
+pub fn finalize_verification_transfer_lamports<'a>(
     recipient: &AccountInfo<'a>, // can be any account for merge/migrate
     original_fee_payer: &AccountInfo<'a>,
-    original_fee_payer_account: &AccountInfo<'a>,
     pool: &AccountInfo<'a>,
-    pool_account: &AccountInfo<'a>,
     fee_collector: &AccountInfo<'a>,
-    fee_collector_account: &AccountInfo<'a>,
 
     commitment_hash_queue: &mut CommitmentQueueAccount,
     verification_account_info: &AccountInfo<'a>,
     nullifier_duplicate_account: &AccountInfo<'a>,
-    token_program: &AccountInfo<'a>,
 
     _verification_account_index: u32,
 ) -> ProgramResult {
@@ -479,15 +490,12 @@ pub fn finalize_verification_transfer<'a>(
     let request = verification_account.get_request();
     let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
 
+    guard!(join_split.token_id == 0, InvalidAccountState);
+
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
     nullifier_duplicate_account_pda_seed!(nullifier_hashes, join_split.nullifier_hashes);
     guard!(*nullifier_duplicate_account.key == Pubkey::find_program_address(&nullifier_hashes, &crate::id()).0, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
-    guard!(original_fee_payer_account.key.to_bytes() == data.fee_payer_account.skip_mr(), InvalidAccount);
-
-    let token_id = join_split.token_id;
-    verify_pool(pool, pool_account, token_id)?;
-    verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
 
     if let ElusivOption::Some(false) = verification_account.get_is_verified() {
         // `rent` and `commitment_hash_fee` flow to `fee_collector`
@@ -498,14 +506,11 @@ pub fn finalize_verification_transfer<'a>(
 
         verification_account.set_state(&VerificationState::Closed);
 
-        // `pool` transfers `subvention` to `fee_collector` (token)
-        transfer_token_from_pda::<PoolAccount>(
+        // `pool` transfers `subvention` to `fee_collector` (lamports)
+        transfer_lamports_from_pda_checked(
             pool,
-            pool_account,
-            fee_collector_account,
-            token_program,
-            Token::new(token_id, data.subvention),
-            None,
+            fee_collector,
+            Lamports(data.subvention)
         )?;
 
         // `pool` transfers `commitment_hash_fee` to `fee_collector` (lamports)
@@ -519,28 +524,190 @@ pub fn finalize_verification_transfer<'a>(
     }
 
     if let ProofRequest::Send(public_inputs) = &request {
-        guard!(recipient.key.to_bytes() == public_inputs.recipient.skip_mr(), InvalidAccount);
+        guard!(recipient.key.to_bytes() == public_inputs.recipient.address, InvalidAccount);
+
+        // `pool` transfers `amount` to `recipient` (lamports)
+        transfer_lamports_from_pda_checked(
+            pool,
+            recipient,
+            Lamports(public_inputs.join_split.amount)
+        )?;
+    }
+
+    // `pool` transfers `commitment_hash_fee_token (incl. subvention) + proof_verification_fee` to `fee_payer` (lamports)
+    transfer_lamports_from_pda_checked(
+        pool,
+        original_fee_payer,
+        (
+            Lamports(data.commitment_hash_fee_token) +
+            Lamports(data.proof_verification_fee)
+        )?
+    )?;
+
+    // `pool` transfers `network_fee` to `fee_collector` (lamports)
+    transfer_lamports_from_pda_checked(
+        pool,
+        fee_collector,
+        Lamports(data.network_fee)
+    )?;
+
+    // Close `verification_account` and `nullifier_duplicate_account`
+    close_verification_pdas(
+        original_fee_payer,
+        verification_account_info,
+        nullifier_duplicate_account,
+        data.skip_nullifier_pda,
+    )?;
+
+    let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
+    commitment_queue.enqueue(
+        CommitmentHashRequest {
+            commitment: join_split.commitment.reduce(),
+            fee_version: join_split.fee_version,
+            min_batching_rate: data.min_batching_rate,
+        }
+    )?;
+
+    verification_account.set_state(&VerificationState::Closed);
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn finalize_verification_transfer_token<'a>(
+    signer: &AccountInfo<'a>,
+    recipient: &AccountInfo<'a>, // can be any account for merge/migrate
+    recipient_wallet: &AccountInfo<'a>,
+    original_fee_payer: &AccountInfo<'a>,
+    original_fee_payer_account: &AccountInfo<'a>,
+    pool: &AccountInfo<'a>,
+    pool_account: &AccountInfo<'a>,
+    fee_collector: &AccountInfo<'a>,
+    fee_collector_account: &AccountInfo<'a>,
+
+    commitment_hash_queue: &mut CommitmentQueueAccount,
+    verification_account_info: &AccountInfo<'a>,
+    nullifier_duplicate_account: &AccountInfo<'a>,
+    token_program: &AccountInfo<'a>,
+    mint_account: &AccountInfo<'a>,
+
+    _verification_account_index: u32,
+) -> ProgramResult {
+    pda_account!(mut verification_account, VerificationAccount, verification_account_info);
+    let data = verification_account.get_other_data();
+    let request = verification_account.get_request();
+    let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
+
+    let token_id = join_split.token_id;
+    guard!(token_id > 0, InvalidAccountState);
+
+    guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
+    nullifier_duplicate_account_pda_seed!(nullifier_hashes, join_split.nullifier_hashes);
+    guard!(*nullifier_duplicate_account.key == Pubkey::find_program_address(&nullifier_hashes, &crate::id()).0, InvalidAccount);
+    guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
+    guard!(original_fee_payer_account.key.to_bytes() == data.fee_payer_account.skip_mr(), InvalidAccount);
+
+    verify_pool(pool, pool_account, token_id)?;
+    verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
+
+    if let ElusivOption::Some(false) = verification_account.get_is_verified() {
+        // rent flows to `fee_collector`
+        close_verification_pdas(
+            fee_collector,
+            verification_account_info,
+            nullifier_duplicate_account,
+            data.skip_nullifier_pda,
+        )?;
+
+        verification_account.set_state(&VerificationState::Closed);
+
+        // `pool` transfers `subvention` to `fee_collector` (token)
+        transfer_token_from_pda::<PoolAccount>(
+            pool,
+            pool_account,
+            fee_collector_account,
+            token_program,
+            Token::new(token_id, data.subvention),
+            None,
+        )?;
+
+        // `pool` transfers `commitment_hash_fee` and `associated_token_account_rent` to `fee_collector` (lamports)
+        transfer_lamports_from_pda_checked(
+            pool,
+            fee_collector,
+            (data.commitment_hash_fee + spl_token_account_rent()?)?,
+        )?;
+
+        return Ok(())
+    }
+
+    let mut associated_token_account_rent_token = None;
+    if let ProofRequest::Send(public_inputs) = &request {
+        let mut actual_recipient = recipient;
+
+        if public_inputs.recipient.is_non_associated_token_account {
+            guard!(recipient.key.to_bytes() == public_inputs.recipient.address, InvalidAccount);
+
+            // Invalid recipient token account -> funds flow to `fee_collector` instead
+            if !matches!(verify_token_account(recipient, token_id), Ok(true)) {
+                actual_recipient = fee_collector_account;
+            }
+        } else {
+            guard!(recipient_wallet.key.to_bytes() == public_inputs.recipient.address, InvalidAccount);
+
+            guard!(
+                verify_associated_token_account(recipient_wallet.key, recipient.key, token_id)?,
+                InvalidAccount
+            );
+
+            if recipient.lamports() == 0 {  // Check if associated token accounts exists
+                guard!(*mint_account.key == elusiv_token(token_id)?.mint, InvalidAccount);
+
+                // We use signer (since it's an available system account) to sign the creation of the associated token account (refunded at the end)
+                create_associated_token_account(
+                    signer,
+                    recipient_wallet,
+                    recipient,
+                    mint_account,
+                    token_id,
+                )?;
+
+                // `pool` transfers `associated_token_account_rent` to `fee_payer` (token)
+                associated_token_account_rent_token = Some(data.associated_token_account_rent);
+            } else {
+                associated_token_account_rent_token = Some(0) ;
+            }
+        }
 
         // `pool` transfers `amount` to `recipient` (token)
         transfer_token_from_pda::<PoolAccount>(
             pool,
             pool_account,
-            recipient,
+            actual_recipient,
             token_program,
-            Token::new(token_id, public_inputs.join_split.amount),
+            Token::new(
+                token_id,
+                public_inputs.join_split.amount - associated_token_account_rent_token.unwrap_or(0)
+            ),
             None,
         )?;
     }
 
-    // `pool` transfers `commitment_hash_fee_token (incl. subvention) + proof_verification_fee` to `fee_payer` (token)
+    // `pool` transfers `commitment_hash_fee_token (incl. subvention) + proof_verification_fee + associated_token_account_rent_token?` to `fee_payer` (token)
     transfer_token_from_pda::<PoolAccount>(
         pool,
         pool_account,
         original_fee_payer_account,
         token_program,
         (
-            Token::new(token_id, data.commitment_hash_fee_token) +
-            Token::new(token_id, data.proof_verification_fee)
+            (
+                Token::new(token_id, data.commitment_hash_fee_token) +
+                Token::new(token_id, data.proof_verification_fee)
+            )? +
+            Token::new(
+                token_id,
+                associated_token_account_rent_token.unwrap_or(0)
+            )
         )?,
         None,
     )?;
@@ -556,9 +723,20 @@ pub fn finalize_verification_transfer<'a>(
     )?;
 
     // Close `verification_account` and `nullifier_duplicate_account`
-    close_account(original_fee_payer, verification_account_info)?;
-    if !data.skip_nullifier_pda {
-        close_account(original_fee_payer, nullifier_duplicate_account)?;
+    close_verification_pdas(
+        original_fee_payer,
+        verification_account_info,
+        nullifier_duplicate_account,
+        data.skip_nullifier_pda,
+    )?;
+
+    if let Some(associated_token_account_rent_token) = associated_token_account_rent_token {
+        let rented = associated_token_account_rent_token != 0;
+        transfer_lamports_from_pda_checked(
+            pool,
+            if rented { signer } else { original_fee_payer },
+            spl_token_account_rent()?,
+        )?;
     }
 
     let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
@@ -571,6 +749,20 @@ pub fn finalize_verification_transfer<'a>(
     )?;
 
     verification_account.set_state(&VerificationState::Closed);
+
+    Ok(())
+}
+
+fn close_verification_pdas<'a>(
+    beneficiary: &AccountInfo<'a>,
+    verification_account: &AccountInfo<'a>,
+    nullifier_duplicate_account: &AccountInfo<'a>,
+    skipped_nullifier_pda: bool,
+) -> ProgramResult {
+    close_account(beneficiary, verification_account)?;
+    if !skipped_nullifier_pda {
+        close_account(beneficiary, nullifier_duplicate_account)?;
+    }
 
     Ok(())
 }
@@ -691,7 +883,7 @@ mod tests {
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::{two_pow, zero_account, account, test_account_info, storage_account, nullifier_account, pyth_price_account_info, token_pda_account};
     use crate::token::{Lamports, USDC_TOKEN_ID, LAMPORTS_TOKEN_ID, spl_token_account_data, USDT_TOKEN_ID};
-    use crate::types::{RawU256, Proof, compute_fee_rec, compute_fee_rec_lamports, JOIN_SPLIT_MAX_N_ARITY};
+    use crate::types::{RawU256, Proof, compute_fee_rec, compute_fee_rec_lamports, JOIN_SPLIT_MAX_N_ARITY, RecipientAccount};
 
     fn fee() -> ProgramFee {
         ProgramFee {
@@ -727,7 +919,7 @@ mod tests {
                 fee: 0,
                 token_id: 0,
             },
-            recipient: RawU256::new(recipient.key.to_bytes()),
+            recipient: RecipientAccount::new(recipient.key.to_bytes(), true),
             current_time: 0,
             identifier: RawU256::new(u256_from_str_skip_mr("1")),
             salt: RawU256::new(u256_from_str_skip_mr("1")),
@@ -841,7 +1033,7 @@ mod tests {
                 fee: 0,
                 token_id: 0,
             },
-            recipient: RawU256::new([0; 32]),
+            recipient: RecipientAccount::new([0; 32], true),
             current_time: 0,
             identifier: RawU256::new(u256_from_str_skip_mr("1")),
             salt: RawU256::new(u256_from_str_skip_mr("1")),
@@ -927,7 +1119,7 @@ mod tests {
         account!(wrong_token_acc, Pubkey::new_unique(), spl_token_account_data(USDT_TOKEN_ID), spl_token::id());
 
         token_pda_account!(pool, pool_token, PoolAccount, USDC_TOKEN_ID);
-        token_pda_account!(fee_c, fee_c_token, PoolAccount, USDC_TOKEN_ID);
+        token_pda_account!(fee_c, fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
 
         let sol_usd = Price { price: 39, conf: 1, expo: 0 };
         let usdc_usd = Price { price: 1, conf: 1, expo: 0 };
@@ -946,7 +1138,7 @@ mod tests {
                 fee: 0,
                 token_id: USDC_TOKEN_ID,
             },
-            recipient: RawU256::new([0; 32]),
+            recipient: RecipientAccount::new([0; 32], true),
             current_time: 0,
             identifier: RawU256::new(u256_from_str_skip_mr("1")),
             salt: RawU256::new(u256_from_str_skip_mr("1")),
@@ -1143,7 +1335,7 @@ mod tests {
                     fee: 10000,
                     token_id: $token_id,
                 },
-                recipient: RawU256::new(u256_from_str_skip_mr("123")),
+                recipient: RecipientAccount::new(u256_from_str_skip_mr("123"), true),
                 current_time: 112233,
                 identifier: RawU256::new(u256_from_str_skip_mr("12345")),
                 salt: RawU256::new(u256_from_str_skip_mr("6789")),
@@ -1345,13 +1537,12 @@ mod tests {
     #[test]
     fn test_finalize_verification_transfer_lamports() -> ProgramResult {
         finalize_send_test!(LAMPORTS_TOKEN_ID, public_inputs, verification_acc_data, nullifier_duplicate_pda, _finalize_data);
-        account!(recipient, Pubkey::new(&public_inputs.recipient.skip_mr()), vec![]);
+        account!(recipient, public_inputs.recipient.pubkey(), vec![]);
         let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
         account!(f, fee_payer, vec![]);  // fee_payer
         test_account_info!(pool, 0);
         test_account_info!(fee_c, 0);
         test_account_info!(any, 0);
-        account!(spl, spl_token::id(), vec![]);
         account!(n_pda, nullifier_duplicate_pda, vec![]);
         account!(v_acc, Pubkey::new_unique(), verification_acc_data);
         let mut data = vec![0; CommitmentQueueAccount::SIZE];
@@ -1365,7 +1556,7 @@ mod tests {
 
         // Invalid state
         assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f, &pool, &pool, &fee_c, &fee_c, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_lamports(&recipient, &f, &pool, &fee_c, &mut queue, &v_acc, &n_pda, 0),
             Err(_)
         );
 
@@ -1374,34 +1565,22 @@ mod tests {
             v_acc.set_state(&VerificationState::Finalized);
         }
 
-        // Invalid pool_account
-        assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f, &pool, &any, &fee_c, &fee_c, &mut queue, &v_acc, &n_pda, &spl, 0),
-            Err(_)
-        );
-
-        // Invalid fee_collector_account
-        assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f, &pool, &pool, &fee_c, &any, &mut queue, &v_acc, &n_pda, &spl, 0),
-            Err(_)
-        );
-
         // Invalid nullifier_duplicate_account
         account!(invalid_n_pda, VerificationAccount::find(Some(0)).0, vec![1]);
         assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f, &pool, &pool, &fee_c, &fee_c, &mut queue, &v_acc, &invalid_n_pda, &spl, 0),
+            finalize_verification_transfer_lamports(&recipient, &f, &pool, &fee_c, &mut queue, &v_acc, &invalid_n_pda, 0),
             Err(_)
         );
 
         // Invalid original_fee_payer
         assert_matches!(
-            finalize_verification_transfer(&recipient, &any, &f, &pool, &pool, &fee_c, &fee_c, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_lamports(&recipient, &any, &pool, &fee_c, &mut queue, &v_acc, &n_pda, 0),
             Err(_)
         );
 
         // Invalid recipient
         assert_matches!(
-            finalize_verification_transfer(&any, &f, &f, &pool, &pool, &fee_c, &fee_c, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_lamports(&any, &f, &pool, &fee_c, &mut queue, &v_acc, &n_pda, 0),
             Err(_)
         );
 
@@ -1413,7 +1592,7 @@ mod tests {
             }
         }
         assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f, &pool, &pool, &fee_c, &fee_c, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_lamports(&recipient, &f, &pool, &fee_c, &mut queue, &v_acc, &n_pda, 0),
             Err(_)
         );
 
@@ -1421,7 +1600,7 @@ mod tests {
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
 
         assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f, &pool, &pool, &fee_c, &fee_c, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_lamports(&recipient, &f, &pool, &fee_c, &mut queue, &v_acc, &n_pda, 0),
             Ok(())
         );
 
@@ -1436,12 +1615,12 @@ mod tests {
     #[test]
     fn test_finalize_verification_transfer_token() -> ProgramResult {
         finalize_send_test!(USDC_TOKEN_ID, public_inputs, verification_acc_data, nullifier_duplicate_pda, _finalize_data);
-        account!(recipient, Pubkey::new(&public_inputs.recipient.skip_mr()), vec![], spl_token::id());
+        account!(r, &public_inputs.recipient.pubkey(), vec![], spl_token::id());
         let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
         account!(f, fee_payer, vec![]);  // fee_payer
         account!(f_token, fee_payer, vec![], spl_token::id());  // fee_payer
         token_pda_account!(pool, pool_token, PoolAccount, USDC_TOKEN_ID);
-        token_pda_account!(fee_c, fee_c_token, PoolAccount, USDC_TOKEN_ID);
+        token_pda_account!(fee_c, fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
         test_account_info!(any, 0);
         account!(spl, spl_token::id(), vec![]);
         account!(n_pda, nullifier_duplicate_pda, vec![]);
@@ -1457,36 +1636,36 @@ mod tests {
 
         // Invalid pool_account
         assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f_token, &pool, &fee_c_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_token(&r, &r, &r, &f, &f_token, &pool, &fee_c_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &spl, &any, 0),
             Err(_)
         );
 
         // Invalid fee_collector_account
         assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f_token, &pool, &pool_token, &fee_c, &pool_token, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_token(&r, &r, &r, &f, &f_token, &pool, &pool_token, &fee_c, &pool_token, &mut queue, &v_acc, &n_pda, &spl, &any, 0),
             Err(_)
         );
 
         // Invalid token_program
         assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &any, 0),
+            finalize_verification_transfer_token(&r, &r, &r, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &any, &any, 0),
             Err(_)
         );
 
         // Invalid original_fee_payer
         assert_matches!(
-            finalize_verification_transfer(&recipient, &any, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_token(&r, &r, &r, &any, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &spl, &any, 0),
             Err(_)
         );
 
         // Invalid recipient
         assert_matches!(
-            finalize_verification_transfer(&any, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_token(&r, &any, &r, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &spl, &any, 0),
             Err(_)
         );
 
         assert_matches!(
-            finalize_verification_transfer(&recipient, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &spl, 0),
+            finalize_verification_transfer_token(&r, &r, &r, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &spl, &any, 0),
             Ok(())
         );
 

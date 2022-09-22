@@ -101,19 +101,18 @@ pub fn enable_token_account<'a>(
     pda_account: &AccountInfo<'a>,
     token_account: &AccountInfo<'a>,
     mint_account: &AccountInfo<'a>,
-    rent_sysvar: &AccountInfo<'a>,
 
     kind: TokenAuthorityAccountKind,
     token_id: u16,
 ) -> ProgramResult {
     match kind {
         TokenAuthorityAccountKind::Pool => {
-            create_token_account::<PoolAccount>(payer, pda_account, token_account, mint_account, rent_sysvar, token_id)?;
+            create_token_account::<PoolAccount>(payer, pda_account, token_account, mint_account, token_id)?;
             pda_account!(mut account, PoolAccount, pda_account);
             account.try_set_token_account(token_id, token_account.key)?;
         }
         TokenAuthorityAccountKind::FeeCollector => {
-            create_token_account::<FeeCollectorAccount>(payer, pda_account, token_account, mint_account, rent_sysvar, token_id)?;
+            create_token_account::<FeeCollectorAccount>(payer, pda_account, token_account, mint_account, token_id)?;
             pda_account!(mut account, FeeCollectorAccount, pda_account);
             account.try_set_token_account(token_id, token_account.key)?;
         }
@@ -127,7 +126,6 @@ fn create_token_account<'a, T: TokenAuthorityAccount + ProgramAccount<'a, T = T>
     pda_account: &AccountInfo<'a>,
     token_account: &AccountInfo<'a>,
     mint_account: &AccountInfo<'a>,
-    rent_sysvar: &AccountInfo<'a>,
 
     token_id: u16,
 ) -> ProgramResult {
@@ -138,7 +136,6 @@ fn create_token_account<'a, T: TokenAuthorityAccount + ProgramAccount<'a, T = T>
         pda_account,
         token_account,
         mint_account,
-        rent_sysvar,
         token_id,
     )?;
 
@@ -573,17 +570,17 @@ mod tests {
         account!(acc, Pubkey::new_unique(), vec![]);
 
         assert_matches!(
-            enable_token_account(&acc, &pool, &token_account, &acc, &acc, TokenAuthorityAccountKind::Pool, 0),
+            enable_token_account(&acc, &pool, &token_account, &acc, TokenAuthorityAccountKind::Pool, 0),
             Err(_)
         );
 
         assert_matches!(
-            enable_token_account(&acc, &pool, &token_account, &acc, &acc, TokenAuthorityAccountKind::FeeCollector, 1),
+            enable_token_account(&acc, &pool, &token_account, &acc, TokenAuthorityAccountKind::FeeCollector, 1),
             Err(_)
         );
 
         assert_matches!(
-            enable_token_account(&acc, &pool, &token_account, &acc, &acc, TokenAuthorityAccountKind::Pool, 1),
+            enable_token_account(&acc, &pool, &token_account, &acc, TokenAuthorityAccountKind::Pool, 1),
             Ok(())
         );
         
@@ -604,17 +601,17 @@ mod tests {
         account!(acc, Pubkey::new_unique(), vec![]);
 
         assert_matches!(
-            create_token_account::<PoolAccount>(&acc, &fee_collector, &acc, &acc, &acc, 1),
+            create_token_account::<PoolAccount>(&acc, &fee_collector, &acc, &acc, 1),
             Err(_)
         );
 
         assert_matches!(
-            create_token_account::<PoolAccount>(&acc, &pool, &acc, &acc, &acc, SPL_TOKEN_COUNT as u16 + 1),
+            create_token_account::<PoolAccount>(&acc, &pool, &acc, &acc, SPL_TOKEN_COUNT as u16 + 1),
             Err(_)
         );
 
         assert_matches!(
-            create_token_account::<PoolAccount>(&acc, &pool, &acc, &acc, &acc, 1),
+            create_token_account::<PoolAccount>(&acc, &pool, &acc, &acc, 1),
             Ok(())
         );
     }

@@ -1,3 +1,4 @@
+use solana_program::program::invoke;
 use solana_program::program_pack::Pack;
 use solana_program::pubkey::Pubkey;
 use solana_program::{
@@ -23,7 +24,7 @@ use crate::state::program_account::{
     PDAAccount,
     SizedAccount, ProgramAccount, PDAOffset,
 };
-use crate::token::{Token, Lamports, TokenAuthorityAccount, TOKENS, SPLToken, SPL_TOKEN_COUNT};
+use crate::token::{Token, Lamports, TokenAuthorityAccount, TOKENS, SPLToken, SPL_TOKEN_COUNT, elusiv_token};
 use super::MATH_ERR;
 
 pub fn transfer_token<'a>(
@@ -246,7 +247,6 @@ pub fn create_token_account_for_pda_authority<'a, T: PDAAccount>(
     pda_account: &AccountInfo<'a>,
     token_account: &AccountInfo<'a>,
     mint_account: &AccountInfo<'a>,
-    rent_sysvar: &AccountInfo<'a>,
     token_id: u16,
 ) -> ProgramResult {
     create_token_account(
@@ -254,7 +254,6 @@ pub fn create_token_account_for_pda_authority<'a, T: PDAAccount>(
         pda_account,
         token_account,
         mint_account,
-        rent_sysvar,
         token_id,
     )
 }
@@ -264,7 +263,6 @@ pub fn create_token_account<'a>(
     authority: &AccountInfo<'a>,
     token_account: &AccountInfo<'a>,
     mint_account: &AccountInfo<'a>,
-    rent_sysvar: &AccountInfo<'a>,
     token_id: u16,
 ) -> ProgramResult {
     guard!(token_id > 0 && token_id as usize <= SPL_TOKEN_COUNT, InvalidInstructionData);
@@ -275,7 +273,7 @@ pub fn create_token_account<'a>(
     }
 
     let space = spl_token::state::Account::LEN;
-    let lamports_required = Rent::get()?.minimum_balance(space);
+    let lamports_required = spl_token_account_rent()?.0;
     guard!(payer.lamports() >= lamports_required, InsufficientFunds);
 
     invoke_signed(
@@ -295,9 +293,8 @@ pub fn create_token_account<'a>(
 
     let token = TOKENS[token_id as usize];
 
-    // in testing InitializeAccount3 not working, so we require Rent sysvar with InitializeAccount
     invoke_signed(
-        &spl_token::instruction::initialize_account(
+        &spl_token::instruction::initialize_account3(
             &spl_token::id(),
             token_account.key,
             &token.mint,
@@ -307,9 +304,32 @@ pub fn create_token_account<'a>(
             token_account.clone(),
             mint_account.clone(),
             authority.clone(),
-            rent_sysvar.clone(),
         ],
         &[],
+    )
+}
+
+pub fn create_associated_token_account<'a>(
+    payer: &AccountInfo<'a>,
+    wallet_account: &AccountInfo<'a>,
+    associated_token_account: &AccountInfo<'a>,
+    mint_account: &AccountInfo<'a>,
+
+    token_id: u16,
+) -> Result<(), ProgramError> {
+    invoke(
+        &spl_associated_token_account::instruction::create_associated_token_account(
+            payer.key,
+            wallet_account.key,
+            &elusiv_token(token_id)?.mint,
+            &spl_token::ID,
+        ),
+        &[
+            payer.clone(),
+            associated_token_account.clone(),
+            wallet_account.clone(),
+            mint_account.clone(),
+        ],
     )
 }
 
@@ -378,6 +398,10 @@ macro_rules! verify_token_account {
 
 verify_token_account!(verify_pool, PoolAccount);
 verify_token_account!(verify_fee_collector, FeeCollectorAccount);
+
+pub fn spl_token_account_rent() -> Result<Lamports, ProgramError> {
+    Ok(Lamports(Rent::get()?.minimum_balance(spl_token::state::Account::LEN)))
+}
 
 #[cfg(test)]
 mod tests {

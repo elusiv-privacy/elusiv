@@ -280,10 +280,33 @@ pub trait PublicInputs {
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
-/// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_deca.circom
+/// An account that receives funds
+pub struct RecipientAccount {
+    pub address: U256,
+
+    /// Indicates whether `address` is the address of a SPL-token-account or a wallet-account (with the corresponding associated token account managing the SPL-token-funds)
+    pub is_non_associated_token_account: bool,
+}
+
+impl RecipientAccount {
+    pub fn new(address: U256, is_spl_account: bool) -> Self {
+        Self {
+            address,
+            is_non_associated_token_account: is_spl_account,
+        }
+    }
+
+    pub fn pubkey(&self) -> Pubkey {
+        Pubkey::new_from_array(self.address)
+    }
+}
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
+/// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
+/// - IMPORTANT: depending on recipient.is_non_associated_token_account, a higher amount is required (that also includes the rent)
 pub struct SendPublicInputs {
     pub join_split: JoinSplitPublicInputs,
-    pub recipient: RawU256,
+    pub recipient: RecipientAccount,
     pub current_time: u64,
     pub identifier: RawU256,
     pub salt: RawU256, // only 128 bit
@@ -304,7 +327,7 @@ impl PublicInputs for SendPublicInputs {
     
     fn verify_additional_constraints(&self) -> bool {
         // Maximum `commitment_count` is 4
-        // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_deca.circom
+        // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
         if self.join_split.commitment_count > JOIN_SPLIT_MAX_N_ARITY { return false }
 
         // Minimum `commitment_count` is 1
@@ -319,7 +342,7 @@ impl PublicInputs for SendPublicInputs {
 
     fn join_split_inputs(&self) -> &JoinSplitPublicInputs { &self.join_split }
 
-    // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_deca.circom
+    // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
     // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/send.circom
     fn public_signals(&self) -> Vec<RawU256> {
         let mut public_signals = Vec::new();
@@ -344,7 +367,9 @@ impl PublicInputs for SendPublicInputs {
         }
 
         // recipient[2]
-        let recipient = split_u256_into_limbs(self.recipient.0);
+        let recipient = split_u256_into_limbs(self.recipient.address);
+        let mut upper_recipient_limb = recipient[1];
+        upper_recipient_limb[16] = self.recipient.is_non_associated_token_account as u8;
 
         public_signals.extend(vec![
             RawU256(recipient[0]),
@@ -575,7 +600,7 @@ mod test {
                 fee: 0,
                 token_id: 0,
             },
-            recipient: RawU256([0; 32]),
+            recipient: RecipientAccount::new([0; 32], true),
             current_time: 0,
             identifier: RawU256([0; 32]),
             salt: RawU256([0; 32]),
@@ -614,7 +639,7 @@ mod test {
                 fee: 1,
                 token_id: 3,
             },
-            recipient: RawU256(u256_from_str_skip_mr("212334656798193948954971085461110323640890639608634923090101683")),
+            recipient: RecipientAccount::new(u256_from_str_skip_mr("212334656798193948954971085461110323640890639608634923090101683"), true),
             current_time: 1657927306,
             identifier: RawU256(u256_from_str_skip_mr("1")),
             salt: RawU256(u256_from_str_skip_mr("2")),

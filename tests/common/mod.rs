@@ -6,12 +6,11 @@ use std::{collections::HashMap, str::FromStr};
 use pyth_sdk_solana::Price;
 use solana_program::{
     pubkey::Pubkey,
-    instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL, program_option::COption, account_info::{AccountInfo, Account}, rent::Rent,
-    sysvar::SysvarId,
+    instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL, program_option::COption, account_info::{AccountInfo, Account},
 };
 use solana_program_test::*;
 use solana_program::program_pack::Pack;
-use solana_sdk::{signature::{Keypair}, transaction::Transaction, signer::Signer, account::AccountSharedData, compute_budget::ComputeBudgetInstruction, transport::TransportError};
+use solana_sdk::{signature::Keypair, transaction::Transaction, signer::Signer, account::AccountSharedData, compute_budget::ComputeBudgetInstruction};
 use assert_matches::assert_matches;
 use elusiv::{token::{TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token}, process_instruction, instruction::{open_all_initial_accounts, ElusivInstruction, WritableSignerAccount, WritableUserAccount, UserAccount}, state::{fee::{ProgramFee, BasisPointFee}, program_account::{SizedAccount, PDAAccount, MultiAccountAccount, MultiAccountProgramAccount, MultiAccountAccountData}, StorageAccount, NullifierAccount, governor::{PoolAccount, FeeCollectorAccount}}, proof::{CombinedMillerLoop, FinalExponentiation, precompute::PrecomputesAccount}, processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, TokenAuthorityAccountKind}};
 
@@ -31,6 +30,38 @@ impl ElusivProgramTest {
             context,
             spl_tokens: Vec::new(),
         }
+    }
+
+    pub async fn fork(&mut self, accounts: &[Pubkey]) -> Self {
+        let mut n = Self::start().await;
+
+        for account in accounts {
+            if let Some(a) = self.context.banks_client.get_account(*account).await.unwrap() {
+                n.context.set_account(account, &a.into());
+            }
+        }
+
+        for token_id in &self.spl_tokens {
+            n.create_spl_token(*token_id, false).await;
+        }
+
+        n
+    }
+
+    pub async fn fork_for_instructions(&mut self, ixs: &[Instruction]) -> Self {
+        let accounts = ixs.iter()
+            .map(|ix| {
+                ix.accounts.iter()
+                    .map(|a| a.pubkey)
+                    .collect::<Vec<Pubkey>>()
+            })
+            .fold(Vec::new(), |acc, x| {
+                let mut acc = acc;
+                acc.extend(x);
+                acc
+            });
+        
+            self.fork(&accounts).await
     }
 
     pub async fn new_actor(&mut self) -> Actor {
@@ -110,25 +141,22 @@ impl ElusivProgramTest {
         &mut self,
         instructions: &[Instruction],
         signing_keypairs: &[&Keypair],
-    ) -> Result<(), TransportError> {
+    ) -> Result<(), BanksClientError> {
         let mut signing_keypairs = signing_keypairs.to_vec();
         signing_keypairs.insert(0, &self.context.payer);
 
-        self.context.banks_client.process_transaction(
-            Transaction::new_signed_with_payer(
-                instructions,
-                Some(&self.context.payer.pubkey()),
-                &signing_keypairs,
-                self.context.last_blockhash,
-            )
-        ).await
+        let mut tx = Transaction::new_with_payer(instructions, Some(&self.context.payer.pubkey()));
+        tx.try_sign(&signing_keypairs, self.context.last_blockhash)
+            .or(Err(BanksClientError::ClientError("Signature failure")))?;
+
+        self.context.banks_client.process_transaction(tx).await
     }
 
     pub async fn process_transaction_nonced(
         &mut self,
         instructions: &[Instruction],
         signing_keypairs: &[&Keypair],
-    ) -> Result<(), TransportError> {
+    ) -> Result<(), BanksClientError> {
         let instructions: Vec<Instruction> = instructions.iter()
             .map(|ix| nonce_instruction(ix.clone()))
             .collect();
@@ -658,7 +686,7 @@ pub fn nonce_instruction(ix: Instruction) -> Instruction {
 
 // Fee for CUs: https://github.com/solana-labs/solana/blob/3d9874b95a4bda9bb99cb067f168811296d208cc/sdk/src/fee.rs
 pub fn request_compute_units(count: u32) -> Instruction {
-    ComputeBudgetInstruction::request_units(count, 0)
+    ComputeBudgetInstruction::set_compute_unit_limit(count)
 }
 
 pub fn request_max_compute_units() -> Instruction {
@@ -774,6 +802,5 @@ pub fn enable_token_account_ix<T: PDAAccount>(
         WritableUserAccount(T::find(None).0),
         WritableSignerAccount(token_account),
         UserAccount(elusiv_token(token_id).unwrap().mint),
-        UserAccount(Rent::id()),
     )
 }

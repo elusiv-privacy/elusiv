@@ -113,6 +113,9 @@ pub struct VerificationAccountData {
 
     /// In `token_id`-Token
     pub proof_verification_fee: u64,
+
+    /// In `token_id`-Token
+    pub associated_token_account_rent: u64,
 }
 
 impl<'a> VerificationAccount<'a> {

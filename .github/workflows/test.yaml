@@ -7,7 +7,7 @@ on:
     branches: [ master ]
 
 env:
-  solana_version: 1.9.28
+  solana_version: 1.10.39
 
 jobs:
   install:
