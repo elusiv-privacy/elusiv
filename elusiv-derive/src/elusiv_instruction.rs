@@ -96,45 +96,6 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         });
                     }
 
-                    // Program owned accounts that satisfy a pubkey constraint
-                    "prg" => {
-                        user_accounts.extend(quote!{ #account: #user_account_type, });
-                        account_init.push(quote!{
-                            accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
-                        });
-
-                        if !is_owned {
-                            accounts.extend(quote!{
-                                if #account.owner != program_id { return Err(InvalidArgument) }
-                            });
-                        }
-
-                        if as_account_info {
-                            let key: TokenStream = named_sub_attribute("key", sub_attrs[1]).parse().unwrap();
-
-                            accounts.extend(quote!{
-                                if #account.key.to_bytes() != #key { return Err(InvalidArgument) }
-                            });
-
-                            account = quote!{ &#account };
-                        } else {
-                            let ty: TokenStream = String::from(sub_attrs[1]).parse().unwrap();
-                            let key: TokenStream = named_sub_attribute("key", sub_attrs[2]).parse().unwrap();
-
-                            accounts.extend(quote!{
-                                if #account.key.to_bytes() != #key { return Err(InvalidArgument) }
-                                let acc_data = &mut #account.data.borrow_mut()[..];
-                                let #mut_token #account = <#ty>::new(acc_data)?;
-                            });
-
-                            if is_writable {
-                                account = quote!{ &mut #account };
-                            } else {
-                                account = quote!{ &#account };
-                            }
-                        }
-                    }
-
                     // System program `AccountInfo` (usage: <name> <key = ..>)
                     "sys" => {
                         // Check that system program pubkey is correct (for this we have a field `key` that the pubkey gets compared to)

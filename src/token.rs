@@ -7,6 +7,7 @@ use solana_program::{
     program_error::ProgramError,
     program_pack::Pack, pubkey::Pubkey,
 };
+use spl_associated_token_account::get_associated_token_address;
 use crate::{
     types::U256,
     bytes::BorshSerDeSized,
@@ -158,7 +159,7 @@ impl Sub for Token {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug, Default)]
 pub struct Lamports(pub u64);
 
 impl Lamports {
@@ -249,6 +250,23 @@ pub fn verify_token_account(
         let account = spl_token::state::Account::unpack(data)?;
 
         Ok(account.mint == elusiv_token(token_id)?.mint)
+    }
+}
+
+pub fn verify_associated_token_account(
+    wallet_address: &Pubkey,
+    token_account_address: &Pubkey,
+    token_id: u16,
+) -> Result<bool, ProgramError> {
+    if token_id == 0 {
+        Ok(*wallet_address == *token_account_address)
+    } else {
+        let expected = get_associated_token_address(
+            wallet_address,
+            &elusiv_token(token_id)?.mint,
+        );
+
+        Ok(*token_account_address == expected)
     }
 }
 
@@ -392,7 +410,7 @@ pub fn pyth_price_account_data(price: &Price) -> Result<Vec<u8>, TokenError> {
     Ok(bytes_of(&account).to_vec())
 }
 
-#[cfg(test)]
+#[cfg(feature = "test-elusiv")]
 pub fn spl_token_account_data(token_id: u16) -> Vec<u8> {
     let account = spl_token::state::Account {
         mint: elusiv_token(token_id).unwrap().mint,

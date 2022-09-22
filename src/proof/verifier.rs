@@ -877,7 +877,7 @@ mod tests {
     use crate::proof::vkey::{TestVKey, SendQuadraVKey};
     use crate::state::empty_root_raw;
     use crate::state::program_account::ProgramAccount;
-    use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs};
+    use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs, RecipientAccount};
 
     macro_rules! storage {
         ($id: ident) => {
@@ -1280,7 +1280,7 @@ mod tests {
                 fee: 0,
                 token_id: 0,
             },
-            recipient: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
+            recipient: RecipientAccount::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591"), true),
             current_time: 0,
             identifier: RawU256::new(u256_from_str_skip_mr("139214303935475888711984321184227760578793579443975701453971046059378311483")),
             salt: RawU256::new(u256_from_str_skip_mr("230508240750559904196809564625")),

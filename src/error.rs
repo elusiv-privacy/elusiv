@@ -42,6 +42,7 @@ pub enum ElusivError {
     // Partial computations
     PartialComputationError,
     AccountCannotBeReset,
+    ComputationIsNotYetStarted,
     ComputationIsNotYetFinished,
     ComputationIsAlreadyFinished,
 

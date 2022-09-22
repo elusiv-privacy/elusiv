@@ -113,6 +113,7 @@ pub enum ElusivInstruction {
         verification_account_index: u32,
         tree_indices: [u32; MAX_MT_COUNT],
         request: ProofRequest,
+        skip_nullifier_pda: bool,
     },
 
     #[acc(fee_payer, { writable, signer })]
@@ -165,24 +166,40 @@ pub enum ElusivInstruction {
 
     #[acc(recipient, { writable })]
     #[acc(original_fee_payer, { writable })]
+    #[pda(pool, PoolAccount, { account_info, writable })]
+    #[pda(fee_collector, FeeCollectorAccount, { account_info, writable })]
+    #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
+    #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable, account_info })]
+    #[acc(nullifier_duplicate_account, { writable, owned })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    FinalizeVerificationTransferLamports {
+        verification_account_index: u32,
+    },
+
+    #[acc(signer, { writable, signer })]
+    #[acc(recipient, { writable })]
+    #[acc(recipient_wallet)]
+    #[acc(original_fee_payer, { writable })]
     #[acc(original_fee_payer_account, { writable })]
-    #[pda(pool, PoolAccount, { account_info })]
+    #[pda(pool, PoolAccount, { account_info, writable })]
     #[acc(pool_account, { writable })]
-    #[pda(fee_collector, FeeCollectorAccount, { account_info })]
+    #[pda(fee_collector, FeeCollectorAccount, { account_info, writable })]
     #[acc(fee_collector_account, { writable })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable, account_info })]
     #[acc(nullifier_duplicate_account, { writable, owned })]
-    #[acc(token_program)]   // if `token_id = 0` { `system_program` } else { `token_program` }
+    #[sys(a_token_program, key = spl_associated_token_account::ID, { ignore })]
+    #[sys(token_program, key = spl_token::ID)]
     #[sys(system_program, key = system_program::ID, { ignore })]
-    FinalizeVerificationTransfer {
+    #[acc(mint_account)]
+    FinalizeVerificationTransferToken {
         verification_account_index: u32,
     },
 
     // Set the next MT as the active MT
     #[pda(storage_account, StorageAccount, { writable, multi_accounts })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
-    #[pda(active_nullifier_account, NullifierAccount, pda_offset = Some(active_mt_index), { writable, multi_accounts })]
+    #[pda(active_nullifier_account, NullifierAccount, pda_offset = Some(active_mt_index), { writable, multi_accounts, ignore_sub_accounts })]
     ResetActiveMerkleTree {
         active_mt_index: u32,
     },
@@ -218,7 +235,6 @@ pub enum ElusivInstruction {
     #[acc(pda_account, { writable })]
     #[acc(token_account, { writable, signer })]
     #[acc(mint_account)]
-    #[acc(rent_sysvar, key = Rent::id())]
     #[sys(system_program, key = system_program::ID, { ignore })]
     #[sys(token_program, key = spl_token::ID, { ignore })]
     EnableTokenAccount {
@@ -352,6 +368,28 @@ impl ElusivInstruction {
             WritableUserAccount(FeeCollectorAccount::find(None).0),
             UserAccount(spl_token::id()),
             UserAccount(spl_token::id()),
+            UserAccount(spl_token::id()),
+        )
+    }
+
+    pub fn init_verification_transfer_fee_token_instruction(
+        verification_account_index: u32,
+        token_id: u16,
+        warden: Pubkey,
+        warden_account: Pubkey,
+        pool_account: Pubkey,
+        fee_collector_account: Pubkey,
+    ) -> solana_program::instruction::Instruction {
+        use crate::token::elusiv_token;
+
+        ElusivInstruction::init_verification_transfer_fee_instruction(
+            verification_account_index,
+            WritableSignerAccount(warden),
+            WritableUserAccount(warden_account),
+            WritableUserAccount(pool_account),
+            WritableUserAccount(fee_collector_account),
+            UserAccount(elusiv_token(0).unwrap().pyth_usd_price_key),
+            UserAccount(elusiv_token(token_id).unwrap().pyth_usd_price_key),
             UserAccount(spl_token::id()),
         )
     }

@@ -19,9 +19,6 @@ pub const fn mt_size(height: u32) -> usize {
 /// Count of all commitments (leaves) in the MT
 pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
 
-/// Index of the first commitment in the MT
-pub const MT_COMMITMENT_START: usize = two_pow!(MT_HEIGHT) - 1;
-
 /// Since before submitting a proof request the current root can change, we store the previous ones
 pub const HISTORY_ARRAY_COUNT: usize = 100;
 
@@ -94,7 +91,6 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 
     pub fn set_node(&mut self, value: &U256, index: usize, level: usize) {
         assert!(level <= MT_HEIGHT as usize);
-        assert!(index < two_pow!(usize_as_u32_safe(level)));
 
         let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
         self.try_execute_on_sub_account(account_index, |data| {
@@ -132,6 +128,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
 }
 
 pub fn mt_array_index(index: usize, level: usize) -> usize {
+    assert!(index < two_pow!(usize_as_u32_safe(level)));
     two_pow!(usize_as_u32_safe(level)) - 1 + index
 }
 

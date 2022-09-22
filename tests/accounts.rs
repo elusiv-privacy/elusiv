@@ -8,9 +8,9 @@ use borsh::BorshSerialize;
 use common::*;
 use elusiv::proof::precompute::{precompute_account_size2, VKEY_COUNT, PrecomputesAccount, VirtualPrecomputes, PrecomutedValues};
 use elusiv::proof::vkey::{SendQuadraVKey, VerificationKey};
-use elusiv::state::program_account::{MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE, PDAOffset};
+use elusiv::state::program_account::{MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE, PDAOffset, SubAccount};
 use elusiv::state::queue::RingQueue;
-use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT, EMPTY_TREE};
+use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT};
 use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
 use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, CommitmentHashRequest, TokenAuthorityAccountKind};
@@ -25,7 +25,6 @@ use elusiv::state::{
     fee::FeeAccount,
     NullifierAccount,
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
-    MT_HEIGHT,
 };
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
@@ -250,7 +249,7 @@ async fn test_open_new_merkle_tree_duplicate() {
 }
 
 #[tokio::test]
-async fn test_close_merkle_tree() {
+async fn test_reset_active_mt() {
     let mut test = ElusivProgramTest::start().await;
     test.setup_initial_pdas().await;
     test.setup_storage_account().await;
@@ -258,9 +257,13 @@ async fn test_close_merkle_tree() {
     test.create_merkle_tree(0).await;
     test.create_merkle_tree(1).await;
 
+    let storage_accounts = test.storage_accounts().await;
+    let root_storage_account = storage_accounts[0];
+    let storage_accounts = writable_user_accounts(&storage_accounts);
+
     // Failure since active MT is not full
     test.ix_should_fail_simple(
-        ElusivInstruction::reset_active_merkle_tree_instruction(0, &[], &[])
+        ElusivInstruction::reset_active_merkle_tree_instruction(0, &storage_accounts)
     ).await;
 
     // Set active MT as full
@@ -268,6 +271,12 @@ async fn test_close_merkle_tree() {
         let mut storage_account = StorageAccount::new(data, HashMap::new()).unwrap();
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
     }).await;
+
+    // Override the root
+    let root = [1; 32];
+    let mut data = test.data(&root_storage_account).await;
+    SubAccount::new(&mut data).data[..32].copy_from_slice(&root[..32]);
+    test.set_program_account_rent_exempt(&root_storage_account, &data).await;
 
     // Failure since active_nullifier_account is invalid
     test.ix_should_fail_simple(
@@ -289,6 +298,7 @@ async fn test_close_merkle_tree() {
             &ElusivInstruction::ResetActiveMerkleTree { active_mt_index: 0 }.try_to_vec().unwrap()[..],
             vec![
                 AccountMeta::new(StorageAccount::find(None).0, false),
+                AccountMeta::new(root_storage_account, false),
                 AccountMeta::new(CommitmentQueueAccount::find(None).0, false),
                 AccountMeta::new(NullifierAccount::find(Some(0)).0, false),
             ]
@@ -296,7 +306,7 @@ async fn test_close_merkle_tree() {
     ).await;
 
     nullifier_account(Some(0), &mut test, |n: &NullifierAccount| {
-        assert_eq!(n.get_root(), EMPTY_TREE[MT_HEIGHT as usize]);
+        assert_eq!(n.get_root(), root);
     }).await;
 
     // Check active index
@@ -317,8 +327,13 @@ async fn test_close_merkle_tree() {
         queue.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();
     });
 
+    // Failure because first storage account (containing root) is missing
+    test.ix_should_fail_simple(
+        ElusivInstruction::reset_active_merkle_tree_instruction(1, &[])
+    ).await;
+
     test.ix_should_succeed_simple(
-        ElusivInstruction::reset_active_merkle_tree_instruction(1, &[], &[])
+        ElusivInstruction::reset_active_merkle_tree_instruction(1, &storage_accounts)
     ).await;
 }
 

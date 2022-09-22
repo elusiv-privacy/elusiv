@@ -31,8 +31,9 @@ elusiv-derive = { path = "./elusiv-derive" }
 elusiv-proc-macros = { path = "./elusiv-proc-macros" }
 elusiv-computation = { path = "./elusiv-computation" }
 
-solana-program = "=1.9.26"
-spl-token = { version = "=3.2.0", features = ["no-entrypoint"] }
+solana-program = "=1.10.39"
+spl-token = { version = "3.5.0", features = ["no-entrypoint"] }
+spl-associated-token-account = { version = "1.1.1", features = ["no-entrypoint"] }
 pyth-sdk-solana = "=0.4.2"
 
 static_assertions = "1.1.0"
@@ -47,14 +48,11 @@ ark-ec = { version = "=0.3.0", default-features = false }
 elusiv = { path = ".", features = ["instruction-abi", "test-elusiv", "logging", "precomputing"] }
 elusiv-utils = { path = "./elusiv-utils", features = ["sdk"] }
 
-solana-program-test = "=1.9.26"
-solana-sdk = "=1.9.26"
+solana-program-test = "=1.10.39"
+solana-sdk = "=1.10.39"
 
 regex = "1.5.6"
 rand = "0.8.5"
-
-# log = "0.4.17"
-# log4rs = "1.1.1"
 
 assert_matches = "1.5.0"
 ark-groth16 = { version = "=0.3.0", default-features = false }
