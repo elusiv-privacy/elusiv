@@ -36,3 +36,12 @@ clean-lib:
 clean:
 	@rm -rf elusiv/target && rm -f elusiv/Cargo.lock
 	@rm -rf elusiv-warden-network/target && rm -f elusiv-warden-network/Cargo.lock
+
+######## Testing ########
+TEST_MANIFEST ?= elusiv
+TEST_METHOD ?= test # test, test-bpf, tarpaulin
+TEST_FLAGS ?=
+
+.PHNOY: test
+test:
+	@cd $(TEST_MANIFEST) && cargo $(TEST_METHOD) $(TEST_FLAGS)

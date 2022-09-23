@@ -1,4 +1,4 @@
-/target
+**/target
 /node_modules
 /optimization/__pycache__
 */target
@@ -6,5 +6,4 @@
 .vscode
 lib
 
-Cargo.lock
-*/Cargo.lock
+**/Cargo.lock

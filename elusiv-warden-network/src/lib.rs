@@ -7,3 +7,5 @@ pub mod instruction;
 pub mod processor;
 pub mod proposal;
 pub mod warden;
+
+pub use entrypoint::*;

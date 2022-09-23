@@ -2,8 +2,8 @@ use crate::apa::{APAECert, APAProposalKind, APAProposal};
 use crate::proposal::Vote;
 use crate::warden::ElusivWardenID;
 use crate::macros::ElusivInstruction;
-use borsh::{BorshDeserialize, BorshSerialize};
 use crate::processor;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(BorshDeserialize, BorshSerialize, ElusivInstruction)]
 pub enum ElusivWardenNetworkInstruction {

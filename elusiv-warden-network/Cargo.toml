@@ -6,8 +6,9 @@ publish = false
 
 [workspace]
 members = [
-    "modules/elusiv-derive",
-    "modules/elusiv-proc-macros",
+    "shared/elusiv-types",
+    "shared/elusiv-derive",
+    "shared/elusiv-proc-macros",
 ]
 
 [features]
@@ -19,8 +20,9 @@ test-bpf = []
 test-elusiv = []
 
 [dependencies]
-elusiv-derive = { path = "modules/elusiv-derive" }
-elusiv-proc-macros = { path = "modules/elusiv-proc-macros" }
+elusiv-types = { path = "shared/elusiv-types" }
+elusiv-derive = { path = "shared/elusiv-derive" }
+elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }
 
 solana-program = "=1.10.39"
 borsh = { version = "=0.9.3", features = ["const-generics"] }

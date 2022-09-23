@@ -68,11 +68,12 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV }}
         run: |
           cargo install cargo-tarpaulin --force
-          cargo tarpaulin --lib --out Xml
+          make test TEST_MANIFEST=elusiv TEST_METHOD=tarpaulin TEST_FLAGS=--lib --out Xml
           bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
 
       - name: Run unit tests and integration tests compiled to eBPF
         run: |
           rustup component add rustfmt --toolchain nightly-x86_64-unknown-linux-gnu
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
-          cargo test-bpf
+          make test TEST_MANIFEST=elusiv TEST_METHOD=test-bpf
+          make test TEST_MANIFEST=elusiv-warden-network TEST_METHOD=test-bpf
