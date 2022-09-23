@@ -33,7 +33,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
     // Attributes
     let attrs = sub_attrs_prepare(attrs.to_string());
-    let attrs: Vec<&str> = (&attrs).split(',').collect();
+    let attrs: Vec<&str> = attrs.split(',').collect();
 
     // Lifetimes
     for attr in &attrs {
@@ -68,7 +68,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 assert!(is_pda);
 
                 let multi_account: String = named_sub_attribute("multi_account", attr).parse().unwrap();
-                let multi_account = (&multi_account[1..multi_account.len() - 1]).split(';').collect::<Vec<&str>>();
+                let multi_account = multi_account[1..multi_account.len() - 1].split(';').collect::<Vec<&str>>();
 
                 let count: TokenStream = multi_account[0].parse().unwrap();
                 let account_size: TokenStream = multi_account[1].parse().unwrap();

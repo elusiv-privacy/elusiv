@@ -8,7 +8,7 @@ const PARTIAL_ROUNDS_CUS: u32 = 5200 + 17740 + 600;
 
 pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
     let attrs = sub_attrs_prepare(attrs.to_string());
-    let attrs: Vec<&str> = (&attrs).split(',').collect();
+    let attrs: Vec<&str> = attrs.split(',').collect();
 
     // Ident
     let id: TokenStream = attrs[0].parse().unwrap();

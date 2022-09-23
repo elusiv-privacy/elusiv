@@ -4,4 +4,7 @@
 */target
 /log
 .vscode
-/dist
+lib
+
+Cargo.lock
+*/Cargo.lock

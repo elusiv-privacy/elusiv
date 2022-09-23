@@ -163,7 +163,7 @@ fn multi_step_computation(
             let computation = c.stream().into_iter().collect();
             let id = &id.to_string();
             let params = p.stream();
-            let ty = (&ty.to_string()).parse().unwrap();
+            let ty = ty.to_string().parse().unwrap();
 
             // Optional generics
             let generics: proc_macro2::TokenStream = match &generics.stream().into_iter().collect::<Vec<TokenTree>>()[..] {
@@ -200,7 +200,7 @@ fn multi_step_computation(
             let computation = c.stream().into_iter().collect();
             let id = &id.to_string();
             let params = p.stream();
-            let ty = (&ty.to_string()).parse().unwrap();
+            let ty = ty.to_string().parse().unwrap();
 
             let (rounds, compute_units, stream) = interpreter::interpret(computation, id, quote!{}, params, ty, previous_computation_rounds, previous_compute_units);
             previous_computation_rounds.insert(id.clone(), rounds);

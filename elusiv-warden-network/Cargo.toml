@@ -1,0 +1,33 @@
+[package]
+name = "elusiv-warden-network"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+members = [
+    "modules/elusiv-derive",
+    "modules/elusiv-proc-macros",
+]
+
+[features]
+instruction-abi = []
+devnet = []
+no-entrypoint = []
+
+test-bpf = []
+test-elusiv = []
+
+[dependencies]
+elusiv-derive = { path = "modules/elusiv-derive" }
+elusiv-proc-macros = { path = "modules/elusiv-proc-macros" }
+
+solana-program = "=1.10.39"
+borsh = { version = "=0.9.3", features = ["const-generics"] }
+
+[profile.test]
+opt-level = 2
+
+[lib]
+name = "elusiv_warden_network"
+crate-type = ["cdylib", "lib"]

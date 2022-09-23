@@ -1,5 +1,3 @@
-//! Structs and types for partial computations
-
 /// Representation of a partial computation
 pub trait PartialComputation<const INSTRUCTION_COUNT: usize> {
     const IX_COUNT: usize = INSTRUCTION_COUNT;

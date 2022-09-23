@@ -41,7 +41,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 // Sub-attrs are the fields as in #[usr(sub_attr0 = .., sub_attr1, ..)]
                 let mut fields = attr.tokens.to_string();
                 fields.retain(|x| x != '{' && x != '}' && !x.is_whitespace());
-                let sub_attrs: Vec<&str> = (&fields[1..fields.len() - 1]).split(',').collect();
+                let sub_attrs: Vec<&str> = fields[1..fields.len() - 1].split(',').collect();
 
                 let mut account: TokenStream = sub_attrs[0].parse().unwrap();
                 let mut account_init = Vec::new(); // used for creating the instruction objects with the abi-feature
@@ -54,7 +54,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let is_signer = sub_attrs.contains(&"signer");
                 if  is_signer {
                     accounts.extend(quote!{
-                        if !#account.is_signer { return Err(InvalidArgument) }
+                        if !#account.is_signer { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
                     });
                 }
 
@@ -62,7 +62,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let is_writable= sub_attrs.contains(&"writable");
                 if is_writable {
                     accounts.extend(quote!{
-                        if !#account.is_writable { return Err(InvalidArgument) }
+                        if !#account.is_writable { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
                     });
                 }
 
@@ -70,7 +70,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let is_owned= sub_attrs.contains(&"owned");
                 if is_owned {
                     accounts.extend(quote!{
-                        if #account.owner != program_id { return Err(InvalidArgument) }
+                        if #account.owner != program_id { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
                     });
                 }
 
@@ -92,7 +92,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     "acc" => {
                         user_accounts.extend(quote!{ #account: #user_account_type, });
                         account_init.push(quote!{
-                            accounts.push(AccountMeta::#account_init_fn(#account.0, #is_signer));
+                            accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(#account.0, #is_signer));
                         });
                     }
 
@@ -102,11 +102,11 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         let key: TokenStream = named_sub_attribute("key", sub_attrs[1]).parse().unwrap();
 
                         accounts.extend(quote!{
-                            if #key != *#account.key { return Err(InvalidArgument) };
+                            if #key != *#account.key { return Err(solana_program::program_error::ProgramError::InvalidArgument) };
                         });
 
                         account_init.push(quote!{
-                            accounts.push(AccountMeta::#account_init_fn(#key, #is_signer));
+                            accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(#key, #is_signer));
                         });
                     }
 
@@ -139,11 +139,11 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             let offset_ident: TokenStream = format!("{}_pda_offset", sub_attrs[0]).parse().unwrap();
                             user_accounts.extend(quote!{ #offset_ident: Option<u32>, });
                             account_init.push(quote!{
-                                accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#offset_ident).0, #is_signer));
+                                accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(<#ty>::find(#offset_ident).0, #is_signer));
                             });
                         } else {
                             account_init.push(quote!{
-                                accounts.push(AccountMeta::#account_init_fn(<#ty>::find(#pda_offset).0, #is_signer));
+                                accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(<#ty>::find(#pda_offset).0, #is_signer));
                             });
                         }
 
@@ -151,11 +151,11 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         let find_pda = sub_attrs.contains(&"find_pda"); // does not read the bump byte from the account data
                         if find_pda {
                             accounts.extend(quote!{
-                                if <#ty>::find(#pda_offset).0 != *#account.key { return Err(InvalidArgument) }
+                                if <#ty>::find(#pda_offset).0 != *#account.key { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
                             });
                         } else {
                             accounts.extend(quote!{
-                                if !<#ty>::is_valid_pubkey(&#account, #pda_offset, #account.key)? { return Err(InvalidArgument) }
+                                if !<#ty>::is_valid_pubkey(&#account, #pda_offset, #account.key)? { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
                             });
                         }
 
@@ -175,7 +175,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 user_accounts.extend(quote!{ #account: &[#user_account_type], });
                                 account_init.push(quote!{
                                     for account in #account {
-                                        accounts.push(AccountMeta::#account_init_fn(account.0, #is_signer));
+                                        accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(account.0, #is_signer));
                                     }
                                 });
                             } else {
@@ -233,7 +233,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             });
 
             functions.extend(quote!{
-                pub fn #fn_name(program_id: &Pubkey, accounts: &[AccountInfo], #fields_with_type) -> ProgramResult {
+                pub fn #fn_name(program_id: &solana_program::pubkey::Pubkey, accounts: &[solana_program::account_info::AccountInfo], #fields_with_type) -> solana_program::entrypoint::ProgramResult {
                     let mut account_info_iter = &mut accounts.iter();
                     #accounts
                     processor::#fn_name(#signature #fields)
@@ -259,10 +259,10 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
         quote! {
             impl #ast_ident {
-                pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], instruction: #ast_ident) -> ProgramResult {
+                pub fn process(program_id: &solana_program::pubkey::Pubkey, accounts: &[solana_program::account_info::AccountInfo], instruction: #ast_ident) -> solana_program::entrypoint::ProgramResult {
                     match instruction {
                         #matches
-                        _ => { Err(InvalidInstructionData) }
+                        _ => { Err(solana_program::program_error::ProgramError::InvalidInstructionData) }
                     }
                 }
 

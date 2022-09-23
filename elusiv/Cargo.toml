@@ -3,33 +3,31 @@ name = "elusiv"
 version = "0.1.0"
 edition = "2021"
 publish = false
-repository = "https://github.com/elusiv-privacy/elusiv"
 
 [workspace]
 members = [
-    "elusiv-derive",
-    "elusiv-proc-macros",
-    "elusiv-interpreter",
-    "elusiv-computation",
-    "elusiv-utils",
+    "modules/elusiv-derive",
+    "modules/elusiv-proc-macros",
+    "modules/elusiv-interpreter",
+    "modules/elusiv-computation",
+    "modules/elusiv-utils",
 ]
 
 [features]
 instruction-abi = []
-precomputing = []
-
 devnet = []
-logging = []
 no-entrypoint = []
+precomputing = []
+logging = []
 
 test-bpf = []
 test-elusiv = ["bytemuck"]
 
 [dependencies]
-elusiv-interpreter = { path = "./elusiv-interpreter" }
-elusiv-derive = { path = "./elusiv-derive" }
-elusiv-proc-macros = { path = "./elusiv-proc-macros" }
-elusiv-computation = { path = "./elusiv-computation" }
+elusiv-derive = { path = "modules/elusiv-derive" }
+elusiv-proc-macros = { path = "modules/elusiv-proc-macros" }
+elusiv-interpreter = { path = "modules/elusiv-interpreter" }
+elusiv-computation = { path = "modules/elusiv-computation" }
 
 solana-program = "=1.10.39"
 spl-token = { version = "3.5.0", features = ["no-entrypoint"] }
@@ -46,7 +44,7 @@ ark-ec = { version = "=0.3.0", default-features = false }
 
 [dev-dependencies]
 elusiv = { path = ".", features = ["instruction-abi", "test-elusiv", "logging", "precomputing"] }
-elusiv-utils = { path = "./elusiv-utils", features = ["sdk"] }
+elusiv-utils = { path = "modules/elusiv-utils", features = ["sdk"] }
 
 solana-program-test = "=1.10.39"
 solana-sdk = "=1.10.39"

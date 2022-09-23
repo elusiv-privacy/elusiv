@@ -43,9 +43,8 @@ pub fn interpret(
             .fold(vec![], |acc, v| acc.iter().cloned().chain(v.iter().cloned()).collect());
         
         for v in usages {
-            match vars.get_var(&v) {
-                Some(var) => Var::add(&mut var.usages, scope_index),
-                None => {} // -> var does not exist -> caller has to provide it as parameter
+            if let Some(var) = vars.get_var(&v) {
+                Var::add(&mut var.usages, scope_index)
             }
         }
     }

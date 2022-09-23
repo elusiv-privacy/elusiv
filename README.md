@@ -15,20 +15,8 @@
 # Elusiv
 Scaling privacy with compliance for the [Solana](https://github.com/solana-labs/solana) blockchain.
 
-## Building
-Build using `cargo-build-bpf` [release version 1.9.28](https://github.com/solana-labs/solana/releases/tag/v1.9.28):
-- Mainnet: run `bash bin/elusiv`
-- Devnet: run `bash bin/elusiv --devnet`
-
-This results in the dynamic library _dist/elusiv.so_.
-
-## Testing
-- Integration tests: `bash bin/test integration`
-- Unit tests: `bash bin/test unit`
-- All tests: `bash bin/test`
-
 ## Supported tokens
-All supported tokens can be found in [Token.toml](https://github.com/elusiv-privacy/elusiv/blob/master/Token.toml).
+All supported tokens can be found in [Token.toml](https://github.com/elusiv-privacy/elusiv/blob/master/elusiv/Token.toml).
 On-chain price data is provided by [Pyth](https://pyth.network/).
 
 ## Program interaction
