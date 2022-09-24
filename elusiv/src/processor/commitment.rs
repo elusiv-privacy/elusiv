@@ -172,6 +172,7 @@ pub fn store_base_commitment<'a>(
 
     // `fee_payer` rents `hashing_account`
     open_pda_account_with_offset::<BaseCommitmentHashingAccount>(
+        &crate::id(),
         fee_payer,
         hashing_account,
         hash_account_index,
@@ -227,7 +228,7 @@ pub fn finalize_base_commitment_hash<'a>(
     transfer_lamports_from_pda_checked(
         pool,
         original_fee_payer,
-        fee.get_program_fee().base_commitment_hash_computation_fee(),
+        fee.get_program_fee().base_commitment_hash_computation_fee().0,
     )?;
 
     let commitment = hashing_account.get_state().result();
@@ -304,7 +305,7 @@ pub fn compute_commitment_hash<'a>(
     transfer_lamports_from_pda_checked(
         pool,
         fee_payer,
-        fee.get_program_fee().hash_tx_compensation(),
+        fee.get_program_fee().hash_tx_compensation().0,
     )
 }
 

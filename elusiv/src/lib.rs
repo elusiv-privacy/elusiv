@@ -1,3 +1,5 @@
+#![allow(clippy::derive_partial_eq_without_eq)]
+
 mod error;
 mod macros;
 pub mod types;

@@ -230,7 +230,7 @@ impl<'a, N: Clone + Copy, const SIZE: usize> RAM<N> for LazyRAM<'a, N, SIZE> whe
                 let data = &self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE];
                 let v = <Wrap<N>>::try_from_slice(data).unwrap();
                 self.data[i] = Some(v.0);
-                (&self.data[i]).unwrap()
+                self.data[i].unwrap()
             }
         }
     }

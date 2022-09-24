@@ -27,8 +27,8 @@ $(Elusiv_Warden_Network_Lib):
 	@cargo build-bpf --manifest-path=$(Elusiv_Warden_Network_Manifest_Path) --bpf-out-dir=$(Out_Dir) $(Elusiv_Rust_Feature_Flags)
 	@echo "\033[1mGEN  =>  $(Elusiv_Warden_Network_Lib)\033[0m"
 
-.PHONY: clean-lib
-clean-lib:
+.PHONY: clear
+clear:
 	@rm -f $(Elusiv_Lib)
 	@rm -f $(Elusiv_Warden_Network_Lib)
 

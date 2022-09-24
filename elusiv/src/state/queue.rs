@@ -84,10 +84,9 @@ impl<'a, 'b> CommitmentQueue<'a, 'b> {
             commitment_count = commitments_per_batch(highest_batching_rate);
 
             // Just a (hopefully always) redundant fee-check (depends on the fee upgrade logic)
-            match fee_version {
-                Some(f) => guard!(f == request.fee_version, InvalidFeeVersion),
-                None => {}
-            };
+            if let Some(f) = fee_version {
+                guard!(f == request.fee_version, InvalidFeeVersion);
+            }
             fee_version = Some(request.fee_version);
 
             requests.push(request);

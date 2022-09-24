@@ -7,11 +7,11 @@ publish = false
 [workspace]
 members = [
     "shared/elusiv-types",
+    "shared/elusiv-utils",
     "shared/elusiv-derive",
     "shared/elusiv-proc-macros",
     "shared/elusiv-interpreter",
     "shared/elusiv-computation",
-    "shared/elusiv-utils",
 ]
 
 [features]
@@ -26,6 +26,7 @@ test-elusiv = ["bytemuck"]
 
 [dependencies]
 elusiv-types = { path = "shared/elusiv-types" }
+elusiv-utils = { path = "shared/elusiv-utils" }
 elusiv-derive = { path = "shared/elusiv-derive" }
 elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }
 elusiv-interpreter = { path = "shared/elusiv-interpreter" }

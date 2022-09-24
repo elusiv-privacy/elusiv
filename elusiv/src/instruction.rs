@@ -27,17 +27,8 @@ use crate::state::{
 };
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::proof::{VerificationAccount, precompute::PrecomputesAccount};
-use solana_program::{
-    system_program,
-    account_info::{next_account_info, AccountInfo},
-    pubkey::Pubkey,
-    entrypoint::ProgramResult,
-    program_error::ProgramError::{InvalidArgument, InvalidInstructionData},
-};
+use solana_program::system_program;
 use borsh::{BorshDeserialize, BorshSerialize};
-
-#[cfg(feature = "instruction-abi")]
-use solana_program::instruction::AccountMeta;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
 #[allow(clippy::large_enum_variant)]
@@ -286,6 +277,9 @@ pub enum ElusivInstruction {
         program_fee: ProgramFee,
     },
 }
+
+#[cfg(feature = "instruction-abi")]
+use solana_program::pubkey::Pubkey;
 
 #[cfg(feature = "instruction-abi")]
 pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {

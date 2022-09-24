@@ -1,6 +1,5 @@
 use solana_program::program::invoke;
 use solana_program::program_pack::Pack;
-use solana_program::pubkey::Pubkey;
 use solana_program::{
     account_info::AccountInfo,
     entrypoint::ProgramResult,
@@ -11,7 +10,6 @@ use solana_program::{
     rent::Rent,
     sysvar::Sysvar,
 };
-use crate::bytes::BorshSerDeSized;
 use crate::error::ElusivError::{
     InvalidAccount,
     InvalidInstructionData,
@@ -19,13 +17,10 @@ use crate::error::ElusivError::{
 };
 use crate::macros::{guard, pda_account};
 use crate::state::governor::{PoolAccount, FeeCollectorAccount};
-use crate::state::program_account::{
-    PDAAccountData,
-    PDAAccount,
-    SizedAccount, ProgramAccount, PDAOffset,
-};
+use crate::state::program_account::{PDAAccount, ProgramAccount, PDAOffset};
 use crate::token::{Token, Lamports, TokenAuthorityAccount, TOKENS, SPLToken, SPL_TOKEN_COUNT, elusiv_token};
-use super::MATH_ERR;
+
+pub use elusiv_utils::*;
 
 pub fn transfer_token<'a>(
     source: &AccountInfo<'a>,
@@ -56,12 +51,6 @@ pub fn transfer_token<'a>(
     }
 }
 
-macro_rules! signers_seeds {
-    ($seeds: ident) => {
-        $seeds.iter().map(|x| &x[..]).collect::<Vec<&[u8]>>() 
-    };
-}
-
 pub fn transfer_token_from_pda<'a, T: PDAAccount>(
     source: &AccountInfo<'a>,
     source_token_account: &AccountInfo<'a>,
@@ -77,7 +66,7 @@ pub fn transfer_token_from_pda<'a, T: PDAAccount>(
             transfer_lamports_from_pda_checked(
                 source,
                 destination,
-                lamports,
+                lamports.0,
             )
         }
         Token::SPLToken(SPLToken { amount, .. }) => {
@@ -155,93 +144,6 @@ fn transfer_with_token_program<'a>(
     )
 }
 
-pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-    pda_offset: u32,
-) -> ProgramResult {
-    let account_size = T::SIZE;
-    let (pk, bump) = T::find(Some(pda_offset));
-    let seeds = T::signers_seeds(Some(pda_offset), bump);
-    let signers_seeds = signers_seeds!(seeds);
-    guard!(pk == *pda_account.key, InvalidInstructionData);
-
-    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
-}
-
-pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-) -> ProgramResult {
-    let account_size = T::SIZE;
-    let (pk, bump) = T::find(None);
-    let seeds = T::signers_seeds(None, bump);
-    let signers_seeds = signers_seeds!(seeds);
-    guard!(pk == *pda_account.key, InvalidInstructionData);
-
-    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
-}
-
-pub fn open_pda_account<'a>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-    account_size: usize,
-    seeds: &[&[u8]],
-) -> ProgramResult {
-    let mut signers_seeds = seeds.to_owned();
-    let (pubkey, bump) = Pubkey::find_program_address(&signers_seeds[..], &crate::ID);
-    let b = vec![bump];
-    signers_seeds.push(&b);
-    guard!(pubkey == *pda_account.key, InvalidInstructionData);
-
-    create_pda_account(payer, pda_account, account_size, bump, &signers_seeds)
-}
-
-pub fn create_pda_account<'a>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-    account_size: usize,
-    bump: u8,
-    signers_seeds: &[&[u8]],
-) -> ProgramResult {
-    // For unit testing we exit
-    if cfg!(test) {
-        return Ok(());
-    }
-
-    let lamports_required = Rent::get()?.minimum_balance(account_size);
-    let space: u64 = account_size.try_into().unwrap();
-    guard!(payer.lamports() >= lamports_required, InsufficientFunds);
-
-    invoke_signed(
-        &system_instruction::create_account(
-            payer.key,
-            pda_account.key,
-            lamports_required,
-            space,
-            &crate::id(),
-        ),
-        &[
-            payer.clone(),
-            pda_account.clone(),
-        ],
-        &[signers_seeds]
-    )?;
-
-    // Assign default fields
-    let data = &mut pda_account.data.borrow_mut()[..];
-    PDAAccountData::override_slice(
-        &PDAAccountData {
-            bump_seed: bump,
-            version: 0,
-            initialized: false,
-        },
-        data
-    )?;
-
-    Ok(())
-}
-
 pub fn create_token_account_for_pda_authority<'a, T: PDAAccount>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
@@ -267,7 +169,6 @@ pub fn create_token_account<'a>(
 ) -> ProgramResult {
     guard!(token_id > 0 && token_id as usize <= SPL_TOKEN_COUNT, InvalidInstructionData);
 
-    // For unit testing we exit
     if cfg!(test) {
         return Ok(());
     }
@@ -333,50 +234,6 @@ pub fn create_associated_token_account<'a>(
     )
 }
 
-pub unsafe fn transfer_lamports_from_pda<'a>(
-    pda: &AccountInfo<'a>,
-    recipient: &AccountInfo<'a>,
-    lamports: Lamports,
-) -> ProgramResult {
-    **pda.try_borrow_mut_lamports()? = pda.lamports().checked_sub(lamports.0)
-        .ok_or(MATH_ERR)?;
-
-    **recipient.try_borrow_mut_lamports()? = recipient.lamports().checked_add(lamports.0)
-        .ok_or(MATH_ERR)?;
-
-    Ok(())
-}
-
-pub fn transfer_lamports_from_pda_checked<'a>(
-    pda: &AccountInfo<'a>,
-    recipient: &AccountInfo<'a>,
-    lamports: Lamports,
-) -> ProgramResult {
-    let pda_lamports = pda.lamports();
-    let pda_size = pda.data_len();
-
-    if !cfg!(test) {
-        let rent_lamports = Rent::get()?.minimum_balance(pda_size);
-        if pda_lamports.checked_sub(lamports.0).ok_or(MATH_ERR)? < rent_lamports {
-            return Err(ProgramError::AccountNotRentExempt)
-        }
-    }
-
-    unsafe {
-        transfer_lamports_from_pda(pda, recipient, lamports)
-    }
-}
-
-pub fn close_account<'a>(
-    payer: &AccountInfo<'a>,
-    account: &AccountInfo<'a>,
-) -> ProgramResult {
-    let lamports = Lamports(account.lamports());
-    unsafe {
-        transfer_lamports_from_pda(account, payer, lamports)
-    }
-}
-
 macro_rules! verify_token_account {
     ($fn_id: ident, $ty: ty) => {
         pub fn $fn_id(
@@ -407,6 +264,7 @@ pub fn spl_token_account_rent() -> Result<Lamports, ProgramError> {
 mod tests {
     use super::*;
     use crate::{macros::{test_account_info, account}, proof::VerificationAccount, bytes::ElusivOption};
+    use crate::state::program_account::SizedAccount;
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
 
@@ -521,12 +379,12 @@ mod tests {
         account!(pda_account, VerificationAccount::find(Some(3)).0, vec![]);
 
         assert_matches!(
-            open_pda_account_with_offset::<VerificationAccount>(&payer, &pda_account, 2),
+            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 2),
             Err(_)
         );
 
         assert_matches!(
-            open_pda_account_with_offset::<VerificationAccount>(&payer, &pda_account, 3),
+            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 3),
             Ok(())
         );
     }
@@ -538,12 +396,12 @@ mod tests {
         account!(invalid_pda_account, VerificationAccount::find(Some(0)).0, vec![]);
 
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&payer, &invalid_pda_account),
+            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &invalid_pda_account),
             Err(_)
         );
 
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&payer, &pda_account),
+            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account),
             Ok(())
         );
     }
@@ -557,10 +415,10 @@ mod tests {
         let wrong_pda = VerificationAccount::find(Some(0)).0;
 
         account!(pda_account, wrong_pda, vec![]);
-        assert_matches!(open_pda_account(&payer, &pda_account, 1, &seeds), Err(_));
+        assert_matches!(open_pda_account(&crate::id(), &payer, &pda_account, 1, &seeds), Err(_));
 
         account!(pda_account, pda, vec![]);
-        assert_matches!(open_pda_account(&payer, &pda_account, 1, &seeds), Ok(_));
+        assert_matches!(open_pda_account(&crate::id(), &payer, &pda_account, 1, &seeds), Ok(_));
     }
 
     #[test]
@@ -589,13 +447,13 @@ mod tests {
         unsafe {
             // Underflow
             let balance = pda.lamports();
-            assert_matches!(transfer_lamports_from_pda(&pda, &recipient, Lamports(balance + 1)), Err(_));
+            assert_matches!(transfer_lamports_from_pda(&pda, &recipient, balance + 1), Err(_));
 
             // Overflow
-            assert_matches!(transfer_lamports_from_pda(&pda, &recipient, Lamports(u64::MAX)), Err(_));
+            assert_matches!(transfer_lamports_from_pda(&pda, &recipient, u64::MAX), Err(_));
 
             // Valid amount
-            assert_matches!(transfer_lamports_from_pda(&pda, &recipient, Lamports(balance)), Ok(()));
+            assert_matches!(transfer_lamports_from_pda(&pda, &recipient, balance), Ok(()));
             assert_eq!(pda.lamports(), 0);
             assert_eq!(recipient.lamports(), balance * 2);
         }

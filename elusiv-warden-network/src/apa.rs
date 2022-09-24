@@ -1,28 +1,34 @@
-use crate::{
-    network::{FULL_WARDEN_GENESIS_NETWORK_SIZE, ElusivFullWardenGenesisNetwork},
-    proposal::{Proposal, ProponentConstraint, ProposalVoteConsensus, SUPERMAJORITY_CONSENSUS_OF_ALL_MEMBERS, MAJORITY_CONSENSUS_OF_ALL_MEMBERS, DEFAULT_VOTING_TIME},
-};
+use elusiv_proc_macros::elusiv_account;
 use solana_program::pubkey::Pubkey;
 use borsh::{BorshDeserialize, BorshSerialize};
+use elusiv_types::{BorshSerDeSized, PDAAccountData, SizedAccount};
+use crate::network::ElusivFullWardenNetwork;
+use crate::proposal::{Proposal, ProponentConstraint, ProposalVoteConsensus, SUPERMAJORITY_CONSENSUS_OF_ALL_MEMBERS, MAJORITY_CONSENSUS_OF_ALL_MEMBERS, DEFAULT_VOTING_TIME};
+use crate::macros::BorshSerDeSized;
 
-pub struct APARegistrationAccount {
-    pub applicants: [APAECert; FULL_WARDEN_GENESIS_NETWORK_SIZE],
-    pub approved_others: [bool; FULL_WARDEN_GENESIS_NETWORK_SIZE],
+pub const APA_KEY_VSSS_SHARES: usize = 1;
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct APAConfig {
+    pub apa_keys: [[u8; 32]; APA_KEY_VSSS_SHARES],
+    pub apae_signature: [u8; 32],
 }
 
+#[elusiv_account(pda_seed = b"apa_config_account")]
 pub struct APAGenesisConfigAccount {
-    pub apa_key: Pubkey,
-
-    /// All participating genesis APAEs
-    pub apaes: [APAECert; FULL_WARDEN_GENESIS_NETWORK_SIZE],
+    pda_data: PDAAccountData,
+    apa_config: APAConfig,
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
-pub struct RemoteAttestationCert { }
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct RemoteAttestationCert {
+    data: [u8; 1],
+}
 
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct APAECert {
-    pub warden: [u8; 32],
+    pub warden_key: [u8; 32],
+    pub apae_key: [u8; 32],
     pub ra_cert: RemoteAttestationCert,
 }
 
@@ -49,7 +55,7 @@ pub struct APAFlaggingProposal {
 }
 
 impl Proposal for APAFlaggingProposal {
-    type Network = ElusivFullWardenGenesisNetwork;
+    type Network = ElusivFullWardenNetwork;
     const PROPONENT_CONSTRAINT: ProponentConstraint = ProponentConstraint::Any;
     const CONSENSUS_REQUIREMENT: ProposalVoteConsensus = MAJORITY_CONSENSUS_OF_ALL_MEMBERS;
     const MAX_VOTING_TIME: u64 = DEFAULT_VOTING_TIME;
@@ -61,7 +67,7 @@ pub struct APAOutcastProposal {
 }
 
 impl Proposal for APAOutcastProposal {
-    type Network = ElusivFullWardenGenesisNetwork;
+    type Network = ElusivFullWardenNetwork;
     const PROPONENT_CONSTRAINT: ProponentConstraint = ProponentConstraint::Any;
     const CONSENSUS_REQUIREMENT: ProposalVoteConsensus = SUPERMAJORITY_CONSENSUS_OF_ALL_MEMBERS;
     const MAX_VOTING_TIME: u64 = DEFAULT_VOTING_TIME;

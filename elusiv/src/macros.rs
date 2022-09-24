@@ -1,61 +1,10 @@
 pub use elusiv_derive::*;
 pub use elusiv_proc_macros::*;
-
-/// Guard statement
-/// - if the assertion evaluates to false, the error is raised
-macro_rules! guard {
-    ($assertion: expr, $error: expr) => {
-        if !$assertion {
-            return Err($error.into())
-        }
-    };
-}
-
-/// Checked two_pow into usize (exp u32)
-macro_rules! two_pow {
-    ($exp: expr) => {
-        match 2usize.checked_pow($exp) {
-            Some(v) => v,
-            None => panic!()
-        }
-    };
-}
-
-/// mut? $id: ident, $ty: ty, $account_info: ident
-macro_rules! pda_account {
-    ($id: ident, $ty: ty, $account_info: ident) => {
-        let mut data = &mut $account_info.data.borrow_mut()[..];
-        let $id = <$ty>::new(&mut data)?;
-    };
-    (mut $id: ident, $ty: ty, $account_info: ident) => {
-        let mut data = &mut $account_info.data.borrow_mut()[..];
-        let mut $id = <$ty>::new(&mut data)?;
-    };
-}
-
-/*macro_rules! log {
-    ($msg: expr) => {
-        #[cfg(feature = "testing")]
-        solana_program::msg!($msg);
-    };
-    ($($arg:tt)*) => (
-        solana_program::msg!($($arg)*)
-    );
-}*/
-
-/*#[cfg(test)]
-macro_rules! hash_map {
-    (internal $id: ident, $x:expr, $y:expr) => {
-        $id.insert($x, $y);
-    };
-    (internal $id: ident, $($x:expr, $y:expr),+) => {
-        hash_map!(internal $id, $($i),+)
-    };
-    ($id: ident, $(($x:expr, $y:expr)),+) => {
-        let mut $id = std::collections::HashMap::new(); 
-        hash_map!(internal $id, $($x, $y),+)
-    };
-}*/
+pub use elusiv_utils::{
+    guard,
+    two_pow,
+    pda_account,
+};
 
 #[cfg(test)]
 macro_rules! pyth_price_account_info {
@@ -173,11 +122,6 @@ macro_rules! token_pda_account {
         account!($id, <$ty>::find(None).0, data); 
     };
 }
-
-pub(crate) use guard;
-pub(crate) use two_pow;
-pub(crate) use pda_account;
-//pub(crate) use log;
 
 //#[cfg(test)] pub(crate) use hash_map;
 #[cfg(test)] pub(crate) use pyth_price_account_info;

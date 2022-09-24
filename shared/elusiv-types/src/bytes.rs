@@ -33,6 +33,7 @@ pub const fn max(a: usize, b: usize) -> usize {
     [a, b][if a < b { 1 } else { 0 }]
 }
 
+#[macro_export]
 macro_rules! impl_borsh_sized {
     ($ty: ty, $size: expr) => {
         impl BorshSerDeSized for $ty { const SIZE: usize = $size; }
@@ -43,14 +44,13 @@ impl<E: BorshSerDeSized + Default + Copy, const N: usize> BorshSerDeSized for [E
     const SIZE: usize = E::SIZE * N;
 }
 
-pub(crate) use impl_borsh_sized;
-
 impl_borsh_sized!(u8, 1);
 impl_borsh_sized!(u16, 2);
 impl_borsh_sized!(u32, 4);
 impl_borsh_sized!(u64, 8);
 impl_borsh_sized!(u128, 16);
 impl_borsh_sized!(bool, 1);
+impl_borsh_sized!(std::net::Ipv4Addr, 4);
 
 #[derive(Copy, Clone, Debug)]
 /// The advantage of `ElusivOption` over `Option` is fixed serialization length

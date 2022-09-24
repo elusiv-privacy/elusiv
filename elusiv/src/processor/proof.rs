@@ -179,6 +179,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         }
     } else {
         open_pda_account(
+            &crate::id(),
             fee_payer,
             nullifier_duplicate_account,
             PDAAccountData::SIZE,
@@ -188,6 +189,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
 
     // Open `VerificationAccount`
     open_pda_account_with_offset::<VerificationAccount>(
+        &crate::id(),
         fee_payer,
         verification_account,
         verification_account_index
@@ -352,11 +354,10 @@ pub fn compute_verification(
         VKey,
         verify_partial::<_, VKey>(verification_account, precomputes_account)
     ) {
-        Ok(result) => match result {
-            Some(final_result) => { // After last round we receive the verification result
+        Ok(result) => {
+            if let Some(final_result) = result { // After last round we receive the verification result
                 verification_account.set_is_verified(&ElusivOption::Some(final_result));
             }
-            None => {}
         }
         Err(e) => {
             match e {
@@ -510,14 +511,14 @@ pub fn finalize_verification_transfer_lamports<'a>(
         transfer_lamports_from_pda_checked(
             pool,
             fee_collector,
-            Lamports(data.subvention)
+            data.subvention,
         )?;
 
         // `pool` transfers `commitment_hash_fee` to `fee_collector` (lamports)
         transfer_lamports_from_pda_checked(
             pool,
             fee_collector,
-            data.commitment_hash_fee,
+            data.commitment_hash_fee.0,
         )?;
 
         return Ok(())
@@ -530,7 +531,7 @@ pub fn finalize_verification_transfer_lamports<'a>(
         transfer_lamports_from_pda_checked(
             pool,
             recipient,
-            Lamports(public_inputs.join_split.amount)
+            public_inputs.join_split.amount
         )?;
     }
 
@@ -541,14 +542,14 @@ pub fn finalize_verification_transfer_lamports<'a>(
         (
             Lamports(data.commitment_hash_fee_token) +
             Lamports(data.proof_verification_fee)
-        )?
+        )?.0
     )?;
 
     // `pool` transfers `network_fee` to `fee_collector` (lamports)
     transfer_lamports_from_pda_checked(
         pool,
         fee_collector,
-        Lamports(data.network_fee)
+        data.network_fee
     )?;
 
     // Close `verification_account` and `nullifier_duplicate_account`
@@ -635,7 +636,7 @@ pub fn finalize_verification_transfer_token<'a>(
         transfer_lamports_from_pda_checked(
             pool,
             fee_collector,
-            (data.commitment_hash_fee + spl_token_account_rent()?)?,
+            (data.commitment_hash_fee + spl_token_account_rent()?)?.0,
         )?;
 
         return Ok(())
@@ -735,7 +736,7 @@ pub fn finalize_verification_transfer_token<'a>(
         transfer_lamports_from_pda_checked(
             pool,
             if rented { signer } else { original_fee_payer },
-            spl_token_account_rent()?,
+            spl_token_account_rent()?.0,
         )?;
     }
 

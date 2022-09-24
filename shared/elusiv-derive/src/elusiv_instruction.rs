@@ -47,7 +47,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let mut account_init = Vec::new(); // used for creating the instruction objects with the abi-feature
 
                 accounts.extend(quote! {
-                    let #account = next_account_info(account_info_iter)?;    
+                    let #account = &solana_program::account_info::next_account_info(account_info_iter)?;    
                 });
 
                 // Signer check
