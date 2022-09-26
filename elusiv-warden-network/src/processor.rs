@@ -1,12 +1,17 @@
-use elusiv_utils::{open_pda_account_without_offset, open_pda_account_with_offset};
+use elusiv_utils::{open_pda_account_without_offset, guard, open_pda_account_with_offset, pda_account};
+use elusiv_types::ProgramAccount;
+use solana_program::clock::Clock;
+use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
+use solana_program::sysvar::Sysvar;
 use std::net::Ipv4Addr;
 use solana_program::account_info::AccountInfo;
 use solana_program::entrypoint::ProgramResult;
-use crate::apa::{APAProposalKind, APAProposal, APAECert, APAConfig};
-use crate::proposal::Vote;
-use crate::warden::{ElusivFullWardenAccount, ElusivWardenID, ElusivWardensAccount, ElusivFullWarden, ElusivBasicWarden};
-use crate::network::{FullWardenRegistrationAccount, FullWardenRegistrationApplication};
+use crate::apa::{APAProposal, APAECert, APAConfig, APAProposalAccount};
+use crate::proposal::{Proposal, Vote, ProposalAccount, ProposalVotingAccount};
+use crate::warden::{ElusivFullWardenAccount, ElusivWardenID, ElusivWardensAccount, ElusivFullWarden, ElusivBasicWarden, ElusivBasicWardenAccount};
+use crate::network::{FullWardenRegistrationAccount, FullWardenRegistrationApplication, ElusivFullWardenNetworkAccount};
+use crate::error::ElusivWardenNetworkError;
 
 pub fn init<'a>(
     payer: &AccountInfo<'a>,
@@ -26,6 +31,8 @@ pub fn init<'a>(
     )
 }
 
+// -------- Full Warden Genesis Network Setup --------
+
 /// A Full Warden (with the corresponding APAE) applies for registration in the Genesis Full Warden Network
 pub fn apply_full_genesis_warden<'a>(
     warden: &AccountInfo<'a>,
@@ -37,10 +44,8 @@ pub fn apply_full_genesis_warden<'a>(
     apae_cert: APAECert,
     addr: Ipv4Addr,
 ) -> ProgramResult {
-    let warden_key = *warden.key;
-    
     warden_registration.register_applicant(
-        &warden_key,
+        warden.key,
         warden_id,
         FullWardenRegistrationApplication {
             apae_cert,
@@ -58,13 +63,6 @@ pub fn apply_full_genesis_warden<'a>(
             apae_key: Pubkey::new_from_array([0; 32]),
         },
         warden_account,
-    )?;
-
-    open_pda_account_with_offset::<ElusivFullWardenAccount>(
-        &crate::id(),
-        warden,
-        warden_account,
-        warden_id,
     )?;
 
     Ok(())
@@ -92,6 +90,7 @@ pub fn complete_full_genesis_warden(
     warden: &AccountInfo,
     warden_account: &ElusivFullWardenAccount,
     _warden_registration: &FullWardenRegistrationAccount,
+    wardens: &mut ElusivWardensAccount,
     _warden_network: &AccountInfo,
 
     _leader_id: ElusivWardenID,
@@ -99,38 +98,122 @@ pub fn complete_full_genesis_warden(
 ) -> ProgramResult {
     warden_account.verify(warden)?;
 
+    wardens.set_full_network_configured(&true);
+
     todo!()
 
     // Verify apae signature
-    // Create network account
+    // Create full network account
+    // Create basic network account
+    // Add members to full network
+    // Add members to basic network
 }
 
-pub fn init_apa_proposal(
-    _kind: APAProposalKind,
-    _proposal: APAProposal,
+// -------- Basic Warden Genesis Network Setup --------
+
+pub fn apply_basic_genesis_warden<'a>(
+    warden: &AccountInfo<'a>,
+    warden_account: &AccountInfo<'a>,
+    wardens: &mut ElusivWardensAccount,
+
+    _warden_id: ElusivWardenID,
+    addr: Ipv4Addr,
 ) -> ProgramResult {
-    todo!()
+    wardens.add_basic_warden(
+        warden,
+        ElusivBasicWarden {
+            key: *warden.key,
+            addr,
+            active: false,
+        },
+        warden_account,
+    )
 }
 
+const BASIC_GENESIS_WARDEN_AUTHORITY: Pubkey = Pubkey::new_from_array([0; 32]);
+
+pub fn confirm_basic_genesis_warden(
+    basic_warden_authority: &AccountInfo,
+    warden_account: &mut ElusivBasicWardenAccount,
+
+    _warden_id: ElusivWardenID,
+) -> ProgramResult {
+    guard!(*basic_warden_authority.key == BASIC_GENESIS_WARDEN_AUTHORITY, ElusivWardenNetworkError::InvalidSignature);
+
+    let mut warden = warden_account.get_warden();
+    warden.active = true;
+    warden_account.set_warden(&warden);
+
+    Ok(())
+}
+
+// -------- APA Proposals --------
+
+pub fn init_apa_proposal<'a>(
+    proponent: &AccountInfo<'a>,
+    proposal_account: &AccountInfo<'a>,
+    network: &ElusivFullWardenNetworkAccount,
+
+    proposal_id: u32,
+    proposal: APAProposal,
+) -> ProgramResult {
+    let timestamp = current_timestamp()?;
+
+    guard!(proposal.is_proponent_valid(None), ElusivWardenNetworkError::ProposalError);
+
+    open_pda_account_with_offset::<APAProposalAccount>(
+        &crate::id(),
+        proponent,
+        proposal_account,
+        proposal_id,
+    )?;
+
+    pda_account!(mut proposal_account, APAProposalAccount, proposal_account);
+    proposal_account.init(
+        proposal,
+        timestamp,
+        &network.copy_members(),
+    );
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn vote_apa_proposal(
     warden: &AccountInfo,
     warden_account: &ElusivFullWardenAccount,
+    proposal_account: &mut APAProposalAccount,
 
-    _warden_id: ElusivWardenID,
-    _vote: Vote,
+    warden_id: ElusivWardenID,
+    _proposal_id: u32,
+    vote: Vote,
 ) -> ProgramResult {
     warden_account.verify(warden)?;
-    
-    todo!()
+    proposal_account.try_vote(vote, warden_id, current_timestamp()?)?;
+
+    Ok(())
 }
 
 pub fn finalize_apa_proposal(
     warden: &AccountInfo,
     warden_account: &ElusivFullWardenAccount,
+    proposal_account: &mut APAProposalAccount,
 
-    _leader_id: ElusivWardenID,
+    warden_id: ElusivWardenID,
+    _proposal_id: u32,
 ) -> ProgramResult {
     warden_account.verify(warden)?;
+    guard!(proposal_account.is_consensus_reached(), ElusivWardenNetworkError::ProposalError);
 
     todo!()
+}
+
+fn current_timestamp() -> Result<u64, ProgramError> {
+    if !cfg!(test) {
+        let clock = Clock::get()?;
+        clock.unix_timestamp.try_into()
+            .or(Err(ProgramError::UnsupportedSysvar))
+    } else {
+        Ok(0)
+    }
 }

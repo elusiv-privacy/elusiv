@@ -15,7 +15,9 @@ pub type ElusivWardenID = u32;
 #[elusiv_account(pda_seed = b"wardens")]
 pub struct ElusivWardensAccount {
     pda_data: PDAAccountData,
+
     next_warden_id: ElusivWardenID,
+    full_network_configured: bool,
 }
 
 impl<'a> ElusivWardensAccount<'a> {

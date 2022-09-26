@@ -1,10 +1,19 @@
 use elusiv_proc_macros::elusiv_account;
 use solana_program::pubkey::Pubkey;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_types::{BorshSerDeSized, PDAAccountData, SizedAccount};
-use crate::network::ElusivFullWardenNetwork;
-use crate::proposal::{Proposal, ProponentConstraint, ProposalVoteConsensus, SUPERMAJORITY_CONSENSUS_OF_ALL_MEMBERS, MAJORITY_CONSENSUS_OF_ALL_MEMBERS, DEFAULT_VOTING_TIME};
-use crate::macros::BorshSerDeSized;
+use elusiv_types::{BorshSerDeSized, BorshSerDeSizedEnum, PDAAccountData, SizedAccount};
+use crate::error::ElusivWardenNetworkError;
+use crate::network::{ElusivFullWardenNetwork, WardenNetwork};
+use crate::proposal::{
+    Proposal,
+    ProposalAccount,
+    SUPERMAJORITY_CONSENSUS_OF_ALL_MEMBERS,
+    MAJORITY_CONSENSUS_OF_ALL_MEMBERS,
+    DEFAULT_VOTING_TIME,
+    proposal_account, ProposalVotingAccount, VotesCount, Vote,
+};
+use crate::macros::{guard, BorshSerDeSized};
+use crate::warden::ElusivWardenID;
 
 pub const APA_KEY_VSSS_SHARES: usize = 1;
 
@@ -14,7 +23,7 @@ pub struct APAConfig {
     pub apae_signature: [u8; 32],
 }
 
-#[elusiv_account(pda_seed = b"apa_config_account")]
+#[elusiv_account(pda_seed = b"apa_config")]
 pub struct APAGenesisConfigAccount {
     pda_data: PDAAccountData,
     apa_config: APAConfig,
@@ -32,43 +41,49 @@ pub struct APAECert {
     pub ra_cert: RemoteAttestationCert,
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
-pub enum APAReason {
-    Custom(u32),
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct APAReason {
+    code: u32,
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct APAProposal {
     pub key: Pubkey,
     pub reason: APAReason,
+    pub kind: APAProposalKind,
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub enum APAProposalKind {
     Flagging,
     Outcast,
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
-pub struct APAFlaggingProposal {
-    pub apa_proposal: APAProposal,
+proposal_account! {
+    APAProposal,
+    APAProposalAccount,
+    b"apa_proposal",
+    ElusivFullWardenNetwork
 }
 
-impl Proposal for APAFlaggingProposal {
+impl Proposal for APAProposal {
     type Network = ElusivFullWardenNetwork;
-    const PROPONENT_CONSTRAINT: ProponentConstraint = ProponentConstraint::Any;
-    const CONSENSUS_REQUIREMENT: ProposalVoteConsensus = MAJORITY_CONSENSUS_OF_ALL_MEMBERS;
-    const MAX_VOTING_TIME: u64 = DEFAULT_VOTING_TIME;
+
+    const VOTING_WINDOW: u64 = DEFAULT_VOTING_TIME;
+
+    fn is_proponent_valid(&self, _warden_id: Option<crate::warden::ElusivWardenID>) -> bool {
+        true
+    }
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
-pub struct APAOutcastProposal {
-    pub apa_proposal: APAProposal,
-}
-
-impl Proposal for APAOutcastProposal {
-    type Network = ElusivFullWardenNetwork;
-    const PROPONENT_CONSTRAINT: ProponentConstraint = ProponentConstraint::Any;
-    const CONSENSUS_REQUIREMENT: ProposalVoteConsensus = SUPERMAJORITY_CONSENSUS_OF_ALL_MEMBERS;
-    const MAX_VOTING_TIME: u64 = DEFAULT_VOTING_TIME;
+impl<'a> ProposalVotingAccount for APAProposalAccount<'a> {
+    fn is_consensus_reached(&self) -> bool {
+        let proposal = self.proposal();
+        let VotesCount { accept, reject } = self.get_votes_count();
+        let consensus = match proposal.kind {
+            APAProposalKind::Flagging => MAJORITY_CONSENSUS_OF_ALL_MEMBERS,
+            APAProposalKind::Outcast => SUPERMAJORITY_CONSENSUS_OF_ALL_MEMBERS,
+        };
+        consensus.consensus(accept, accept + reject, ElusivFullWardenNetwork::SIZE.members_count() as u32)
+    }
 }

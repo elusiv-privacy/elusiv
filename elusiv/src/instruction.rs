@@ -33,6 +33,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
 #[allow(clippy::large_enum_variant)]
 pub enum ElusivInstruction {
+    // -------- Base Commitment Hashing --------
+
     // Client sends `base_commitment` and `amount` to be stored in the Elusiv program
     #[acc(sender, { signer })]
     #[acc(sender_account, { writable })]
@@ -69,6 +71,8 @@ pub enum ElusivInstruction {
         fee_version: u32,
     },
 
+    // -------- Commitment Hashing --------
+
     // Hashes commitments in a new MT-root
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
     #[pda(storage_account, StorageAccount, { multi_accounts })]
@@ -90,6 +94,8 @@ pub enum ElusivInstruction {
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
     #[pda(storage_account, StorageAccount, { multi_accounts, writable })]
     FinalizeCommitmentHash,
+
+    // -------- Proof Verification --------
 
     // Proof verification initialization
     #[acc(fee_payer, { writable, signer })]
@@ -187,6 +193,8 @@ pub enum ElusivInstruction {
         verification_account_index: u32,
     },
 
+    // -------- MT management --------
+
     // Set the next MT as the active MT
     #[pda(storage_account, StorageAccount, { writable, multi_accounts })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
@@ -204,6 +212,8 @@ pub enum ElusivInstruction {
     ArchiveClosedMerkleTree {
         closed_mt_index: u32,
     },
+
+    // -------- Program State Setup/Management --------
 
     // Opens one `PDAAccount` with offset = None
     #[acc(payer, { writable, signer })]

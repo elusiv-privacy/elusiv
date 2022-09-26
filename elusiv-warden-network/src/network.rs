@@ -22,20 +22,36 @@ pub enum WardenNetworkSize {
     Dynamic(usize, usize),
 }
 
+impl WardenNetworkSize {
+    pub const fn members_count(&self) -> usize {
+        match self {
+            WardenNetworkSize::Fixed(m) => *m,
+            WardenNetworkSize::Dynamic(_, m) => *m,
+        }
+    }
+}
+
 macro_rules! warden_network {
     ($ty: ident, $account_ty: ident, $seed: expr, $type: expr, $size: expr, $members_count: expr) => {
-        #[elusiv_account(pda_seed = $seed)]
-        pub struct $account_ty {
-            pda_data: PDAAccountData,
-
-            members: [u32; $members_count],
-        }
-
         pub struct $ty {}
 
         impl WardenNetwork for $ty {
             const TYPE: WardenNetworkType = $type;
             const SIZE: WardenNetworkSize = $size;
+        }
+
+        #[elusiv_account(pda_seed = $seed)]
+        pub struct $account_ty {
+            pda_data: PDAAccountData,
+
+            members: [u32; $ty::SIZE.members_count()],
+            members_count: u32,
+        }
+
+        impl<'a> $account_ty<'a> {
+            pub fn copy_members(&self) -> Vec<u8> {
+                self.members.to_vec()
+            }
         }
     };
 }
@@ -118,6 +134,12 @@ impl<'a> FullWardenRegistrationAccount<'a> {
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct FullWardenRegistrationApplication {
     pub apae_cert: APAECert,
+}
+
+#[elusiv_account(pda_seed = b"basic_warden_application")]
+pub struct BasicWardenApplicationAccount {
+    pda_data: PDAAccountData,
+    warden: Pubkey,
 }
 
 #[cfg(test)]

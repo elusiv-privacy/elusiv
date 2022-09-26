@@ -5,6 +5,8 @@ use solana_program::program_error::ProgramError;
 pub enum ElusivWardenNetworkError {
     InvalidSignature,
     WardenRegistrationError,
+    ProposalError,
+    VotingError,
 }
 
 impl From<ElusivWardenNetworkError> for ProgramError {
