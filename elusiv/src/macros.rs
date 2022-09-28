@@ -92,7 +92,7 @@ macro_rules! storage_account {
 #[cfg(test)]
 macro_rules! nullifier_account {
     (internal $sub_accounts: ident, $data: ident) => {
-        let mut $data = vec![0; NullifierAccount::SIZE];
+        let mut $data = vec![0; <NullifierAccount as elusiv_types::accounts::SizedAccount>::SIZE];
         let mut sub_accounts = std::collections::HashMap::new();
         elusiv_proc_macros::repeat!({
             let pk = solana_program::pubkey::Pubkey::new_unique();

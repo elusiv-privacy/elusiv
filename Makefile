@@ -39,9 +39,25 @@ clean:
 
 ######## Testing ########
 TEST_MANIFEST ?= elusiv
-TEST_METHOD ?= test # test, test-bpf, tarpaulin
+TEST_KIND ?= unit
+TEST_METHOD ?= test
 TEST_FLAGS ?=
+
+ifeq ($(TEST_KIND), unit)
+Test_Kind_Args := --lib --features test-unit
+else ifeq ($(TEST_KIND), integration)
+Test_Kind_Args := --test '*'
+else
+$(error TEST_KIND can only be set to 'unit' or 'integration'!!)
+endif
+
+ifeq ($(TEST_METHOD), test)
+else ifeq ($(TEST_METHOD), test-bpf)
+else ifeq ($(TEST_METHOD), tarpaulin)
+else
+$(error TEST_METHOD can only be set to 'test', 'test-bpf' or 'tarpaulin'!!)
+endif
 
 .PHNOY: test
 test:
-	@cd $(TEST_MANIFEST) && cargo $(TEST_METHOD) $(TEST_FLAGS)
+	@cd $(TEST_MANIFEST) && cargo $(TEST_METHOD) $(Test_Kind_Args) $(TEST_FLAGS)

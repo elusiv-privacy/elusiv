@@ -15,14 +15,15 @@ members = [
 ]
 
 [features]
-instruction-abi = []
-devnet = []
+instruction-abi = ["elusiv-types/instruction-abi"]
+devnet = ["elusiv-proc-macros/devnet"]
 no-entrypoint = []
 precomputing = []
 logging = []
 
 test-bpf = []
 test-elusiv = ["bytemuck"]
+test-unit = ["elusiv-utils/test-unit"]
 
 [dependencies]
 elusiv-types = { path = "shared/elusiv-types" }
@@ -39,6 +40,7 @@ pyth-sdk-solana = "=0.4.2"
 
 static_assertions = "1.1.0"
 borsh = { version = "=0.9.3", features = ["const-generics"] }
+serde = { version = "1.0.85", features = ["derive"], optional = true }
 bytemuck = { version = "1.7.2", optional = true }
 
 ark-bn254 = "=0.3.0"

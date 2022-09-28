@@ -5,8 +5,7 @@ use solana_program::program_error::ProgramError;
 use crate::types::{U256, OrdU256};
 use crate::bytes::*;
 use crate::error::ElusivError::{CouldNotInsertNullifier};
-use super::program_account::{SizedAccount, PDAAccountData, MultiAccountAccountData, MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE};
-use borsh::{BorshDeserialize, BorshSerialize};
+use super::program_account::{PDAAccountData, MultiAccountAccountData, MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE};
 
 /// The count of nullifiers is the count of leaves in the MT
 const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
@@ -21,17 +20,17 @@ const_assert_eq!(ACCOUNTS_COUNT, 16);
 
 /// NullifierAccount is a big-array storing `NULLIFIERS_COUNT` nullifiers over multiple accounts
 /// - we use `NullifierMap`s to store the nullifiers
-#[elusiv_account(pda_seed = b"nullifier", multi_account = (ACCOUNTS_COUNT; ACCOUNT_SIZE))]
+#[elusiv_account(multi_account: { sub_account_count: ACCOUNTS_COUNT, sub_account_size: ACCOUNT_SIZE })]
 pub struct NullifierAccount {
     pda_data: PDAAccountData,
-    multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
+    pub multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
 
-    root: U256, // this value is only valid, after the active tree has been closed
+    pub root: U256, // this value is only valid, after the active tree has been closed
     nullifier_hash_count: u32,
 }
 
 /// Tree account after archiving (only a single collapsed N-SMT root)
-#[elusiv_account(pda_seed = b"archived")]
+#[elusiv_account]
 pub struct ArchivedTreeAccount {
     pda_data: PDAAccountData,
 

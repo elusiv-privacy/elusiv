@@ -6,10 +6,9 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use crate::error::ElusivError;
 use crate::proof::vkey::{VerificationKey, SendQuadraVKey, MigrateUnaryVKey};
-use crate::state::program_account::{SizedAccount, PDAAccountData, MultiAccountAccount, MultiAccountAccountData};
+use crate::state::program_account::{PDAAccountData, MultiAccountAccount, MultiAccountAccountData};
 use crate::fields::{Wrap, affine_into_projective};
 use crate::macros::{elusiv_account, guard};
-use crate::bytes::{BorshSerDeSized};
 
 const POINT_SIZE: usize = 64;
 const PRECOMPUTED_VALUES_COUNT: usize = 32 * 255;
@@ -26,13 +25,13 @@ pub trait PrecomutedValues<VKey: VerificationKey> {
 
 pub const PUBLIC_INPUTS_COUNT: usize = SendQuadraVKey::PUBLIC_INPUTS_COUNT + MigrateUnaryVKey::PUBLIC_INPUTS_COUNT;
 
-#[elusiv_account(pda_seed = b"precomputes", multi_account = (VKEY_COUNT; 0))]
+#[elusiv_account(multi_account: { sub_account_count: VKEY_COUNT, sub_account_size: 0 })]
 pub struct PrecomputesAccount {
     pda_data: PDAAccountData,
-    multi_account_data: MultiAccountAccountData<VKEY_COUNT>,
+    pub multi_account_data: MultiAccountAccountData<VKEY_COUNT>,
 
-    is_setup: bool,
-    instruction: u32,
+    pub is_setup: bool,
+    pub instruction: u32,
     vkey: u32,
     public_input: u32,
 }
@@ -162,14 +161,17 @@ impl<'a, 'b, 't, VKey: VerificationKey + Index> PrecomutedValues<VKey> for Preco
 /// [Public input precomputing](https://github.com/elusiv-privacy/elusiv/issues/27)
 /// - we choose `k := 8` (=> `32 * 255` permutations), with `n = 32` additions, which means we achieve `O(n / log n)` instead of `O(n)` complexity
 pub struct Precomputes<'a, VKey: VerificationKey> {
-    pub data: &'a mut [u8],
+    data: &'a mut [u8],
     phantom: PhantomData<VKey>,
 }
 
 impl<'a, VKey: VerificationKey> Precomputes<'a, VKey> {
     pub fn new(data: &'a mut [u8]) -> Self {
         assert_eq!(data.len(), precompute_account_size::<VKey>());
-        Self { data, phantom: PhantomData }
+        Self {
+            data,
+            phantom: PhantomData,
+        }
     }
 
     #[cfg(feature = "precomputing")]
@@ -250,12 +252,7 @@ impl<'a, VKey: VerificationKey> Precomputes<'a, VKey> {
     }
 
     fn get_point(&self, public_input: usize, byte_index: usize, byte: usize) -> G1Affine {
-        let slice = &self.data[memory_range(public_input, byte_index, byte)];
-        G1Affine::new(
-            <Wrap<Fq>>::try_from_slice(&slice[..32]).unwrap().0,
-            <Wrap<Fq>>::try_from_slice(&slice[32..64]).unwrap().0,
-            false
-        )
+        get_precomputed_point(self.data, public_input, byte_index, byte)
     }
 
     fn set_point(&mut self, public_input: usize, byte_index: usize, byte: usize, point: G1Affine) {
@@ -267,8 +264,20 @@ impl<'a, VKey: VerificationKey> Precomputes<'a, VKey> {
     }
 }
 
+fn get_precomputed_point(data: &[u8], public_input: usize, byte_index: usize, byte: usize) -> G1Affine {
+    let slice = &data[memory_range(public_input, byte_index, byte)];
+    G1Affine::new(
+        <Wrap<Fq>>::try_from_slice(&slice[..32]).unwrap().0,
+        <Wrap<Fq>>::try_from_slice(&slice[32..64]).unwrap().0,
+        false
+    )
+}
+
 #[cfg(feature = "precomputing")]
-pub struct VirtualPrecomputes<'a, VKey: VerificationKey>(pub Precomputes<'a, VKey>);
+pub struct VirtualPrecomputes<'a, VKey: VerificationKey>{
+    pub data: &'a [u8],
+    phantom: PhantomData<VKey>,
+}
 
 #[cfg(feature = "precomputing")]
 impl<'a, VKey: VerificationKey> VirtualPrecomputes<'a, VKey> {
@@ -279,11 +288,14 @@ impl<'a, VKey: VerificationKey> VirtualPrecomputes<'a, VKey> {
     pub fn new(data: &'a mut [u8]) -> Self {
         let mut p = Precomputes::<VKey>::new(data);
         p.full_precomputation();
-        Self(p)
+        Self::new_skip_precompute(data)
     }
 
-    pub fn new_skip_precompute(data: &'a mut [u8]) -> Self {
-        Self(Precomputes::<VKey>::new(data))
+    pub fn new_skip_precompute(data: &'a [u8]) -> Self {
+        Self {
+            data,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -292,13 +304,14 @@ impl<'a, VKey: VerificationKey> PrecomutedValues<VKey> for VirtualPrecomputes<'a
     fn sum(&self, acc: &mut G1Projective, public_input: usize, scalars: &[(usize, usize)]) {
         for (byte_index, byte) in scalars {
             if *byte == 0 { continue; }
-            acc.add_assign_mixed(&self.0.get_point(public_input, *byte_index, *byte))
+            let point = get_precomputed_point(self.data, public_input, *byte_index, *byte);
+            acc.add_assign_mixed(&point)
         }
     }
 
     #[cfg(feature = "test-elusiv")]
     fn point(&self, public_input: usize, byte_index: usize, byte: usize) -> G1Affine {
-        self.0.get_point(public_input, byte_index, byte)
+        get_precomputed_point(self.data, public_input, byte_index, byte)
     }
 }
 
@@ -315,15 +328,15 @@ mod tests {
     use std::{str::FromStr, collections::HashMap};
     use ark_bn254::Fr;
     use ark_ff::{PrimeField, Zero};
-    use crate::{fields::{u256_to_big_uint, big_uint_to_u256}, proof::vkey::TestVKey, macros::account, state::program_account::{SUB_ACCOUNT_ADDITIONAL_SIZE, MultiAccountProgramAccount}};
+    use crate::{fields::{u256_to_big_uint, big_uint_to_u256}, proof::vkey::TestVKey, macros::account, state::program_account::{SUB_ACCOUNT_ADDITIONAL_SIZE, SizedAccount, MultiAccountProgramAccount}};
 
     fn test_full_precompute<VKey: VerificationKey>() {
         let mut data = vec![0; precompute_account_size::<VKey>()];
-        let mut account = VirtualPrecomputes::<VKey>::new_skip_precompute(&mut data);
+        let mut precomputes = Precomputes::<VKey>::new(&mut data);
 
         for public_input in 0..VKey::PUBLIC_INPUTS_COUNT {
             let l = VKey::gamma_abc_g1(public_input + 1);
-            account.0.precompute(public_input);
+            precomputes.precompute(public_input);
 
             for byte_index in 0..32 {
                 for byte in 1..=255 {
@@ -333,7 +346,7 @@ mod tests {
                     let v = l.mul(s).into_affine();
 
                     assert!(!v.infinity);
-                    assert_eq!(account.0.get_point(public_input, byte_index, byte), v);
+                    assert_eq!(precomputes.get_point(public_input, byte_index, byte), v);
                 }
             }
         }
@@ -380,10 +393,10 @@ mod tests {
         }
 
         let mut data = vec![0; precompute_account_size2(0)];
-        assert_eq!(&acc0.data.borrow()[1..], VirtualPrecomputes::<SendQuadraVKey>::new(&mut data).0.data);
+        assert_eq!(&acc0.data.borrow()[1..], VirtualPrecomputes::<SendQuadraVKey>::new(&mut data).data);
 
         let mut data = vec![0; precompute_account_size2(1)];
-        assert_eq!(&acc1.data.borrow()[1..], VirtualPrecomputes::<MigrateUnaryVKey>::new(&mut data).0.data);
+        assert_eq!(&acc1.data.borrow()[1..], VirtualPrecomputes::<MigrateUnaryVKey>::new(&mut data).data);
 
         assert!(precompute_account.get_is_setup());
     }

@@ -7,7 +7,7 @@ use solana_program::sysvar::Sysvar;
 use std::net::Ipv4Addr;
 use solana_program::account_info::AccountInfo;
 use solana_program::entrypoint::ProgramResult;
-use crate::apa::{APAProposal, APAECert, APAConfig, APAProposalAccount};
+use crate::apa::{APAProposal, APAECert, APAConfig, APAProposalAccount, APAAccount};
 use crate::proposal::{Proposal, Vote, ProposalAccount, ProposalVotingAccount};
 use crate::warden::{ElusivFullWardenAccount, ElusivWardenID, ElusivWardensAccount, ElusivFullWarden, ElusivBasicWarden, ElusivBasicWardenAccount};
 use crate::network::{FullWardenRegistrationAccount, FullWardenRegistrationApplication, ElusivFullWardenNetworkAccount};
@@ -16,6 +16,8 @@ use crate::error::ElusivWardenNetworkError;
 pub fn init<'a>(
     payer: &AccountInfo<'a>,
     warden_registration: &AccountInfo<'a>,
+    apa: &AccountInfo<'a>,
+
     wardens: &AccountInfo<'a>,
 ) -> ProgramResult {
     open_pda_account_without_offset::<FullWardenRegistrationAccount>(
@@ -28,6 +30,12 @@ pub fn init<'a>(
         &crate::id(),
         payer,
         wardens,
+    )?;
+
+    open_pda_account_without_offset::<APAAccount>(
+        &crate::id(),
+        payer,
+        apa,
     )
 }
 
@@ -198,12 +206,18 @@ pub fn finalize_apa_proposal(
     warden: &AccountInfo,
     warden_account: &ElusivFullWardenAccount,
     proposal_account: &mut APAProposalAccount,
+    _apa_account: &mut APAAccount,
 
-    warden_id: ElusivWardenID,
+    _warden_id: ElusivWardenID,
     _proposal_id: u32,
+    _next_root: [u8; 32],
 ) -> ProgramResult {
     warden_account.verify(warden)?;
     guard!(proposal_account.is_consensus_reached(), ElusivWardenNetworkError::ProposalError);
+
+    // Update APAAccount
+    // Creates an APAOutcastAccount that stores the pubkey and kind for the outcast
+    // Creates an PDA using the hash using seed + of the outcast pubkey
 
     todo!()
 }

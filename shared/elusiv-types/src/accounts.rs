@@ -6,23 +6,19 @@ use solana_program::pubkey::Pubkey;
 use elusiv_derive::BorshSerDeSized;
 use crate::bytes::{BorshSerDeSized, ElusivOption};
 
-pub trait SizedAccount {
+pub trait SizedAccount: Sized {
     const SIZE: usize;
 }
 
 pub trait ProgramAccount<'a>: SizedAccount {
-    type T: SizedAccount;
-
-    fn new(d: &'a mut [u8]) -> Result<Self::T, ProgramError>;
+    fn new(d: &'a mut [u8]) -> Result<Self, ProgramError>;
 }
 
-pub trait MultiAccountProgramAccount<'a, 'b, 't> {
-    type T: SizedAccount;
-
+pub trait MultiAccountProgramAccount<'a, 'b, 't>: SizedAccount {
     fn new(
         d: &'a mut [u8],
         accounts: std::collections::HashMap<usize, &'b AccountInfo<'t>>,
-    ) -> Result<Self::T, ProgramError>;
+    ) -> Result<Self, ProgramError>;
 }
 
 pub type PDAOffset = Option<u32>;
@@ -37,6 +33,9 @@ pub type PDAOffset = Option<u32>;
 pub trait PDAAccount {
     const PROGRAM_ID: Pubkey;
     const SEED: &'static [u8];
+    
+    #[cfg(feature = "instruction-abi")]
+    const IDENT: &'static str;
 
     fn find(offset: PDAOffset) -> (Pubkey, u8) {
         let seed = Self::offset_seed(offset);
@@ -87,6 +86,10 @@ pub trait PDAAccount {
     }
 } 
 
+pub trait SingleInstancePDAAccount: PDAAccount {
+    const SINGLE_INSTANCE_ADDRESS: Pubkey;
+}
+
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct PDAAccountData {
     pub bump_seed: u8,
@@ -106,7 +109,7 @@ impl PDAAccountData {
 
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct MultiAccountAccountData<const COUNT: usize> {
-    // ... PDAAccountData always before MultiAccountAccountData, since it's a PDA
+    // .. `PDAAccountData` always before `MultiAccountAccountData`, since it's a PDA
      
     pub pubkeys: [ElusivOption<Pubkey>; COUNT],
 }
@@ -124,17 +127,6 @@ impl<const COUNT: usize> BorshSerDeSized for MultiAccountAccountData<COUNT> {
 impl<const COUNT: usize> MultiAccountAccountData<COUNT> {
     pub fn new(data: &[u8]) -> Result<Self, std::io::Error> {
         MultiAccountAccountData::try_from_slice(&data[PDAAccountData::SIZE..PDAAccountData::SIZE + Self::SIZE])
-    }
-}
-
-/// Certain accounts, like the `VerificationAccount` can be instantiated multiple times.
-/// - this allows for parallel computations/usage
-/// - so we can compare this index with `MAX_INSTANCES` to check validity
-pub trait MultiInstancePDAAccount: PDAAccount {
-    const MAX_INSTANCES: u64;
-
-    fn is_valid(&self, index: u64) -> bool {
-        index < Self::MAX_INSTANCES
     }
 }
 

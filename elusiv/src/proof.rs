@@ -12,12 +12,12 @@ use ark_bn254::{Fq, Fq2, Fq6, Fq12};
 use vkey::VerificationKey;
 use crate::error::ElusivError;
 use crate::processor::{ProofRequest, MAX_MT_COUNT};
-use crate::state::program_account::{SizedAccount, PDAAccountData};
+use crate::state::program_account::PDAAccountData;
 use crate::token::Lamports;
 use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, LazyField, Lazy, RawU256};
 use crate::fields::{Wrap, G1A, G2A, G2HomProjective};
 use crate::macros::{elusiv_account, guard};
-use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
+use crate::bytes::{BorshSerDeSized, SizedType, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
 
 pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
 pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
@@ -44,27 +44,27 @@ pub enum VerificationState {
 
 /// Account used for verifying proofs over the span of multiple transactions
 /// - exists only for verifying a single proof, closed afterwards
-#[elusiv_account(pda_seed = b"proof", partial_computation)]
+#[elusiv_account(partial_computation: true)]
 pub struct VerificationAccount {
     pda_data: PDAAccountData,
 
     instruction: u32,
     round: u32,
 
-    prepare_inputs_instructions_count: u32,
-    prepare_inputs_instructions: [u16; MAX_PREPARE_INPUTS_INSTRUCTIONS],
+    pub prepare_inputs_instructions_count: u32,
+    pub prepare_inputs_instructions: [u16; MAX_PREPARE_INPUTS_INSTRUCTIONS],
 
-    kind: u8,
+    pub kind: u8,
     step: VerificationStep,
-    state: VerificationState,
+    pub state: VerificationState,
 
     // Public inputs
-    public_input: [RawU256; MAX_PUBLIC_INPUTS_COUNT],
+    pub public_input: [RawU256; MAX_PUBLIC_INPUTS_COUNT],
 
     // Proof
-    #[pub_non_lazy] a: Lazy<'a, G1A>,
-    #[pub_non_lazy] b: Lazy<'a, G2A>,
-    #[pub_non_lazy] c: Lazy<'a, G1A>,
+    #[pub_non_lazy] pub a: Lazy<'a, G1A>,
+    #[pub_non_lazy] pub b: Lazy<'a, G2A>,
+    #[pub_non_lazy] pub c: Lazy<'a, G1A>,
 
     // Computation values
     #[pub_non_lazy] prepared_inputs: Lazy<'a, G1A>,
@@ -80,11 +80,11 @@ pub struct VerificationAccount {
     #[pub_non_lazy] ram_fq12: RAMFq12<'a>,
 
     // If true, the proof request can be finalized
-    is_verified: ElusivOption<bool>,
+    pub is_verified: ElusivOption<bool>,
 
-    other_data: VerificationAccountData,
-    #[no_getter] request: ProofRequest,
-    tree_indices: [u32; MAX_MT_COUNT],
+    pub other_data: VerificationAccountData,
+    #[no_getter] pub request: ProofRequest,
+    pub tree_indices: [u32; MAX_MT_COUNT],
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug, Clone, Default)]
@@ -239,9 +239,11 @@ impl<'a, N: Clone + Copy, const SIZE: usize> RAM<N> for LazyRAM<'a, N, SIZE> whe
     fn get_frame(&mut self) -> usize { self.frame }
 }
 
-impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>: BorshSerDeSized {
+impl<'a, N: Clone + Copy, const SIZE: usize> SizedType for LazyRAM<'a, N, SIZE> where Wrap<N>: BorshSerDeSized {
     const SIZE: usize = <Wrap<N>>::SIZE * SIZE;
+}
 
+impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>: BorshSerDeSized {
     pub fn new(source: &'a mut [u8]) -> Self {
         assert!(source.len() == Self::SIZE);
         LazyRAM { data: vec![], frame: 0, source, changes: vec![] }

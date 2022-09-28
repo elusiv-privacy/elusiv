@@ -1,8 +1,7 @@
 use crate::commitment::{BaseCommitmentHashComputation, commitment_hash_computation_instructions, commitments_per_batch, MAX_COMMITMENT_BATCHING_RATE};
-use crate::macros::{elusiv_account};
+use crate::macros::elusiv_account;
 use crate::bytes::{BorshSerDeSized, div_ceiling, u64_as_usize_safe};
 use crate::proof::{CombinedMillerLoop, FinalExponentiation};
-use crate::state::program_account::SizedAccount;
 use crate::token::{Lamports, Token, TokenError, TokenPrice};
 use super::program_account::PDAAccountData;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -64,14 +63,14 @@ impl ProgramFee {
     }
 }
 
-#[elusiv_account(pda_seed = b"fee")]
+#[elusiv_account]
 /// Specifies the program fees and compensation for wardens
 /// - multiple fee-accounts can exist
 /// - each one has it's own version as its pda-offset
 /// - the `GovernorAccount` defines the most-recent version
 pub struct FeeAccount {
     pda_data: PDAAccountData,
-    program_fee: ProgramFee,
+    pub program_fee: ProgramFee,
 }
 
 impl ProgramFee {

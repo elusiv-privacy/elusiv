@@ -545,6 +545,9 @@ mod tests {
     impl PDAAccount for TestTokenAuthorityAccount {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"TEST";
+
+        #[cfg(feature = "instruction-abi")]
+        const IDENT: &'static str = "TestTokenAuthorityAccount";
     }
 
     impl TokenAuthorityAccount for TestTokenAuthorityAccount {

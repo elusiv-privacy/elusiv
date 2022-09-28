@@ -15,6 +15,9 @@ mod tests {
     impl PDAAccount for TestPDAAccount {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"ABC";
+
+        #[cfg(feature = "instruction-abi")]
+        const IDENT: &'static str = "TestPDAAccount";
     }
 
     #[test]
@@ -45,6 +48,9 @@ mod tests {
     impl<'a, 'b> PDAAccount for TestMultiAccount<'a, 'b> {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"ABC";
+
+        #[cfg(feature = "instruction-abi")]
+        const IDENT: &'static str = "TestMultiAccount";
     }
 
     impl<'a, 'b> MultiAccountAccount<'b> for TestMultiAccount<'a, 'b> {

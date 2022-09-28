@@ -230,6 +230,32 @@ fn prepare_public_inputs_partial<P: PrecomutedValues<VKey>, VKey: VerificationKe
     None
 }
 
+#[cfg(feature = "precomputing")]
+pub fn precomputed_input_preparation<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
+    precomputes: &P,
+    public_inputs: &[U256],
+) -> Option<G1Affine> {
+    if public_inputs.len() != VKey::PUBLIC_INPUTS_COUNT {
+        return None
+    }
+
+    let mut g_ic = VKey::gamma_abc_g1_0();
+    for (i, public_input) in public_inputs.iter().enumerate() {
+        if *public_input == [0; 32] {
+            continue
+        }
+
+        let mut acc = G1Projective::zero();
+        let scalars = (0..32usize)
+            .zip(public_input.iter().map(|b| { *b as usize }))
+            .collect::<Vec<(usize, usize)>>();
+        precomputes.sum(&mut acc, i, &scalars);
+
+        g_ic += acc;
+    }
+    Some(g_ic.into_affine())
+}
+
 const ADD_MIXED_COST: u16 = 22;
 const ADD_COST: u16 = 30;
 const MAX_CUS: u16 = 1_330; // 1_400_000 / 1000 minus padding
@@ -876,7 +902,7 @@ mod tests {
     use crate::proof::test_proofs::{valid_proofs, invalid_proofs};
     use crate::proof::vkey::{TestVKey, SendQuadraVKey};
     use crate::state::empty_root_raw;
-    use crate::state::program_account::ProgramAccount;
+    use crate::state::program_account::{SizedAccount, ProgramAccount};
     use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs, RecipientAccount};
 
     macro_rules! storage {
@@ -961,6 +987,12 @@ mod tests {
             storage.set_public_input(i, & RawU256::new(u256_from_str_skip_mr(*public_input)));
         }
 
+        // precomputed_input_preparation version
+        let p_result = precomputed_input_preparation(
+            &precomputes,
+            &public_inputs.iter().map(|&p| { u256_from_str_skip_mr(p) }).collect::<Vec<U256>>()[..],
+        ).unwrap();
+
         let result = prepare_public_inputs_partial(
             0,
             TestVKey::PREPARE_PUBLIC_INPUTS_ROUNDS,
@@ -970,6 +1002,7 @@ mod tests {
         let public_inputs: Vec<Fr> = public_inputs.iter().map(|s| Fr::from_str(s).unwrap()).collect();
         let expected = prepare_inputs(&pvk, &public_inputs).unwrap().into_affine();
         assert_eq!(result, expected);
+        assert_eq!(result, p_result);
 
         // Second version
         storage!(storage);
@@ -1336,8 +1369,8 @@ mod tests {
         setup_storage_account::<TestVKey>(&mut storage, proof, &public_inputs);
         let instruction_count = storage.get_prepare_inputs_instructions_count() as usize + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS;
 
-        let mut data = vec![0; precompute_account_size::<TestVKey>()];
-        let precomputes = VirtualPrecomputes::<TestVKey>::new_skip_precompute(&mut data);
+        let data = vec![0; precompute_account_size::<TestVKey>()];
+        let precomputes = VirtualPrecomputes::<TestVKey>::new_skip_precompute(&data);
 
         for _ in 0..instruction_count {
             verify_partial(&mut storage, &precomputes).unwrap();

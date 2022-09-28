@@ -4,7 +4,7 @@ use crate::u64_array;
 use crate::fields::{G1A, G2A, u64_to_u256_skip_mr, u256_to_big_uint, fr_to_u256_le};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use elusiv_derive::BorshSerDePlaceholder;
+use elusiv_types::SizedType;
 use solana_program::pubkey::Pubkey;
 use crate::bytes::{BorshSerDeSized, max};
 use borsh::BorshDeserialize;
@@ -16,6 +16,7 @@ pub type U256 = [u8; 32];
 
 /// A U256 in non-montgomery reduction form
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct RawU256(U256);
 
 impl RawU256 {
@@ -54,19 +55,19 @@ impl Ord for OrdU256 {
     }
 }
 
-pub trait LazyField<'a>: BorshSerDeSized {
+pub trait LazyField<'a>: SizedType {
     fn new(data: &'a mut [u8]) -> Self;
     fn serialize(&mut self);
 }
 
-#[derive(BorshSerDePlaceholder, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct Lazy<'a, N: BorshSerDeSized + Clone> {
     modified: bool,
     value: Option<N>,
     data: &'a mut [u8],
 }
 
-impl<'a, N: BorshSerDeSized + Clone> BorshSerDeSized for Lazy<'a, N> {
+impl<'a, N: BorshSerDeSized + Clone> SizedType for Lazy<'a, N> {
     const SIZE: usize = N::SIZE;
 }
 
@@ -102,13 +103,13 @@ impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
     }
 }
 
-#[derive(BorshSerDePlaceholder, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct JITArray<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> {
     pub data: &'a mut [u8],
     phantom: PhantomData<N>,
 }
 
-impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> BorshSerDeSized for JITArray<'a, N, CAPACITY> {
+impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> SizedType for JITArray<'a, N, CAPACITY> {
     const SIZE: usize = N::SIZE * CAPACITY;
 }
 
@@ -163,6 +164,7 @@ impl TryFrom<RawProof> for Proof {
 }
 
 #[derive(PartialEq, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct JoinSplitPublicInputs {
     pub commitment_count: u8,
 
@@ -302,6 +304,7 @@ impl RecipientAccount {
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 /// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
 /// - IMPORTANT: depending on recipient.is_non_associated_token_account, a higher amount is required (that also includes the rent)
 pub struct SendPublicInputs {
@@ -313,6 +316,7 @@ pub struct SendPublicInputs {
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
 pub struct MigratePublicInputs {
     pub join_split: JoinSplitPublicInputs,
@@ -753,21 +757,6 @@ mod test {
     }
 
     type TestJITArray<'a> = JITArray<'a, u64, 100>;
-
-    #[test]
-    #[should_panic]
-    fn test_jit_array_ser() {
-        let v = vec![0; TestJITArray::SIZE];
-        _ = TestJITArray::deserialize(&mut &v[..]);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_jit_array_de() {
-        let mut v = vec![0; TestJITArray::SIZE];
-        let a = TestJITArray::new(&mut v);
-        _ = a.try_to_vec();
-    }
 
     #[test]
     fn test_jit_array() {

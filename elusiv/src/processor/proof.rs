@@ -46,6 +46,7 @@ use borsh::{BorshSerialize, BorshDeserialize};
 use super::CommitmentHashRequest;
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized, EnumVariantIndex, PartialEq, Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProofRequest {
     Send(SendPublicInputs),
     Merge(SendPublicInputs),
@@ -1257,7 +1258,7 @@ mod tests {
             let precomputes = VirtualPrecomputes::<$vkey>::new(&mut data);
 
             let mut d = vec![1];
-            d.extend(precomputes.0.data.to_vec());
+            d.extend(precomputes.data.to_vec());
 
             let pk = solana_program::pubkey::Pubkey::new_unique();
             account!($id, pk, d);

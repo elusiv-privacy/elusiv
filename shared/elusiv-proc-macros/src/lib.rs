@@ -65,6 +65,6 @@ pub fn elusiv_tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 }
 
 #[proc_macro]
-pub fn program_id(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    impl_program_id(input.into()).into()
+pub fn program_id(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    impl_program_id().into()
 }

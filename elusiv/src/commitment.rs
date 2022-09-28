@@ -10,13 +10,12 @@ use crate::macros::{elusiv_account, elusiv_hash_compute_units, guard, two_pow};
 use crate::processor::BaseCommitmentHashRequest;
 use crate::state::{StorageAccount, HISTORY_ARRAY_COUNT};
 use crate::types::U256;
-use crate::bytes::{BorshSerDeSized, usize_as_u32_safe};
-use crate::state::program_account::{SizedAccount, PDAAccountData};
+use crate::bytes::usize_as_u32_safe;
+use crate::state::program_account::PDAAccountData;
 use crate::fields::{u256_to_fr_skip_mr, fr_to_u256_le};
 use ark_bn254::Fr;
 use ark_ff::{BigInteger256, PrimeField};
 use solana_program::program_error::ProgramError;
-use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;
 use self::poseidon_hash::BinarySpongeHashingState;
 
@@ -29,20 +28,20 @@ const_assert_eq!(BaseCommitmentHashComputation::TX_COUNT, 2);
 /// Account used for computing `commitment = h(base_commitment, amount)`
 /// - https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/commitment.circom#L7
 /// - multiple of these accounts can exist
-#[elusiv_account(pda_seed = b"base_commitment", partial_computation)]
+#[elusiv_account(partial_computation: true)]
 pub struct BaseCommitmentHashingAccount {
     pda_data: PDAAccountData,
 
-    instruction: u32,
+    pub instruction: u32,
     round: u32,
 
-    fee_version: u32,
-    fee_payer: U256,
-    is_active: bool,
+    pub fee_version: u32,
+    pub fee_payer: U256,
+    pub is_active: bool,
 
     token_id: u16,
-    state: BinarySpongeHashingState,
-    min_batching_rate: u32,
+    pub state: BinarySpongeHashingState,
+    pub min_batching_rate: u32,
 }
 
 impl<'a> BaseCommitmentHashingAccount<'a> {
@@ -169,29 +168,29 @@ const_assert_eq!(MAX_HT_COMMITMENTS, 16);
 
 /// Account used for computing the hashes of a MT
 /// - only one of these accounts can exist per MT
-#[elusiv_account(pda_seed = b"commitment", partial_computation)]
+#[elusiv_account(partial_computation: true)]
 pub struct CommitmentHashingAccount {
     pda_data: PDAAccountData,
 
-    instruction: u32,
+    pub instruction: u32,
     round: u32,
 
-    fee_version: u32,
-    is_active: bool,
+    pub fee_version: u32,
+    pub is_active: bool,
 
-    setup: bool,
-    finalization_ix: u32,
+    pub setup: bool,
+    pub finalization_ix: u32,
 
-    batching_rate: u32,
+    pub batching_rate: u32,
     state: BinarySpongeHashingState,
-    ordering: u32,
-    siblings: [U256; MT_HEIGHT],
+    pub ordering: u32,
+    pub siblings: [U256; MT_HEIGHT],
 
     // hashes in: (HT-root; MT-root]
     above_hashes: [U256; MT_HEIGHT],
 
     // commitments and hashes in the HT
-    hash_tree: [U256; MAX_HT_SIZE],
+    pub hash_tree: [U256; MAX_HT_SIZE],
 }
 
 pub fn compute_commitment_hash_partial(
@@ -427,7 +426,7 @@ mod tests {
     use super::*;
     use crate::fields::{u256_from_str, u64_to_u256_skip_mr, u64_to_scalar_skip_mr, u64_to_scalar};
     use crate::state::EMPTY_TREE;
-    use crate::state::program_account::{ProgramAccount, MultiAccountProgramAccount, MultiAccountAccount};
+    use crate::state::program_account::{ProgramAccount, SizedAccount, MultiAccountProgramAccount, MultiAccountAccount};
     use crate::macros::storage_account;
     use crate::types::RawU256;
     use ark_bn254::Fr;

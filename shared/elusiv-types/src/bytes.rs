@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::pubkey::Pubkey;
+
 pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
     const SIZE: usize;
 
@@ -8,6 +9,10 @@ pub trait BorshSerDeSized: BorshSerialize + BorshDeserialize {
         slice[..vec.len()].copy_from_slice(&vec[..]);
         Ok(())
     }
+}
+
+pub trait SizedType {
+    const SIZE: usize;
 }
 
 pub trait BorshSerDeSizedEnum: BorshSerDeSized {

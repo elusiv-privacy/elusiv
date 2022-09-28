@@ -75,7 +75,8 @@ pub fn create_pda_account<'a>(
     bump: u8,
     signers_seeds: &[&[u8]],
 ) -> ProgramResult {
-    if cfg!(test) {
+    // We require the test-unit feature since cfg!(test) does not work in deps
+    if cfg!(feature = "test-unit") {
         return Ok(());
     }
 
@@ -135,7 +136,7 @@ pub fn transfer_lamports_from_pda_checked<'a>(
     let pda_lamports = pda.lamports();
     let pda_size = pda.data_len();
 
-    if !cfg!(test) {
+    if !cfg!(feature = "test-unit") {
         let rent_lamports = Rent::get()?.minimum_balance(pda_size);
         if pda_lamports.checked_sub(lamports).ok_or(MATH_ERR)? < rent_lamports {
             return Err(ProgramError::AccountNotRentExempt)

@@ -2,8 +2,8 @@
 
 [[token]]
 symbol = "LAMPORTS"
-mint = "11111111111111111111111111111111"
-mint_devnet = "11111111111111111111111111111111"
+mint = "11111111111111111111111111111111" # unused
+mint_devnet = "11111111111111111111111111111111" # unused
 active = true
 price_base_exp = 9
 min = 1_000
@@ -16,7 +16,7 @@ pyth_usd_price_devnet = "J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"
 symbol = "USDC"
 # https://explorer.solana.com/address/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-mint_devnet = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+mint_devnet = "4TfmwiUS9V1diG1eE3JrjDtvGGDRzqgzGoFPJnKMYeLE"
 active = true
 decimals = 6
 min = 1_000
@@ -29,7 +29,7 @@ pyth_usd_price_devnet = "5SSkXsEKQepHHAewytPVwdej4epN1nxgLVM84L4KXgy7"
 symbol = "USDT"
 # https://explorer.solana.com/address/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB
 mint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
-mint_devnet = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+mint_devnet = "B7aZSEhHo96LFohZVLPpx2uMyfrj9crrTkDjeRx9qBcp"
 active = true
 decimals = 6
 min = 1_000

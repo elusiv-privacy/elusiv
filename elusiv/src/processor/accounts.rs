@@ -121,7 +121,7 @@ pub fn enable_token_account<'a>(
     Ok(())
 }
 
-fn create_token_account<'a, T: TokenAuthorityAccount + ProgramAccount<'a, T = T>>(
+fn create_token_account<'a, T: TokenAuthorityAccount + ProgramAccount<'a>>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
     token_account: &AccountInfo<'a>,

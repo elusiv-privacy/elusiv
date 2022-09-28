@@ -1,20 +1,20 @@
-//! Queues are used to store hash, proof verification and payment requests
+#![allow(dead_code)]
 
-use borsh::{BorshSerialize, BorshDeserialize};
 use solana_program::program_error::ProgramError;
 use crate::commitment::commitments_per_batch;
 use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty, InvalidFeeVersion, InvalidQueueAccess};
-use crate::macros::guard;
+use crate::macros::{guard, elusiv_account};
 use crate::bytes::*;
-use crate::macros::*;
 use crate::processor::CommitmentHashRequest;
-use super::program_account::{SizedAccount, ProgramAccount, PDAAccountData, MultiInstancePDAAccount};
+use super::program_account::{SizedAccount, ProgramAccount, PDAAccountData};
 
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
-    ($id: ident, $id_account: ident, $seed: literal, $size: literal, $ty_element: ty, $max_instances: literal) => {
-        #[elusiv_account(pda_seed = $seed)]
+    ($id: ident, $id_account: ident, $seed: literal, $size: literal, $ty_element: ty) => {
+        #[elusiv_account]
         pub struct $id_account {
+            #[no_getter]
+            #[no_setter]
             pda_data: PDAAccountData,
 
             head: u32,
@@ -31,12 +31,6 @@ macro_rules! queue_account {
             <$id>::SIZE,
             $size
         );
-
-        impl<'a> MultiInstancePDAAccount for $id_account<'a> {
-            const MAX_INSTANCES: u64 = $max_instances;
-        }
-
-        const_assert!(1 <= $id_account::MAX_INSTANCES);
 
         pub struct $id<'a, 'b> {
             account: &'b mut $id_account<'a>,
@@ -67,7 +61,7 @@ pub trait Queue<'a, 'b, Account: ProgramAccount<'a>> {
 }
 
 // Queue used for storing commitments that should sequentially inserted into the active MT
-queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest, 1);
+queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest);
 
 impl<'a, 'b> CommitmentQueue<'a, 'b> {
     /// Returns the next batch of commitments to be hashed together

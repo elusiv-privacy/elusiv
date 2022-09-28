@@ -87,3 +87,30 @@ impl<'a> ProposalVotingAccount for APAProposalAccount<'a> {
         consensus.consensus(accept, accept + reject, ElusivFullWardenNetwork::SIZE.members_count() as u32)
     }
 }
+
+#[elusiv_account(pda_seed = b"apa")]
+pub struct APAAccount {
+    pda_data: PDAAccountData,
+
+    flagged: APATree,
+    outcast: APATree,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct APATree {
+    count: u32,
+    root: [u8; 32],
+    signature: [u8; 32],
+}
+
+#[elusiv_account(pda_seed = b"apa_flagged")]
+pub struct APAFlaggedAccount {
+    pda_data: PDAAccountData,
+    key: Pubkey,
+}
+
+#[elusiv_account(pda_seed = b"apa_outcast")]
+pub struct APAOutcastAccount {
+    pda_data: PDAAccountData,
+    key: Pubkey,
+}

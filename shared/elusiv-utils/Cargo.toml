@@ -13,6 +13,7 @@ sdk = [
     "solana-sdk",
     "elusiv-computation",
 ]
+test-unit = []
 
 [dependencies]
 elusiv-types = { path = "./../elusiv-types" }

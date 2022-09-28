@@ -2,7 +2,7 @@ use elusiv_types::{PDAAccount, ProgramAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::net::Ipv4Addr;
 use solana_program::system_program;
-use crate::apa::{APAECert, APAProposal, APAConfig, APAProposalAccount};
+use crate::apa::{APAECert, APAProposal, APAConfig, APAProposalAccount, APAAccount};
 use crate::proposal::Vote;
 use crate::warden::{ElusivBasicWardenAccount, ElusivFullWardenAccount, ElusivWardensAccount, ElusivWardenID};
 use crate::macros::ElusivInstruction;
@@ -14,6 +14,7 @@ pub enum ElusivWardenNetworkInstruction {
     #[acc(payer, { signer, writable })]
     #[pda(warden_registration, FullWardenRegistrationAccount, { writable, find_pda, account_info })]
     #[pda(wardens, ElusivWardensAccount, { writable, find_pda, account_info })]
+    #[pda(apa, APAAccount, { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     Init,
 
@@ -86,8 +87,10 @@ pub enum ElusivWardenNetworkInstruction {
     #[acc(warden, { signer })]
     #[pda(warden_account, ElusivFullWardenAccount, pda_offset = Some(warden_id))]
     #[pda(proposal_account, APAProposalAccount, pda_offset = Some(proposal_id), { writable })]
+    #[pda(apa_account, APAAccount, { writable })]
     FinalizeApaProposal {
         warden_id: ElusivWardenID,
         proposal_id: u32,
+        next_root: [u8; 32],
     }
 }

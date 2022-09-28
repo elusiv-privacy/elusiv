@@ -2,7 +2,7 @@ use crate::macros::{elusiv_account, two_pow};
 use crate::types::U256;
 use crate::bytes::*;
 use super::program_account::*;
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 
 /// Height of the active MT
 /// - we define the height using the amount of leaves
@@ -31,23 +31,23 @@ const_assert_eq!(ACCOUNTS_COUNT, 25);
 // The `StorageAccount` contains the active MT that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
-#[elusiv_account(pda_seed = b"storage", multi_account = (ACCOUNTS_COUNT; ACCOUNT_SIZE))]
+#[elusiv_account(multi_account: { sub_account_count: ACCOUNTS_COUNT, sub_account_size: ACCOUNT_SIZE })]
 pub struct StorageAccount {
     pda_data: PDAAccountData,
-    multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
+    pub multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
 
     // Points to the next commitment in the active MT
-    next_commitment_ptr: u32,
+    pub next_commitment_ptr: u32,
 
     // The amount of already finished (closed) MTs
-    trees_count: u32,
+    pub trees_count: u32,
 
     // The amount of archived MTs
     archived_count: u32,
 
     // Stores the last HISTORY_ARRAY_COUNT roots of the active tree
-    active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
-    mt_roots_count: u32, // required since we batch insert commitments
+    pub active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
+    pub mt_roots_count: u32, // required since we batch insert commitments
 }
 
 impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {

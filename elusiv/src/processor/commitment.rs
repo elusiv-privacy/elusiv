@@ -46,6 +46,7 @@ use crate::macros::BorshSerDeSized;
 pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct BaseCommitmentHashRequest {
     pub base_commitment: RawU256,
     pub amount: u64,
