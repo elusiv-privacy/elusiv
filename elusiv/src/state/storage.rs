@@ -31,7 +31,7 @@ const_assert_eq!(ACCOUNTS_COUNT, 25);
 // The `StorageAccount` contains the active MT that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
-#[elusiv_account(multi_account: { sub_account_count: ACCOUNTS_COUNT, sub_account_size: ACCOUNT_SIZE })]
+#[elusiv_account(multi_account: { sub_account_count: ACCOUNTS_COUNT, sub_account_size: ACCOUNT_SIZE }, single_instance: true)]
 pub struct StorageAccount {
     pda_data: PDAAccountData,
     pub multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,

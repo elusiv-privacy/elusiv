@@ -14,7 +14,7 @@ members = [
 
 [features]
 instruction-abi = []
-devnet = []
+devnet = ["elusiv-proc-macros/devnet"]
 no-entrypoint = []
 
 test-bpf = []

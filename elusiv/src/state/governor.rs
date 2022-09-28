@@ -3,7 +3,7 @@ use crate::{macros::elusiv_account, types::U256};
 use crate::bytes::ElusivOption;
 use super::{program_account::PDAAccountData, fee::ProgramFee};
 
-#[elusiv_account]
+#[elusiv_account(single_instance: true)]
 pub struct GovernorAccount {
     pda_data: PDAAccountData,
 
@@ -44,13 +44,13 @@ macro_rules! impl_token_authority {
 impl_token_authority!(PoolAccount);
 impl_token_authority!(FeeCollectorAccount);
 
-#[elusiv_account]
+#[elusiv_account(single_instance: true)]
 pub struct PoolAccount {
     pda_data: PDAAccountData,
     pub accounts: [ElusivOption<U256>; SPL_TOKEN_COUNT],
 }
 
-#[elusiv_account]
+#[elusiv_account(single_instance: true)]
 pub struct FeeCollectorAccount {
     pda_data: PDAAccountData,
     pub accounts: [ElusivOption<U256>; SPL_TOKEN_COUNT],

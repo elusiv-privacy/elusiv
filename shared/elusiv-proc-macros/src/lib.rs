@@ -60,8 +60,8 @@ pub fn repeat(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 /// Parses Token.toml
 #[proc_macro]
-pub fn elusiv_tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    impl_parse_tokens(input.into()).into()
+pub fn elusiv_tokens(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    impl_parse_tokens().into()
 }
 
 #[proc_macro]

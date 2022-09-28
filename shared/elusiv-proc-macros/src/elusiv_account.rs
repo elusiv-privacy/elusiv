@@ -137,6 +137,19 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             "partial_computation" => {
                 enforce_field(quote!{ instruction : u32 }, 1, &s.fields);
                 enforce_field(quote!{ round : u32 }, 2, &s.fields);
+
+                impls.extend(quote! {
+                    #[cfg(feature = "instruction-abi")]
+                    impl < #lifetimes > elusiv_types::accounts::ComputationAccount for #ident < #lifetimes > {
+                        fn instruction(&self) -> u32 {
+                            self.get_instruction()
+                        }
+
+                        fn round(&self) -> u32 {
+                            self.get_round()
+                        }
+                    }
+                });
             }
             
             // Turns the account into a `SingleInstancePDAAccount`

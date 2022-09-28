@@ -90,6 +90,11 @@ pub trait SingleInstancePDAAccount: PDAAccount {
     const SINGLE_INSTANCE_ADDRESS: Pubkey;
 }
 
+pub trait ComputationAccount: PDAAccount {
+    fn instruction(&self) -> u32;
+    fn round(&self) -> u32;
+}
+
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct PDAAccountData {
     pub bump_seed: u8,

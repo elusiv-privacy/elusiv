@@ -23,9 +23,7 @@ struct Token {
     pyth_usd_price_devnet: String,
 }
 
-pub fn impl_parse_tokens(attrs: TokenStream) -> TokenStream {
-    let devnet = attrs.to_string() == "devnet";
-
+pub fn impl_parse_tokens() -> TokenStream {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let file_name = manifest_dir + "/Token.toml";
     let contents = fs::read_to_string(&file_name).unwrap();
@@ -57,12 +55,12 @@ pub fn impl_parse_tokens(attrs: TokenStream) -> TokenStream {
         let price_base_exp = token.price_base_exp.unwrap_or_default();
         let min = token.min;
         let max = token.max;
-        let mint = if devnet {
+        let mint = if cfg!(feature = "devnet") {
             parse_pubkey(&token.mint_devnet)
         } else {
             parse_pubkey(&token.mint)
         };
-        let pyth_usd_price_key = if devnet {
+        let pyth_usd_price_key = if cfg!(feature = "devnet") {
             parse_pubkey(&token.pyth_usd_price_devnet)
         } else {
             parse_pubkey(&token.pyth_usd_price_mainnet)

@@ -168,7 +168,7 @@ const_assert_eq!(MAX_HT_COMMITMENTS, 16);
 
 /// Account used for computing the hashes of a MT
 /// - only one of these accounts can exist per MT
-#[elusiv_account(partial_computation: true)]
+#[elusiv_account(partial_computation: true, single_instance: true)]
 pub struct CommitmentHashingAccount {
     pda_data: PDAAccountData,
 
