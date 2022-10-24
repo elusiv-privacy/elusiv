@@ -22,8 +22,8 @@ pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
 /// Since before submitting a proof request the current root can change, we store the previous ones
 pub const HISTORY_ARRAY_COUNT: usize = 100;
 
-const VALUES_PER_ACCOUNT: usize = 83_887;
-const ACCOUNT_SIZE: usize = SUB_ACCOUNT_ADDITIONAL_SIZE + VALUES_PER_ACCOUNT * U256::SIZE;
+pub const VALUES_PER_STORAGE_SUB_ACCOUNT: usize = 83_887;
+const ACCOUNT_SIZE: usize = SUB_ACCOUNT_ADDITIONAL_SIZE + VALUES_PER_STORAGE_SUB_ACCOUNT * U256::SIZE;
 
 const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling((MT_SIZE * U256::SIZE) as u64, ACCOUNT_SIZE as u64));
 const_assert_eq!(ACCOUNTS_COUNT, 25);
@@ -66,8 +66,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     }
 
     fn account_and_local_index(&self, index: usize) -> (usize, usize) {
-        let account_index = index / VALUES_PER_ACCOUNT;
-        (account_index, index % VALUES_PER_ACCOUNT)
+        let account_index = index / VALUES_PER_STORAGE_SUB_ACCOUNT;
+        (account_index, index % VALUES_PER_STORAGE_SUB_ACCOUNT)
     }
 
     /// `level`: `0` is the root level, `MT_HEIGHT` the commitment level
