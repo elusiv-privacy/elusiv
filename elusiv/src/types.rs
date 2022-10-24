@@ -282,6 +282,7 @@ pub trait PublicInputs {
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 /// An account that receives funds
 pub struct RecipientAccount {
     pub address: U256,
