@@ -41,6 +41,34 @@ pub struct ProgramFee {
 }
 
 impl ProgramFee {
+    /// Creates a new `ProgramFee` if the inputs are valid
+    pub fn new(
+        lamports_per_tx: u64,
+        base_commitment_network_fee: u64,
+        proof_network_fee: u64,
+        base_commitment_subvention: u64,
+        proof_subvention: u64,
+        warden_hash_tx_reward: u64,
+        warden_proof_reward: u64,
+    ) -> Option<Self> {
+        let s = Self {
+            lamports_per_tx: Lamports(lamports_per_tx),
+            base_commitment_network_fee: BasisPointFee(base_commitment_network_fee),
+            proof_network_fee: BasisPointFee(proof_network_fee),
+            base_commitment_subvention: Lamports(base_commitment_subvention),
+            proof_subvention: Lamports(proof_subvention),
+            warden_hash_tx_reward: Lamports(warden_hash_tx_reward),
+            warden_proof_reward: Lamports(warden_proof_reward),
+            proof_base_tx_count: Self::proof_base_tx_count(),
+        };
+
+        if s.is_valid() {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
     /// Verifies that possible subventions are not too high
     pub fn is_valid(&self) -> bool {
         for min_batching_rate in 0..MAX_COMMITMENT_BATCHING_RATE as u32 {
@@ -55,11 +83,15 @@ impl ProgramFee {
                 return false
             }
 
-            if u64_as_usize_safe(self.proof_base_tx_count) != CombinedMillerLoop::TX_COUNT + FinalExponentiation::TX_COUNT + 2 {
+            if self.proof_base_tx_count != Self::proof_base_tx_count() {
                 return false
             }
         }
         true
+    }
+
+    pub fn proof_base_tx_count() -> u64 {
+        (CombinedMillerLoop::TX_COUNT + FinalExponentiation::TX_COUNT + 2) as u64
     }
 }
 
