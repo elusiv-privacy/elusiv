@@ -13,7 +13,7 @@ const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
 /// We store nullifiers with the `NullifierMap` data structure for efficient searching and later N-SMT construction
 pub type NullifierMap<'a> = ElusivSet<'a, OrdU256, NULLIFIERS_PER_ACCOUNT>;
 
-const NULLIFIERS_PER_ACCOUNT: usize = two_pow!(16);
+pub const NULLIFIERS_PER_ACCOUNT: usize = two_pow!(16);
 const ACCOUNT_SIZE: usize = NullifierMap::SIZE + SUB_ACCOUNT_ADDITIONAL_SIZE;
 const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling(NULLIFIERS_COUNT as u64, NULLIFIERS_PER_ACCOUNT as u64));
 const_assert_eq!(ACCOUNTS_COUNT, 16);
