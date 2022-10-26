@@ -2,6 +2,7 @@
 
 #[cfg(not(tarpaulin_include))]
 mod common;
+use borsh::BorshDeserialize;
 use common::*;
 use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, TokenAuthorityAccount, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
 use pyth_sdk_solana::Price;
@@ -298,7 +299,7 @@ async fn test_init_proof_signers() {
     test.ix_should_fail(
         ElusivInstruction::init_verification_proof_instruction(
             0,
-            RawProof([0; RawProof::SIZE]),
+            RawProof::try_from_slice(&vec![0; RawProof::SIZE]).unwrap().try_into().unwrap(),
             SignerAccount(warden2.pubkey),
         ),
         &[&warden2.keypair],
@@ -307,7 +308,7 @@ async fn test_init_proof_signers() {
     test.ix_should_succeed(
         ElusivInstruction::init_verification_proof_instruction(
             0,
-            RawProof([0; RawProof::SIZE]),
+            RawProof::try_from_slice(&vec![0; RawProof::SIZE]).unwrap().try_into().unwrap(),
             SignerAccount(warden.pubkey),
         ),
         &[&warden.keypair],
@@ -570,7 +571,7 @@ async fn test_finalize_proof_lamports() {
             ),
             ElusivInstruction::init_verification_proof_instruction(
                 0,
-                request.proof.try_into().unwrap(),
+                request.proof,
                 SignerAccount(warden.pubkey),
             ),
         ],
@@ -727,7 +728,7 @@ async fn test_finalize_proof_token() {
             ),
             ElusivInstruction::init_verification_proof_instruction(
                 0,
-                request.proof.try_into().unwrap(),
+                request.proof,
                 SignerAccount(warden.pubkey),
             ),
         ],
@@ -860,7 +861,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
             ),
             ElusivInstruction::init_verification_proof_instruction(
                 v_index,
-                request.proof.try_into().unwrap(),
+                request.proof,
                 SignerAccount(warden.pubkey),
             ),
         ]

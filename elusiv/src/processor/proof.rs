@@ -39,7 +39,7 @@ use crate::proof::{
     vkey::{SendQuadraVKey, MigrateUnaryVKey},
 };
 use crate::token::{Token, verify_token_account, TokenPrice, verify_associated_token_account, Lamports, elusiv_token};
-use crate::types::{RawProof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, Proof, RawU256};
+use crate::types::{Proof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, RawU256};
 use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
 use borsh::{BorshSerialize, BorshDeserialize};
 
@@ -319,13 +319,12 @@ pub fn init_verification_proof(
     verification_account: &mut VerificationAccount,
 
     _verification_account_index: u32,
-    proof: RawProof,
+    proof: Proof,
 ) -> ProgramResult {
     guard!(matches!(verification_account.get_state(), VerificationState::FeeTransferred), InvalidAccountState);
     guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
     guard!(verification_account.get_other_data().fee_payer.skip_mr() == fee_payer.key.to_bytes(), InvalidAccount);
 
-    let proof: Proof = proof.try_into()?;
     verification_account.a.set(&proof.a);
     verification_account.b.set(&proof.b);
     verification_account.c.set(&proof.c);
@@ -1220,36 +1219,35 @@ mod tests {
         let mut verification_account = VerificationAccount::new(&mut data).unwrap();
 
         let proof = test_proof();
-        let raw_proof = proof.try_into().unwrap();
         let valid_pk = Pubkey::new(&[0; 32]);
         account!(fee_payer, valid_pk, vec![0; 0]);
 
         // Account setup
         verification_account.set_state(&VerificationState::ProofSetup);
-        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, raw_proof), Err(_));
+        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, proof), Err(_));
         verification_account.set_state(&VerificationState::FeeTransferred);
 
         // Computation already finished
         verification_account.set_is_verified(&ElusivOption::Some(true));
-        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, raw_proof), Err(_));
+        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, proof), Err(_));
         verification_account.set_is_verified(&ElusivOption::Some(false));
-        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, raw_proof), Err(_));
+        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, proof), Err(_));
         verification_account.set_is_verified(&ElusivOption::None);
 
         // Invalid fee_payer
         let invalid_pk = Pubkey::new_unique();
         account!(invalid_fee_payer, invalid_pk, vec![0; 0]);
-        assert_matches!(init_verification_proof(&invalid_fee_payer, &mut verification_account, 0, raw_proof), Err(_));
+        assert_matches!(init_verification_proof(&invalid_fee_payer, &mut verification_account, 0, proof), Err(_));
 
         // Success
-        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, raw_proof), Ok(()));
+        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, proof), Ok(()));
         assert_matches!(verification_account.get_state(), VerificationState::ProofSetup);
         assert_eq!(verification_account.a.get(), proof.a);
         assert_eq!(verification_account.b.get(), proof.b);
         assert_eq!(verification_account.c.get(), proof.c);
 
         // Already setup proof
-        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, raw_proof), Err(_));
+        assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, proof), Err(_));
     }
 
     macro_rules! precomputes_sub_account {

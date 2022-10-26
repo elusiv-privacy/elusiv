@@ -142,24 +142,49 @@ pub struct Proof {
     pub c: G1A,
 }
 
+#[cfg(feature = "instruction-abi")]
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
-/// A Groth16 proof in affine form in binary representation
-pub struct RawProof(pub [u8; G1A::SIZE + G2A::SIZE + G1A::SIZE]);
-
-impl TryFrom<Proof> for RawProof {
-    type Error = std::io::Error;
-
-    fn try_from(proof: Proof) -> Result<Self, Self::Error> {
-        Ok(RawProof(proof.try_to_vec()?.try_into().unwrap()))
-    }
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+/// A Groth16 proof in affine form in binary representation (this construct is required for serde-json parsing in the Warden)
+pub struct RawProof {
+    pub a: RawG1A,
+    pub b: RawG2A,
+    pub c: RawG1A,
 }
 
+#[cfg(feature = "instruction-abi")]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct RawG1A {
+    x: U256,
+    y: U256,
+    infinity: bool,
+}
+
+#[cfg(feature = "instruction-abi")]
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct RawG2A {
+    x: (U256, U256),
+    y: (U256, U256),
+    infinity: bool,
+}
+
+#[cfg(feature = "instruction-abi")]
+impl BorshSerDeSized for RawG2A {
+    const SIZE: usize = G2A::SIZE;
+}
+
+#[cfg(feature = "instruction-abi")]
 impl TryFrom<RawProof> for Proof {
     type Error = std::io::Error;
 
-    fn try_from(value: RawProof) -> Result<Self, Self::Error> {
-        let mut buf = &value.0[..];
-        Proof::deserialize(&mut buf)
+    fn try_from(proof: RawProof) -> Result<Self, Self::Error> {
+        let a = G1A::try_from_slice(&proof.a.try_to_vec()?)?;
+        let b = G2A::try_from_slice(&proof.b.try_to_vec()?)?;
+        let c = G1A::try_from_slice(&proof.c.try_to_vec()?)?;
+
+        Ok(Proof { a, b, c })
     }
 }
 
@@ -560,7 +585,7 @@ mod test {
             ),
         );
 
-        let raw_proof = RawProof::try_from(proof).unwrap();
+        let raw_proof = RawProof::try_from_slice(&proof.try_to_vec().unwrap()).unwrap();
         assert_eq!(Proof::try_from(raw_proof).unwrap(), proof);
     }
 

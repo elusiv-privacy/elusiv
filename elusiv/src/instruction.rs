@@ -3,7 +3,7 @@
 use crate::macros::*;
 use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum};
 use crate::state::fee::ProgramFee;
-use crate::types::RawProof;
+use crate::types::Proof;
 use super::processor;
 use super::processor::BaseCommitmentHashRequest;
 use crate::processor::{
@@ -133,7 +133,7 @@ pub enum ElusivInstruction {
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
     InitVerificationProof {
         verification_account_index: u32,
-        proof: RawProof
+        proof: Proof,
     },
 
     // Proof verification computation
