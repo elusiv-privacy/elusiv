@@ -39,7 +39,7 @@ pub trait RAM<N> {
     }
 }
 
-/// https://github.com/solana-labs/solana/blob/a1522d00242c2888a057c3d4238d902f063af9be/program-runtime/src/compute_budget.rs#L14
+/// https://github.com/solana-labs/solana/blob/master/program-runtime/src/compute_budget.rs#L14
 pub const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 /// Security padding to never exceed the computation budget

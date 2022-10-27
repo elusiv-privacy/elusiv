@@ -8,7 +8,7 @@ use crate::{network::WardenNetwork, warden::ElusivWardenID};
 
 macro_rules! proposal_account {
     ($ty: ident, $ty_account: ident, $ty_seed: expr, $n: ident) => {
-        #[elusiv_account(pda_seed = $ty_seed)]
+        #[elusiv_account]
         pub struct $ty_account {
             pda_data: PDAAccountData,
 

@@ -7,17 +7,17 @@ use solana_program::{
     entrypoint::ProgramResult,
     program_error::ProgramError,
 };
-use elusiv_types::{accounts::PDAAccountData, BorshSerDeSized, SizedAccount, ProgramAccount};
+use elusiv_types::{accounts::PDAAccountData, BorshSerDeSized, ProgramAccount};
 use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError};
 
 pub type ElusivWardenID = u32;
 
-#[elusiv_account(pda_seed = b"wardens")]
+#[elusiv_account(single_instance: true)]
 pub struct ElusivWardensAccount {
     pda_data: PDAAccountData,
 
     next_warden_id: ElusivWardenID,
-    full_network_configured: bool,
+    pub full_network_configured: bool,
 }
 
 impl<'a> ElusivWardensAccount<'a> {
@@ -87,10 +87,10 @@ pub struct ElusivBasicWarden {
     pub active: bool,
 }
 
-#[elusiv_account(pda_seed = b"basic_warden")]
+#[elusiv_account]
 pub struct ElusivBasicWardenAccount {
     pda_data: PDAAccountData,
-    warden: ElusivBasicWarden,
+    pub warden: ElusivBasicWarden,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
@@ -99,7 +99,7 @@ pub struct ElusivFullWarden {
     pub apae_key: Pubkey,
 }
 
-#[elusiv_account(pda_seed = b"full_warden")]
+#[elusiv_account]
 pub struct ElusivFullWardenAccount {
     pda_data: PDAAccountData,
     warden: ElusivFullWarden,

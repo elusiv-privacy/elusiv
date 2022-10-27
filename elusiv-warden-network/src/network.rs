@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_types::{accounts::PDAAccountData, BorshSerDeSized, SizedAccount};
+use elusiv_types::{accounts::PDAAccountData, BorshSerDeSized};
 use elusiv_utils::guard;
 use solana_program::{entrypoint::ProgramResult, pubkey::Pubkey};
 use crate::macros::{elusiv_account, BorshSerDeSized};
@@ -40,7 +40,7 @@ macro_rules! warden_network {
             const SIZE: WardenNetworkSize = $size;
         }
 
-        #[elusiv_account(pda_seed = $seed)]
+        #[elusiv_account(single_instance: true)]
         pub struct $account_ty {
             pda_data: PDAAccountData,
 
@@ -78,7 +78,7 @@ warden_network! {
     FULL_WARDEN_GENESIS_NETWORK_SIZE
 }
 
-#[elusiv_account(pda_seed = b"full_wardens_genesis")]
+#[elusiv_account]
 pub struct FullWardenRegistrationAccount {
     pda_data: PDAAccountData,
 
@@ -136,7 +136,7 @@ pub struct FullWardenRegistrationApplication {
     pub apae_cert: APAECert,
 }
 
-#[elusiv_account(pda_seed = b"basic_warden_application")]
+#[elusiv_account]
 pub struct BasicWardenApplicationAccount {
     pda_data: PDAAccountData,
     warden: Pubkey,

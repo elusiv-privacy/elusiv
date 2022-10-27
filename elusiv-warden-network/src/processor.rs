@@ -76,7 +76,7 @@ pub fn apply_full_genesis_warden<'a>(
     Ok(())
 }
 
-/// A registering Warden (+ each APAE) approves all other applicants
+/// An applying Full Warden approves all other applicants using it's APAE
 pub fn confirm_full_genesis_warden(
     warden: &AccountInfo,
     warden_account: &ElusivFullWardenAccount,
@@ -93,7 +93,7 @@ pub fn confirm_full_genesis_warden(
     Ok(())
 }
 
-/// The registration leader generates the APA config
+/// The registration leader (first Full Warden that applied) generates the APA config
 pub fn complete_full_genesis_warden(
     warden: &AccountInfo,
     warden_account: &ElusivFullWardenAccount,

@@ -1,7 +1,7 @@
 use elusiv_proc_macros::elusiv_account;
 use solana_program::pubkey::Pubkey;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_types::{BorshSerDeSized, BorshSerDeSizedEnum, PDAAccountData, SizedAccount};
+use elusiv_types::{BorshSerDeSized, BorshSerDeSizedEnum, PDAAccountData};
 use crate::error::ElusivWardenNetworkError;
 use crate::network::{ElusivFullWardenNetwork, WardenNetwork};
 use crate::proposal::{
@@ -23,7 +23,7 @@ pub struct APAConfig {
     pub apae_signature: [u8; 32],
 }
 
-#[elusiv_account(pda_seed = b"apa_config")]
+#[elusiv_account(single_instance: true)]
 pub struct APAGenesisConfigAccount {
     pda_data: PDAAccountData,
     apa_config: APAConfig,
@@ -88,7 +88,7 @@ impl<'a> ProposalVotingAccount for APAProposalAccount<'a> {
     }
 }
 
-#[elusiv_account(pda_seed = b"apa")]
+#[elusiv_account(single_instance: true)]
 pub struct APAAccount {
     pda_data: PDAAccountData,
 
@@ -103,13 +103,13 @@ pub struct APATree {
     signature: [u8; 32],
 }
 
-#[elusiv_account(pda_seed = b"apa_flagged")]
+#[elusiv_account]
 pub struct APAFlaggedAccount {
     pda_data: PDAAccountData,
     key: Pubkey,
 }
 
-#[elusiv_account(pda_seed = b"apa_outcast")]
+#[elusiv_account]
 pub struct APAOutcastAccount {
     pda_data: PDAAccountData,
     key: Pubkey,
