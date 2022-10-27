@@ -1,11 +1,17 @@
-use std::{fs, str::FromStr};
+use std::{fs, str::FromStr, env};
 use proc_macro2::TokenStream;
 use quote::quote;
 use serde::{Serialize, Deserialize};
 use solana_program::pubkey::Pubkey;
 
 pub fn impl_program_id() -> TokenStream {
-    let id_str = read_program_id();
+    // Set 'CUSTOM_PROGRAM_ID_<CARGO_PKG_NAME>' to override the program-id
+    let pkg_name = env!("CARGO_PKG_NAME");
+    let custom_program_id_env_var = format!("CUSTOM_PROGRAM_ID_{}", pkg_name.to_uppercase());
+    let id_str = match env::var(custom_program_id_env_var) {
+        Ok(s) => s,
+        Err(_) => read_program_id(),
+    };
 
     let id_str = id_str.as_str();
     let id: TokenStream = format!("{:?}", Pubkey::from_str(id_str).unwrap().to_bytes()).parse().unwrap();
