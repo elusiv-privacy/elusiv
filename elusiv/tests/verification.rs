@@ -2,9 +2,14 @@
 
 #[cfg(not(tarpaulin_include))]
 mod common;
+use std::collections::HashMap;
+
 use borsh::BorshDeserialize;
 use common::*;
+use elusiv::proof::precompute::{VirtualPrecomputes, precompute_account_size2, PrecomputesAccount};
 use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, TokenAuthorityAccount, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
+use elusiv_computation::PartialComputation;
+use elusiv_types::{SUB_ACCOUNT_ADDITIONAL_SIZE, MultiAccountProgramAccount};
 use pyth_sdk_solana::Price;
 use solana_program::program_pack::Pack;
 use solana_program::system_program;
@@ -12,16 +17,17 @@ use elusiv::bytes::{ElusivOption, BorshSerDeSized};
 use elusiv::fields::u256_from_str_skip_mr;
 use elusiv::instruction::{ElusivInstruction, WritableUserAccount, SignerAccount, WritableSignerAccount, UserAccount};
 use elusiv::proof::vkey::SendQuadraVKey;
-use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, VerificationState};
+use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, VerificationState, CombinedMillerLoop};
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
-use elusiv::state::empty_root_raw;
+use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
-use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, RecipientAccount};
+use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, RecipientAccount, OrdU256};
 use elusiv::proof::verifier::proof_from_str;
 use elusiv::processor::{ProofRequest, FinalizeSendData};
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
+use solana_sdk::signer::Signer;
 use spl_associated_token_account::get_associated_token_address;
 
 async fn start_verification_test() -> ElusivProgramTest {
@@ -587,30 +593,49 @@ async fn test_finalize_proof_lamports() {
     let identifier = Pubkey::new(&request.public_inputs.identifier.skip_mr());
     let salt = Pubkey::new(&request.public_inputs.salt.skip_mr());
 
+    // Fill in nullifiers to test heap/compute unit limits
+    {   
+        let count = NULLIFIERS_PER_ACCOUNT - 1;
+        let mut data = test.data(&nullifier_accounts[0]).await;
+        {
+            let mut map = NullifierMap::new(&mut data[1..]);
+            for _ in 0..count {
+                let x: [u8; 32] = rand::random();
+                map.try_insert_default(OrdU256(x)).unwrap();
+            }
+        }
+        test.set_account_rent_exempt(&nullifier_accounts[0], &data, &elusiv::id()).await;
+    }
+
     // Finalize
-    test.ix_should_succeed_simple(
-        ElusivInstruction::finalize_verification_send_instruction(
-            FinalizeSendData {
-                timestamp: 0,
-                total_amount: request.public_inputs.join_split.total_amount(),
-                token_id: 0,
-                mt_index: 0,
-                commitment_index: 0,
-            },
-            0,
-            UserAccount(identifier),
-            UserAccount(salt),
-        )
+    test.tx_should_succeed_simple(
+        &[
+            ElusivInstruction::finalize_verification_send_instruction(
+                FinalizeSendData {
+                    timestamp: 0,
+                    total_amount: request.public_inputs.join_split.total_amount(),
+                    token_id: 0,
+                    mt_index: 0,
+                    commitment_index: 0,
+                },
+                0,
+                UserAccount(identifier),
+                UserAccount(salt),
+            )
+        ]
     ).await;
 
-    test.ix_should_succeed_simple(
-        ElusivInstruction::finalize_verification_send_nullifiers_instruction(
-            0,
-            Some(0),
-            &writable_user_accounts(&[nullifier_accounts[0]]),
-            Some(1),
-            &[],
-        )
+    test.tx_should_succeed_simple(
+        &[
+            request_compute_units(1_400_000),
+            ElusivInstruction::finalize_verification_send_nullifiers_instruction(
+                0,
+                Some(0),
+                &writable_user_accounts(&[nullifier_accounts[0]]),
+                Some(1),
+                &[],
+            )
+        ]
     ).await;
 
     // IMPORTANT: Pool already contains subvention (so we airdrop commitment_hash_fee - subvention)
@@ -1125,4 +1150,91 @@ async fn test_finalize_proof_failure_lamports() {
 #[ignore]
 async fn test_finalize_proof_failure_token() {
     panic!()
+}
+
+#[tokio::test]
+async fn test_compute_proof_verifcation_instruction_uniformity() {
+    let mut test = start_verification_test().await;
+    let warden = test.new_actor().await;
+    let recipient = test.new_actor().await;
+    let nullifier_accounts = test.nullifier_accounts(0).await;
+    let fee = test.genesis_fee().await;
+
+    let mut request = send_request(0);
+    request.public_inputs.recipient.address = recipient.pubkey.to_bytes();
+    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &fee);
+
+    let fee_collector = FeeCollectorAccount::find(None).0;
+    let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
+
+    let public_inputs = request.public_inputs.public_signals_skip_mr();
+    let input_preparation_tx_count = prepare_public_inputs_instructions::<SendQuadraVKey>(&public_inputs).len();
+    let subvention = fee.proof_subvention;
+    let commitment_hash_fee = fee.commitment_hash_computation_fee(0);
+    let verification_account_rent = test.rent(VerificationAccount::SIZE).await;
+    let nullifier_duplicate_account_rent = test.rent(PDAAccountData::SIZE).await;
+
+    warden.airdrop(
+        LAMPORTS_TOKEN_ID,
+        verification_account_rent.0 + nullifier_duplicate_account_rent.0 + commitment_hash_fee.0,
+        &mut test,
+    ).await;
+    test.airdrop_lamports(&fee_collector, subvention.0).await;
+
+    test.tx_should_succeed(
+        &[
+            ElusivInstruction::init_verification_instruction(
+                0,
+                [0, 1],
+                ProofRequest::Send(request.public_inputs.clone()),
+                false,
+                WritableSignerAccount(warden.pubkey),
+                WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(recipient.pubkey),
+                &user_accounts(&[nullifier_accounts[0]]),
+                &[],
+            ),
+            ElusivInstruction::init_verification_transfer_fee_sol_instruction(
+                0,
+                warden.pubkey,
+            ),
+            ElusivInstruction::init_verification_proof_instruction(
+                0,
+                request.proof,
+                SignerAccount(warden.pubkey),
+            ),
+        ],
+        &[&warden.keypair],
+    ).await;
+
+    // Enable sub accounts
+    let precomputes_account_size = precompute_account_size2(0) + SUB_ACCOUNT_ADDITIONAL_SIZE;
+    let precomputes_account = test.create_program_account_rent_exempt(precomputes_account_size).await.pubkey();
+    test.ix_should_succeed_simple(
+        ElusivInstruction::enable_precompute_sub_account_instruction(
+            0,
+            WritableUserAccount(precomputes_account)
+        )
+    ).await;
+    let mut data = vec![0; precomputes_account_size];
+    VirtualPrecomputes::<SendQuadraVKey>::new(&mut data[1..]);
+    test.set_program_account_rent_exempt(&precomputes_account, &data).await;
+
+    let mut data = test.data(&PrecomputesAccount::find(None).0).await;
+    let mut pre = PrecomputesAccount::new(&mut data, HashMap::new()).unwrap();
+    pre.set_is_setup(&true);
+    test.set_program_account_rent_exempt(&PrecomputesAccount::find(None).0, &data).await;
+
+    // Both input preparation and combined miller loop work with 4 instructions (but input preparation only uses one)
+    for _ in 0..input_preparation_tx_count + CombinedMillerLoop::TX_COUNT {
+        test.tx_should_succeed_simple(
+            &[
+                request_compute_units(1_400_000),
+                ElusivInstruction::compute_verification_instruction(0, &[UserAccount(precomputes_account)]),
+                ElusivInstruction::compute_verification_instruction(0, &[UserAccount(precomputes_account)]),
+                ElusivInstruction::compute_verification_instruction(0, &[UserAccount(precomputes_account)]),
+                ElusivInstruction::compute_verification_instruction(0, &[UserAccount(precomputes_account)]),
+            ]
+        ).await;
+    }
 }

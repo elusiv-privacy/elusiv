@@ -33,6 +33,7 @@ pub enum VerificationStep {
 pub fn verify_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
     verifier_account: &mut VerificationAccount,
     precomputes: &P,
+    instruction_index: u16,
 ) -> Result<Option<bool>, ElusivError> {
     let instruction = verifier_account.get_instruction() as usize;
     let round = verifier_account.get_round() as usize;
@@ -40,6 +41,11 @@ pub fn verify_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
 
     match step {
         VerificationStep::PublicInputPreparation => {
+            // This enables us to use a uniform number of ixs per tx
+            if instruction_index != 0 {
+                return Ok(None)
+            }
+
             prepare_public_inputs(verifier_account, precomputes, instruction, round)?;
             verifier_account.serialize_rams().unwrap();
         }
@@ -51,6 +57,11 @@ pub fn verify_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
             verifier_account.serialize_rams().unwrap();
         }
         VerificationStep::FinalExponentiation => {
+            // This enables us to use a uniform number of ixs per tx
+            if instruction_index != 0 {
+                return Ok(None)
+            }
+
             let v = final_exponentiation::<VKey>(verifier_account, instruction, round);
             verifier_account.serialize_rams().unwrap();
             return v;
@@ -1342,7 +1353,7 @@ mod tests {
 
         let mut result = None;
         for _ in 0..instruction_count {
-            result = verify_partial(&mut storage, precomputes).unwrap();
+            result = verify_partial(&mut storage, precomputes, 0).unwrap();
         }
 
         result.unwrap()
@@ -1373,11 +1384,11 @@ mod tests {
         let precomputes = VirtualPrecomputes::<TestVKey>::new_skip_precompute(&data);
 
         for _ in 0..instruction_count {
-            verify_partial(&mut storage, &precomputes).unwrap();
+            verify_partial(&mut storage, &precomputes, 0).unwrap();
         }
 
         // Additional ix will result in error
-        assert_matches!(verify_partial(&mut storage, &precomputes), Err(_));
+        assert_matches!(verify_partial(&mut storage, &precomputes, 0), Err(_));
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59

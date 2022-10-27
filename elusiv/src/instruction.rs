@@ -27,7 +27,7 @@ use crate::state::{
 };
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::proof::{VerificationAccount, precompute::PrecomputesAccount};
-use solana_program::system_program;
+use solana_program::{system_program, sysvar::instructions};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
@@ -139,6 +139,7 @@ pub enum ElusivInstruction {
     // Proof verification computation
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
     #[pda(precomputes_account, PrecomputesAccount, { multi_accounts })]
+    #[sys(instructions_account, key = instructions::ID)]
     ComputeVerification {
         verification_account_index: u32,
     },

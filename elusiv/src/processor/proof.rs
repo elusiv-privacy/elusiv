@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use solana_program::pubkey::Pubkey;
+use solana_program::sysvar::instructions;
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
@@ -338,6 +339,7 @@ pub fn init_verification_proof(
 pub fn compute_verification(
     verification_account: &mut VerificationAccount,
     precomputes_account: &PrecomputesAccount,
+    instructions_account: &AccountInfo,
 
     _verification_account_index: u32,
 ) -> ProgramResult {
@@ -349,10 +351,17 @@ pub fn compute_verification(
     );
     guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
 
+    // instruction_index is used to allow a uniform number of ixs per tx
+    let instruction_index = if cfg!(test) {
+        0
+    } else {
+        instructions::load_current_index_checked(instructions_account)?
+    };
+
     match execute_with_vkey!(
         verification_account.get_kind(),
         VKey,
-        verify_partial::<_, VKey>(verification_account, precomputes_account)
+        verify_partial::<_, VKey>(verification_account, precomputes_account, instruction_index)
     ) {
         Ok(result) => {
             if let Some(final_result) = result { // After last round we receive the verification result
@@ -1281,6 +1290,7 @@ mod tests {
         let mut data = vec![0; VerificationAccount::SIZE];
         let mut verification_account = VerificationAccount::new(&mut data).unwrap();
         precomputes_account!(precomputes_account);
+        test_account_info!(any, 0);
 
         // Setup
         let public_inputs = test_public_inputs();
@@ -1295,16 +1305,16 @@ mod tests {
 
         // Computation is already finished (is_verified is Some)
         verification_account.set_is_verified(&ElusivOption::Some(true));
-        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Err(_));
+        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Err(_));
         verification_account.set_is_verified(&ElusivOption::None);
 
         // Success for public input preparation
         for _ in 0..instructions.len() {
-            assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Ok(()));
+            assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Ok(()));
         }
 
         // Failure for miller loop (proof not setup)
-        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Err(_));
+        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Err(_));
 
         let proof = test_proof();
         verification_account.a.set(&proof.a);
@@ -1314,11 +1324,11 @@ mod tests {
 
         // Success
         for _ in 0..COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS {
-            assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Ok(()));
+            assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Ok(()));
         }
 
         // Computation is finished
-        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, 0), Err(_));
+        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Err(_));
         assert_matches!(verification_account.get_is_verified().option(), Some(false));
     }
 
