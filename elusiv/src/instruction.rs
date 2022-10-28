@@ -27,6 +27,7 @@ use crate::state::{
 };
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::proof::{VerificationAccount, precompute::PrecomputesAccount};
+use solana_program::entrypoint::ProgramResult;
 use solana_program::{system_program, sysvar::instructions};
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -287,6 +288,13 @@ pub enum ElusivInstruction {
         fee_version: u32,
         program_fee: ProgramFee,
     },
+
+    // -------- NOP --------
+    Nop,
+}
+
+fn nop() -> ProgramResult {
+    Ok(())
 }
 
 #[cfg(feature = "instruction-abi")]
