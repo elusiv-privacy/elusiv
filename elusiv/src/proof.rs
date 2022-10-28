@@ -55,7 +55,7 @@ pub struct VerificationAccount {
     pub prepare_inputs_instructions: [u16; MAX_PREPARE_INPUTS_INSTRUCTIONS],
 
     pub kind: u8,
-    step: VerificationStep,
+    pub step: VerificationStep,
     pub state: VerificationState,
 
     // Public inputs
