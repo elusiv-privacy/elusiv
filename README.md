@@ -15,6 +15,9 @@
 # Elusiv
 Scaling privacy with compliance for the [Solana](https://github.com/solana-labs/solana) blockchain.
 
+## Building and testing
+`sh build.sh build|(test (--unit|--integration|--tarpaulin)|(-u|-i|-t))> <elusiv|elusiv-warden-network>`
+
 ## Supported tokens
 All supported tokens can be found in [Token.toml](https://github.com/elusiv-privacy/elusiv/blob/master/elusiv/Token.toml).
 On-chain price data is provided by [Pyth](https://pyth.network/).
