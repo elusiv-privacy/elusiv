@@ -1,7 +1,0 @@
-#!/bin/bash
-
-if [ "$1" = "--devnet" ]; then
-    cargo build-bpf --manifest-path=Cargo.toml --bpf-out-dir=dist/program --features devnet
-else
-    cargo build-bpf --manifest-path=Cargo.toml --bpf-out-dir=dist/program
-fi
