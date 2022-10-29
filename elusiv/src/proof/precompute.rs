@@ -32,8 +32,8 @@ pub struct PrecomputesAccount {
 
     pub is_setup: bool,
     pub instruction: u32,
-    vkey: u32,
-    public_input: u32,
+    pub vkey: u32,
+    pub public_input: u32,
 }
 
 macro_rules! index_to_vkey {
