@@ -5,5 +5,3 @@
 /log
 .vscode
 lib
-
-**/Cargo.lock
