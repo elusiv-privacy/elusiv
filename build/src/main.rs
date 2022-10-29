@@ -71,7 +71,12 @@ fn main() {
     }
 
     let current_dir = env::current_dir().expect("Unable to get current directory");
-    let out_dir = current_dir.join("lib").display().to_string();
+    let out_dir = current_dir
+        .join("../")
+        .join("lib")
+        .display()
+        .to_string();
+
     let manifest = match build_target {
         BuildTarget::Elusiv => {
             current_dir
