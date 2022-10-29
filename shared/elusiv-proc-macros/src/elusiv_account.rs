@@ -1,9 +1,6 @@
-use std::str::FromStr;
-use solana_program::pubkey::Pubkey;
 use syn::{Type, Data, Field, Fields};
 use quote::{quote, ToTokens};
 use proc_macro2::{TokenStream, TokenTree};
-use crate::program_id::read_program_id;
 
 struct ElusivAccountAttr {
     ident: String,
@@ -61,11 +58,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
     let ident_str = ident.to_string();
     let pda_seed = ident_str.as_bytes();
-    let pda = Pubkey::find_program_address(
-        &[pda_seed],
-        &Pubkey::from_str(&read_program_id()).unwrap(),
-    ).0;
-    let single_instance_pda: TokenStream = format!("{:?}", pda.to_bytes()).parse().unwrap();
 
     let mut lifetimes = Lifetimes::new();
     let mut field_idents = quote!();
@@ -148,15 +140,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         fn round(&self) -> u32 {
                             self.get_round()
                         }
-                    }
-                });
-            }
-            
-            // Turns the account into a `SingleInstancePDAAccount`
-            "single_instance" => {
-                impls.extend(quote!{
-                    impl < #lifetimes > elusiv_types::accounts::SingleInstancePDAAccount for #ident < #lifetimes > {
-                        const SINGLE_INSTANCE_ADDRESS: solana_program::pubkey::Pubkey = solana_program::pubkey::Pubkey::new_from_array(#single_instance_pda);
                     }
                 });
             }

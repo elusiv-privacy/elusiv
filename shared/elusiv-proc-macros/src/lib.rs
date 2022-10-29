@@ -18,23 +18,6 @@ use program_id::impl_program_id;
 /// - every field is represented by a `&mut [u8]`
 /// - every field has a setter (serialization) and getter (deserialization) function
 /// - to prevent the getter-setter creation use the attribute: `pub_non_lazy`
-/// 
-/// - optional account-types:
-///     - `pda_seed = b"<seed>"`:
-///         - required fields:
-///         1. `bump_seed: u8`
-///         2. `initialized: bool`
-/// 
-///     - `multi_account = (<count_sub_accounts>, <intermediary_account_size>)`
-///         - required fields:
-///         1. `pubkeys: [<count_sub_accounts>]`
-///         2. `finished_setup : bool`
-/// 
-///     - `partial_computation = <instructions>` (with instructions being a const array of `elusiv_computation::PartialComputationInstruction`)
-///         - required fields:
-///         1. `is_active: bool`
-///         2. `instruction: u32`
-///         3. `fee_payer: u32`
 #[proc_macro_attribute]
 pub fn elusiv_account(args: proc_macro::TokenStream, input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);

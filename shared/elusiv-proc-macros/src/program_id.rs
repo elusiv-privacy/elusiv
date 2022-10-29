@@ -26,7 +26,7 @@ struct Elusiv {
     program_id: String,
 }
 
-pub fn read_program_id() -> String {
+fn read_program_id() -> String {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let file_name = manifest_dir + "/Id.toml";
     let contents = fs::read_to_string(&file_name).unwrap();
