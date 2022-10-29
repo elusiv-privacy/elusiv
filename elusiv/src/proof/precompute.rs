@@ -48,7 +48,7 @@ macro_rules! index_to_vkey {
 
 pub(crate) use index_to_vkey;
 
-trait Index { const INDEX: usize; }
+pub trait Index { const INDEX: usize; }
 
 macro_rules! impl_index {
     ($vkey: ty, $index: literal) => {
