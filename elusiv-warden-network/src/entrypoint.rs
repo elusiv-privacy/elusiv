@@ -7,7 +7,7 @@ use solana_program::{
 use borsh::BorshDeserialize;
 use crate::instruction;
 
-crate::macros::program_id!("AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7");
+crate::macros::program_id!(elusiv_warden_network);
 solana_program::entrypoint!(process_instruction);
 
 #[cfg(not(tarpaulin_include))]

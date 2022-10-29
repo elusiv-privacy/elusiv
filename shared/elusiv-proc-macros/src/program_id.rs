@@ -4,10 +4,9 @@ use quote::quote;
 use serde::{Serialize, Deserialize};
 use solana_program::pubkey::Pubkey;
 
-pub fn impl_program_id() -> TokenStream {
-    // Set 'CUSTOM_PROGRAM_ID_<CARGO_PKG_NAME>' to override the program-id
-    let pkg_name = env!("CARGO_PKG_NAME");
-    let custom_program_id_env_var = format!("CUSTOM_PROGRAM_ID_{}", pkg_name.to_uppercase());
+pub fn impl_program_id(ident: TokenStream) -> TokenStream {
+    // Set 'CUSTOM_PROGRAM_ID_<IDENT>' to override the program-id
+    let custom_program_id_env_var = format!("CUSTOM_PROGRAM_ID_{}", ident.to_string().to_uppercase());
     let id_str = match env::var(custom_program_id_env_var) {
         Ok(s) => s,
         Err(_) => read_program_id(),
