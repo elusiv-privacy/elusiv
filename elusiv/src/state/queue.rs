@@ -91,7 +91,7 @@ impl<'a, 'b> CommitmentQueue<'a, 'b> {
     }
 }
 
-/// Ring queue with a capacity of `CAPACITY` elements
+/// Ring-queue with a capacity of [`RingQueue::CAPACITY`] elements
 /// - works by having two pointers, `head` and `tail` and a some data storage with getter, setter
 /// - `head` points to the first element (first according to the FIFO definition)
 /// - `tail` points to the location to insert the next element
