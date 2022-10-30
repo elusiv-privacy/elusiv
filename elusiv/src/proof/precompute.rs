@@ -116,7 +116,8 @@ impl<'a, 'b, 't> PrecomputesAccount<'a, 'b, 't> {
             let mut next_instruction = instruction + 1;
             if instruction == PRECOMPUTE_INSTRUCTIONS_PER_BYTE * 32 {
                 if public_input + 1 >= VKey::PUBLIC_INPUTS_COUNT {
-                    if vkey + 1 >= VKEY_COUNT as u32 {
+                    // In the devnet only the first VKey is used atm
+                    if cfg!(feature = "devnet") || vkey + 1 >= VKEY_COUNT as u32 {
                         self.set_is_setup(&true);
                     } else {
                         self.set_vkey(&(vkey + 1));
