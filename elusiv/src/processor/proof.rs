@@ -251,7 +251,7 @@ pub fn init_verification_transfer_fee<'a>(
     let network_fee = Token::new_checked(token_id, fee.proof_network_fee.calc(join_split.amount))?;
 
     let fee = (((commitment_hash_fee_token + proof_verification_fee)? + network_fee)? - subvention)?;
-    guard!(fee.amount() == join_split.fee, InvalidPublicInputs);
+    guard!(join_split.fee >= fee.amount(), InvalidPublicInputs);
 
     verify_pool(pool, pool_account, token_id)?;
     verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
