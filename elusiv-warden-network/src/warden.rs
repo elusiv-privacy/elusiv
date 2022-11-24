@@ -12,7 +12,7 @@ use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetwor
 
 pub type ElusivWardenID = u32;
 
-#[elusiv_account(single_instance: true)]
+#[elusiv_account]
 pub struct ElusivWardensAccount {
     pda_data: PDAAccountData,
 

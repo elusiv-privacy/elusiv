@@ -23,7 +23,7 @@ pub struct APAConfig {
     pub apae_signature: [u8; 32],
 }
 
-#[elusiv_account(single_instance: true)]
+#[elusiv_account]
 pub struct APAGenesisConfigAccount {
     pda_data: PDAAccountData,
     apa_config: APAConfig,
@@ -88,7 +88,7 @@ impl<'a> ProposalVotingAccount for APAProposalAccount<'a> {
     }
 }
 
-#[elusiv_account(single_instance: true)]
+#[elusiv_account]
 pub struct APAAccount {
     pda_data: PDAAccountData,
 

@@ -40,7 +40,7 @@ macro_rules! warden_network {
             const SIZE: WardenNetworkSize = $size;
         }
 
-        #[elusiv_account(single_instance: true)]
+        #[elusiv_account]
         pub struct $account_ty {
             pda_data: PDAAccountData,
 

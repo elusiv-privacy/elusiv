@@ -13,8 +13,10 @@ members = [
 ]
 
 [features]
-instruction-abi = []
+mainnet = ["elusiv-proc-macros/mainnet"]
 devnet = ["elusiv-proc-macros/devnet"]
+
+instruction-abi = []
 no-entrypoint = []
 
 test-bpf = []

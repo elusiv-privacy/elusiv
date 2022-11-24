@@ -1,1 +1,7 @@
-program_id = "AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7"
+[program_id]
+mainnet = "AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7"
+devnet = "21yGVvsEPHBe6WMRKtL63CwXa6Zi6kJ2UyZzsbT1vg4F"
+
+# For local testing you can generate the local test keypair with this BIP39 seed:
+# riot wire enrich solution alien shift wool bulb trophy matter stay sponsor
+local = "B6ZffajG1Jc5LSq76HAXNbJG7drLdRtCFG7DcBND9Lfb"
