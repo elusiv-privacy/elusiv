@@ -23,9 +23,9 @@ pub trait MultiAccountProgramAccount<'a, 'b, 't>: SizedAccount {
 
 pub type PDAOffset = Option<u32>;
 
-/// This trait is used by the `elusiv_instruction` and `elusiv_accounts` macros
+/// This trait is used by the [`elusiv_instruction`] and [`elusiv_accounts`] macros
 /// - a PDAAccount is simply a PDA with:
-///     1. the leading fields specified by `PDAAccountFields`
+///     1. the leading fields specified by [`PDAAccountFields`]
 ///     2. a PDA that is derived using the following seed: `&[ &SEED, offset?, bump ]`
 /// - so there are two kinds of PDAAccounts:
 ///     - single instance: the `pda_offset` is `None` -> `&[ &SEED, bump ]`
@@ -38,14 +38,14 @@ pub trait PDAAccount {
     const IDENT: &'static str;
 
     fn find(offset: PDAOffset) -> (Pubkey, u8) {
-        let seed = Self::offset_seed(offset);
+        let seed = Self::offset_seed(Self::SEED, offset);
         let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
 
         Pubkey::find_program_address(&seed, &Self::PROGRAM_ID)
     }
 
     fn pubkey(offset: PDAOffset, bump: u8) -> Result<Pubkey, ProgramError> {
-        let mut seed = Self::offset_seed(offset);
+        let mut seed = Self::offset_seed(Self::SEED, offset);
         seed.push(vec![bump]);
         let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
 
@@ -55,9 +55,9 @@ pub trait PDAAccount {
         }
     }
 
-    fn offset_seed(offset: PDAOffset) -> Vec<Vec<u8>> {
+    fn offset_seed(seed: &[u8], offset: PDAOffset) -> Vec<Vec<u8>> {
         match offset {
-            Some(offset) => vec![Self::SEED.to_vec(), offset.to_le_bytes().to_vec()],
+            Some(offset) => vec![seed.to_vec(), offset.to_le_bytes().to_vec()],
             None => vec![Self::SEED.to_vec()]
         }
     }
