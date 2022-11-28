@@ -1899,6 +1899,6 @@ mod tests {
             "2",
             "2827970856290632118729271546490749634442294169342908710567180510922374163316",
             "0",
-        ].iter().map(|s| u256_from_str_skip_mr(*s)).collect()
+        ].iter().map(|s| u256_from_str_skip_mr(s)).collect()
     }
 }

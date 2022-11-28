@@ -34,6 +34,7 @@ pub trait BorshSerDeSizedEnum: BorshSerDeSized {
     }
 }
 
+#[allow(clippy::bool_to_int_with_if)]
 pub const fn max(a: usize, b: usize) -> usize {
     [a, b][if a < b { 1 } else { 0 }]
 }

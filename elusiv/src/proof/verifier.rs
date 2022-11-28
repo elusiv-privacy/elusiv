@@ -995,7 +995,7 @@ mod tests {
         // First version
         storage!(storage);
         for (i, public_input) in public_inputs.iter().enumerate() {
-            storage.set_public_input(i, & RawU256::new(u256_from_str_skip_mr(*public_input)));
+            storage.set_public_input(i, & RawU256::new(u256_from_str_skip_mr(public_input)));
         }
 
         // precomputed_input_preparation version
@@ -1417,7 +1417,7 @@ mod tests {
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L78
     fn reference_exp_by_neg_x(f: Fq12) -> Fq12 {
-        let mut f = f.cyclotomic_exp(&Parameters::X);
+        let mut f = f.cyclotomic_exp(Parameters::X);
         if !Parameters::X_IS_NEGATIVE { f.conjugate(); }
         f
     }

@@ -240,6 +240,6 @@ impl<'a> SubAccount<'a> {
         self.is_in_use[0] == 1
     }
     pub fn set_is_in_use(&mut self, value: bool) {
-        self.is_in_use[0] = if value { 1 } else { 0 };
+        self.is_in_use[0] = u8::from(value);
     }
 }
