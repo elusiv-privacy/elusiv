@@ -410,13 +410,26 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         quote!()
     };
 
+    let eager_type_alternative_constructor = if use_eager_type {
+        quote! {
+            #[cfg(feature = "eager-accounts")]
+            pub fn new_eager(d: Vec<u8>) -> Result<#eager_ident, std::io::Error> {
+                <#eager_ident>::new(d)
+            }
+        }
+    } else {
+        quote!()
+    };
+
     quote! {
         #vis struct #ident < #lifetimes > {
             #field_defs
         }
 
-        impl < #lifetimes > #ident < #lifetimes >{
+        impl < #lifetimes > #ident < #lifetimes > {
             #fns
+
+            #eager_type_alternative_constructor
         }
 
         #impls
