@@ -11,7 +11,7 @@ use super::program_account::{SizedAccount, ProgramAccount, PDAAccountData};
 /// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
 macro_rules! queue_account {
     ($id: ident, $id_account: ident, $seed: literal, $size: literal, $ty_element: ty) => {
-        #[elusiv_account]
+        #[elusiv_account(eager_type: true)]
         pub struct $id_account {
             #[no_getter]
             #[no_setter]

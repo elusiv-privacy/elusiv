@@ -44,7 +44,7 @@ pub enum VerificationState {
 
 /// Account used for verifying proofs over the span of multiple transactions
 /// - exists only for verifying a single proof, closed afterwards
-#[elusiv_account(partial_computation: true)]
+#[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct VerificationAccount {
     pda_data: PDAAccountData,
 

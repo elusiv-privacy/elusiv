@@ -119,7 +119,7 @@ macro_rules! token_pda_account {
         let mut data = vec![0; <$ty>::SIZE];
         let mut pool = <$ty>::new(&mut data).unwrap();
         pool.set_accounts($token_id as usize - 1, &ElusivOption::Some($token_account_id.key.to_bytes()));
-        account!($id, <$ty>::find(None).0, data); 
+        account!($id, <$ty as elusiv_types::PDAAccount>::find(None).0, data); 
     };
 }
 

@@ -19,6 +19,7 @@ mainnet = ["elusiv-proc-macros/mainnet"]
 devnet = ["elusiv-proc-macros/devnet"]
 
 instruction-abi = ["elusiv-types/instruction-abi"]
+eager-accounts = []
 no-entrypoint = []
 precomputing = []
 logging = []
@@ -51,7 +52,7 @@ ark-ec = { version = "=0.3.0", default-features = false }
 
 [dev-dependencies]
 serde_json = "1.0.87"
-elusiv = { path = ".", features = ["instruction-abi", "test-elusiv", "logging", "precomputing", "serde"] }
+elusiv = { path = ".", features = ["instruction-abi", "test-elusiv", "logging", "precomputing", "serde", "eager-accounts"] }
 elusiv-utils = { path = "shared/elusiv-utils", features = ["sdk"] }
 
 solana-program-test = "=1.10.39"

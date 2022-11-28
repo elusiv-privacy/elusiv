@@ -135,6 +135,8 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         )
     );
 
+    // TODO: reject zero-commitment nullifier
+
     // Verify public inputs
     let join_split = match &request {
         ProofRequest::Send(public_inputs) => {
@@ -1077,9 +1079,9 @@ mod tests {
             Err(_)
         );
 
-        // Invalid fee
+        // Invalid fee (fee too low, since too high is allowed)
         g.set_fee_version(&0);
-        inputs.join_split.fee += 1;
+        inputs.join_split.fee -= 1;
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
         assert_matches!(
             init_verification_transfer_fee(&f, &f, &pool, &pool, &fee_c, &fee_c, &any, &any, &g, &mut verification_acc, &sys, &sys, 0),
@@ -1160,8 +1162,8 @@ mod tests {
         verification_acc.set_prepare_inputs_instructions_count(&(instructions.len() as u32));
         verification_acc.set_other_data(&VerificationAccountData { fee_payer: RawU256::new(f.key.to_bytes()), ..Default::default() });
 
-        // Invalid fee
-        inputs.join_split.fee += 1;
+        // Invalid fee (fee too low, since too high is allowed)
+        inputs.join_split.fee -= 1;
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
         assert_matches!(
             init_verification_transfer_fee(&f, &token_acc, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &mut verification_acc, &spl, &sys, 0),
@@ -1899,6 +1901,6 @@ mod tests {
             "2",
             "2827970856290632118729271546490749634442294169342908710567180510922374163316",
             "0",
-        ].iter().map(|s| u256_from_str_skip_mr(*s)).collect()
+        ].iter().map(|s| u256_from_str_skip_mr(s)).collect()
     }
 }
