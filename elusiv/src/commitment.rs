@@ -28,7 +28,7 @@ const_assert_eq!(BaseCommitmentHashComputation::TX_COUNT, 2);
 /// Account used for computing `commitment = h(base_commitment, amount)`
 /// - https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/commitment.circom#L7
 /// - multiple of these accounts can exist
-#[elusiv_account(partial_computation: true)]
+#[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct BaseCommitmentHashingAccount {
     pda_data: PDAAccountData,
 
@@ -168,7 +168,7 @@ const_assert_eq!(MAX_HT_COMMITMENTS, 16);
 
 /// Account used for computing the hashes of a MT
 /// - only one of these accounts can exist per MT
-#[elusiv_account(partial_computation: true)]
+#[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct CommitmentHashingAccount {
     pda_data: PDAAccountData,
 

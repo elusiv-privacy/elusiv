@@ -91,7 +91,7 @@ pub trait ComputationAccount: PDAAccount {
     fn round(&self) -> u32;
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
 pub struct PDAAccountData {
     pub bump_seed: u8,
 
@@ -108,7 +108,7 @@ impl PDAAccountData {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, Debug)]
 pub struct MultiAccountAccountData<const COUNT: usize> {
     // .. `PDAAccountData` always before `MultiAccountAccountData`, since it's a PDA
      

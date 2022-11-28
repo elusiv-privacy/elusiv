@@ -58,7 +58,7 @@ pub struct BaseCommitmentHashRequest {
     pub min_batching_rate: u32,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Copy, Clone, Debug, Default)]
 pub struct CommitmentHashRequest {
     pub commitment: U256,
     pub fee_version: u32,

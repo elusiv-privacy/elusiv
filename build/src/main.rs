@@ -104,7 +104,7 @@ fn main() {
 
     Command::new("cargo")
         .arg(command)
-        .args(&manifest_path)
+        .args(manifest_path)
         .args(&bpf_out_dir)
         .args(&build_args)
         .args(&features)

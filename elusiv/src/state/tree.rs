@@ -20,7 +20,7 @@ const_assert_eq!(ACCOUNTS_COUNT, 16);
 
 /// NullifierAccount is a big-array storing `NULLIFIERS_COUNT` nullifiers over multiple accounts
 /// - we use `NullifierMap`s to store the nullifiers
-#[elusiv_account(multi_account: { sub_account_count: ACCOUNTS_COUNT, sub_account_size: ACCOUNT_SIZE })]
+#[elusiv_account(multi_account: { sub_account_count: ACCOUNTS_COUNT, sub_account_size: ACCOUNT_SIZE }, eager_type: true)]
 pub struct NullifierAccount {
     pda_data: PDAAccountData,
     pub multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
