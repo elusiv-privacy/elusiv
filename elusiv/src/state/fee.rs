@@ -145,7 +145,7 @@ impl ProgramFee {
     ) -> Result<Token, TokenError> {
         let proof_verification_fee = self.proof_verification_computation_fee(input_preparation_tx_count).into_token(price, token_id)?;
         let commitment_hash_fee = self.commitment_hash_computation_fee(min_batching_rate).into_token(price, token_id)?;
-        let network_fee = Token::new_checked(token_id, self.proof_network_fee.calc(amount))?;
+        let network_fee = Token::new(token_id, self.proof_network_fee.calc(amount));
         let subvention = self.proof_subvention.into_token(price, token_id)?;
 
         ((proof_verification_fee + commitment_hash_fee)? + network_fee)? - subvention
