@@ -25,7 +25,7 @@ pub trait PrecomutedValues<VKey: VerificationKey> {
 
 pub const PUBLIC_INPUTS_COUNT: usize = SendQuadraVKey::PUBLIC_INPUTS_COUNT + MigrateUnaryVKey::PUBLIC_INPUTS_COUNT;
 
-#[elusiv_account(multi_account: { sub_account_count: VKEY_COUNT, sub_account_size: 0 })]
+#[elusiv_account(multi_account: { sub_account_count: VKEY_COUNT, sub_account_size: 0 }, eager_type: true)]
 pub struct PrecomputesAccount {
     pda_data: PDAAccountData,
     pub multi_account_data: MultiAccountAccountData<VKEY_COUNT>,
