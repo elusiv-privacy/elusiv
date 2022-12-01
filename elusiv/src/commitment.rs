@@ -376,7 +376,7 @@ impl<'a> CommitmentHashingAccount<'a> {
                     &self.get_hash_tree(nodes_below + i),
                     ordering as usize + i,
                     mt_level,
-                )
+                ).unwrap();
             }
         }
 
@@ -390,10 +390,13 @@ impl<'a> CommitmentHashingAccount<'a> {
                     &self.get_above_hashes(i),
                     ordering as usize,
                     mt_layer,
-                )
+                ).unwrap();
             }
 
-            storage_account.set_active_mt_root_history(ordering as usize % HISTORY_ARRAY_COUNT, &storage_account.get_root());
+            storage_account.set_active_mt_root_history(
+                ordering as usize % HISTORY_ARRAY_COUNT,
+                &storage_account.get_root().unwrap(),
+            );
             storage_account.set_mt_roots_count(&(storage_account.get_mt_roots_count() + 1));
             storage_account.set_next_commitment_ptr(&(ordering + usize_as_u32_safe(commitments_per_batch(batching_rate))));
         }
@@ -643,7 +646,7 @@ mod tests {
             for index in 0..commitments_count {
                 assert_eq!(
                     u64_to_u256_skip_mr(index as u64),
-                    storage_account.get_node(previous_commitments_count + index, MT_HEIGHT)
+                    storage_account.get_node(previous_commitments_count + index, MT_HEIGHT).unwrap()
                 );
             }
 
@@ -657,7 +660,7 @@ mod tests {
                 for i in 0..layer_size {
                     assert_eq!(
                         u64_to_u256_skip_mr((i + commitments_count + offset) as u64),
-                        storage_account.get_node(previous_offset + i, mt_level)
+                        storage_account.get_node(previous_offset + i, mt_level).unwrap()
                     );
                 }
 

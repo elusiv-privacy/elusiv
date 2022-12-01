@@ -684,20 +684,20 @@ async fn test_single_commitment() {
     // Check updated MT
     storage_account(None, &mut test, |s: &StorageAccount| {
         assert_eq!(
-            s.get_root(),
+            s.get_root().unwrap(),
             u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575")
         );
-        assert_eq!(s.get_node(0, MT_HEIGHT as usize), request.commitment.reduce());
+        assert_eq!(s.get_node(0, MT_HEIGHT as usize).unwrap(), request.commitment.reduce());
         assert_eq!(s.get_next_commitment_ptr(), 1);
         let mut hash = u256_to_fr_skip_mr(&request.commitment.reduce());
         for i in 0..MT_HEIGHT as usize {
             assert_eq!(
                 fr_to_u256_le(&hash),
-                s.get_node(0, MT_HEIGHT as usize - i)
+                s.get_node(0, MT_HEIGHT as usize - i).unwrap()
             );
             hash = full_poseidon2_hash(hash, u256_to_fr_skip_mr(&EMPTY_TREE[i]));
         }
-        assert_eq!(fr_to_u256_le(&hash), s.get_root());
+        assert_eq!(fr_to_u256_le(&hash), s.get_root().unwrap());
     }).await;
 }
 
@@ -788,7 +788,7 @@ async fn test_commitment_correct_storage_account_insertion() {
     storage_account(None, &mut test, |s: &StorageAccount| {
         for i in 0..commitment_count {
             assert_eq!(
-                s.get_node(i as usize, MT_HEIGHT as usize),
+                s.get_node(i as usize, MT_HEIGHT as usize).unwrap(),
                 fr_to_u256_le(&u64_to_scalar_skip_mr(i as u64))
             );
         }
@@ -871,15 +871,15 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
 
         // Verify commitment and root
         storage_account(None, &mut test, |s: &StorageAccount| {
-            assert_eq!(s.get_node(i, MT_HEIGHT as usize), requests[i].commitment);
-            assert_eq!(s.get_root(), correct_roots_afterwards[i]);
+            assert_eq!(s.get_node(i, MT_HEIGHT as usize).unwrap(), requests[i].commitment);
+            assert_eq!(s.get_root().unwrap(), correct_roots_afterwards[i]);
         }).await;
     }
 
     // Verify all commitments
     storage_account(None, &mut test, |s: &StorageAccount| {
         for i in 0..requests.len() {
-            assert_eq!(s.get_node(i, MT_HEIGHT as usize), requests[i].commitment);
+            assert_eq!(s.get_node(i, MT_HEIGHT as usize).unwrap(), requests[i].commitment);
         }
     }).await;
 }
@@ -945,10 +945,10 @@ async fn test_commitment_hash_with_batching_rate(
     // Verify all commitments and root
     storage_account(None, &mut test, |s: &StorageAccount| {
         for (i, request) in requests.iter().enumerate() {
-            assert_eq!(s.get_node(i, MT_HEIGHT as usize), request.commitment);
+            assert_eq!(s.get_node(i, MT_HEIGHT as usize).unwrap(), request.commitment);
         }
         if let Some(root) = root {
-            assert_eq!(s.get_root(), root);
+            assert_eq!(s.get_root().unwrap(), root);
         }
         assert_eq!(s.get_next_commitment_ptr(), commitments.len() as u32);
     }).await;

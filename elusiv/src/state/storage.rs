@@ -3,6 +3,8 @@ use crate::types::U256;
 use crate::bytes::*;
 use super::program_account::*;
 use borsh::BorshDeserialize;
+use solana_program::entrypoint::ProgramResult;
+use solana_program::program_error::ProgramError;
 
 /// Height of the active MT
 /// - we define the height using the amount of leaves
@@ -71,25 +73,25 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     }
 
     /// `level`: `0` is the root level, `MT_HEIGHT` the commitment level
-    pub fn get_node(&self, index: usize, level: usize) -> U256 {
+    pub fn get_node(&self, index: usize, level: usize) -> Result<U256, ProgramError> {
         assert!(level <= MT_HEIGHT as usize);
 
         let ptr = self.get_next_commitment_ptr() as usize;
 
         // Accessing a node, that is non-existent (yet) -> we use the default value 
         if use_default_value(index, level, ptr) {
-            EMPTY_TREE[MT_HEIGHT as usize - level]
+            Ok(EMPTY_TREE[MT_HEIGHT as usize - level])
         } else {
             let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
             self.try_execute_on_sub_account(account_index, |data| {
                 U256::try_from_slice(
                     &data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
                 )
-            }).unwrap()
+            })
         }
     }
 
-    pub fn set_node(&mut self, value: &U256, index: usize, level: usize) {
+    pub fn set_node(&mut self, value: &U256, index: usize, level: usize) -> ProgramResult {
         assert!(level <= MT_HEIGHT as usize);
 
         let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
@@ -98,32 +100,37 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
                 value,
                 &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
             )
-        }).unwrap();
+        })
     }
 
-    pub fn get_root(&self) -> U256 {
+    pub fn get_root(&self) -> Result<U256, ProgramError> {
         self.get_node(0, 0)
     }
 
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: U256) -> bool {
         let max_history_roots = std::cmp::min(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
-        root == self.get_root() || (max_history_roots > 0 && contains(root, &self.active_mt_root_history[..max_history_roots * 32]))
+
+        if let Ok(current_root) = self.get_root() {
+            return root == current_root
+        }
+
+        max_history_roots > 0 && contains(root, &self.active_mt_root_history[..max_history_roots * 32])
     }
 
     #[allow(clippy::needless_range_loop)]
-    pub fn get_mt_opening(&self, index: usize) -> [U256; MT_HEIGHT as usize] {
+    pub fn get_mt_opening(&self, index: usize) -> Result<[U256; MT_HEIGHT as usize], ProgramError> {
         let mut opening = [[0; 32]; MT_HEIGHT as usize];
         let mut index = index;
 
         for i in 0..MT_HEIGHT as usize {
             let level = MT_HEIGHT as usize - i;
             let n_index = if index % 2 == 0 { index + 1 } else { index - 1};
-            opening[i] = self.get_node(n_index, level);
+            opening[i] = self.get_node(n_index, level)?;
             index >>= 1;
         }
 
-        opening
+        Ok(opening)
     }
 }
 
@@ -205,12 +212,12 @@ mod tests {
             let last = two_pow!(level) - 1;
 
             // First node
-            storage_account.set_node(&[1; 32], 0, level as usize);
-            assert_eq!(storage_account.get_node(0, level as usize), [1; 32]);
+            storage_account.set_node(&[1; 32], 0, level as usize).unwrap();
+            assert_eq!(storage_account.get_node(0, level as usize).unwrap(), [1; 32]);
 
             // Last node
-            storage_account.set_node(&[2; 32], last, level as usize);
-            assert_eq!(storage_account.get_node(last, level as usize), [2; 32]);
+            storage_account.set_node(&[2; 32], last, level as usize).unwrap();
+            assert_eq!(storage_account.get_node(last, level as usize).unwrap(), [2; 32]);
         }
     }
 
@@ -218,14 +225,14 @@ mod tests {
     #[should_panic]
     fn test_set_node_invalid_level() {
         storage_account!(mut storage_account);
-        storage_account.set_node(&[1; 32], 0, MT_HEIGHT as usize + 1);
+        storage_account.set_node(&[1; 32], 0, MT_HEIGHT as usize + 1).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_set_node_invalid_level_index() {
         storage_account!(mut storage_account);
-        storage_account.set_node(&[1; 32], 4, 2);
+        storage_account.set_node(&[1; 32], 4, 2).unwrap();
     }
 
     #[test]
@@ -249,16 +256,16 @@ mod tests {
 
         // No commitments -> default values
         assert_eq!(
-            storage_account.get_node(0, 0),
+            storage_account.get_node(0, 0).unwrap(),
             u256_from_str("11702828337982203149177882813338547876343922920234831094975924378932809409969")
         );
         assert_eq!(
-            storage_account.get_node(0, MT_HEIGHT as usize),
+            storage_account.get_node(0, MT_HEIGHT as usize).unwrap(),
             u256_from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156")
         );
         for level in 0..=MT_HEIGHT {
             assert_eq!(
-                storage_account.get_node(0, level as usize),
+                storage_account.get_node(0, level as usize).unwrap(),
                 EMPTY_TREE[(MT_HEIGHT - level) as usize],
             );
         }
@@ -268,7 +275,7 @@ mod tests {
 
             for level in 0..=MT_HEIGHT as usize {
                 assert_eq!(
-                    storage_account.get_node(i >> (MT_HEIGHT as usize - level), level),
+                    storage_account.get_node(i >> (MT_HEIGHT as usize - level), level).unwrap(),
                     u256_from_str("0")
                 );
 
@@ -276,7 +283,7 @@ mod tests {
                 let offset = (i + 1) >> (MT_HEIGHT as usize - level);
                 if offset > (i + 1) {
                     assert_eq!(
-                        storage_account.get_node(offset, level),
+                        storage_account.get_node(offset, level).unwrap(),
                         EMPTY_TREE[MT_HEIGHT as usize - level],
                     );
                 }
@@ -287,11 +294,11 @@ mod tests {
     #[test]
     fn test_get_root() {
         storage_account!(mut storage_account);
-        storage_account.set_node(&[1; 32], 0, 0);
+        storage_account.set_node(&[1; 32], 0, 0).unwrap();
         storage_account.set_next_commitment_ptr(&1);
 
         assert_eq!(
-            storage_account.get_root(),
+            storage_account.get_root().unwrap(),
             [1; 32]
         );
     }

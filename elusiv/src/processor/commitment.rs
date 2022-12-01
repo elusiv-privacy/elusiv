@@ -255,7 +255,7 @@ pub fn init_commitment_hash_setup(
     guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
 
     let ordering = storage_account.get_next_commitment_ptr();
-    let siblings = storage_account.get_mt_opening(ordering as usize);
+    let siblings = storage_account.get_mt_opening(ordering as usize)?;
 
     hashing_account.setup(ordering, &siblings)
 }
@@ -791,7 +791,7 @@ mod tests {
             let level = MT_HEIGHT - level_inv;
             let level_size = commitment_count >> level;
             for index in 0..level_size {
-                assert_eq!(storage_account.get_node(index, level as usize), EMPTY_TREE[level_inv as usize]);
+                assert_eq!(storage_account.get_node(index, level as usize).unwrap(), EMPTY_TREE[level_inv as usize]);
             }
         }
 
@@ -808,7 +808,7 @@ mod tests {
             let level_size = commitment_count >> level_inv;
             let level = MT_HEIGHT - level_inv;
             for index in 0..level_size {
-                assert_ne!(storage_account.get_node(index, level as usize), EMPTY_TREE[level_inv as usize]);
+                assert_ne!(storage_account.get_node(index, level as usize).unwrap(), EMPTY_TREE[level_inv as usize]);
             }
         }
     }
