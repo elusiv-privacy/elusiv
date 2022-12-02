@@ -175,14 +175,14 @@ impl<'a, VKey: VerificationKey> Precomputes<'a, VKey> {
         }
     }
 
-    #[cfg(feature = "precomputing")]
+    #[cfg(feature = "elusiv-client")]
     fn full_precomputation(&mut self) {
         for public_input in 0..VKey::PUBLIC_INPUTS_COUNT {
             self.precompute(public_input)
         }
     }
 
-    #[cfg(feature = "precomputing")]
+    #[cfg(feature = "elusiv-client")]
     fn precompute(&mut self, public_input: usize) {
         for byte_index in 0..32 {
             self.init_public_input(public_input);
@@ -274,13 +274,13 @@ fn get_precomputed_point(data: &[u8], public_input: usize, byte_index: usize, by
     )
 }
 
-#[cfg(feature = "precomputing")]
+#[cfg(feature = "elusiv-client")]
 pub struct VirtualPrecomputes<'a, VKey: VerificationKey>{
     pub data: &'a [u8],
     phantom: PhantomData<VKey>,
 }
 
-#[cfg(feature = "precomputing")]
+#[cfg(feature = "elusiv-client")]
 impl<'a, VKey: VerificationKey> VirtualPrecomputes<'a, VKey> {
     pub fn data() -> Vec<u8> {
         vec![0; precompute_account_size::<VKey>()]
@@ -300,7 +300,7 @@ impl<'a, VKey: VerificationKey> VirtualPrecomputes<'a, VKey> {
     }
 }
 
-#[cfg(feature = "precomputing")]
+#[cfg(feature = "elusiv-client")]
 impl<'a, VKey: VerificationKey> PrecomutedValues<VKey> for VirtualPrecomputes<'a, VKey> {
     fn sum(&self, acc: &mut G1Projective, public_input: usize, scalars: &[(usize, usize)]) {
         for (byte_index, byte) in scalars {

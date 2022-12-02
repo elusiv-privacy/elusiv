@@ -142,7 +142,7 @@ pub struct Proof {
     pub c: G1A,
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 /// A Groth16 proof in affine form in binary representation (this construct is required for serde-json parsing in the Warden)
@@ -152,7 +152,7 @@ pub struct RawProof {
     pub c: RawG1A,
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct RawG1A {
@@ -161,7 +161,7 @@ pub struct RawG1A {
     infinity: bool,
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(BorshDeserialize, BorshSerialize, PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct RawG2A {
@@ -170,12 +170,12 @@ pub struct RawG2A {
     infinity: bool,
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 impl BorshSerDeSized for RawG2A {
     const SIZE: usize = G2A::SIZE;
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 impl TryFrom<RawProof> for Proof {
     type Error = std::io::Error;
 
@@ -456,7 +456,7 @@ impl PublicInputs for MigratePublicInputs {
     }
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 pub fn compute_fee_rec<VKey: crate::proof::vkey::VerificationKey, P: PublicInputs>(
     public_inputs: &mut P,
     program_fee: &crate::state::fee::ProgramFee,
@@ -478,7 +478,7 @@ pub fn compute_fee_rec<VKey: crate::proof::vkey::VerificationKey, P: PublicInput
     }
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 pub fn compute_fee_rec_lamports<VKey: crate::proof::vkey::VerificationKey, P: PublicInputs>(
     public_inputs: &mut P,
     program_fee: &crate::state::fee::ProgramFee,

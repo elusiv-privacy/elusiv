@@ -280,10 +280,10 @@ pub enum ElusivInstruction {
     Nop,
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 use solana_program::pubkey::Pubkey;
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {
     vec![
         // Governor
@@ -329,7 +329,7 @@ pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instructi
     ]
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 impl ElusivInstruction {
     pub fn store_base_commitment_sol_instruction(
         hash_account_index: u32,
@@ -391,19 +391,19 @@ impl ElusivInstruction {
     }
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(Debug)]
 pub struct UserAccount(pub solana_program::pubkey::Pubkey);
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(Debug)]
 pub struct WritableUserAccount(pub solana_program::pubkey::Pubkey);
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(Debug)]
 pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(Debug)]
 pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
 

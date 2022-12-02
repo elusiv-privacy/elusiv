@@ -29,11 +29,7 @@ pub struct ElusivToken {
     pub max: u64,
 }
 
-#[cfg(not(feature = "devnet"))]
-elusiv_tokens!(mainnet);
-
-#[cfg(feature = "devnet")]
-elusiv_tokens!(devnet);
+elusiv_tokens!();
 
 pub fn elusiv_token(token_id: u16) -> Result<ElusivToken, TokenError> {
     let token_id = token_id as usize;
@@ -219,6 +215,7 @@ pub fn verify_token_account(
     }
 }
 
+/// Verifies an associated-token-account for a given token-id
 pub fn verify_associated_token_account(
     wallet_address: &Pubkey,
     token_account_address: &Pubkey,

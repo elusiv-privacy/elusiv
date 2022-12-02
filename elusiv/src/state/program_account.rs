@@ -16,7 +16,7 @@ mod tests {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"ABC";
 
-        #[cfg(feature = "instruction-abi")]
+        #[cfg(feature = "elusiv-client")]
         const IDENT: &'static str = "TestPDAAccount";
     }
 
@@ -49,7 +49,7 @@ mod tests {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"ABC";
 
-        #[cfg(feature = "instruction-abi")]
+        #[cfg(feature = "elusiv-client")]
         const IDENT: &'static str = "TestMultiAccount";
     }
 
