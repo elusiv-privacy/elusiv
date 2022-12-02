@@ -148,7 +148,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 enforce_field(quote!{ round : u32 }, 2, &s.fields);
 
                 impls.extend(quote! {
-                    #[cfg(feature = "instruction-abi")]
+                    #[cfg(feature = "elusiv-client")]
                     impl < #lifetimes > elusiv_types::accounts::ComputationAccount for #ident < #lifetimes > {
                         fn instruction(&self) -> u32 {
                             self.get_instruction()
@@ -170,7 +170,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 todo!("deserialized_type")
             }
 
-            // Adds the eager type variant (IFF the 'eager-accounts' feature is active)
+            // Adds the eager type variant (IFF the 'elusiv-client' feature is active)
             "eager_type" => {
                 use_eager_type = true;
             }
@@ -387,13 +387,13 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
     let eager_type = if use_eager_type {
         quote! {
-            #[cfg(feature = "eager-accounts")]
+            #[cfg(feature = "elusiv-client")]
             #[derive(Debug)]
             #vis struct #eager_ident {
                 #eager_defs
             }
 
-            #[cfg(feature = "eager-accounts")]
+            #[cfg(feature = "elusiv-client")]
             impl #eager_ident {
                 pub fn new(d: Vec<u8>) -> Result<Self, std::io::Error> {
                     if d.len() != < #ident < #anonymous_lifetimes > as elusiv_types::accounts::SizedAccount>::SIZE {
@@ -412,7 +412,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
     let eager_type_alternative_constructor = if use_eager_type {
         quote! {
-            #[cfg(feature = "eager-accounts")]
+            #[cfg(feature = "elusiv-client")]
             pub fn new_eager(d: Vec<u8>) -> Result<#eager_ident, std::io::Error> {
                 <#eager_ident>::new(d)
             }
@@ -454,7 +454,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             const PROGRAM_ID: solana_program::pubkey::Pubkey = crate::PROGRAM_ID;            
             const SEED: &'static [u8] = &#pda_seed_tokens;
 
-            #[cfg(feature = "instruction-abi")]
+            #[cfg(feature = "elusiv-client")]
             const IDENT: &'static str = #ident_str;
         }
 

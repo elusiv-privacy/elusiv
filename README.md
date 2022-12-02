@@ -24,7 +24,7 @@ On-chain price data is provided by [Pyth](https://pyth.network/).
 
 ## Program interaction
 ### Rust instruction API
-In order to easily interact with the program from a Rust client, import Elusiv with the `instruction-abi` feature enabled.
+In order to easily interact with the program from a Rust client, import Elusiv with the `elusiv-client` feature enabled.
 This results in access to the functions `ElusivInstruction::do_this_instruction(..)`.
 
 ### Instruction serialization

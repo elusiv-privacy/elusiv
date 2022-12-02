@@ -2,6 +2,8 @@
 #![allow(unused_macros)]
 
 use elusiv_computation::PartialComputation;
+use elusiv_types::PDAOffset;
+use spl_associated_token_account::instruction::create_associated_token_account;
 use std::{collections::HashMap, str::FromStr};
 use pyth_sdk_solana::Price;
 use solana_program::{
@@ -12,7 +14,7 @@ use solana_program_test::*;
 use solana_program::program_pack::Pack;
 use solana_sdk::{signature::Keypair, transaction::Transaction, signer::Signer, account::AccountSharedData, compute_budget::ComputeBudgetInstruction};
 use assert_matches::assert_matches;
-use elusiv::{token::{TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token}, process_instruction, instruction::{open_all_initial_accounts, ElusivInstruction, WritableSignerAccount, WritableUserAccount, UserAccount}, state::{fee::{ProgramFee, BasisPointFee}, program_account::{SizedAccount, PDAAccount, MultiAccountAccount, MultiAccountProgramAccount, MultiAccountAccountData}, StorageAccount, NullifierAccount, governor::{PoolAccount, FeeCollectorAccount}}, proof::{CombinedMillerLoop, FinalExponentiation, precompute::PrecomputesAccount}, processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, TokenAuthorityAccountKind}};
+use elusiv::{token::{TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token}, process_instruction, instruction::{open_all_initial_accounts, ElusivInstruction, WritableSignerAccount, WritableUserAccount, UserAccount}, state::{fee::{ProgramFee, BasisPointFee}, program_account::{SizedAccount, PDAAccount, MultiAccountAccount, MultiAccountProgramAccount, MultiAccountAccountData}, StorageAccount, NullifierAccount, governor::{PoolAccount, FeeCollectorAccount}}, proof::{CombinedMillerLoop, FinalExponentiation, precompute::PrecomputesAccount}, processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind}};
 
 pub struct ElusivProgramTest {
     context: ProgramTestContext,
@@ -234,8 +236,8 @@ impl ElusivProgramTest {
         self.spl_tokens.push(token_id);
 
         if enable_program_token_accounts {
-            enable_program_token_account::<PoolAccount>(self, token_id, TokenAuthorityAccountKind::Pool).await;
-            enable_program_token_account::<FeeCollectorAccount>(self, token_id, TokenAuthorityAccountKind::FeeCollector).await;
+            enable_program_token_account::<PoolAccount>(self, token_id, None).await;
+            enable_program_token_account::<FeeCollectorAccount>(self, token_id, None).await;
         }
     }
 
@@ -779,28 +781,16 @@ multi_account!(storage_account, StorageAccount);
 multi_account!(nullifier_account, NullifierAccount);
 multi_account!(precomputes_account, PrecomputesAccount);
 
-pub async fn enable_program_token_account<T: PDAAccount>(
+pub async fn enable_program_token_account<A: PDAAccount>(
     test: &mut ElusivProgramTest,
     token_id: u16,
-    kind: TokenAuthorityAccountKind,
+    offset: PDAOffset,
 ) {
-    let token_account = Keypair::new();
-    let ix = enable_token_account_ix::<T>(test, token_id, token_account.pubkey(), kind);
-    test.ix_should_succeed(ix, &[&token_account]).await;
-}
-
-pub fn enable_token_account_ix<T: PDAAccount>(
-    test: &mut ElusivProgramTest,
-    token_id: u16,
-    token_account: Pubkey,
-    kind: TokenAuthorityAccountKind,
-) -> Instruction {
-    ElusivInstruction::enable_token_account_instruction(
-        kind,
-        token_id,
-        WritableSignerAccount(test.context().payer.pubkey()),
-        WritableUserAccount(T::find(None).0),
-        WritableSignerAccount(token_account),
-        UserAccount(elusiv_token(token_id).unwrap().mint),
-    )
+    let ix = create_associated_token_account(
+        &test.payer(),
+        &A::find(offset).0,
+        &elusiv_token(token_id).unwrap().mint,
+        &spl_token::id(),
+    );
+    test.process_transaction(&[ix], &[]).await.unwrap();
 }

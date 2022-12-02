@@ -41,12 +41,13 @@ pub fn repeat(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     impl_repeat(input.into()).into()
 }
 
-/// Parses Token.toml
+/// Parses `Token.toml`
 #[proc_macro]
 pub fn elusiv_tokens(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     impl_parse_tokens().into()
 }
 
+/// Parses `Id.toml`
 #[proc_macro]
 pub fn program_id(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     impl_program_id().into()

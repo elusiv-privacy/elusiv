@@ -241,7 +241,7 @@ fn prepare_public_inputs_partial<P: PrecomutedValues<VKey>, VKey: VerificationKe
     None
 }
 
-#[cfg(feature = "precomputing")]
+#[cfg(feature = "elusiv-client")]
 pub fn precomputed_input_preparation<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
     precomputes: &P,
     public_inputs: &[U256],

@@ -9,10 +9,8 @@ use solana_program::{
 };
 use spl_associated_token_account::get_associated_token_address;
 use crate::{
-    types::U256,
     bytes::BorshSerDeSized,
     macros::{guard, elusiv_tokens},
-    state::program_account::PDAAccount,
 };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -31,11 +29,7 @@ pub struct ElusivToken {
     pub max: u64,
 }
 
-#[cfg(not(feature = "devnet"))]
-elusiv_tokens!(mainnet);
-
-#[cfg(feature = "devnet")]
-elusiv_tokens!(devnet);
+elusiv_tokens!();
 
 pub fn elusiv_token(token_id: u16) -> Result<ElusivToken, TokenError> {
     let token_id = token_id as usize;
@@ -202,38 +196,6 @@ impl SPLToken {
     }
 }
 
-pub trait TokenAuthorityAccount: PDAAccount {
-    #[allow(clippy::missing_safety_doc)]
-    unsafe fn get_token_account_unchecked(&self, token_id: u16) -> Option<U256>;
-
-    #[allow(clippy::missing_safety_doc)]
-    unsafe fn set_token_account_unchecked(&mut self, token_id: u16, key: &Pubkey);
-
-    fn enforce_token_account(&self, token_id: u16, token_account: &AccountInfo) -> Result<(), TokenError> {
-        if token_account.key.to_bytes() == self.get_token_account(token_id).ok_or(TokenError::InvalidTokenAccount)? {
-            Ok(())
-        } else {
-            Err(TokenError::InvalidTokenAccount)
-        }
-    }
-
-    fn get_token_account(&self, token_id: u16) -> Option<U256> {
-        if token_id == 0 || token_id as usize > TOKENS.len() {
-            None
-        } else {
-            unsafe { self.get_token_account_unchecked(token_id) }
-        }
-    }
-
-    fn try_set_token_account(&mut self, token_id: u16, key: &Pubkey) -> Result<(), TokenError> {
-        if token_id == 0 || self.get_token_account(token_id).is_some() {
-            return Err(TokenError::InvalidTokenID)
-        }
-        unsafe { self.set_token_account_unchecked(token_id, key) }
-        Ok(())
-    }
-}
-
 /// Ensures that a given account is able to receive the specified token
 pub fn verify_token_account(
     account: &AccountInfo,
@@ -253,6 +215,7 @@ pub fn verify_token_account(
     }
 }
 
+/// Verifies an associated-token-account for a given token-id
 pub fn verify_associated_token_account(
     wallet_address: &Pubkey,
     token_account_address: &Pubkey,
@@ -536,42 +499,6 @@ mod tests {
         assert_matches!(SPLToken::new(0, 10), Err(TokenError::InvalidTokenID));
         let id = NonZeroU16::new(1).unwrap();
         assert_matches!(SPLToken::new(1, 10), Ok(SPLToken { id, amount: 10 }));
-    }
-
-    struct TestTokenAuthorityAccount {
-        token_accounts: [Option<U256>; SPL_TOKEN_COUNT],
-    }
-
-    impl PDAAccount for TestTokenAuthorityAccount {
-        const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
-        const SEED: &'static [u8] = b"TEST";
-
-        #[cfg(feature = "instruction-abi")]
-        const IDENT: &'static str = "TestTokenAuthorityAccount";
-    }
-
-    impl TokenAuthorityAccount for TestTokenAuthorityAccount {
-        unsafe fn get_token_account_unchecked(&self, token_id: u16) -> Option<U256> {
-            self.token_accounts[token_id as usize - 1]
-        }
-
-        unsafe fn set_token_account_unchecked(&mut self, token_id: u16, key: &Pubkey) {
-            self.token_accounts[token_id as usize - 1] = Some(key.to_bytes())
-        }
-    }
-
-    #[test]
-    #[allow(unused_variables)]
-    fn test_token_authority_account() {
-        let mut account = TestTokenAuthorityAccount {
-            token_accounts: [None; SPL_TOKEN_COUNT]
-        };
-        let pk = Pubkey::new_unique();
-        assert_matches!(account.get_token_account(1), None);
-        assert_matches!(account.try_set_token_account(1, &pk), Ok(()));
-        assert_matches!(account.get_token_account(1), Some(pk));
-        assert_matches!(account.try_set_token_account(1, &pk), Err(_));
-        assert_matches!(account.try_set_token_account(0, &pk), Err(_));
     }
 
     #[test]

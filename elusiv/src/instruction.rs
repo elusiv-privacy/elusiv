@@ -9,7 +9,6 @@ use super::processor::BaseCommitmentHashRequest;
 use crate::processor::{
     SingleInstancePDAAccountKind,
     MultiInstancePDAAccountKind,
-    TokenAuthorityAccountKind,
     ProofRequest, MAX_MT_COUNT, FinalizeSendData,
 };
 use crate::state::queue::CommitmentQueueAccount;
@@ -233,17 +232,6 @@ pub enum ElusivInstruction {
         pda_offset: u32,
     },
 
-    #[acc(payer, { writable, signer })]
-    #[acc(pda_account, { writable })]
-    #[acc(token_account, { writable, signer })]
-    #[acc(mint_account)]
-    #[sys(system_program, key = system_program::ID, { ignore })]
-    #[sys(token_program, key = spl_token::ID, { ignore })]
-    EnableTokenAccount {
-        kind: TokenAuthorityAccountKind,
-        token_id: u16,
-    },
-
     #[pda(storage_account, StorageAccount, { account_info, writable })]
     #[acc(sub_account, { owned, writable })]
     EnableStorageSubAccount {
@@ -292,10 +280,10 @@ pub enum ElusivInstruction {
     Nop,
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 use solana_program::pubkey::Pubkey;
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {
     vec![
         // Governor
@@ -341,7 +329,7 @@ pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instructi
     ]
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 impl ElusivInstruction {
     pub fn store_base_commitment_sol_instruction(
         hash_account_index: u32,
@@ -403,19 +391,19 @@ impl ElusivInstruction {
     }
 }
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(Debug)]
 pub struct UserAccount(pub solana_program::pubkey::Pubkey);
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(Debug)]
 pub struct WritableUserAccount(pub solana_program::pubkey::Pubkey);
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(Debug)]
 pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
 
-#[cfg(feature = "instruction-abi")]
+#[cfg(feature = "elusiv-client")]
 #[derive(Debug)]
 pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
 

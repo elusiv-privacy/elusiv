@@ -269,7 +269,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 #functions
             }
     
-            #[cfg(feature = "instruction-abi")]
+            #[cfg(feature = "elusiv-client")]
             impl #ast_ident {
                 #abi_functions
             }

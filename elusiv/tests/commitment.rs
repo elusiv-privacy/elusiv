@@ -5,8 +5,8 @@ use common::*;
 use ark_bn254::Fr;
 use ark_ff::Zero;
 use elusiv::{
-    token::{USDC_TOKEN_ID, TokenAuthorityAccount, LAMPORTS_TOKEN_ID, Token, Lamports, TokenPrice},
-    processor::{BaseCommitmentHashRequest, CommitmentHashRequest},
+    token::{USDC_TOKEN_ID, LAMPORTS_TOKEN_ID, Token, Lamports, TokenPrice},
+    processor::{BaseCommitmentHashRequest, CommitmentHashRequest, program_token_account_address},
     types::{RawU256, U256},
     fields::{u256_from_str_skip_mr, u256_from_str, u256_to_fr_skip_mr, fr_to_u256_le, u64_to_scalar_skip_mr},
     instruction::{ElusivInstruction, SignerAccount, WritableUserAccount, UserAccount, WritableSignerAccount},
@@ -123,11 +123,8 @@ async fn test_store_base_commitment_token_transfer() {
     let mut warden = test.new_actor().await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
 
-    pda_account!(pool, PoolAccount, None, test);
-    let pool_account = Pubkey::new(& unsafe { pool.get_token_account_unchecked(USDC_TOKEN_ID).unwrap() });
-
-    pda_account!(fee_collector, FeeCollectorAccount, None, test);
-    let fee_collector_account = Pubkey::new(& unsafe { fee_collector.get_token_account_unchecked(USDC_TOKEN_ID).unwrap() });
+    let pool_account = program_token_account_address::<PoolAccount>(USDC_TOKEN_ID, None).unwrap();
+    let fee_collector_account = program_token_account_address::<FeeCollectorAccount>(USDC_TOKEN_ID, None).unwrap();
 
     let sol_usd_price = Price { price: 41, conf: 0, expo: 0};
     let usdc_usd_price = Price { price: 1, conf: 0, expo: 0 };
@@ -437,11 +434,8 @@ async fn test_base_commitment_token() {
     client.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
 
-    pda_account!(pool, PoolAccount, None, test);
-    let pool_account = Pubkey::new(& unsafe { pool.get_token_account_unchecked(USDC_TOKEN_ID).unwrap() });
-
-    pda_account!(fee_collector, FeeCollectorAccount, None, test);
-    let fee_collector_account = Pubkey::new(& unsafe { fee_collector.get_token_account_unchecked(USDC_TOKEN_ID).unwrap() });
+    let pool_account = program_token_account_address::<PoolAccount>(USDC_TOKEN_ID, None).unwrap();
+    let fee_collector_account = program_token_account_address::<FeeCollectorAccount>(USDC_TOKEN_ID, None).unwrap();
 
     let sol_price_account = test.token_to_usd_price_pyth_account(0);
     let token_price_account = test.token_to_usd_price_pyth_account(USDC_TOKEN_ID);
@@ -733,7 +727,7 @@ async fn test_commitment_full_queue() {
         commitment_queue!(mut queue, data);
 
         for _ in 0..CommitmentQueue::CAPACITY {
-            queue.enqueue(request.clone()).unwrap();
+            queue.enqueue(request).unwrap();
         }
     }).await;
 
@@ -838,7 +832,7 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
         commitment_queue!(mut queue, data);
 
         for request in &requests {
-            queue.enqueue(request.clone()).unwrap();
+            queue.enqueue(*request).unwrap();
         }
     }).await;
 
@@ -910,7 +904,7 @@ async fn test_commitment_hash_with_batching_rate(
     test.set_pda_account::<CommitmentQueueAccount, _>(None, |data| {
         commitment_queue!(mut queue, data);
         for request in &requests {
-            queue.enqueue(request.clone()).unwrap();
+            queue.enqueue(*request).unwrap();
         }
     }).await;
 

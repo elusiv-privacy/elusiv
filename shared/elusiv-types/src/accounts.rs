@@ -34,7 +34,7 @@ pub trait PDAAccount {
     const PROGRAM_ID: Pubkey;
     const SEED: &'static [u8];
     
-    #[cfg(feature = "instruction-abi")]
+    #[cfg(feature = "elusiv-client")]
     const IDENT: &'static str;
 
     fn find(offset: PDAOffset) -> (Pubkey, u8) {

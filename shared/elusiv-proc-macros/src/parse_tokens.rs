@@ -42,10 +42,10 @@ pub fn impl_parse_tokens() -> TokenStream {
         let sym_fn: TokenStream = format!("{}_token", token.symbol.to_lowercase()).parse().unwrap();
         let id = i as u16;
         symbols.extend(quote!{
-            #[cfg(feature = "instruction-abi")]
+            #[cfg(feature = "elusiv-client")]
             pub const #sym: u16 = #id;
 
-            #[cfg(feature = "instruction-abi")]
+            #[cfg(feature = "elusiv-client")]
             pub const fn #sym_fn() -> ElusivToken {
                 TOKENS[#i]
             }

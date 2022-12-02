@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [features]
-instruction-abi = []
+elusiv-client = []
 
 [dependencies]
 elusiv-derive = { path = "./../elusiv-derive" }

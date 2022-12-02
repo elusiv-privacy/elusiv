@@ -18,7 +18,6 @@ use crate::{
     processor::MATH_ERR,
     proof::precompute::{PrecomputesAccount, precompute_account_size2},
     map::ElusivMap,
-    token::TokenAuthorityAccount,
 };
 use crate::error::ElusivError::{
     InvalidAccount,
@@ -90,59 +89,7 @@ pub fn open_multi_instance_account<'a>(
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
-pub enum TokenAuthorityAccountKind {
-    Pool,
-    FeeCollector,
-}
-
-pub fn enable_token_account<'a>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-    token_account: &AccountInfo<'a>,
-    mint_account: &AccountInfo<'a>,
-
-    kind: TokenAuthorityAccountKind,
-    token_id: u16,
-) -> ProgramResult {
-    match kind {
-        TokenAuthorityAccountKind::Pool => {
-            create_token_account::<PoolAccount>(payer, pda_account, token_account, mint_account, token_id)?;
-            pda_account!(mut account, PoolAccount, pda_account);
-            account.try_set_token_account(token_id, token_account.key)?;
-        }
-        TokenAuthorityAccountKind::FeeCollector => {
-            create_token_account::<FeeCollectorAccount>(payer, pda_account, token_account, mint_account, token_id)?;
-            pda_account!(mut account, FeeCollectorAccount, pda_account);
-            account.try_set_token_account(token_id, token_account.key)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn create_token_account<'a, T: TokenAuthorityAccount + ProgramAccount<'a>>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-    token_account: &AccountInfo<'a>,
-    mint_account: &AccountInfo<'a>,
-
-    token_id: u16,
-) -> ProgramResult {
-    guard!(T::is_valid_pubkey(pda_account, None, pda_account.key)?, InvalidAccount);
-
-    create_token_account_for_pda_authority::<T>(
-        payer,
-        pda_account,
-        token_account,
-        mint_account,
-        token_id,
-    )?;
-
-    Ok(())
-}
-
-/// Enables the supplied sub-account for the `StorageAccount`
+/// Enables the supplied sub-account for the [`StorageAccount`]
 pub fn enable_storage_sub_account(
     storage_account: &AccountInfo,
     sub_account: &AccountInfo,
@@ -377,7 +324,12 @@ mod tests {
     use std::collections::HashMap;
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
-    use crate::{macros::account, state::{program_account::{PDAAccount, SizedAccount, MultiAccountProgramAccount}, queue::RingQueue}, processor::CommitmentHashRequest, types::U256, token::SPL_TOKEN_COUNT};
+    use crate::{
+        macros::account,
+        state::{program_account::{PDAAccount, SizedAccount, MultiAccountProgramAccount}, queue::RingQueue},
+        processor::CommitmentHashRequest,
+        types::U256,
+    };
 
     #[test]
     fn test_open_single_instance_account() {
@@ -556,63 +508,5 @@ mod tests {
         let data = &mut map_account.data.borrow_mut()[1..];
         let mut map = Map::new(data);
         assert!(map.is_empty());
-    }
-
-    #[test]
-    fn test_enable_token_account() {
-        let (pda, bump) = PoolAccount::find(None);
-        let mut data = vec![0; PoolAccount::SIZE];
-        data[0] = bump;
-        account!(pool, pda, data);
-
-        let token_account_pk = Pubkey::new_unique();
-        account!(token_account, token_account_pk, vec![]);
-        account!(acc, Pubkey::new_unique(), vec![]);
-
-        assert_matches!(
-            enable_token_account(&acc, &pool, &token_account, &acc, TokenAuthorityAccountKind::Pool, 0),
-            Err(_)
-        );
-
-        assert_matches!(
-            enable_token_account(&acc, &pool, &token_account, &acc, TokenAuthorityAccountKind::FeeCollector, 1),
-            Err(_)
-        );
-
-        assert_matches!(
-            enable_token_account(&acc, &pool, &token_account, &acc, TokenAuthorityAccountKind::Pool, 1),
-            Ok(())
-        );
-        
-        // Verify that account has been set
-        let data = &mut pool.data.borrow_mut()[..];
-        let pool = PoolAccount::new(data).unwrap();
-        assert_eq!(pool.get_token_account(1).unwrap(), token_account_pk.to_bytes());
-    }
-
-    #[test]
-    fn test_create_token_account() {
-        let (pda, bump) = PoolAccount::find(None);
-        account!(pool, pda, vec![bump, 0, 0]);
-
-        let (pda, bump) = FeeCollectorAccount::find(None);
-        account!(fee_collector, pda, vec![bump, 0, 0]);
-
-        account!(acc, Pubkey::new_unique(), vec![]);
-
-        assert_matches!(
-            create_token_account::<PoolAccount>(&acc, &fee_collector, &acc, &acc, 1),
-            Err(_)
-        );
-
-        assert_matches!(
-            create_token_account::<PoolAccount>(&acc, &pool, &acc, &acc, SPL_TOKEN_COUNT as u16 + 1),
-            Err(_)
-        );
-
-        assert_matches!(
-            create_token_account::<PoolAccount>(&acc, &pool, &acc, &acc, 1),
-            Ok(())
-        );
     }
 }

@@ -1,24 +1,19 @@
 use solana_program::program::invoke;
 use solana_program::program_pack::Pack;
+use solana_program::pubkey::Pubkey;
 use solana_program::{
     account_info::AccountInfo,
     entrypoint::ProgramResult,
     system_program,
     program_error::ProgramError,
-    system_instruction,
-    program::invoke_signed,
     rent::Rent,
     sysvar::Sysvar,
 };
-use crate::error::ElusivError::{
-    InvalidAccount,
-    InvalidInstructionData,
-    InsufficientFunds
-};
-use crate::macros::{guard, pda_account};
-use crate::state::governor::{PoolAccount, FeeCollectorAccount};
-use crate::state::program_account::{PDAAccount, ProgramAccount, PDAOffset};
-use crate::token::{Token, Lamports, TokenAuthorityAccount, TOKENS, SPLToken, SPL_TOKEN_COUNT, elusiv_token};
+use spl_associated_token_account::get_associated_token_address;
+use crate::error::ElusivError::InvalidAccount;
+use crate::macros::guard;
+use crate::state::program_account::{PDAAccount, PDAOffset};
+use crate::token::{Token, Lamports, SPLToken, elusiv_token};
 
 pub use elusiv_utils::*;
 
@@ -144,72 +139,6 @@ fn transfer_with_token_program<'a>(
     )
 }
 
-pub fn create_token_account_for_pda_authority<'a, T: PDAAccount>(
-    payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-    token_account: &AccountInfo<'a>,
-    mint_account: &AccountInfo<'a>,
-    token_id: u16,
-) -> ProgramResult {
-    create_token_account(
-        payer,
-        pda_account,
-        token_account,
-        mint_account,
-        token_id,
-    )
-}
-
-pub fn create_token_account<'a>(
-    payer: &AccountInfo<'a>,
-    authority: &AccountInfo<'a>,
-    token_account: &AccountInfo<'a>,
-    mint_account: &AccountInfo<'a>,
-    token_id: u16,
-) -> ProgramResult {
-    guard!(token_id > 0 && token_id as usize <= SPL_TOKEN_COUNT, InvalidInstructionData);
-
-    if cfg!(test) {
-        return Ok(());
-    }
-
-    let space = spl_token::state::Account::LEN;
-    let lamports_required = spl_token_account_rent()?.0;
-    guard!(payer.lamports() >= lamports_required, InsufficientFunds);
-
-    invoke_signed(
-        &system_instruction::create_account(
-            payer.key,
-            token_account.key,
-            lamports_required,
-            space.try_into().unwrap(),
-            &spl_token::id(),
-        ),
-        &[
-            payer.clone(),
-            token_account.clone(),
-        ],
-        &[]
-    )?;
-
-    let token = TOKENS[token_id as usize];
-
-    invoke_signed(
-        &spl_token::instruction::initialize_account3(
-            &spl_token::id(),
-            token_account.key,
-            &token.mint,
-            authority.key,
-        ).unwrap(),
-        &[
-            token_account.clone(),
-            mint_account.clone(),
-            authority.clone(),
-        ],
-        &[],
-    )
-}
-
 pub fn create_associated_token_account<'a>(
     payer: &AccountInfo<'a>,
     wallet_account: &AccountInfo<'a>,
@@ -234,27 +163,35 @@ pub fn create_associated_token_account<'a>(
     )
 }
 
-macro_rules! verify_token_account {
-    ($fn_id: ident, $ty: ty) => {
-        pub fn $fn_id(
-            owner_pda: &AccountInfo,
-            token_account: &AccountInfo,
-            token_id: u16,
-        ) -> ProgramResult {
-            if token_id == 0 {
-                guard!(owner_pda.key == token_account.key, InvalidAccount);
-            } else {
-                pda_account!(owner, $ty, owner_pda);
-                owner.enforce_token_account(token_id, token_account)?;
-            }
-
-            Ok(())
-        }
-    };
+pub fn program_token_account_address<A: PDAAccount>(
+    token_id: u16,
+    offset: PDAOffset,
+) -> Result<Pubkey, ProgramError> {
+    Ok(
+        get_associated_token_address(
+            &A::find(offset).0,
+            &elusiv_token(token_id)?.mint
+        )
+    )
 }
 
-verify_token_account!(verify_pool, PoolAccount);
-verify_token_account!(verify_fee_collector, FeeCollectorAccount);
+pub fn verify_program_token_account(
+    owner_pda: &AccountInfo,
+    token_account: &AccountInfo,
+    token_id: u16,
+) -> ProgramResult {
+    if token_id == 0 {
+        guard!(owner_pda.key == token_account.key, InvalidAccount);
+    } else {
+        let pubkey = get_associated_token_address(
+            owner_pda.key,
+            &elusiv_token(token_id)?.mint,
+        );
+        guard!(pubkey == *token_account.key, InvalidAccount);
+    }
+
+    Ok(())
+}
 
 pub fn spl_token_account_rent() -> Result<Lamports, ProgramError> {
     Ok(Lamports(Rent::get()?.minimum_balance(spl_token::state::Account::LEN)))
@@ -263,8 +200,7 @@ pub fn spl_token_account_rent() -> Result<Lamports, ProgramError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{macros::{test_account_info, account}, proof::VerificationAccount, bytes::ElusivOption};
-    use crate::state::program_account::SizedAccount;
+    use crate::{macros::{test_account_info, account}, proof::VerificationAccount, state::governor::PoolAccount, token::TOKENS};
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
 
@@ -480,25 +416,19 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_token_account() {
-        let token_account_pk0 = Pubkey::new_unique();
-        let token_account_pk1 = Pubkey::new_unique();
-        let mut data = vec![0; PoolAccount::SIZE];
-        let mut pool = PoolAccount::new(&mut data).unwrap();
-        pool.set_accounts(0, &ElusivOption::Some(token_account_pk0.to_bytes()));
-        pool.set_accounts(1, &ElusivOption::Some(token_account_pk1.to_bytes()));
+    fn test_verify_program_token_account() {
+        let pk_pool_0 = get_associated_token_address(&PoolAccount::find(None).0, &TOKENS[1].mint);
+        let pk_pool_1 = get_associated_token_address(&PoolAccount::find(None).0, &TOKENS[2].mint);
 
-        let pool_pda = PoolAccount::find(None).0;
-        account!(pool, pool_pda, data);
-        account!(token_account0, token_account_pk0, vec![]);
-        account!(token_account1, token_account_pk1, vec![]);
+        account!(pool, PoolAccount::find(None).0, vec![]);
+        account!(token_account0, pk_pool_0, vec![]);
+        account!(token_account1, pk_pool_1, vec![]);
 
-        assert_matches!(verify_pool(&pool, &pool, 0), Ok(()));
+        assert_matches!(verify_program_token_account(&pool, &pool, 0), Ok(()));
+        assert_matches!(verify_program_token_account(&pool, &token_account0, 1), Ok(_));
+        assert_matches!(verify_program_token_account(&pool, &token_account1, 1), Err(_));
 
-        assert_matches!(verify_pool(&pool, &token_account0, 1), Ok(_));
-        assert_matches!(verify_pool(&pool, &token_account1, 1), Err(_));
-
-        assert_matches!(verify_pool(&pool, &token_account1, 2), Ok(_));
-        assert_matches!(verify_pool(&pool, &token_account0, 2), Err(_));
+        assert_matches!(verify_program_token_account(&pool, &token_account1, 2), Ok(_));
+        assert_matches!(verify_program_token_account(&pool, &token_account0, 2), Err(_));
     }
 }
