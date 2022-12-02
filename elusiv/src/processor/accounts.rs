@@ -325,7 +325,7 @@ mod tests {
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
     use crate::{
-        macros::account,
+        macros::account_info,
         state::{program_account::{PDAAccount, SizedAccount, MultiAccountProgramAccount}, queue::RingQueue},
         processor::CommitmentHashRequest,
         types::U256,
@@ -337,17 +337,17 @@ mod tests {
         let invalid_pda = PoolAccount::find(Some(0)).0;
 
         let payer_pk = Pubkey::new_unique();
-        account!(payer, payer_pk, vec![]);
+        account_info!(payer, payer_pk, vec![]);
 
         // Invalid PDA
-        account!(pda_account, invalid_pda, vec![]);
+        account_info!(pda_account, invalid_pda, vec![]);
         assert_matches!(
             open_single_instance_account(&payer, &pda_account, SingleInstancePDAAccountKind::PoolAccount),
             Err(_)
         );
 
         // Valid PDA
-        account!(pda_account, valid_pda, vec![]);
+        account_info!(pda_account, valid_pda, vec![]);
         assert_matches!(
             open_single_instance_account(&payer, &pda_account, SingleInstancePDAAccountKind::PoolAccount),
             Ok(())
@@ -357,10 +357,10 @@ mod tests {
     #[test]
     fn test_open_multi_instance_account() {
         let valid_pda = NullifierAccount::find(Some(0)).0;
-        account!(pda_account, valid_pda, vec![]);
+        account_info!(pda_account, valid_pda, vec![]);
 
         let payer_pk = Pubkey::new_unique();
-        account!(payer, payer_pk, vec![]);
+        account_info!(payer, payer_pk, vec![]);
 
         // Invalid offset
         assert_matches!(
@@ -369,7 +369,7 @@ mod tests {
         );
 
         // Valid offset
-        account!(pda_account, valid_pda, vec![]);
+        account_info!(pda_account, valid_pda, vec![]);
         assert_matches!(
             open_multi_instance_account(&payer, &pda_account, MultiInstancePDAAccountKind::NullifierAccount, 0),
             Ok(_)
@@ -383,14 +383,14 @@ mod tests {
         let mut d = storage_account.get_multi_account_data();
         d.pubkeys[0] = ElusivOption::Some(Pubkey::new_unique());
         storage_account.set_multi_account_data(&d);
-        account!(storage, StorageAccount::find(None).0, data);
+        account_info!(storage, StorageAccount::find(None).0, data);
 
         // Account has invalid size
-        account!(sub_account, Pubkey::new_unique(), vec![0; StorageAccount::ACCOUNT_SIZE - 1]);
+        account_info!(sub_account, Pubkey::new_unique(), vec![0; StorageAccount::ACCOUNT_SIZE - 1]);
         assert_matches!(enable_storage_sub_account(&storage, &sub_account, 0), Err(_));
 
         // Account has already been setup
-        account!(sub_account, Pubkey::new_unique(), vec![0; StorageAccount::ACCOUNT_SIZE]);
+        account_info!(sub_account, Pubkey::new_unique(), vec![0; StorageAccount::ACCOUNT_SIZE]);
         assert_matches!(enable_storage_sub_account(&storage, &sub_account, 0), Err(_));
 
         // Success at different index
@@ -408,14 +408,14 @@ mod tests {
         let mut d = nullifier_account.get_multi_account_data();
         d.pubkeys[0] = ElusivOption::Some(Pubkey::new_unique());
         nullifier_account.set_multi_account_data(&d);
-        account!(nullifier, NullifierAccount::find(Some(0)).0, data);
+        account_info!(nullifier, NullifierAccount::find(Some(0)).0, data);
 
         // Account has invalid size
-        account!(sub_account, Pubkey::new_unique(), vec![0; NullifierAccount::ACCOUNT_SIZE - 1]);
+        account_info!(sub_account, Pubkey::new_unique(), vec![0; NullifierAccount::ACCOUNT_SIZE - 1]);
         assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 0), Err(_));
 
         // Account has already been setup
-        account!(sub_account, Pubkey::new_unique(), vec![0; NullifierAccount::ACCOUNT_SIZE]);
+        account_info!(sub_account, Pubkey::new_unique(), vec![0; NullifierAccount::ACCOUNT_SIZE]);
         assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 0), Err(_));
 
         // Success at different index with
@@ -464,8 +464,8 @@ mod tests {
     #[should_panic]
     fn test_upgrade_governor_state() {
         test_account_info!(authority, 0);
-        zero_account!(mut governor_account, GovernorAccount);
-        zero_account!(commitment_queue, CommitmentQueueAccount);
+        zero_program_account!(mut governor_account, GovernorAccount);
+        zero_program_account!(commitment_queue, CommitmentQueueAccount);
 
         upgrade_governor_state(&authority, &mut governor_account, &commitment_queue, 1, 1).unwrap();
     }
@@ -475,18 +475,18 @@ mod tests {
         let pk = Pubkey::new_unique();
 
         // Mismatched size
-        account!(account, pk, vec![0; 100]);
+        account_info!(account, pk, vec![0; 100]);
         assert_matches!(verify_extern_data_account(&account, 99, true), Err(_));
 
         // Non-zero
-        account!(account, pk, vec![1; 100]);
+        account_info!(account, pk, vec![1; 100]);
         assert_matches!(verify_extern_data_account(&account, 100, true), Err(_));
 
         // Ignore zero
         assert_matches!(verify_extern_data_account(&account, 100, false), Ok(()));
 
         // Check zero
-        account!(account, pk, vec![0; 100]);
+        account_info!(account, pk, vec![0; 100]);
         assert_matches!(verify_extern_data_account(&account, 100, true), Ok(()));
     }
 
@@ -502,7 +502,7 @@ mod tests {
 
         let mut d = vec![1];
         d.extend(data);
-        account!(map_account, pk, d);
+        account_info!(map_account, pk, d);
         reset_map_sub_account(&map_account);
 
         let data = &mut map_account.data.borrow_mut()[1..];

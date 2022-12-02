@@ -89,7 +89,6 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use super::super::program_account::MultiAccountProgramAccount;
     use crate::{fields::{u256_from_str, u64_to_u256_skip_mr}, macros::nullifier_account};
 
     #[test]

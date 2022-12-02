@@ -329,7 +329,7 @@ mod tests {
     use std::{str::FromStr, collections::HashMap};
     use ark_bn254::Fr;
     use ark_ff::{PrimeField, Zero};
-    use crate::{fields::{u256_to_big_uint, big_uint_to_u256}, proof::vkey::TestVKey, macros::account, state::program_account::{SUB_ACCOUNT_ADDITIONAL_SIZE, SizedAccount, MultiAccountProgramAccount}};
+    use crate::{fields::{u256_to_big_uint, big_uint_to_u256}, proof::vkey::TestVKey, macros::account_info, state::program_account::{SUB_ACCOUNT_ADDITIONAL_SIZE, SizedAccount, MultiAccountProgramAccount}};
 
     fn test_full_precompute<VKey: VerificationKey>() {
         let mut data = vec![0; precompute_account_size::<VKey>()];
@@ -368,8 +368,8 @@ mod tests {
         let pk = solana_program::pubkey::Pubkey::new_unique();
         let mut data = vec![0; PrecomputesAccount::SIZE];
         let mut sub_accounts = HashMap::new();
-        account!(acc0, pk, vec![0; precompute_account_size2(0) + SUB_ACCOUNT_ADDITIONAL_SIZE]);
-        account!(acc1, pk, vec![0; precompute_account_size2(1) + SUB_ACCOUNT_ADDITIONAL_SIZE]);
+        account_info!(acc0, pk, vec![0; precompute_account_size2(0) + SUB_ACCOUNT_ADDITIONAL_SIZE]);
+        account_info!(acc1, pk, vec![0; precompute_account_size2(1) + SUB_ACCOUNT_ADDITIONAL_SIZE]);
         sub_accounts.insert(0, &acc0);
         sub_accounts.insert(1, &acc1);
         let mut precompute_account = PrecomputesAccount::new(&mut data, sub_accounts).unwrap();

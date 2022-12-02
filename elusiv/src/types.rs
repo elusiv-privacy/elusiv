@@ -700,6 +700,13 @@ mod test {
     }
 
     #[test]
+    fn test_send_public_inputs_serde() {
+        let str = "{\"join_split\":{\"commitment_count\":1,\"roots\":[[220,109,75,166,42,21,212,57,27,45,247,16,115,107,121,228,172,110,162,119,166,173,100,50,196,104,230,12,112,119,15,30]],\"nullifier_hashes\":[[145,228,92,60,193,80,150,255,145,29,156,152,238,64,230,149,19,80,161,103,119,135,38,139,142,67,18,163,159,54,11,22]],\"commitment\":[146,94,46,51,211,4,49,85,42,229,99,188,226,49,115,65,108,37,190,116,123,32,2,181,59,231,108,209,18,13,235,45],\"fee_version\":0,\"amount\":100000000,\"fee\":120000,\"token_id\":0},\"recipient\":{\"address\":[239,98,99,47,147,78,1,131,246,197,252,51,35,110,208,118,128,37,28,75,125,83,107,46,63,102,168,120,143,246,255,52],\"is_non_associated_token_account\":true},\"current_time\":1669971,\"identifier\":[239,6,63,227,53,18,117,85,172,69,192,148,3,201,244,219,177,39,64,179,204,41,240,146,189,20,177,226,231,33,176,0],\"salt\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}";
+        let result: SendPublicInputs = serde_json::from_str(str).unwrap();
+        serde_json::to_string(&result).unwrap();
+    }
+
+    #[test]
     fn test_migrate_public_inputs_verify() {
         let valid_inputs = MigratePublicInputs {
             join_split: JoinSplitPublicInputs {

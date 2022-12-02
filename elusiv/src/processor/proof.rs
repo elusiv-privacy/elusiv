@@ -909,7 +909,7 @@ mod tests {
     use crate::state::governor::PoolAccount;
     use crate::state::empty_root_raw;
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
-    use crate::macros::{two_pow, zero_account, account, test_account_info, storage_account, nullifier_account, pyth_price_account_info, program_token_account, test_pda_account_info};
+    use crate::macros::{two_pow, zero_program_account, account_info, test_account_info, storage_account, nullifier_account, pyth_price_account_info, program_token_account_info, test_pda_account_info};
     use crate::token::{Lamports, USDC_TOKEN_ID, LAMPORTS_TOKEN_ID, spl_token_account_data, USDT_TOKEN_ID};
     use crate::types::{RawU256, Proof, compute_fee_rec, compute_fee_rec_lamports, JOIN_SPLIT_MAX_N_ARITY, RecipientAccount};
 
@@ -934,7 +934,7 @@ mod tests {
         nullifier_account!(mut n);
         test_account_info!(fee_payer, 0);
         test_account_info!(recipient, 0);
-        account!(v_acc, VerificationAccount::find(Some(0)).0, vec![0; VerificationAccount::SIZE]);
+        account_info!(v_acc, VerificationAccount::find(Some(0)).0, vec![0; VerificationAccount::SIZE]);
 
         let mut inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
@@ -954,7 +954,7 @@ mod tests {
         };
         compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut inputs, &fee());
 
-        account!(n_duplicate_acc, inputs.join_split.nullifier_duplicate_pda().0, vec![1]);
+        account_info!(n_duplicate_acc, inputs.join_split.nullifier_duplicate_pda().0, vec![1]);
 
         // TODO: test skip nullifier pda
 
@@ -1013,7 +1013,7 @@ mod tests {
         
         // Invalid nullifier_duplicate_account
         nullifier_account!(n);
-        account!(invalid_n_duplicate_acc, VerificationAccount::find(Some(0)).0, vec![1]);
+        account_info!(invalid_n_duplicate_acc, VerificationAccount::find(Some(0)).0, vec![1]);
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &invalid_n_duplicate_acc, &recipient, &s, &n, &n, 0, [0, 1], Send(inputs.clone()), false),
             Err(_)
@@ -1043,9 +1043,9 @@ mod tests {
         test_account_info!(pool, 0);
         test_account_info!(fee_c, 0);   // fee_collector
         test_account_info!(any, 0);
-        account!(sys, system_program::id(), vec![]);
-        account!(spl, spl_token::id(), vec![]);
-        zero_account!(mut g, GovernorAccount);
+        account_info!(sys, system_program::id(), vec![]);
+        account_info!(spl, spl_token::id(), vec![]);
+        zero_program_account!(mut g, GovernorAccount);
         g.set_program_fee(&fee());
         let mut data = vec![0; VerificationAccount::SIZE];
         let mut verification_acc= VerificationAccount::new(&mut data).unwrap();
@@ -1136,20 +1136,20 @@ mod tests {
     #[test]
     fn test_init_verification_transfer_fee_token() {
         test_account_info!(f, 0);   // fee_payer
-        account!(sys, system_program::id(), vec![]);
-        account!(spl, spl_token::id(), vec![]);
-        zero_account!(mut g, GovernorAccount);
+        account_info!(sys, system_program::id(), vec![]);
+        account_info!(spl, spl_token::id(), vec![]);
+        zero_program_account!(mut g, GovernorAccount);
         g.set_program_fee(&fee());
         let mut data = vec![0; VerificationAccount::SIZE];
         let mut verification_acc = VerificationAccount::new(&mut data).unwrap();
 
-        account!(token_acc, Pubkey::new_unique(), spl_token_account_data(USDC_TOKEN_ID), spl_token::id());
-        account!(wrong_token_acc, Pubkey::new_unique(), spl_token_account_data(USDT_TOKEN_ID), spl_token::id());
+        account_info!(token_acc, Pubkey::new_unique(), spl_token_account_data(USDC_TOKEN_ID), spl_token::id());
+        account_info!(wrong_token_acc, Pubkey::new_unique(), spl_token_account_data(USDT_TOKEN_ID), spl_token::id());
 
         test_pda_account_info!(pool, PoolAccount, None);
         test_pda_account_info!(fee_c, FeeCollectorAccount, None);
-        program_token_account!(pool_token, PoolAccount, USDC_TOKEN_ID);
-        program_token_account!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+        program_token_account_info!(pool_token, PoolAccount, USDC_TOKEN_ID);
+        program_token_account_info!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
 
         let sol_usd = Price { price: 39, conf: 1, expo: 0 };
         let usdc_usd = Price { price: 1, conf: 1, expo: 0 };
@@ -1249,7 +1249,7 @@ mod tests {
 
         let proof = test_proof();
         let valid_pk = Pubkey::new(&[0; 32]);
-        account!(fee_payer, valid_pk, vec![0; 0]);
+        account_info!(fee_payer, valid_pk, vec![0; 0]);
 
         // Account setup
         verification_account.set_state(&VerificationState::ProofSetup);
@@ -1265,7 +1265,7 @@ mod tests {
 
         // Invalid fee_payer
         let invalid_pk = Pubkey::new_unique();
-        account!(invalid_fee_payer, invalid_pk, vec![0; 0]);
+        account_info!(invalid_fee_payer, invalid_pk, vec![0; 0]);
         assert_matches!(init_verification_proof(&invalid_fee_payer, &mut verification_account, 0, proof), Err(_));
 
         // Success
@@ -1288,7 +1288,7 @@ mod tests {
             d.extend(precomputes.data.to_vec());
 
             let pk = solana_program::pubkey::Pubkey::new_unique();
-            account!($id, pk, d);
+            account_info!($id, pk, d);
         };
     }
 
@@ -1411,8 +1411,8 @@ mod tests {
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
         let identifier_pk = Pubkey::new(&public_inputs.identifier.skip_mr());
         let salt_pk = Pubkey::new(&public_inputs.salt.skip_mr());
-        account!(identifier, identifier_pk, vec![]);
-        account!(salt, salt_pk, vec![]);
+        account_info!(identifier, identifier_pk, vec![]);
+        account_info!(salt, salt_pk, vec![]);
         storage_account!(storage);
 
         // Verification is not finished
@@ -1426,7 +1426,7 @@ mod tests {
 
         // Invalid identifier
         {
-            account!(identifier, salt_pk, vec![]); 
+            account_info!(identifier, salt_pk, vec![]); 
             assert_matches!(
                 finalize_verification_send(&identifier, &salt, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
                 Err(_)
@@ -1435,7 +1435,7 @@ mod tests {
 
         // Invalid salt
         {
-            account!(salt, identifier_pk, vec![]); 
+            account_info!(salt, identifier_pk, vec![]); 
             assert_matches!(
                 finalize_verification_send(&identifier, &salt, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
                 Err(_)
@@ -1479,8 +1479,8 @@ mod tests {
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
         let identifier_pk = Pubkey::new(&public_inputs.identifier.skip_mr());
         let salt_pk = Pubkey::new(&public_inputs.salt.skip_mr());
-        account!(identifier, identifier_pk, vec![]);
-        account!(salt, salt_pk, vec![]);
+        account_info!(identifier, identifier_pk, vec![]);
+        account_info!(salt, salt_pk, vec![]);
         verification_acc.set_is_verified(&ElusivOption::Some(false));
         storage_account!(storage);
 
@@ -1509,7 +1509,7 @@ mod tests {
         };
 
         let pk = Pubkey::new_unique();
-        account!(acc, pk, vec![]);
+        account_info!(acc, pk, vec![]);
 
         let mut data = vec![0; VerificationAccount::SIZE];
         let mut v_account = VerificationAccount::new(&mut data).unwrap();
@@ -1567,14 +1567,14 @@ mod tests {
     #[test]
     fn test_finalize_verification_transfer_lamports() -> ProgramResult {
         finalize_send_test!(LAMPORTS_TOKEN_ID, public_inputs, verification_acc_data, nullifier_duplicate_pda, _finalize_data);
-        account!(recipient, public_inputs.recipient.pubkey(), vec![]);
+        account_info!(recipient, public_inputs.recipient.pubkey(), vec![]);
         let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
-        account!(f, fee_payer, vec![]);  // fee_payer
+        account_info!(f, fee_payer, vec![]);  // fee_payer
         test_account_info!(pool, 0);
         test_account_info!(fee_c, 0);
         test_account_info!(any, 0);
-        account!(n_pda, nullifier_duplicate_pda, vec![]);
-        account!(v_acc, Pubkey::new_unique(), verification_acc_data);
+        account_info!(n_pda, nullifier_duplicate_pda, vec![]);
+        account_info!(v_acc, Pubkey::new_unique(), verification_acc_data);
         let mut data = vec![0; CommitmentQueueAccount::SIZE];
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
 
@@ -1596,7 +1596,7 @@ mod tests {
         }
 
         // Invalid nullifier_duplicate_account
-        account!(invalid_n_pda, VerificationAccount::find(Some(0)).0, vec![1]);
+        account_info!(invalid_n_pda, VerificationAccount::find(Some(0)).0, vec![1]);
         assert_matches!(
             finalize_verification_transfer_lamports(&recipient, &f, &pool, &fee_c, &mut queue, &v_acc, &invalid_n_pda, 0),
             Err(_)
@@ -1645,20 +1645,20 @@ mod tests {
     #[test]
     fn test_finalize_verification_transfer_token() -> ProgramResult {
         finalize_send_test!(USDC_TOKEN_ID, public_inputs, verification_acc_data, nullifier_duplicate_pda, _finalize_data);
-        account!(r, &public_inputs.recipient.pubkey(), vec![], spl_token::id());
+        account_info!(r, &public_inputs.recipient.pubkey(), vec![], spl_token::id());
         let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
-        account!(f, fee_payer, vec![]);  // fee_payer
-        account!(f_token, fee_payer, vec![], spl_token::id());  // fee_payer
+        account_info!(f, fee_payer, vec![]);  // fee_payer
+        account_info!(f_token, fee_payer, vec![], spl_token::id());  // fee_payer
 
         test_pda_account_info!(pool, PoolAccount, None);
         test_pda_account_info!(fee_c, FeeCollectorAccount, None);
-        program_token_account!(pool_token, PoolAccount, USDC_TOKEN_ID);
-        program_token_account!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+        program_token_account_info!(pool_token, PoolAccount, USDC_TOKEN_ID);
+        program_token_account_info!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
 
         test_account_info!(any, 0);
-        account!(spl, spl_token::id(), vec![]);
-        account!(n_pda, nullifier_duplicate_pda, vec![]);
-        account!(v_acc, Pubkey::new_unique(), verification_acc_data);
+        account_info!(spl, spl_token::id(), vec![]);
+        account_info!(n_pda, nullifier_duplicate_pda, vec![]);
+        account_info!(v_acc, Pubkey::new_unique(), verification_acc_data);
         let mut data = vec![0; CommitmentQueueAccount::SIZE];
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
 
@@ -1856,7 +1856,7 @@ mod tests {
         // Duplicate nullifier_hash already exists
         let data = vec![0; NullifierAccount::ACCOUNT_SIZE];
         let pk = Pubkey::new_unique();
-        account!(sub_account, pk, data);
+        account_info!(sub_account, pk, data);
 
         let mut map = HashMap::new();
         map.insert(0, &sub_account);

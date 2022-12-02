@@ -24,9 +24,9 @@ impl_map_value!(());
 
 pub type ElusivSet<'a, K, const CAPACITY: usize> = ElusivMap<'a, K, (), CAPACITY>;
 
-#[derive(BorshSerDeSized, BorshSerDePlaceholder, ByteBackedJIT, Debug)]
 /// Write efficient, append only, JIT deserializing, insertion sorted map with a maximum capacity
 /// - upper bound (inclusive) for `CAPACITY` is `2^16`
+#[derive(BorshSerDeSized, BorshSerDePlaceholder, ByteBackedJIT, Debug)]
 pub struct ElusivMap<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> {
     len: Lazy<'a, u32>,
 

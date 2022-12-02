@@ -355,8 +355,8 @@ mod tests {
     use crate::fields::{big_uint_to_u256, SCALAR_MODULUS_RAW, u256_from_str_skip_mr, fr_to_u256_le_repr};
     use crate::state::governor::PoolAccount;
     use crate::state::{MT_HEIGHT, EMPTY_TREE};
-    use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
-    use crate::macros::{zero_account, account, test_account_info, storage_account, pyth_price_account_info, program_token_account, test_pda_account_info};
+    use crate::state::program_account::{SizedAccount, PDAAccount};
+    use crate::macros::{zero_program_account, account_info, test_account_info, storage_account, pyth_price_account_info, program_token_account_info, test_pda_account_info};
     use crate::token::{LAMPORTS_TOKEN_ID, lamports_token, USDC_TOKEN_ID, usdc_token};
     use ark_ff::Zero;
     use assert_matches::assert_matches;
@@ -390,15 +390,15 @@ mod tests {
 
     #[test]
     fn test_store_base_commitment_lamports() {
-        zero_account!(mut g, GovernorAccount);
+        zero_program_account!(mut g, GovernorAccount);
         test_account_info!(s, 0);   // sender
         test_account_info!(f, 0);   // fee_payer
         test_account_info!(pool, 0);
         test_account_info!(fee_c, 0);   // fee_collector
         test_account_info!(any, 0);
-        account!(sys, system_program::id(), vec![]);
-        account!(spl, spl_token::id(), vec![]);
-        account!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
+        account_info!(sys, system_program::id(), vec![]);
+        account_info!(spl, spl_token::id(), vec![]);
+        account_info!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
 
         g.set_commitment_batching_rate(&4);
         g.set_fee_version(&1);
@@ -479,18 +479,18 @@ mod tests {
 
     #[test]
     fn test_store_base_commitment_token() {
-        zero_account!(g, GovernorAccount);
+        zero_program_account!(g, GovernorAccount);
         test_account_info!(s);   // sender
         test_account_info!(f);   // fee_payer
         test_account_info!(s_token, 0, spl_token::id());
         test_account_info!(f_token, 0, spl_token::id());
         test_pda_account_info!(pool, PoolAccount);
         test_pda_account_info!(fee_c, FeeCollectorAccount);
-        program_token_account!(pool_token, PoolAccount, USDC_TOKEN_ID);
-        program_token_account!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
-        account!(sys, system_program::id(), vec![]);
-        account!(spl, spl_token::id(), vec![]);
-        account!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
+        program_token_account_info!(pool_token, PoolAccount, USDC_TOKEN_ID);
+        program_token_account_info!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+        account_info!(sys, system_program::id(), vec![]);
+        account_info!(spl, spl_token::id(), vec![]);
+        account_info!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
 
         let sol_usd = Price { price: 39, conf: 1, expo: 0 };
         let usdc_usd = Price { price: 1, conf: 1, expo: 0 };
@@ -577,7 +577,7 @@ mod tests {
 
     #[test]
     fn test_compute_base_commitment_hash() {
-        zero_account!(mut hashing_account, BaseCommitmentHashingAccount);
+        zero_program_account!(mut hashing_account, BaseCommitmentHashingAccount);
 
         // Inactive
         assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0, 0), Err(_));
@@ -595,10 +595,10 @@ mod tests {
 
     #[test]
     fn test_finalize_base_commitment_hash() -> ProgramResult {
-        account!(fee_payer, Pubkey::new_unique(), vec![0]);
-        account!(h_account, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
-        zero_account!(mut q, CommitmentQueueAccount);
-        zero_account!(fee, FeeAccount);
+        account_info!(fee_payer, Pubkey::new_unique(), vec![0]);
+        account_info!(h_account, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
+        zero_program_account!(mut q, CommitmentQueueAccount);
+        zero_program_account!(fee, FeeAccount);
         test_account_info!(pool, 0);
 
         // Inactive hashing account
@@ -640,7 +640,7 @@ mod tests {
         }
         assert_matches!(finalize_base_commitment_hash(&fee_payer, &pool, &fee, &h_account, &mut q, 0, 0), Err(_));
 
-        zero_account!(mut q, CommitmentQueueAccount);
+        zero_program_account!(mut q, CommitmentQueueAccount);
         assert_matches!(finalize_base_commitment_hash(&fee_payer, &pool, &fee, &h_account, &mut q, 0, 0), Ok(()));
         Ok(())
     }
@@ -648,8 +648,8 @@ mod tests {
     #[test]
     fn test_init_commitment_hash_empty_queue() {
         storage_account!(storage_account);
-        zero_account!(mut queue, CommitmentQueueAccount);
-        zero_account!(mut hashing_account, CommitmentHashingAccount);
+        zero_program_account!(mut queue, CommitmentQueueAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
         assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
@@ -657,8 +657,8 @@ mod tests {
 
     #[test]
     fn test_init_commitment_hash_active_computation() {
-        zero_account!(mut queue, CommitmentQueueAccount);
-        zero_account!(mut hashing_account, CommitmentHashingAccount);
+        zero_program_account!(mut queue, CommitmentQueueAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         let mut q = CommitmentQueue::new(&mut queue);
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 0, fee_version: 0 }).unwrap();
@@ -671,8 +671,8 @@ mod tests {
     #[test]
     fn test_init_commitment_hash_full_storage() {
         storage_account!(mut storage_account);
-        zero_account!(mut queue, CommitmentQueueAccount);
-        zero_account!(mut hashing_account, CommitmentHashingAccount);
+        zero_program_account!(mut queue, CommitmentQueueAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         let mut q = CommitmentQueue::new(&mut queue);
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 0, fee_version: 0 }).unwrap();
@@ -685,8 +685,8 @@ mod tests {
     #[test]
     fn test_init_commitment_hash_incomplete_batch() {
         storage_account!(storage_account);
-        zero_account!(mut queue, CommitmentQueueAccount);
-        zero_account!(mut hashing_account, CommitmentHashingAccount);
+        zero_program_account!(mut queue, CommitmentQueueAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         let mut q = CommitmentQueue::new(&mut queue);
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();
@@ -698,8 +698,8 @@ mod tests {
     #[test]
     fn test_init_commitment_hash_batch_too_big() {
         storage_account!(mut storage_account);
-        zero_account!(mut queue, CommitmentQueueAccount);
-        zero_account!(mut hashing_account, CommitmentHashingAccount);
+        zero_program_account!(mut queue, CommitmentQueueAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         let mut q = CommitmentQueue::new(&mut queue);
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();
@@ -713,8 +713,8 @@ mod tests {
     #[allow(clippy::needless_range_loop)]
     fn test_init_commitment_hash_valid() {
         storage_account!(storage_account);
-        zero_account!(mut queue, CommitmentQueueAccount);
-        zero_account!(mut hashing_account, CommitmentHashingAccount);
+        zero_program_account!(mut queue, CommitmentQueueAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         let mut q = CommitmentQueue::new(&mut queue);
         q.enqueue(CommitmentHashRequest { commitment: [1; 32], min_batching_rate: 2, fee_version: 0 }).unwrap();
@@ -740,8 +740,8 @@ mod tests {
 
     #[test]
     fn test_compute_commitment_hash() {
-        zero_account!(mut hashing_account, CommitmentHashingAccount);
-        zero_account!(fee, FeeAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
+        zero_program_account!(fee, FeeAccount);
         test_account_info!(pool, 0);
         test_account_info!(fee_payer, 0);
 
@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn test_finalize_commitment_hash() {
         storage_account!(mut storage_account);
-        zero_account!(mut hashing_account, CommitmentHashingAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         // Computation not finished
         hashing_account.set_is_active(&true);
@@ -788,7 +788,7 @@ mod tests {
     #[test]
     fn test_finalize_commitment_hash_valid() {
         storage_account!(mut storage_account);
-        zero_account!(mut hashing_account, CommitmentHashingAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         let batching_rate = 4;
         let commitment_count = commitments_per_batch(batching_rate);

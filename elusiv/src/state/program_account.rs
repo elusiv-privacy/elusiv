@@ -3,7 +3,7 @@ pub use elusiv_types::accounts::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::macros::account;
+    use crate::macros::account_info;
     use std::collections::HashMap;
     use borsh::BorshSerialize;
     use elusiv_proc_macros::repeat;
@@ -80,7 +80,7 @@ mod tests {
 
             repeat!({
                 let pk = solana_program::pubkey::Pubkey::new_unique();
-                account!(account_index, pk, vec![1, 0]);
+                account_info!(account_index, pk, vec![1, 0]);
                 accounts.insert(_index, &account_index);
 
                 pubkeys[_index] = ElusivOption::Some(pk);
@@ -155,10 +155,10 @@ mod tests {
 
         let data = account.serialize();
         let pk = solana_program::pubkey::Pubkey::new_unique();
-        account!(main_account, pk, data);
+        account_info!(main_account, pk, data);
 
         let pk = solana_program::pubkey::Pubkey::new_unique();
-        account!(unused_account, pk, vec![1, 0]);
+        account_info!(unused_account, pk, vec![1, 0]);
 
         let account_info_iter = &mut accounts.iter().map(|a| match a {
             Some(i) => account.accounts[i],

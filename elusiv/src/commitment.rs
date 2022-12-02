@@ -429,7 +429,7 @@ mod tests {
     use super::*;
     use crate::fields::{u256_from_str, u64_to_u256_skip_mr, u64_to_scalar_skip_mr, u64_to_scalar};
     use crate::state::EMPTY_TREE;
-    use crate::state::program_account::{ProgramAccount, SizedAccount, MultiAccountProgramAccount, MultiAccountAccount};
+    use crate::state::program_account::{ProgramAccount, SizedAccount};
     use crate::macros::storage_account;
     use crate::types::RawU256;
     use ark_bn254::Fr;

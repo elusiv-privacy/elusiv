@@ -388,7 +388,7 @@ pub fn spl_token_account_data(token_id: u16) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::macros::{account, pyth_price_account_info};
+    use crate::macros::{account_info, pyth_price_account_info};
     use assert_matches::assert_matches;
     use pyth_sdk_solana::Price;
     use solana_program::native_token::LAMPORTS_PER_SOL;
@@ -503,16 +503,16 @@ mod tests {
 
     #[test]
     fn test_verify_token_account() {
-        account!(sol_account, Pubkey::new_unique(), vec![]);
+        account_info!(sol_account, Pubkey::new_unique(), vec![]);
 
         assert!(verify_token_account(&sol_account, 0).unwrap());
         assert!(!verify_token_account(&sol_account, 1).unwrap());
 
         let data = spl_token_account_data(USDC_TOKEN_ID);
-        account!(usdc_account, Pubkey::new_unique(), data.clone());
+        account_info!(usdc_account, Pubkey::new_unique(), data.clone());
         assert!(!verify_token_account(&usdc_account, 1).unwrap());
 
-        account!(usdc_account, Pubkey::new_unique(), data, spl_token::id());
+        account_info!(usdc_account, Pubkey::new_unique(), data, spl_token::id());
         assert!(verify_token_account(&usdc_account, 1).unwrap());
         assert!(!verify_token_account(&usdc_account, 0).unwrap());
         assert!(!verify_token_account(&usdc_account, 2).unwrap());
