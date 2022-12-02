@@ -316,17 +316,19 @@ pub struct RecipientAccount {
     pub is_non_associated_token_account: bool,
 }
 
-impl RecipientAccount {
-    pub fn new(address: U256, is_spl_account: bool) -> Self {
-        Self {
-            address,
-            is_non_associated_token_account: is_spl_account,
-        }
-    }
+pub fn compute_extra_data_hash(
+    recipient: U256,
+    identifier: U256,
+    salt: U256,
+) -> U256 {
+    let mut data = recipient.to_vec();
+    data.extend(identifier);
+    data.extend(salt);
+    let mut hash = solana_program::hash::hash(&data).to_bytes();
 
-    pub fn pubkey(&self) -> Pubkey {
-        Pubkey::new_from_array(self.address)
-    }
+    // cutoff bit 256, 255, 254
+    hash[31] &= 0b11111;
+    hash
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
