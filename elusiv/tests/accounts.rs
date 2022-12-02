@@ -13,8 +13,8 @@ use elusiv::state::queue::RingQueue;
 use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT};
 use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
-use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, CommitmentHashRequest, TokenAuthorityAccountKind};
-use elusiv::token::{SPL_TOKEN_COUNT, TokenAuthorityAccount};
+use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, CommitmentHashRequest};
+use elusiv::token::SPL_TOKEN_COUNT;
 use elusiv_utils::batch_instructions;
 use solana_program::instruction::{Instruction, AccountMeta};
 use solana_program::pubkey::Pubkey;
@@ -26,7 +26,6 @@ use elusiv::state::{
     NullifierAccount,
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
 };
-use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 
 #[tokio::test]
@@ -75,50 +74,11 @@ async fn test_enable_token_account() {
     let mut test = ElusivProgramTest::start().await;
     test.setup_initial_pdas().await;
 
-    fn a<T: TokenAuthorityAccount>(a: &T, token_id: u16, pk: [u8; 32]) {
-        assert_eq!(a.get_token_account(token_id).unwrap(), pk);
-    }
-
-    macro_rules! tets_setup_single_token_account {
-        ($token_id: ident, $ty: ty, $kind: expr, $test: ident) => {
-            let token_account = Keypair::new();
-            let ix = enable_token_account_ix::<$ty>(&mut $test, $token_id, token_account.pubkey(), $kind);
-            test.tx_should_succeed(&[ix], &[&token_account]).await;
-
-            pda_account!(pool_account, $ty, None, $test);
-            a(&pool_account, $token_id, token_account.pubkey().to_bytes());
-        };
-    }
-
     for token_id in 1..=SPL_TOKEN_COUNT as u16 {
         test.create_spl_token(token_id, false).await;
-        tets_setup_single_token_account!(token_id, PoolAccount, TokenAuthorityAccountKind::Pool, test);
-        tets_setup_single_token_account!(token_id, FeeCollectorAccount, TokenAuthorityAccountKind::FeeCollector, test);
+        enable_program_token_account::<PoolAccount>(&mut test, token_id, None).await;
+        enable_program_token_account::<FeeCollectorAccount>(&mut test, token_id, None).await;
     }
-}
-
-#[tokio::test]
-async fn test_enable_token_account_duplicates() {
-    let mut test = ElusivProgramTest::start().await;
-    test.setup_initial_pdas().await;
-    test.create_spl_token(1, false).await;
-    test.create_spl_token(2, false).await;
-
-    let token_account = Keypair::new();
-    let ix = enable_token_account_ix::<PoolAccount>(&mut test, 1, token_account.pubkey(), TokenAuthorityAccountKind::Pool);
-
-    // Try duplicate ix in a single tx
-    test.tx_should_fail(&[ix.clone(), ix.clone()], &[&token_account]).await;
-
-    test.tx_should_succeed(&[ix], &[&token_account]).await;
-
-    // Try duplicate for different tokens
-    let ix = enable_token_account_ix::<PoolAccount>(&mut test, 2, token_account.pubkey(), TokenAuthorityAccountKind::Pool);
-    test.tx_should_fail(&[ix], &[&token_account]).await;
-
-    // Try duplicate  same token in different owner PDA
-    let ix = enable_token_account_ix::<FeeCollectorAccount>(&mut test, 1, token_account.pubkey(), TokenAuthorityAccountKind::FeeCollector);
-    test.tx_should_fail(&[ix], &[&token_account]).await;
 }
 
 #[tokio::test]

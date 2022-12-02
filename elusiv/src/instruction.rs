@@ -9,7 +9,6 @@ use super::processor::BaseCommitmentHashRequest;
 use crate::processor::{
     SingleInstancePDAAccountKind,
     MultiInstancePDAAccountKind,
-    TokenAuthorityAccountKind,
     ProofRequest, MAX_MT_COUNT, FinalizeSendData,
 };
 use crate::state::queue::CommitmentQueueAccount;
@@ -231,17 +230,6 @@ pub enum ElusivInstruction {
     OpenMultiInstanceAccount {
         kind: MultiInstancePDAAccountKind,
         pda_offset: u32,
-    },
-
-    #[acc(payer, { writable, signer })]
-    #[acc(pda_account, { writable })]
-    #[acc(token_account, { writable, signer })]
-    #[acc(mint_account)]
-    #[sys(system_program, key = system_program::ID, { ignore })]
-    #[sys(token_program, key = spl_token::ID, { ignore })]
-    EnableTokenAccount {
-        kind: TokenAuthorityAccountKind,
-        token_id: u16,
     },
 
     #[pda(storage_account, StorageAccount, { account_info, writable })]

@@ -4,7 +4,7 @@ use solana_program::program_error::ProgramError;
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::commitment::{commitment_hash_computation_instructions, commitments_per_batch, MAX_HT_COMMITMENTS, compute_base_commitment_hash_partial, compute_commitment_hash_partial};
 use crate::macros::{guard, pda_account};
-use crate::processor::utils::{transfer_token, verify_pool, verify_fee_collector, transfer_with_system_program, transfer_token_from_pda, transfer_lamports_from_pda_checked};
+use crate::processor::utils::{transfer_token, transfer_with_system_program, transfer_token_from_pda, transfer_lamports_from_pda_checked, verify_program_token_account};
 use crate::state::MT_COMMITMENT_COUNT;
 use crate::state::governor::FeeCollectorAccount;
 use crate::state::{StorageAccount, program_account::ProgramAccount};
@@ -133,8 +133,16 @@ pub fn store_base_commitment<'a>(
     let computation_fee_token = computation_fee.into_token(&price, token_id)?;
     let network_fee = Token::new(token_id, fee.base_commitment_network_fee.calc(amount.amount()));
 
-    verify_pool(pool, pool_account, token_id)?;
-    verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
+    verify_program_token_account(
+        pool,
+        pool_account,
+        token_id,
+    )?;
+    verify_program_token_account(
+        fee_collector,
+        fee_collector_account,
+        token_id,
+    )?;
 
     // `sender` transfers `computation_fee_token` - `subvention` to `fee_payer` (token)
     transfer_token(
@@ -343,13 +351,12 @@ pub fn finalize_commitment_hash(
 mod tests {
     use super::*;
     use std::str::FromStr;
-    use crate::bytes::ElusivOption;
     use crate::commitment::poseidon_hash::full_poseidon2_hash;
     use crate::fields::{big_uint_to_u256, SCALAR_MODULUS_RAW, u256_from_str_skip_mr, fr_to_u256_le_repr};
     use crate::state::governor::PoolAccount;
     use crate::state::{MT_HEIGHT, EMPTY_TREE};
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
-    use crate::macros::{zero_account, account, test_account_info, storage_account, pyth_price_account_info, token_pda_account};
+    use crate::macros::{zero_account, account, test_account_info, storage_account, pyth_price_account_info, program_token_account, test_pda_account_info};
     use crate::token::{LAMPORTS_TOKEN_ID, lamports_token, USDC_TOKEN_ID, usdc_token};
     use ark_ff::Zero;
     use assert_matches::assert_matches;
@@ -473,12 +480,14 @@ mod tests {
     #[test]
     fn test_store_base_commitment_token() {
         zero_account!(g, GovernorAccount);
-        test_account_info!(s, 0);   // sender
-        test_account_info!(f, 0);   // fee_payer
+        test_account_info!(s);   // sender
+        test_account_info!(f);   // fee_payer
         test_account_info!(s_token, 0, spl_token::id());
         test_account_info!(f_token, 0, spl_token::id());
-        token_pda_account!(pool, pool_token, PoolAccount, USDC_TOKEN_ID);
-        token_pda_account!(fee_c, fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+        test_pda_account_info!(pool, PoolAccount);
+        test_pda_account_info!(fee_c, FeeCollectorAccount);
+        program_token_account!(pool_token, PoolAccount, USDC_TOKEN_ID);
+        program_token_account!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
         account!(sys, system_program::id(), vec![]);
         account!(spl, spl_token::id(), vec![]);
         account!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);

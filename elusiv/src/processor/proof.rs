@@ -9,7 +9,7 @@ use solana_program::{
 };
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex, pda_account};
 use crate::processor::ZERO_COMMITMENT_RAW;
-use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token, verify_pool, verify_fee_collector, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent};
+use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent, verify_program_token_account};
 use crate::proof::precompute::PrecomputesAccount;
 use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState};
 use crate::state::MT_COMMITMENT_COUNT;
@@ -255,8 +255,16 @@ pub fn init_verification_transfer_fee<'a>(
     let fee = (((commitment_hash_fee_token + proof_verification_fee)? + network_fee)? - subvention)?;
     guard!(join_split.fee >= fee.amount(), InvalidPublicInputs);
 
-    verify_pool(pool, pool_account, token_id)?;
-    verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
+    verify_program_token_account(
+        pool,
+        pool_account,
+        token_id,
+    )?;
+    verify_program_token_account(
+        fee_collector,
+        fee_collector_account,
+        token_id,
+    )?;
 
     let mut associated_token_account_rent = Lamports(0);
     let mut associated_token_account_rent_token = 0;
@@ -619,8 +627,16 @@ pub fn finalize_verification_transfer_token<'a>(
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
     guard!(original_fee_payer_account.key.to_bytes() == data.fee_payer_account.skip_mr(), InvalidAccount);
 
-    verify_pool(pool, pool_account, token_id)?;
-    verify_fee_collector(fee_collector, fee_collector_account, token_id)?;
+    verify_program_token_account(
+        pool,
+        pool_account,
+        token_id,
+    )?;
+    verify_program_token_account(
+        fee_collector,
+        fee_collector_account,
+        token_id,
+    )?;
 
     if let ElusivOption::Some(false) = verification_account.get_is_verified() {
         // rent flows to `fee_collector`
@@ -893,7 +909,7 @@ mod tests {
     use crate::state::governor::PoolAccount;
     use crate::state::empty_root_raw;
     use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
-    use crate::macros::{two_pow, zero_account, account, test_account_info, storage_account, nullifier_account, pyth_price_account_info, token_pda_account};
+    use crate::macros::{two_pow, zero_account, account, test_account_info, storage_account, nullifier_account, pyth_price_account_info, program_token_account, test_pda_account_info};
     use crate::token::{Lamports, USDC_TOKEN_ID, LAMPORTS_TOKEN_ID, spl_token_account_data, USDT_TOKEN_ID};
     use crate::types::{RawU256, Proof, compute_fee_rec, compute_fee_rec_lamports, JOIN_SPLIT_MAX_N_ARITY, RecipientAccount};
 
@@ -1130,8 +1146,10 @@ mod tests {
         account!(token_acc, Pubkey::new_unique(), spl_token_account_data(USDC_TOKEN_ID), spl_token::id());
         account!(wrong_token_acc, Pubkey::new_unique(), spl_token_account_data(USDT_TOKEN_ID), spl_token::id());
 
-        token_pda_account!(pool, pool_token, PoolAccount, USDC_TOKEN_ID);
-        token_pda_account!(fee_c, fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+        test_pda_account_info!(pool, PoolAccount, None);
+        test_pda_account_info!(fee_c, FeeCollectorAccount, None);
+        program_token_account!(pool_token, PoolAccount, USDC_TOKEN_ID);
+        program_token_account!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
 
         let sol_usd = Price { price: 39, conf: 1, expo: 0 };
         let usdc_usd = Price { price: 1, conf: 1, expo: 0 };
@@ -1631,8 +1649,12 @@ mod tests {
         let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
         account!(f, fee_payer, vec![]);  // fee_payer
         account!(f_token, fee_payer, vec![], spl_token::id());  // fee_payer
-        token_pda_account!(pool, pool_token, PoolAccount, USDC_TOKEN_ID);
-        token_pda_account!(fee_c, fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+
+        test_pda_account_info!(pool, PoolAccount, None);
+        test_pda_account_info!(fee_c, FeeCollectorAccount, None);
+        program_token_account!(pool_token, PoolAccount, USDC_TOKEN_ID);
+        program_token_account!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+
         test_account_info!(any, 0);
         account!(spl, spl_token::id(), vec![]);
         account!(n_pda, nullifier_duplicate_pda, vec![]);

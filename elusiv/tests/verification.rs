@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use borsh::BorshDeserialize;
 use common::*;
 use elusiv::proof::precompute::{VirtualPrecomputes, precompute_account_size2, PrecomputesAccount};
-use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, TokenAuthorityAccount, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
+use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
 use elusiv_computation::PartialComputation;
 use elusiv_types::{SUB_ACCOUNT_ADDITIONAL_SIZE, MultiAccountProgramAccount};
 use pyth_sdk_solana::Price;
@@ -23,7 +23,7 @@ use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
 use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, RecipientAccount, OrdU256};
 use elusiv::proof::verifier::proof_from_str;
-use elusiv::processor::{ProofRequest, FinalizeSendData};
+use elusiv::processor::{ProofRequest, FinalizeSendData, program_token_account_address};
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
@@ -203,15 +203,6 @@ fn send_request(index: usize) -> FullSendRequest {
         },
     ];
     requests[index].clone()
-}
-
-macro_rules! pda_token_account {
-    ($ty: ty, $token_id: expr, $test: expr) => {
-        {
-            pda_account!(acc, $ty, None, $test);
-            Pubkey::new(&acc.get_token_account($token_id).unwrap())
-        }
-    };
 }
 
 async fn skip_computation(verification_account_index: u32, success: bool, test: &mut ElusivProgramTest) {
@@ -487,11 +478,8 @@ async fn test_init_proof_token() {
     let subvention = fee.proof_subvention.into_token(&price, USDC_TOKEN_ID).unwrap();
     let commitment_hash_fee = fee.commitment_hash_computation_fee(0);
 
-    pda_account!(pool, PoolAccount, None, test);
-    let pool_account = Pubkey::new(&pool.get_token_account(USDC_TOKEN_ID).unwrap());
-
-    pda_account!(fee_collector, FeeCollectorAccount, None, test);
-    let fee_collector_account = Pubkey::new(&fee_collector.get_token_account(USDC_TOKEN_ID).unwrap());
+    let pool_account = program_token_account_address::<PoolAccount>(USDC_TOKEN_ID, None).unwrap();
+    let fee_collector_account = program_token_account_address::<FeeCollectorAccount>(USDC_TOKEN_ID, None).unwrap();
 
     warden.airdrop(LAMPORTS_TOKEN_ID, commitment_hash_fee.0, &mut test).await;
     test.airdrop(&fee_collector_account, subvention).await;
@@ -714,11 +702,8 @@ async fn test_finalize_proof_token() {
     let verification_account_rent = test.rent(VerificationAccount::SIZE).await;
     let nullifier_duplicate_account_rent = test.rent(PDAAccountData::SIZE).await;
 
-    pda_account!(pool, PoolAccount, None, test);
-    let pool_account = Pubkey::new(&pool.get_token_account(USDC_TOKEN_ID).unwrap());
-
-    pda_account!(fee_collector, FeeCollectorAccount, None, test);
-    let fee_collector_account = Pubkey::new(&fee_collector.get_token_account(USDC_TOKEN_ID).unwrap());
+    let pool_account = program_token_account_address::<PoolAccount>(USDC_TOKEN_ID, None).unwrap();
+    let fee_collector_account = program_token_account_address::<FeeCollectorAccount>(USDC_TOKEN_ID, None).unwrap();
 
     warden.airdrop(
         LAMPORTS_TOKEN_ID,
@@ -991,8 +976,8 @@ async fn test_associated_token_account() {
         &mut test,
     ).await;
 
-    let pool_account = pda_token_account!(PoolAccount, USDC_TOKEN_ID, test);
-    let fee_collector_account = pda_token_account!(FeeCollectorAccount, USDC_TOKEN_ID, test);
+    let pool_account = program_token_account_address::<PoolAccount>(USDC_TOKEN_ID, None).unwrap();
+    let fee_collector_account = program_token_account_address::<FeeCollectorAccount>(USDC_TOKEN_ID, None).unwrap();
     test.airdrop(&fee_collector_account, subvention).await;
 
     test.ix_should_succeed(

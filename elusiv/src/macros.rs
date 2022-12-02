@@ -41,9 +41,19 @@ macro_rules! account {
     };
 }
 
+/// Creates an [`solana_program::account_info::AccountInfo`] for testing
+/// 
+/// # Usage
+/// 
+/// - `test_account_info!($id: ident)`
+/// - `test_account_info!($id: ident, $data_size: expr)`
+/// - `test_account_info!($id: ident, $data_size: expr, $owner: expr)`
 #[cfg(test)]
-/// $id: ident, $data_size: expr, $owner: expr?
 macro_rules! test_account_info {
+    ($id: ident) => {
+        let pk = solana_program::pubkey::Pubkey::new_unique();
+        crate::macros::account!($id, pk, vec![]) 
+    };
     ($id: ident, $data_size: expr) => {
         let pk = solana_program::pubkey::Pubkey::new_unique();
         crate::macros::account!($id, pk, vec![0; $data_size]) 
@@ -55,14 +65,44 @@ macro_rules! test_account_info {
 }
 
 #[cfg(test)]
+macro_rules! test_pda_account_info {
+    ($id: ident, $ty: ty) => {
+        crate::macros::test_pda_account_info!($id, $ty, None)
+    };
+    ($id: ident, $ty: ty, $offset: expr) => {
+        let (pk, bump) = <$ty as elusiv_types::PDAAccount>::find($offset);
+        crate::macros::account!($id, pk, vec![bump]) 
+    };
+}
+
+/// Creates a instance `$id` of a [`elusiv_types::ProgramAccount`], specified by `$ty`
+/// 
+/// # Usage
+/// 
+/// - `zero_account!($id: ident, $ty: ty)`
+/// - mutable instance: `zero_account!(mut $id: ident, $ty: ty)`
+#[cfg(test)]
 macro_rules! zero_account {
     (mut $id: ident, $ty: ty) => {
-        let mut data = vec![0; <$ty>::SIZE];
-        let mut $id = <$ty>::new(&mut data).unwrap();
+        let mut data = vec![0; <$ty as elusiv_types::SizedAccount>::SIZE];
+        let mut $id = <$ty as elusiv_types::ProgramAccount>::new(&mut data).unwrap();
     };
     ($id: ident, $ty: ty) => {
-        let mut data = vec![0; <$ty>::SIZE];
-        let $id = <$ty>::new(&mut data).unwrap();
+        let mut data = vec![0; <$ty as elusiv_types::SizedAccount>::SIZE];
+        let $id = <$ty as elusiv_types::ProgramAccount>::new(&mut data).unwrap();
+    };
+}
+
+/// Creates a program-token-account for a specific [`elusiv_types::PDAAccount`] and a token-id
+/// 
+/// # Usage
+/// 
+/// `program_token_account!($id: ident, $pda_ty: ty, $token_id: expr)`
+#[cfg(test)]
+macro_rules! program_token_account {
+    ($id: ident, $pda_ty: ty, $token_id: expr) => {
+        let pk = crate::processor::program_token_account_address::<$pda_ty>($token_id, None).unwrap();
+        crate::macros::account!($id, pk, vec![], spl_token::id())
     };
 }
 
@@ -112,22 +152,11 @@ macro_rules! nullifier_account {
     };
 }
 
-#[cfg(test)]
-macro_rules! token_pda_account {
-    ($id: ident, $token_account_id: ident, $ty: ty, $token_id: expr) => {
-        test_account_info!($token_account_id, 0, spl_token::id());
-        let mut data = vec![0; <$ty>::SIZE];
-        let mut pool = <$ty>::new(&mut data).unwrap();
-        pool.set_accounts($token_id as usize - 1, &ElusivOption::Some($token_account_id.key.to_bytes()));
-        account!($id, <$ty as elusiv_types::PDAAccount>::find(None).0, data); 
-    };
-}
-
-//#[cfg(test)] pub(crate) use hash_map;
 #[cfg(test)] pub(crate) use pyth_price_account_info;
 #[cfg(test)] pub(crate) use account;
 #[cfg(test)] pub(crate) use test_account_info;
+#[cfg(test)] pub(crate) use test_pda_account_info;
 #[cfg(test)] pub(crate) use zero_account;
+#[cfg(test)] pub(crate) use program_token_account;
 #[cfg(test)] pub(crate) use storage_account;
 #[cfg(test)] pub(crate) use nullifier_account;
-#[cfg(test)] pub(crate) use token_pda_account;
