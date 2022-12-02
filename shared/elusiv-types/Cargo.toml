@@ -9,5 +9,5 @@ elusiv-client = []
 
 [dependencies]
 elusiv-derive = { path = "./../elusiv-derive" }
-solana-program = "=1.10.39"
+solana-program = "1.10"
 borsh = { version = "=0.9.3", features = ["const-generics"] }
