@@ -909,19 +909,12 @@ mod tests {
     use assert_matches::assert_matches;
     use solana_program::native_token::LAMPORTS_PER_SOL;
     use crate::fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr};
+    use crate::macros::zero_program_account;
     use crate::proof::precompute::{precompute_account_size, VirtualPrecomputes};
     use crate::proof::test_proofs::{valid_proofs, invalid_proofs};
     use crate::proof::vkey::{TestVKey, SendQuadraVKey};
     use crate::state::empty_root_raw;
-    use crate::state::program_account::{SizedAccount, ProgramAccount};
-    use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs, RecipientAccount};
-
-    macro_rules! storage {
-        ($id: ident) => {
-            let mut data = vec![0; VerificationAccount::SIZE];
-            let mut $id = VerificationAccount::new(&mut data).unwrap();
-        };
-    }
+    use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs};
 
     fn setup_storage_account<VKey: VerificationKey>(
         storage: &mut VerificationAccount,
@@ -986,14 +979,12 @@ mod tests {
             "3932690455294482368858352783906317764044134926538780366070347507990829997699",
             "932690455294482368858352783906317764044134926538780366070347507990829997699",
             "455294482368858352783906317764044134926538780366070347507990829997699",
-            "93269045529448236888352783906317764044134926538780366070347507990829997699",
-            "5932690455294482368858352783906317764044134926538780366070347507990829997699",
         ];
 
         precomputes!(precomputes, TestVKey);
 
         // First version
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         for (i, public_input) in public_inputs.iter().enumerate() {
             storage.set_public_input(i, & RawU256::new(u256_from_str_skip_mr(public_input)));
         }
@@ -1016,7 +1007,7 @@ mod tests {
         assert_eq!(result, p_result);
 
         // Second version
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         let public_inputs = valid_proofs()[0].public_inputs.clone();
         setup_storage_account::<TestVKey>(&mut storage, valid_proofs()[0].proof, &public_inputs);
 
@@ -1038,7 +1029,7 @@ mod tests {
 
     #[test]
     fn test_mul_by_characteristics() {
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         let mut value: Option<G2Affine> = None;
         for round in 0..MUL_BY_CHARACTERISTICS_ROUNDS_COUNT {
             value = mul_by_characteristics_partial(round, &mut storage, &g2_affine()).unwrap();
@@ -1049,7 +1040,7 @@ mod tests {
 
     #[test]
     fn test_combined_ell() {
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         let mut value: Option<Fq12> = None;
         let a = G1Affine::new(
             Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
@@ -1103,7 +1094,7 @@ mod tests {
 
     #[test]
     fn test_combined_miller_loop() {
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         let prepared_inputs = G1Affine::new(
             Fq::new(BigInteger256([8166105574990738357, 14893958969660524502, 13741065838606745905, 2671370669009161592])),
             Fq::new(BigInteger256([1732807305541484699, 1852698713330294736, 13051725764221510649, 2467965794402811157])),
@@ -1169,7 +1160,7 @@ mod tests {
         assert_eq!(result.unwrap(), expected);
 
         // Second version
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         storage.a.set(&proof.a);
         storage.b.set(&proof.b);
         storage.c.set(&proof.c);
@@ -1185,7 +1176,7 @@ mod tests {
 
     #[test]
     fn test_addition_step() {
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         let q = g2_affine();
         let mut r = G2HomProjective {
             x: Fq2::new(
@@ -1218,7 +1209,7 @@ mod tests {
 
     #[test]
     fn test_doubling_step() {
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         let mut r = G2HomProjective {
             x: Fq2::new(
                 Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
@@ -1261,7 +1252,7 @@ mod tests {
 
     #[test]
     fn test_inverse_fq12() {
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         let mut value: Option<Fq12> = None;
         for round in 0..INVERSE_FQ12_ROUNDS_COUNT {
             value = inverse_fq12_partial(round, &mut storage, f()).unwrap();
@@ -1272,7 +1263,7 @@ mod tests {
 
     #[test]
     fn test_exp_by_neg_x() {
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         let mut value: Option<Fq12> = None;
         for round in 0..EXP_BY_NEG_X_ROUNDS_COUNT {
             value = exp_by_neg_x_partial(round, &mut storage, f()).unwrap();
@@ -1284,7 +1275,7 @@ mod tests {
     #[test]
     fn test_final_exponentiation() {
         // First version
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         let mut value = None;
         for round in 0..FINAL_EXPONENTIATION_ROUNDS_COUNT {
             value = final_exponentiation_partial(round, &mut storage, &f()).unwrap();
@@ -1294,7 +1285,7 @@ mod tests {
         assert_eq!(value.unwrap(), expected);
 
         // Second version
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         storage.set_step(&VerificationStep::FinalExponentiation);
         storage.f.set(&Wrap(f()));
 
@@ -1324,14 +1315,13 @@ mod tests {
                 fee: 0,
                 token_id: 0,
             },
-            recipient: RecipientAccount::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591"), true),
+            extra_data_hash: u256_from_str_skip_mr("230508240750559904196809564625"),
             current_time: 0,
-            identifier: RawU256::new(u256_from_str_skip_mr("139214303935475888711984321184227760578793579443975701453971046059378311483")),
-            salt: RawU256::new(u256_from_str_skip_mr("230508240750559904196809564625")),
+            recipient_is_associated_token_account: true,
         };
         let p = abc.public_signals_skip_mr();
         let v = prepare_public_inputs_instructions::<SendQuadraVKey>(&p);
-        assert_eq!(v.len(), 4);
+        assert_eq!(v.len(), 3);
     }
 
     #[test]
@@ -1347,7 +1337,7 @@ mod tests {
         public_inputs: &[U256],
         precomputes: &P
     ) -> bool {
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         setup_storage_account::<VKey>(&mut storage, proof, public_inputs);
         let instruction_count = storage.get_prepare_inputs_instructions_count() as usize + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS;
 
@@ -1376,7 +1366,7 @@ mod tests {
     fn test_verify_partial_too_many_calls() {
         let proof = valid_proofs()[0].proof;
         let public_inputs = valid_proofs()[0].public_inputs.clone();
-        storage!(storage);
+        zero_program_account!(mut storage, VerificationAccount);
         setup_storage_account::<TestVKey>(&mut storage, proof, &public_inputs);
         let instruction_count = storage.get_prepare_inputs_instructions_count() as usize + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS;
 

@@ -14,7 +14,7 @@ use solana_program_test::*;
 use solana_program::program_pack::Pack;
 use solana_sdk::{signature::Keypair, transaction::Transaction, signer::Signer, account::AccountSharedData, compute_budget::ComputeBudgetInstruction};
 use assert_matches::assert_matches;
-use elusiv::{token::{TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token}, process_instruction, instruction::{open_all_initial_accounts, ElusivInstruction, WritableSignerAccount, WritableUserAccount, UserAccount}, state::{fee::{ProgramFee, BasisPointFee}, program_account::{SizedAccount, PDAAccount, MultiAccountAccount, MultiAccountProgramAccount, MultiAccountAccountData}, StorageAccount, NullifierAccount, governor::{PoolAccount, FeeCollectorAccount}}, proof::{CombinedMillerLoop, FinalExponentiation, precompute::PrecomputesAccount}, processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind}};
+use elusiv::{token::{TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token}, process_instruction, instruction::{open_all_initial_accounts, ElusivInstruction, WritableSignerAccount, WritableUserAccount, UserAccount}, state::{fee::{ProgramFee, BasisPointFee}, program_account::{SizedAccount, PDAAccount, MultiAccountAccount, MultiAccountProgramAccount, MultiAccountAccountData}, StorageAccount, NullifierAccount, governor::{PoolAccount, FeeCollectorAccount}}, proof::{CombinedMillerLoop, FinalExponentiation, precompute::PrecomputesAccount}, processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind}, fields::fr_to_u256_le, types::U256};
 
 pub struct ElusivProgramTest {
     context: ProgramTestContext,
@@ -793,4 +793,20 @@ pub async fn enable_program_token_account<A: PDAAccount>(
         &spl_token::id(),
     );
     test.process_transaction(&[ix], &[]).await.unwrap();
+}
+
+pub fn u256_from_str(str: &str) -> U256 {
+    fr_to_u256_le(&ark_bn254::Fr::from_str(str).unwrap())
+}
+
+pub fn u256_from_str_skip_mr(str: &str) -> U256 {
+    let n = num::BigUint::from_str(str).unwrap();
+    let bytes = n.to_bytes_le();
+    let mut result = [0; 32];
+    for i in 0..32 {
+        if i < bytes.len() {
+            result[i] = bytes[i];
+        }
+    }
+    result
 }

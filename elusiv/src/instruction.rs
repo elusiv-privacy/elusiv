@@ -101,7 +101,6 @@ pub enum ElusivInstruction {
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable, account_info, find_pda })]
     #[acc(nullifier_duplicate_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
-    #[acc(recipient)]
     #[pda(storage_account, StorageAccount, { multi_accounts, ignore_sub_accounts })]
     #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(tree_indices[0]), { multi_accounts })]
     #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(tree_indices[1]), { multi_accounts })]
@@ -144,6 +143,7 @@ pub enum ElusivInstruction {
     },
 
     // Finalizing proofs that finished 
+    #[acc(recipient)]
     #[acc(identifier_account)]
     #[acc(salt_account)]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
