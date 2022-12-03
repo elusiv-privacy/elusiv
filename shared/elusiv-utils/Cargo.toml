@@ -19,5 +19,5 @@ test-unit = []
 elusiv-types = { path = "./../elusiv-types" }
 elusiv-computation = { path = "./../elusiv-computation", optional = true }
 
-solana-program = { version = "=1.10.39" }
-solana-sdk = { version = "=1.10.39", optional = true }
+solana-program = { version = "1.10" }
+solana-sdk = { version = "1.10", optional = true }
