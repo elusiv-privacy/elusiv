@@ -18,10 +18,10 @@ pub trait SizedType {
 pub trait BorshSerDeSizedEnum: BorshSerDeSized {
     fn len(variant_index: u8) -> usize;
 
-    /// Deserializes an enum by reading only `len` bytes of the buffer
+    /// Deserializes an enum by reading only up to `len` bytes of the buffer
     fn deserialize_enum(buf: &mut &[u8]) -> std::io::Result<Self> {
         let len = Self::len(buf[0]) + 1;
-        let v = Self::deserialize(&mut &buf[..len])?;
+        let v = Self::deserialize(&mut &buf[..std::cmp::min(len, buf.len())])?;
         Ok(v)
     }
 
@@ -63,6 +63,12 @@ impl_borsh_sized!(std::net::Ipv4Addr, 4);
 pub enum ElusivOption<N> {
     Some(N),
     None,
+}
+
+impl<N: Clone + PartialEq> PartialEq<ElusivOption<N>> for ElusivOption<N> {
+    fn eq(&self, other: &ElusivOption<N>) -> bool {
+        self.option().eq(&other.option())
+    }
 }
 
 impl<N> From<Option<N>> for ElusivOption<N> {
