@@ -91,6 +91,7 @@ pub struct VerificationAccount {
 pub struct VerificationAccountData {
     pub fee_payer: RawU256,
     pub fee_payer_account: RawU256,
+    pub recipient_wallet: ElusivOption<RawU256>,
 
     /// Flag that can be used to skip the renting of a nullifier_pda (if it already exists)
     pub skip_nullifier_pda: bool,

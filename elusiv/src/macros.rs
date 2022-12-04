@@ -24,11 +24,16 @@ macro_rules! pyth_price_account_info {
 /// 
 /// # Usage
 /// 
+/// - `account_info!($id: ident, $pubkey: expr)`
 /// - `account_info!($id: ident, $pubkey: expr, $data: expr)`
 /// - `account_info!($id: ident, $pubkey: expr, $data: expr, $owner: expr)`
 /// - `account_info!($id: ident, $pubkey: expr, $data_id: ident, $data: expr, $owner: expr)`
 #[cfg(test)]
 macro_rules! account_info {
+    ($id: ident, $pubkey: expr) => {
+        let pubkey = $pubkey;
+        crate::macros::account_info!($id, pubkey, data, vec![], crate::id());
+    };
     ($id: ident, $pubkey: expr, $data: expr) => {
         let pubkey = $pubkey;
         crate::macros::account_info!($id, pubkey, data, $data, crate::id());

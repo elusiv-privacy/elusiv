@@ -218,8 +218,23 @@ pub const JOIN_SPLIT_MAX_N_ARITY: u8 = 4;
 
 fn deserialze_vec<N: BorshDeserialize>(buf: &mut &[u8], len: usize) -> std::io::Result<Vec<N>> {
     let mut v = Vec::new();
-    for _ in 0..len { v.push(N::deserialize(buf)?); }
+    for _ in 0..len {
+        v.push(N::deserialize(buf)?);
+    }
+
     Ok(v)
+}
+
+fn serialize_vec<N: BorshSerialize, W: std::io::Write>(v: &Vec<N>, len: usize, writer: &mut W) -> std::io::Result<()> {
+    if v.len() != len {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, ""))
+    }
+
+    for e in v {
+        e.serialize(writer)?;
+    }
+
+    Ok(())
 }
 
 impl BorshDeserialize for JoinSplitPublicInputs {
@@ -229,16 +244,20 @@ impl BorshDeserialize for JoinSplitPublicInputs {
         let commitment_count = u8::deserialize(buf)?;
         assert!(commitment_count <= JOIN_SPLIT_MAX_N_ARITY);
 
-        let roots: Vec<RawU256> = deserialze_vec(buf, commitment_count as usize)?;
-        let roots = roots.iter().map(|&r| if r.0 == [0; 32] { None } else { Some(r) }).collect();
+        // limited atm to a single MT
+        let roots: Vec<RawU256> = deserialze_vec(buf, 1)?;
+        let roots = roots.iter()
+            .map(|&r| if r.0 == [0; 32] { None } else { Some(r) })
+            .collect();
         let nullifier_hashes = deserialze_vec(buf, commitment_count as usize)?;
+
         let commitment = RawU256::deserialize(buf)?;
         let fee_version = u32::deserialize(buf)?;
         let amount = u64::deserialize(buf)?;
         let fee = u64::deserialize(buf)?;
         let token_id = u16::deserialize(buf)?;
 
-        let remaining = (JOIN_SPLIT_MAX_N_ARITY - commitment_count) as usize * (32 + 32);
+        let remaining = (JOIN_SPLIT_MAX_N_ARITY - commitment_count) as usize * 32;
         *buf = &buf[remaining..];
 
         Ok(
@@ -256,19 +275,17 @@ impl BorshDeserialize for JoinSplitPublicInputs {
     }
 }
 
-fn serialize_vec<N: BorshSerialize, W: std::io::Write>(v: &Vec<N>, len: usize, writer: &mut W) -> std::io::Result<()> {
-    assert_eq!(v.len(), len);
-    for e in v { e.serialize(writer)?; }
-    Ok(())
-}
-
 impl BorshSerialize for JoinSplitPublicInputs {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         assert!(self.commitment_count <= JOIN_SPLIT_MAX_N_ARITY);
         self.commitment_count.serialize(writer)?;
 
-        let roots: Vec<RawU256> = self.roots.iter().map(|&r| r.unwrap_or(RawU256::ZERO)).collect();
-        serialize_vec(&roots, self.commitment_count as usize, writer)?;
+        let roots: Vec<RawU256> = self.roots.iter()
+            .map(|&r| r.unwrap_or(RawU256::ZERO))
+            .collect();
+
+        // limited atm to a single MT
+        serialize_vec(&roots, 1, writer)?;
         serialize_vec(&self.nullifier_hashes, self.commitment_count as usize, writer)?;
 
         self.commitment.serialize(writer)?;
@@ -277,7 +294,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
         self.fee.serialize(writer)?;
         self.token_id.serialize(writer)?;
 
-        let remaining = (JOIN_SPLIT_MAX_N_ARITY - self.commitment_count) as usize * (32 + 32);
+        let remaining = (JOIN_SPLIT_MAX_N_ARITY - self.commitment_count) as usize * 32;
         writer.write_all(&vec![0; remaining])?;
 
         Ok(())
@@ -285,7 +302,7 @@ impl BorshSerialize for JoinSplitPublicInputs {
 }
 
 impl BorshSerDeSized for JoinSplitPublicInputs {
-    const SIZE: usize = 1 + JOIN_SPLIT_MAX_N_ARITY as usize * (32 + 32) + 32 + 4 + 8 + 8 + 2;
+    const SIZE: usize = 1 + 32 + JOIN_SPLIT_MAX_N_ARITY as usize * 32 + 32 + 4 + 8 + 8 + 2;
 }
 
 pub trait PublicInputs {
@@ -306,44 +323,37 @@ pub trait PublicInputs {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-/// An account that receives funds
-pub struct RecipientAccount {
-    pub address: U256,
-
-    /// Indicates whether `address` is the address of a SPL-token-account or a wallet-account (with the corresponding associated token account managing the SPL-token-funds)
-    pub is_non_associated_token_account: bool,
-}
-
-impl RecipientAccount {
-    pub fn new(address: U256, is_spl_account: bool) -> Self {
-        Self {
-            address,
-            is_non_associated_token_account: is_spl_account,
-        }
-    }
-
-    pub fn pubkey(&self) -> Pubkey {
-        Pubkey::new_from_array(self.address)
-    }
-}
-
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 /// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
 /// - IMPORTANT: depending on recipient.is_non_associated_token_account, a higher amount is required (that also includes the rent)
-pub struct SendPublicInputs {
-    pub join_split: JoinSplitPublicInputs,
-    pub recipient: RecipientAccount,
-    pub current_time: u64,
-    pub identifier: RawU256,
-    pub salt: RawU256, // only 128 bit
-}
-
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct SendPublicInputs {
+    pub join_split: JoinSplitPublicInputs,
+    pub current_time: u64,
+    pub recipient_is_associated_token_account: bool,
+    pub extra_data_hash: U256,
+}
+
+pub fn compute_extra_data_hash(
+    recipient: U256,
+    identifier: U256,
+    iv: U256,
+    encrypted_owner: U256,
+) -> U256 {
+    let mut data = recipient.to_vec();
+    data.extend(identifier);
+    data.extend(iv);
+    data.extend(encrypted_owner);
+    let mut hash = solana_program::hash::hash(&data).to_bytes();
+
+    // TODO: cutoff bit 256, 255, 254 hash[31] &= 0b11111;
+    hash[31] = 0;
+    hash
+}
+
 // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct MigratePublicInputs {
     pub join_split: JoinSplitPublicInputs,
     pub current_nsmt_root: RawU256,
@@ -396,21 +406,13 @@ impl PublicInputs for SendPublicInputs {
             public_signals.push(RawU256::ZERO);
         }
 
-        // recipient[2]
-        let recipient = split_u256_into_limbs(self.recipient.address);
-        let mut upper_recipient_limb = recipient[1];
-        upper_recipient_limb[16] = self.recipient.is_non_associated_token_account as u8;
-
         public_signals.extend(vec![
-            RawU256(recipient[0]),
-            RawU256(recipient[1]),
             RawU256(u64_to_u256_skip_mr(self.join_split.total_amount())),
             RawU256(u64_to_u256_skip_mr(self.current_time)),
-            self.identifier,
-            self.salt,
             self.join_split.commitment,
             RawU256(u64_to_u256_skip_mr(self.join_split.fee_version as u64)),
             RawU256(u64_to_u256_skip_mr(self.join_split.token_id as u64)),
+            RawU256(self.extra_data_hash),
         ]);
 
         public_signals
@@ -630,10 +632,9 @@ mod test {
                 fee: 0,
                 token_id: 0,
             },
-            recipient: RecipientAccount::new([0; 32], true),
             current_time: 0,
-            identifier: RawU256([0; 32]),
-            salt: RawU256([0; 32]),
+            extra_data_hash: [0; 32],
+            recipient_is_associated_token_account: true,
         };
         assert!(valid_inputs.verify_additional_constraints());
 
@@ -669,10 +670,9 @@ mod test {
                 fee: 1,
                 token_id: 3,
             },
-            recipient: RecipientAccount::new(u256_from_str_skip_mr("212334656798193948954971085461110323640890639608634923090101683"), true),
             current_time: 1657927306,
-            identifier: RawU256(u256_from_str_skip_mr("1")),
-            salt: RawU256(u256_from_str_skip_mr("2")),
+            extra_data_hash: u256_from_str_skip_mr("306186522190603117929438292402982536627"),
+            recipient_is_associated_token_account: true,
         };
 
         let expected = [
@@ -684,15 +684,12 @@ mod test {
             "0",
             "0",
             "0",
-            "306186522190603117929438292402982536627",
-            "623995473875165532486851",
             "50001",
             "1657927306",
-            "1",
-            "2",
             "12986953721358354389598211912988135563583503708016608019642730042605916285029",
             "0",
             "3",
+            "306186522190603117929438292402982536627",
         ].iter().map(|&p| RawU256(u256_from_str_skip_mr(p))).collect::<Vec<RawU256>>();
 
         assert_eq!(expected, inputs.public_signals());
@@ -701,8 +698,28 @@ mod test {
 
     #[test]
     fn test_send_public_inputs_serde() {
-        let str = "{\"join_split\":{\"commitment_count\":1,\"roots\":[[220,109,75,166,42,21,212,57,27,45,247,16,115,107,121,228,172,110,162,119,166,173,100,50,196,104,230,12,112,119,15,30]],\"nullifier_hashes\":[[145,228,92,60,193,80,150,255,145,29,156,152,238,64,230,149,19,80,161,103,119,135,38,139,142,67,18,163,159,54,11,22]],\"commitment\":[146,94,46,51,211,4,49,85,42,229,99,188,226,49,115,65,108,37,190,116,123,32,2,181,59,231,108,209,18,13,235,45],\"fee_version\":0,\"amount\":100000000,\"fee\":120000,\"token_id\":0},\"recipient\":{\"address\":[239,98,99,47,147,78,1,131,246,197,252,51,35,110,208,118,128,37,28,75,125,83,107,46,63,102,168,120,143,246,255,52],\"is_non_associated_token_account\":true},\"current_time\":1669971,\"identifier\":[239,6,63,227,53,18,117,85,172,69,192,148,3,201,244,219,177,39,64,179,204,41,240,146,189,20,177,226,231,33,176,0],\"salt\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}";
-        let result: SendPublicInputs = serde_json::from_str(str).unwrap();
+        let str = "
+        {\"
+            join_split\":
+            {\"
+                commitment_count\":1,
+                \"roots\":[[220,109,75,166,42,21,212,57,27,45,247,16,115,107,121,228,172,110,162,119,166,173,100,50,196,104,230,12,112,119,15,30]],
+                \"nullifier_hashes\":[[145,228,92,60,193,80,150,255,145,29,156,152,238,64,230,149,19,80,161,103,119,135,38,139,142,67,18,163,159,54,11,22]],
+                \"commitment\":[146,94,46,51,211,4,49,85,42,229,99,188,226,49,115,65,108,37,190,116,123,32,2,181,59,231,108,209,18,13,235,45],
+                \"fee_version\":0,
+                \"amount\":100000000,
+                \"fee\":120000,
+                \"token_id\":0
+            },
+            \"current_time\":1669971,
+            \"extra_data_hash\":[239,6,63,227,53,18,117,85,172,69,192,148,3,201,244,219,177,39,64,179,204,41,240,146,189,20,177,226,231,33,176,0],
+            \"recipient_is_associated_token_account\":true
+        }
+        ";
+        let mut str = String::from(str);
+        str.retain(|c| !c.is_whitespace());
+
+        let result: SendPublicInputs = serde_json::from_str(&str).unwrap();
         serde_json::to_string(&result).unwrap();
     }
 
@@ -807,5 +824,16 @@ mod test {
             let v = u64::try_from_slice(&v[i * u64::SIZE..(i + 1) * u64::SIZE]).unwrap();
             assert_eq!(v, i as u64);
         }
+    }
+
+    #[test]
+    fn test_compute_extra_data_hash() {
+        let recipient = u256_from_str_skip_mr("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+        let identifier = u256_from_str_skip_mr("1");
+        let iv = u256_from_str_skip_mr("5683487854789");
+        let encrypted_owner = u256_from_str_skip_mr("5789489458548458945478235642378");
+        let expected = u256_from_str_skip_mr("241513166508321350627618709707967777063380694253583200648944705250489865558");
+
+        assert_eq!(compute_extra_data_hash(recipient, identifier, iv, encrypted_owner), expected);
     }
 }

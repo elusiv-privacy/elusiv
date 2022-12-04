@@ -8,7 +8,7 @@ use elusiv::{
     token::{USDC_TOKEN_ID, LAMPORTS_TOKEN_ID, Token, Lamports, TokenPrice},
     processor::{BaseCommitmentHashRequest, CommitmentHashRequest, program_token_account_address},
     types::{RawU256, U256},
-    fields::{u256_from_str_skip_mr, u256_from_str, u256_to_fr_skip_mr, fr_to_u256_le, u64_to_scalar_skip_mr},
+    fields::{u256_to_fr_skip_mr, fr_to_u256_le, u64_to_scalar_skip_mr},
     instruction::{ElusivInstruction, SignerAccount, WritableUserAccount, UserAccount, WritableSignerAccount},
     state::{
         governor::{PoolAccount, FeeCollectorAccount, GovernorAccount},

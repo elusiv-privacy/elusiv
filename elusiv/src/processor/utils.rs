@@ -40,7 +40,7 @@ pub fn transfer_token<'a>(
                 destination,
                 token_program,
                 amount,
-                &[],
+                None,
             )
         }
     }
@@ -75,7 +75,7 @@ pub fn transfer_token_from_pda<'a, T: PDAAccount>(
                 destination,
                 token_program,
                 amount,
-                &[&signers_seeds],
+                Some(&[&signers_seeds]),
             )
         }
     }
@@ -111,7 +111,7 @@ fn transfer_with_token_program<'a>(
     destination_token_account: &AccountInfo<'a>,
     token_program: &AccountInfo<'a>,
     amount: u64,
-    signers_seeds: &[&[&[u8]]],
+    signers_seeds: Option<&[&[&[u8]]]>,
 ) -> ProgramResult {
     guard!(*token_program.key == spl_token::ID, InvalidAccount);
 
@@ -127,16 +127,28 @@ fn transfer_with_token_program<'a>(
         amount,
     )?;
 
-    solana_program::program::invoke_signed(
-        &instruction,
-        &[
-            source.clone(),
-            source_token_account.clone(),
-            destination_token_account.clone(),
-            token_program.clone(),
-        ],
-        signers_seeds,
-    )
+    if let Some(signers_seeds) = signers_seeds {
+        solana_program::program::invoke_signed(
+            &instruction,
+            &[
+                source.clone(),
+                source_token_account.clone(),
+                destination_token_account.clone(),
+                token_program.clone(),
+            ],
+            signers_seeds,
+        )
+    } else {
+        solana_program::program::invoke(
+            &instruction,
+            &[
+                source.clone(),
+                source_token_account.clone(),
+                destination_token_account.clone(),
+                token_program.clone(),
+            ],
+        )
+    }
 }
 
 pub fn create_associated_token_account<'a>(
@@ -267,7 +279,7 @@ mod tests {
                 &destination,
                 &invalid_token_program,
                 100,
-                &[],
+                None,
             ),
             Err(_)
         );
@@ -279,7 +291,7 @@ mod tests {
                 &destination,
                 &token_program,
                 100,
-                &[],
+                None,
             ),
             Err(_)
         );
@@ -291,7 +303,7 @@ mod tests {
                 &invalid_destination,
                 &token_program,
                 100,
-                &[],
+                None,
             ),
             Err(_)
         );
@@ -303,7 +315,7 @@ mod tests {
                 &destination,
                 &token_program,
                 100,
-                &[],
+                None,
             ),
             Ok(())
         );

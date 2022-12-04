@@ -355,16 +355,29 @@ pub fn affine_into_projective(a: &G1Affine) -> G1Projective {
     G1Projective::new(a.x, a.y, Fq::one())
 }
 
-#[cfg(feature = "test-elusiv")] use std::str::FromStr;
+#[cfg(test)] use std::str::FromStr;
 
-#[cfg(feature = "test-elusiv")]
+/// Returns an [`U256`] from the supplied str after performing a Montgomery reduction
+/// 
+/// # Note
+/// The input str needs to be a scalar-field element
+#[cfg(test)]
 pub fn u256_from_str(str: &str) -> U256 {
     fr_to_u256_le(&ark_bn254::Fr::from_str(str).unwrap())
 }
 
-#[cfg(feature = "test-elusiv")]
+/// Returns an [`U256`] from the supplied str without performing a Montgomery reduction
+#[cfg(test)]
 pub fn u256_from_str_skip_mr(str: &str) -> U256 {
-    fr_to_u256_le_repr(&ark_bn254::Fr::from_str(str).unwrap())
+    let n = num::BigUint::from_str(str).unwrap();
+    let bytes = n.to_bytes_le();
+    let mut result = [0; 32];
+    for i in 0..32 {
+        if i < bytes.len() {
+            result[i] = bytes[i];
+        }
+    }
+    result
 }
 
 #[cfg(test)]
