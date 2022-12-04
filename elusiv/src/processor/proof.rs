@@ -358,8 +358,7 @@ pub fn compute_verification(
 ) -> ProgramResult {
     guard!(precomputes_account.get_is_setup(), InvalidAccountState);
     guard!(
-        matches!(verification_account.get_state(), VerificationState::None) ||
-        matches!(verification_account.get_state(), VerificationState::ProofSetup),
+        matches!(verification_account.get_state(), VerificationState::None | VerificationState::ProofSetup),
         InvalidAccountState
     );
     guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
