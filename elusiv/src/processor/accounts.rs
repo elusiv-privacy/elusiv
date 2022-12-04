@@ -1,9 +1,10 @@
 use borsh::{BorshSerialize, BorshDeserialize};
+use elusiv_types::PDAAccountData;
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
     sysvar::Sysvar,
-    rent::Rent, program_error::ProgramError,
+    rent::Rent, program_error::ProgramError, pubkey::Pubkey,
 };
 use crate::state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
@@ -256,6 +257,58 @@ pub fn init_new_fee_version<'a>(
     governor.set_program_fee(&program_fee);
 
     Ok(())
+}
+
+pub fn create_lut_reference_account<'a>(
+    warden: &AccountInfo<'a>,
+    lut_account: &AccountInfo<'a>,
+    lut_reference: &AccountInfo<'a>,
+) -> ProgramResult {
+    // TODO: move this functionality to the warden-network
+    // TODO: in the future also verify lut_account to be a valid, frozen LUT
+
+    let (pubkey, bump) = derive_lut_reference_account_address(warden.key);
+    guard!(*lut_reference.key == pubkey, InvalidAccount);
+
+    create_pda_account(
+        &crate::id(),
+        warden,
+        lut_reference,
+        32 + PDAAccountData::SIZE,
+        bump,
+        &[&lut_reference_seed(warden.key), &[bump]],
+    )?;
+
+    // Store the `lut_account` pubkey
+    let data = &mut lut_reference.data.borrow_mut()[..];
+    data[PDAAccountData::SIZE..].copy_from_slice(&lut_account.key.to_bytes());
+
+    Ok(())
+}
+
+pub fn close_lut_reference_account<'a>(
+    warden: &AccountInfo<'a>,
+    lut_reference: &AccountInfo<'a>,
+) -> ProgramResult {
+    // TODO: move this functionality to the warden-network
+
+    let (pubkey, _) = derive_lut_reference_account_address(warden.key);
+    guard!(*lut_reference.key == pubkey, InvalidAccount);
+
+    close_account(warden, lut_reference)
+}
+
+fn lut_reference_seed(warden: &Pubkey) -> Vec<u8> {
+    let mut v = b"lut_reference".to_vec();
+    v.extend(warden.to_bytes());
+    v
+}
+
+pub fn derive_lut_reference_account_address(warden: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[&lut_reference_seed(warden)],
+        &crate::id(),
+    )
 }
 
 /// Verifies a single user-supplied sub-account and then saves it's pubkey in the `main_account`
