@@ -15,7 +15,7 @@ pub type NullifierMap<'a> = ElusivSet<'a, OrdU256, NULLIFIERS_PER_ACCOUNT>;
 
 pub const NULLIFIERS_PER_ACCOUNT: usize = two_pow!(16);
 const ACCOUNT_SIZE: usize = NullifierMap::SIZE + SUB_ACCOUNT_ADDITIONAL_SIZE;
-const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling(NULLIFIERS_COUNT as u64, NULLIFIERS_PER_ACCOUNT as u64));
+const ACCOUNTS_COUNT: usize = div_ceiling_usize(NULLIFIERS_COUNT, NULLIFIERS_PER_ACCOUNT);
 const_assert_eq!(ACCOUNTS_COUNT, 16);
 
 /// Account storing [`NULLIFIERS_COUNT`] nullifiers over multiple accounts

@@ -1,6 +1,6 @@
 use crate::commitment::{BaseCommitmentHashComputation, commitment_hash_computation_instructions, commitments_per_batch, MAX_COMMITMENT_BATCHING_RATE};
 use crate::macros::elusiv_account;
-use crate::bytes::{BorshSerDeSized, div_ceiling, u64_as_usize_safe};
+use crate::bytes::{BorshSerDeSized, u64_as_usize_safe, div_ceiling_u64};
 use crate::proof::{CombinedMillerLoop, FinalExponentiation};
 use crate::token::{Lamports, Token, TokenError, TokenPrice};
 use super::program_account::PDAAccountData;
@@ -118,7 +118,7 @@ impl ProgramFee {
         let tx_count_total = commitment_hash_computation_instructions(min_batching_rate).len();
         let commitments_per_batch = commitments_per_batch(min_batching_rate);
         Lamports(
-            div_ceiling(
+            div_ceiling_u64(
                 tx_count_total as u64 * self.hash_tx_compensation().0,
                 commitments_per_batch as u64
             )
