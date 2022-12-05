@@ -14,7 +14,7 @@ use solana_program_test::*;
 use solana_program::program_pack::Pack;
 use solana_sdk::{signature::Keypair, transaction::Transaction, signer::Signer, account::AccountSharedData, compute_budget::ComputeBudgetInstruction};
 use assert_matches::assert_matches;
-use elusiv::{token::{TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token}, process_instruction, instruction::{open_all_initial_accounts, ElusivInstruction, WritableSignerAccount, WritableUserAccount, UserAccount}, state::{fee::{ProgramFee, BasisPointFee}, program_account::{SizedAccount, PDAAccount, MultiAccountAccount, MultiAccountProgramAccount, MultiAccountAccountData}, StorageAccount, NullifierAccount, governor::{PoolAccount, FeeCollectorAccount}}, proof::{CombinedMillerLoop, FinalExponentiation, precompute::PrecomputesAccount}, processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind}, fields::fr_to_u256_le, types::U256};
+use elusiv::{token::{TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token}, process_instruction, instruction::{open_all_initial_accounts, ElusivInstruction, WritableSignerAccount, WritableUserAccount, UserAccount}, state::{fee::{ProgramFee, BasisPointFee}, program_account::{SizedAccount, PDAAccount, MultiAccountAccount, MultiAccountProgramAccount, MultiAccountAccountData}, StorageAccount, NullifierAccount, governor::{PoolAccount, FeeCollectorAccount}}, proof::{CombinedMillerLoop, FinalExponentiation}, processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind}, fields::fr_to_u256_le, types::U256};
 
 pub struct ElusivProgramTest {
     context: ProgramTestContext,
@@ -779,7 +779,6 @@ macro_rules! multi_account {
 
 multi_account!(storage_account, StorageAccount);
 multi_account!(nullifier_account, NullifierAccount);
-multi_account!(precomputes_account, PrecomputesAccount);
 
 pub async fn enable_program_token_account<A: PDAAccount>(
     test: &mut ElusivProgramTest,

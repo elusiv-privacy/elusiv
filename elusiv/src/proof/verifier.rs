@@ -16,7 +16,7 @@ use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWra
 use ark_ff::{Field, CubicExtParameters, One, Zero, biginteger::BigInteger256, field_new};
 use ark_ec::models::bn::BnParameters;
 use super::*;
-use super::precompute::PrecomutedValues;
+use super::vkey::VerifyingKey;
 use crate::bytes::{usize_as_u8_safe, BorshSerDeSizedEnum};
 use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError, CouldNotProcessProof, InvalidAccountState};
 use crate::error::ElusivResult;
@@ -30,9 +30,9 @@ pub enum VerificationStep {
 }
 
 /// Requires `verifier_account.prepare_inputs_instructions_count + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS` calls to verify a valid proof
-pub fn verify_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
+pub fn verify_partial(
     verifier_account: &mut VerificationAccount,
-    precomputes: &P,
+    vkey: &VerifyingKey,
     instruction_index: u16,
 ) -> Result<Option<bool>, ElusivError> {
     let instruction = verifier_account.get_instruction() as usize;
@@ -46,14 +46,14 @@ pub fn verify_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
                 return Ok(None)
             }
 
-            prepare_public_inputs(verifier_account, precomputes, instruction, round)?;
+            prepare_public_inputs(verifier_account, vkey, instruction, round)?;
             verifier_account.serialize_rams().unwrap();
         }
         VerificationStep::CombinedMillerLoop => {
             // Proof first has to be setup
             guard!(matches!(verifier_account.get_state(), VerificationState::ProofSetup), InvalidAccountState);
 
-            combined_miller_loop::<VKey>(verifier_account, instruction, round)?;
+            combined_miller_loop(verifier_account, vkey, instruction, round)?;
             verifier_account.serialize_rams().unwrap();
         }
         VerificationStep::FinalExponentiation => {
@@ -62,7 +62,7 @@ pub fn verify_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
                 return Ok(None)
             }
 
-            let v = final_exponentiation::<VKey>(verifier_account, instruction, round);
+            let v = final_exponentiation(verifier_account, vkey, instruction, round);
             verifier_account.serialize_rams().unwrap();
             return v;
         }
@@ -71,9 +71,9 @@ pub fn verify_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
     Ok(None)
 }
 
-pub fn prepare_public_inputs<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
+pub fn prepare_public_inputs(
     verifier_account: &mut VerificationAccount,
-    precomputes: &P,
+    vkey: &VerifyingKey,
     instruction: usize,
     round: usize,
 ) -> ElusivResult {
@@ -83,9 +83,10 @@ pub fn prepare_public_inputs<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
         round,
         rounds as usize,
         verifier_account,
-        precomputes,
+        vkey,
     );
-    if round + rounds as usize == VKey::PREPARE_PUBLIC_INPUTS_ROUNDS {
+
+    if round + rounds as usize == prepare_public_inputs_rounds(vkey.public_inputs_count) {
         let prepared_inputs = result.ok_or(CouldNotProcessProof)?;
 
         verifier_account.prepared_inputs.set(&G1A(prepared_inputs));
@@ -101,8 +102,9 @@ pub fn prepare_public_inputs<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
     Ok(())
 }
 
-pub fn combined_miller_loop<VKey: VerificationKey>(
+pub fn combined_miller_loop(
     verifier_account: &mut VerificationAccount,
+    vkey: &VerifyingKey,
     instruction: usize,
     round: usize,
 ) -> ElusivResult {
@@ -119,9 +121,10 @@ pub fn combined_miller_loop<VKey: VerificationKey>(
 
     let mut result = None;
     for round in round..round + rounds {
-        result = combined_miller_loop_partial::<VKey>(
+        result = combined_miller_loop_partial(
             round,
             verifier_account,
+            vkey,
             &a, &b, &c, &prepared_inputs,
             &mut r, &mut coeff_index, &mut alt_b,
         )?;
@@ -149,8 +152,9 @@ pub fn combined_miller_loop<VKey: VerificationKey>(
     Ok(())
 }
 
-pub fn final_exponentiation<VKey: VerificationKey>(
+pub fn final_exponentiation(
     verifier_account: &mut VerificationAccount,
+    vkey: &VerifyingKey,
     instruction: usize,
     round: usize,
 ) -> Result<Option<bool>, ElusivError> {
@@ -175,7 +179,7 @@ pub fn final_exponentiation<VKey: VerificationKey>(
         // Final verification, we check:
         // https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
         // https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L60
-        return Ok(Some(VKey::alpha_g1_beta_g2() == v))
+        return Ok(Some(vkey.alpha_beta() == v))
     }
 
     Ok(None)
@@ -185,7 +189,10 @@ macro_rules! read_g1_p{
     ($ram: expr, $o: literal) => { G1Projective::new($ram.read($o), $ram.read($o + 1), $ram.read($o + 2)) };
 }
 
-pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 33;
+const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 33;
+const fn prepare_public_inputs_rounds(public_inputs_count: usize) -> usize {
+    PREPARE_PUBLIC_INPUTS_ROUNDS * public_inputs_count
+}
 
 /// Public input preparation
 /// - `prepared_inputs = \sum_{i = 0}ˆ{N} input_{i} gamma_abc_g1_{i}`
@@ -194,11 +201,11 @@ pub const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 33;
 /// - the total rounds required for preparation of all inputs is `PREPARE_PUBLIC_INPUTS_ROUNDS` * N
 /// - this partial computation is different from the rest, in that it's cost is dependent on the public inputs count and bits
 /// - for `prepare_public_inputs` we use 1 instruction with 1.4m compute units
-fn prepare_public_inputs_partial<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
+fn prepare_public_inputs_partial(
     round: usize,
     rounds: usize,
     storage: &mut VerificationAccount,
-    precomputes: &P,
+    vkey: &VerifyingKey,
 ) -> Option<G1Affine> {
     let mut acc: G1Projective = read_g1_p!(storage.ram_fq, 3);
     let mut input_index = round / PREPARE_PUBLIC_INPUTS_ROUNDS;
@@ -209,14 +216,11 @@ fn prepare_public_inputs_partial<P: PrecomutedValues<VKey>, VKey: VerificationKe
         if round == 0 { acc = G1Projective::zero(); }
 
         if round < PREPARE_PUBLIC_INPUTS_ROUNDS - 1 {
-            precomputes.sum(
-                &mut acc,
-                input_index,
-                &[(round, public_input[round] as usize)]
-            );
+            let gamma_abc = vkey.gamma_abc(input_index, round, public_input[round]);
+            acc.add_assign_mixed(&gamma_abc);
         } else { // Adding
             let mut g_ic = if input_index == 0 {
-                VKey::gamma_abc_g1_0()
+                vkey.gamma_abc_base()
             } else {
                 read_g1_p!(storage.ram_fq, 0)
             };
@@ -225,7 +229,7 @@ fn prepare_public_inputs_partial<P: PrecomutedValues<VKey>, VKey: VerificationKe
                 g_ic += acc;
             }
 
-            if input_index < VKey::PUBLIC_INPUTS_COUNT - 1 {
+            if input_index < vkey.public_inputs_count - 1 {
                 write_g1_projective(&mut storage.ram_fq, &g_ic, 0);
 
                 input_index += 1;
@@ -242,25 +246,26 @@ fn prepare_public_inputs_partial<P: PrecomutedValues<VKey>, VKey: VerificationKe
 }
 
 #[cfg(feature = "elusiv-client")]
-pub fn precomputed_input_preparation<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
-    precomputes: &P,
+pub fn precomputed_input_preparation(
+    vkey: &VerifyingKey,
     public_inputs: &[U256],
 ) -> Option<G1Affine> {
-    if public_inputs.len() != VKey::PUBLIC_INPUTS_COUNT {
+    if public_inputs.len() != vkey.public_inputs_count {
         return None
     }
 
-    let mut g_ic = VKey::gamma_abc_g1_0();
+    let mut g_ic = vkey.gamma_abc_base();
     for (i, public_input) in public_inputs.iter().enumerate() {
         if *public_input == [0; 32] {
             continue
         }
 
         let mut acc = G1Projective::zero();
-        let scalars = (0..32usize)
-            .zip(public_input.iter().map(|b| { *b as usize }))
-            .collect::<Vec<(usize, usize)>>();
-        precomputes.sum(&mut acc, i, &scalars);
+
+        for (j, window) in public_input.iter().enumerate() {
+            let gamma_abc = vkey.gamma_abc(i, j, *window);
+            acc.add_assign_mixed(&gamma_abc);
+        }
 
         g_ic += acc;
     }
@@ -272,8 +277,8 @@ const ADD_COST: u16 = 30;
 const MAX_CUS: u16 = 1_330; // 1_400_000 / 1000 minus padding
 
 /// Returns the instructions (and their rounds) required for a specific public-input-bound input preparation
-pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: &[U256]) -> Vec<u32> {
-    assert!(public_inputs.len() == VKey::PUBLIC_INPUTS_COUNT);
+pub fn prepare_public_inputs_instructions(public_inputs: &[U256], public_inputs_count: usize) -> Vec<u32> {
+    assert!(public_inputs.len() == public_inputs_count);
 
     let mut instructions = Vec::new();
 
@@ -306,7 +311,7 @@ pub fn prepare_public_inputs_instructions<VKey: VerificationKey>(public_inputs: 
     }
 
     // Redundant check
-    assert_eq!(total_rounds, VKey::PREPARE_PUBLIC_INPUTS_ROUNDS);
+    assert_eq!(total_rounds, prepare_public_inputs_rounds(public_inputs_count));
 
     instructions
 }
@@ -419,8 +424,9 @@ elusiv_computations!(
     // - inside the miller loop we do evaluations on three elements
     // - multi_ell combines those three calls in one function
     // - normal ell implementation: https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
-    combined_ell{<VKey: VerificationKey>}(
+    combined_ell(
         storage: &mut VerificationAccount,
+        vkey: &VerifyingKey,
         a: &G1Affine, prepared_inputs: &G1Affine, c: &G1Affine,
         c0: &Fq2, c1: &Fq2, c2: &Fq2, coeff_index: usize, f: Fq12,
     ) -> Fq12 {
@@ -439,23 +445,23 @@ elusiv_computations!(
 
         // ell on prepared_inputs with gamma_g2_neg_pc
         {   /// 9_200
-            let b0: Fq2 = mul_by_fp(&(VKey::gamma_g2_neg_pc_0(coeff_index)), prepared_inputs.y);
-            let b1: Fq2 = mul_by_fp(&(VKey::gamma_g2_neg_pc_1(coeff_index)), prepared_inputs.x);
+            let b0: Fq2 = mul_by_fp(&(vkey.gamma_g2_neg_pc(coeff_index, 0)), prepared_inputs.y);
+            let b1: Fq2 = mul_by_fp(&(vkey.gamma_g2_neg_pc(coeff_index, 1)), prepared_inputs.x);
         }
         {   /// mul_by_034
             if (!(prepared_inputs.is_zero())) {
-                partial v = mul_by_034(storage, &b0, &b1, &(VKey::gamma_g2_neg_pc_2(coeff_index)), r) { r = v }
+                partial v = mul_by_034(storage, &b0, &b1, &(vkey.gamma_g2_neg_pc(coeff_index, 2)), r) { r = v }
             }
         }
 
         // ell on C with delta_g2_neg_pc
         {   /// 9_200
-            let d0: Fq2 = mul_by_fp(&(VKey::delta_g2_neg_pc_0(coeff_index)), c.y);
-            let d1: Fq2 = mul_by_fp(&(VKey::delta_g2_neg_pc_1(coeff_index)), c.x);
+            let d0: Fq2 = mul_by_fp(&(vkey.delta_g2_neg_pc(coeff_index, 0)), c.y);
+            let d1: Fq2 = mul_by_fp(&(vkey.delta_g2_neg_pc(coeff_index, 1)), c.x);
         }
         {   /// mul_by_034
             if (!(c.is_zero())) {
-                partial v = mul_by_034(storage, &d0, &d1, &(VKey::delta_g2_neg_pc_2(coeff_index)), r) { r = v }
+                partial v = mul_by_034(storage, &d0, &d1, &(vkey.delta_g2_neg_pc(coeff_index, 2)), r) { r = v }
             }
         }
 
@@ -473,8 +479,9 @@ elusiv_computations!(
     // - implementation:
     // - the miller loop receives an iterator over 3 elements (https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L41)
     // - for B we need to generate the coefficients (all other coefficients are already generated before compilation)
-    combined_miller_loop{<VKey: VerificationKey>}(
+    combined_miller_loop(
         storage: &mut VerificationAccount,
+        vkey: &VerifyingKey,
         a: &G1Affine, b: &G2Affine, c: &G1Affine, prepared_inputs: &G1Affine,
         r: &mut G2HomProjective, j: &mut usize, alt_b: &mut G2A,
     ) -> Fq12 {
@@ -504,7 +511,7 @@ elusiv_computations!(
                 }
 
                 partial v = doubling_step(storage, r) { c0=v.0; c1=v.1; c2=v.2; };
-                partial v = combined_ell::<VKey>(storage, a, prepared_inputs, c, &c0, &c1, &c2, *j, f) {
+                partial v = combined_ell(storage, vkey, a, prepared_inputs, c, &c0, &c1, &c2, *j, f) {
                     f = v;
                     _ = j.add_assign(1);
                 };
@@ -520,7 +527,7 @@ elusiv_computations!(
                 }
                 {   /// ate_loop_count in { 0 : combined_ell_zero , _ : combined_ell }
                     if (ate_loop_count > 0) {
-                        partial v = combined_ell::<VKey>(storage, a, prepared_inputs, c, &c0, &c1, &c2, *j, f) {
+                        partial v = combined_ell(storage, vkey, a, prepared_inputs, c, &c0, &c1, &c2, *j, f) {
                             f = v;
                             _ = j.add_assign(1);
                         };
@@ -535,7 +542,7 @@ elusiv_computations!(
             };
             partial v = addition_step(storage, r, alt_b.get()) { c0=v.0; c1=v.1; c2=v.2; };
 
-            partial v = combined_ell::<VKey>(storage, a, prepared_inputs, c, &c0, &c1, &c2, *j, f) {
+            partial v = combined_ell(storage, vkey, a, prepared_inputs, c, &c0, &c1, &c2, *j, f) {
                 if (!(prepared_inputs.is_zero())) {
                     f = v;
                     _ = j.add_assign(1);
@@ -548,7 +555,7 @@ elusiv_computations!(
         {
             partial v = addition_step(storage, r, alt_b.get()) { c0=v.0; c1=v.1; c2=v.2; };
 
-            partial v = combined_ell::<VKey>(storage, a, prepared_inputs, c, &c0, &c1, &c2, *j, f) {
+            partial v = combined_ell(storage, vkey, a, prepared_inputs, c, &c0, &c1, &c2, *j, f) {
                 if (!(prepared_inputs.is_zero())) {
                     f = v;
                     _ = j.add_assign(1);
@@ -910,13 +917,12 @@ mod tests {
     use solana_program::native_token::LAMPORTS_PER_SOL;
     use crate::fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr};
     use crate::macros::zero_program_account;
-    use crate::proof::precompute::{precompute_account_size, VirtualPrecomputes};
     use crate::proof::test_proofs::{valid_proofs, invalid_proofs};
-    use crate::proof::vkey::{TestVKey, SendQuadraVKey};
+    use crate::proof::vkey::{TestVKey, VerifyingKeyInfo};
     use crate::state::empty_root_raw;
     use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs};
 
-    fn setup_storage_account<VKey: VerificationKey>(
+    fn setup_storage_account<VKey: VerifyingKeyInfo>(
         storage: &mut VerificationAccount,
         proof: Proof,
         public_inputs: &[U256],
@@ -930,7 +936,7 @@ mod tests {
             storage.set_public_input(i, &RawU256::new(public_input));
         }
 
-        let instructions = prepare_public_inputs_instructions::<VKey>(public_inputs);
+        let instructions = prepare_public_inputs_instructions(public_inputs, VKey::public_inputs_count());
         storage.setup_public_inputs_instructions(&instructions).unwrap();
     }
 
@@ -954,16 +960,17 @@ mod tests {
 
     fn g2_affine() -> G2Affine { G2Affine::new(f().c0.c0, f().c0.c1, false) }
 
-    macro_rules! precomputes {
+    macro_rules! vkey {
         ($id: ident, $vkey: ident) => {
-            let mut data = vec![0; precompute_account_size::<$vkey>()];
-            let $id = VirtualPrecomputes::<TestVKey>::new(&mut data);
+            let source = $vkey::verifying_key_source();
+            let $id = VerifyingKey::new(&source, $vkey::public_inputs_count()).unwrap();
         };
     }
 
     #[test]
     fn test_prepare_public_inputs() {
-        let pvk = TestVKey::ark_pvk();
+        vkey!(vkey, TestVKey);
+        let pvk = TestVKey::arkworks_pvk();
         let public_inputs = vec![
             "5932690455294482368858352783906317764044134926538780366070347507990829997699",
             "18684276579894497974780190092329868933855710870485375969907530111657029892231",
@@ -981,8 +988,6 @@ mod tests {
             "455294482368858352783906317764044134926538780366070347507990829997699",
         ];
 
-        precomputes!(precomputes, TestVKey);
-
         // First version
         zero_program_account!(mut storage, VerificationAccount);
         for (i, public_input) in public_inputs.iter().enumerate() {
@@ -991,15 +996,15 @@ mod tests {
 
         // precomputed_input_preparation version
         let p_result = precomputed_input_preparation(
-            &precomputes,
+            &vkey,
             &public_inputs.iter().map(|&p| { u256_from_str_skip_mr(p) }).collect::<Vec<U256>>()[..],
         ).unwrap();
 
         let result = prepare_public_inputs_partial(
             0,
-            TestVKey::PREPARE_PUBLIC_INPUTS_ROUNDS,
+            prepare_public_inputs_rounds(TestVKey::public_inputs_count()),
             &mut storage,
-            &precomputes,
+            &vkey,
         ).unwrap();
         let public_inputs: Vec<Fr> = public_inputs.iter().map(|s| Fr::from_str(s).unwrap()).collect();
         let expected = prepare_inputs(&pvk, &public_inputs).unwrap().into_affine();
@@ -1015,7 +1020,7 @@ mod tests {
             let round = storage.get_round();
             prepare_public_inputs(
                 &mut storage,
-                &precomputes,
+                &vkey,
                 i as usize,
                 round as usize,
             ).unwrap();
@@ -1040,6 +1045,7 @@ mod tests {
 
     #[test]
     fn test_combined_ell() {
+        vkey!(vkey, TestVKey);
         zero_program_account!(mut storage, VerificationAccount);
         let mut value: Option<Fq12> = None;
         let a = G1Affine::new(
@@ -1061,39 +1067,21 @@ mod tests {
         let c1 = f().c0.c1;
         let c2 = f().c0.c2;
         for round in 0..COMBINED_ELL_ROUNDS_COUNT {
-            value = combined_ell_partial::<TestVKey>(round, &mut storage, &a, &prepared_inputs, &c, &c0, &c1, &c2, 0, f()).unwrap();
+            value = combined_ell_partial(round, &mut storage, &vkey, &a, &prepared_inputs, &c, &c0, &c1, &c2, 0, f()).unwrap();
         }
 
+        let pvk = TestVKey::arkworks_pvk();
         let mut expected = f();
-        expected = reference_ell(
-            expected,
-            (c0, c1, c2),
-            a
-        );
-        expected = reference_ell(
-            expected,
-            (
-                TestVKey::gamma_g2_neg_pc_0(0),
-                TestVKey::gamma_g2_neg_pc_1(0),
-                TestVKey::gamma_g2_neg_pc_2(0)
-            ),
-            prepared_inputs
-        );
-        expected = reference_ell(
-            expected,
-            (
-                TestVKey::delta_g2_neg_pc_0(0),
-                TestVKey::delta_g2_neg_pc_1(0),
-                TestVKey::delta_g2_neg_pc_2(0)
-            ),
-            c
-        );
+        expected = reference_ell(expected, (c0, c1, c2), a);
+        expected = reference_ell(expected, pvk.gamma_g2_neg_pc.ell_coeffs[0], prepared_inputs);
+        expected = reference_ell(expected, pvk.delta_g2_neg_pc.ell_coeffs[0], c);
 
         assert_eq!(expected, value.unwrap());
     }
 
     #[test]
     fn test_combined_miller_loop() {
+        vkey!(vkey, TestVKey);
         zero_program_account!(mut storage, VerificationAccount);
         let prepared_inputs = G1Affine::new(
             Fq::new(BigInteger256([8166105574990738357, 14893958969660524502, 13741065838606745905, 2671370669009161592])),
@@ -1131,9 +1119,10 @@ mod tests {
         let mut alt_b = G2A(g2_affine());
         let mut result = None;
         for round in 0..COMBINED_MILLER_LOOP_ROUNDS_COUNT {
-            result = combined_miller_loop_partial::<TestVKey>(
+            result = combined_miller_loop_partial(
                 round,
                 &mut storage,
+                &vkey,
                 &proof.a.0,
                 &proof.b.0,
                 &proof.c.0,
@@ -1145,7 +1134,7 @@ mod tests {
         }
         assert_eq!(j, 91);
 
-        let pvk = TestVKey::ark_pvk();
+        let pvk = TestVKey::arkworks_pvk();
         let b: G2Prepared<Parameters> = proof.b.0.into();
 
         let expected = Bn254::miller_loop(
@@ -1169,7 +1158,7 @@ mod tests {
 
         for i in 0..COMBINED_MILLER_LOOP_IXS {
             let round = storage.get_round();
-            combined_miller_loop::<TestVKey>(&mut storage, i as usize, round as usize).unwrap();
+            combined_miller_loop(&mut storage, &vkey, i as usize, round as usize).unwrap();
         }
         assert_eq!(storage.f.get().0, expected);
     }
@@ -1274,6 +1263,8 @@ mod tests {
 
     #[test]
     fn test_final_exponentiation() {
+        vkey!(vkey, TestVKey);
+
         // First version
         zero_program_account!(mut storage, VerificationAccount);
         let mut value = None;
@@ -1291,7 +1282,7 @@ mod tests {
 
         for i in 0..FINAL_EXPONENTIATION_IXS {
             let round = storage.get_round();
-            final_exponentiation::<TestVKey>(&mut storage, i as usize, round as usize).unwrap();
+            final_exponentiation(&mut storage, &vkey, i as usize, round as usize).unwrap();
         }
         assert_eq!(storage.f.get().0, expected);
     }
@@ -1320,22 +1311,24 @@ mod tests {
             recipient_is_associated_token_account: true,
         };
         let p = abc.public_signals_skip_mr();
-        let v = prepare_public_inputs_instructions::<SendQuadraVKey>(&p);
+        let v = prepare_public_inputs_instructions(&p, TestVKey::public_inputs_count());
         assert_eq!(v.len(), 3);
     }
 
     #[test]
     fn test_prepare_public_inputs_instructions() {
+        let expected = prepare_public_inputs_rounds(TestVKey::public_inputs_count()) as u32;
+
         assert_eq!(
-            prepare_public_inputs_instructions::<TestVKey>(&vec![[0; 32]; TestVKey::PUBLIC_INPUTS_COUNT]),
-            vec![TestVKey::PREPARE_PUBLIC_INPUTS_ROUNDS as u32]
+            prepare_public_inputs_instructions(&vec![[0; 32]; TestVKey::public_inputs_count()], TestVKey::public_inputs_count()),
+            vec![expected]
         );
     }
 
-    fn full_verification<P: PrecomutedValues<VKey>, VKey: VerificationKey>(
+    fn full_verification<VKey: VerifyingKeyInfo>(
         proof: Proof,
         public_inputs: &[U256],
-        precomputes: &P
+        vkey: &VerifyingKey,
     ) -> bool {
         zero_program_account!(mut storage, VerificationAccount);
         setup_storage_account::<VKey>(&mut storage, proof, public_inputs);
@@ -1343,7 +1336,7 @@ mod tests {
 
         let mut result = None;
         for _ in 0..instruction_count {
-            result = verify_partial(&mut storage, precomputes, 0).unwrap();
+            result = verify_partial(&mut storage, vkey, 0).unwrap();
         }
 
         result.unwrap()
@@ -1351,14 +1344,14 @@ mod tests {
 
     #[test]
     fn test_verify_proofs() {
-        precomputes!(precomputes, TestVKey);
+        vkey!(vkey, TestVKey);
 
         for p in valid_proofs() {
-            assert!(full_verification(p.proof, &p.public_inputs, &precomputes));
+            assert!(full_verification::<TestVKey>(p.proof, &p.public_inputs, &vkey));
         }
 
         for p in invalid_proofs() {
-            assert!(!full_verification(p.proof, &p.public_inputs, &precomputes));
+            assert!(!full_verification::<TestVKey>(p.proof, &p.public_inputs, &vkey));
         }
     }
 
@@ -1370,15 +1363,14 @@ mod tests {
         setup_storage_account::<TestVKey>(&mut storage, proof, &public_inputs);
         let instruction_count = storage.get_prepare_inputs_instructions_count() as usize + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS;
 
-        let data = vec![0; precompute_account_size::<TestVKey>()];
-        let precomputes = VirtualPrecomputes::<TestVKey>::new_skip_precompute(&data);
+        vkey!(vkey, TestVKey);
 
         for _ in 0..instruction_count {
-            verify_partial(&mut storage, &precomputes, 0).unwrap();
+            verify_partial(&mut storage, &vkey, 0).unwrap();
         }
 
         // Additional ix will result in error
-        assert_matches!(verify_partial(&mut storage, &precomputes, 0), Err(_));
+        assert_matches!(verify_partial(&mut storage, &vkey, 0), Err(_));
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59

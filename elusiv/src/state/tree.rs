@@ -2,8 +2,6 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use crate::macros::{elusiv_account, two_pow, guard};
 use crate::map::{ElusivSet, ElusivMapError};
-use solana_program::entrypoint::ProgramResult;
-use solana_program::program_error::ProgramError;
 use crate::types::{U256, OrdU256};
 use crate::bytes::*;
 use crate::error::ElusivError::CouldNotInsertNullifier;

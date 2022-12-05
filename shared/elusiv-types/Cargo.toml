@@ -5,6 +5,9 @@ edition = "2021"
 publish = false
 
 [features]
+bytes = []
+accounts = []
+
 elusiv-client = []
 
 [dependencies]

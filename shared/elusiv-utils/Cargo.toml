@@ -16,7 +16,7 @@ sdk = [
 test-unit = []
 
 [dependencies]
-elusiv-types = { path = "./../elusiv-types" }
+elusiv-types = { path = "./../elusiv-types", default-features = false, features = ["bytes", "accounts"] }
 elusiv-computation = { path = "./../elusiv-computation", optional = true }
 
 solana-program = { version = "1.10" }

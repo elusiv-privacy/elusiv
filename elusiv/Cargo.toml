@@ -27,7 +27,7 @@ test-elusiv = ["bytemuck"]
 test-unit = ["elusiv-utils/test-unit"]
 
 [dependencies]
-elusiv-types = { path = "shared/elusiv-types" }
+elusiv-types = { path = "shared/elusiv-types", default-features = false, features = ["bytes", "accounts"] }
 elusiv-utils = { path = "shared/elusiv-utils" }
 elusiv-derive = { path = "shared/elusiv-derive" }
 elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }

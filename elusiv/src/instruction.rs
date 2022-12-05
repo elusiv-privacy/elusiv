@@ -9,7 +9,7 @@ use super::processor::BaseCommitmentHashRequest;
 use crate::processor::{
     SingleInstancePDAAccountKind,
     MultiInstancePDAAccountKind,
-    ProofRequest, MAX_MT_COUNT, FinalizeSendData,
+    ProofRequest, MAX_MT_COUNT, FinalizeSendData, VKeyAccountDataPacket,
 };
 use crate::state::queue::CommitmentQueueAccount;
 use crate::state::{
@@ -25,7 +25,7 @@ use crate::state::{
     fee::FeeAccount,
 };
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
-use crate::proof::{VerificationAccount, precompute::PrecomputesAccount};
+use crate::proof::{VerificationAccount, vkey::{VKeyAccount, VKeyAccountManangerAccount}};
 use solana_program::{system_program, sysvar::instructions};
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -99,6 +99,7 @@ pub enum ElusivInstruction {
     // Proof verification initialization
     #[acc(fee_payer, { writable, signer })]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable, account_info, find_pda })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { multi_accounts, ignore_sub_accounts })]
     #[acc(nullifier_duplicate_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     #[pda(storage_account, StorageAccount, { multi_accounts, ignore_sub_accounts })]
@@ -106,6 +107,7 @@ pub enum ElusivInstruction {
     #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(tree_indices[1]), { multi_accounts })]
     InitVerification {
         verification_account_index: u32,
+        vkey_id: u32,
         tree_indices: [u32; MAX_MT_COUNT],
         request: ProofRequest,
         skip_nullifier_pda: bool,
@@ -136,10 +138,11 @@ pub enum ElusivInstruction {
 
     // Proof verification computation
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
-    #[pda(precomputes_account, PrecomputesAccount, { multi_accounts })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { multi_accounts })]
     #[sys(instructions_account, key = instructions::ID)]
     ComputeVerification {
         verification_account_index: u32,
+        vkey_id: u32,
     },
 
     // Finalizing proofs that finished 
@@ -191,6 +194,26 @@ pub enum ElusivInstruction {
     #[acc(mint_account)]
     FinalizeVerificationTransferToken {
         verification_account_index: u32,
+    },
+
+    // -------- Verifying key management --------
+
+    #[acc(signer, { writable, signer })]
+    #[pda(vkey_manager, VKeyAccountManangerAccount, { writable })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, account_info, find_pda })]
+    #[acc(vkey_binary_data_account, { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    CreateVkeyAccount {
+        vkey_id: u32,
+        public_inputs_count: u32,
+    },
+
+    #[acc(signer, { writable, signer })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, multi_accounts })]
+    SetVkeyAccountData {
+        vkey_id: u32,
+        data_position: u32,
+        data: VKeyAccountDataPacket,
     },
 
     // -------- MT management --------
@@ -245,15 +268,6 @@ pub enum ElusivInstruction {
         sub_account_index: u32,
     },
 
-    #[pda(precomputes_account, PrecomputesAccount, { account_info, writable })]
-    #[acc(sub_account, { owned, writable })]
-    EnablePrecomputeSubAccount {
-        sub_account_index: u32,
-    },
-
-    #[pda(precomputes_account, PrecomputesAccount, { writable, multi_accounts })]
-    PrecomputeVKeys,
-
     #[acc(payer, { writable, signer })]
     #[acc(governor, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
@@ -301,45 +315,34 @@ use solana_program::pubkey::Pubkey;
 #[cfg(feature = "elusiv-client")]
 pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {
     vec![
-        // Governor
         ElusivInstruction::setup_governor_account_instruction(
             WritableSignerAccount(payer),
             WritableUserAccount(GovernorAccount::find(None).0)
         ),
-
-        // SOL pool
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::PoolAccount,
             WritableSignerAccount(payer),
             WritableUserAccount(PoolAccount::find(None).0)
         ),
-
-        // Fee collector
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::FeeCollectorAccount,
             WritableSignerAccount(payer),
             WritableUserAccount(FeeCollectorAccount::find(None).0)
         ),
-
-        // Commitment hashing
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::CommitmentHashingAccount,
             WritableSignerAccount(payer),
             WritableUserAccount(CommitmentHashingAccount::find(None).0)
         ),
-
-        // Commitment queue
         ElusivInstruction::open_single_instance_account_instruction(
             SingleInstancePDAAccountKind::CommitmentQueueAccount,
             WritableSignerAccount(payer),
             WritableUserAccount(CommitmentQueueAccount::find(None).0)
         ),
-
-        // Precomputes account
         ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::PrecomputesAccount,
+            SingleInstancePDAAccountKind::VKeyAccountManangerAccount,
             WritableSignerAccount(payer),
-            WritableUserAccount(PrecomputesAccount::find(None).0)
+            WritableUserAccount(VKeyAccountManangerAccount::find(None).0)
         ),
     ]
 }

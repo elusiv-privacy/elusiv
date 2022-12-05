@@ -1,23 +1,22 @@
 use borsh::{BorshSerialize, BorshDeserialize};
-use elusiv_types::PDAAccountData;
+use elusiv_types::{PDAAccountData, SubAccountMut};
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
     sysvar::Sysvar,
     rent::Rent, program_error::ProgramError, pubkey::Pubkey,
 };
-use crate::state::{
+use crate::{state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
-    program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData, SubAccount, SUB_ACCOUNT_ADDITIONAL_SIZE},
+    program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData},
     StorageAccount,
     queue::{CommitmentQueueAccount, CommitmentQueue, Queue},
     fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
-};
+}, proof::vkey::VKeyAccountManangerAccount};
 use crate::commitment::{CommitmentHashingAccount, DEFAULT_COMMITMENT_BATCHING_RATE};
 use crate::{
     bytes::usize_as_u32_safe,
     processor::MATH_ERR,
-    proof::precompute::{PrecomputesAccount, precompute_account_size2},
     map::ElusivMap,
 };
 use crate::error::ElusivError::{
@@ -38,7 +37,7 @@ pub enum SingleInstancePDAAccountKind {
     PoolAccount,
     FeeCollectorAccount,
     StorageAccount,
-    PrecomputesAccount,
+    VKeyAccountManangerAccount,
 }
 
 /// Opens one single instance `PDAAccount`, as long this PDA does not already exist
@@ -64,8 +63,8 @@ pub fn open_single_instance_account<'a>(
         SingleInstancePDAAccountKind::StorageAccount => {
             open_pda_account_without_offset::<StorageAccount>(&crate::id(), payer, pda_account)
         }
-        SingleInstancePDAAccountKind::PrecomputesAccount => {
-            open_pda_account_without_offset::<PrecomputesAccount>(&crate::id(), payer, pda_account)
+        SingleInstancePDAAccountKind::VKeyAccountManangerAccount => {
+            open_pda_account_without_offset::<VKeyAccountManangerAccount>(&crate::id(), payer, pda_account)
         }
     }
 }
@@ -130,27 +129,6 @@ pub fn enable_nullifier_sub_account(
     reset_map_sub_account(sub_account);
 
     Ok(())
-}
-
-pub fn enable_precompute_sub_account(
-    precomputes_account: &AccountInfo,
-    sub_account: &AccountInfo,
-
-    sub_account_index: u32,
-) -> ProgramResult {
-    setup_sub_account::<PrecomputesAccount, {PrecomputesAccount::COUNT}>(
-        precomputes_account,
-        sub_account,
-        sub_account_index as usize,
-        false,
-        Some(
-            precompute_account_size2(sub_account_index as usize) + SUB_ACCOUNT_ADDITIONAL_SIZE
-        ),
-    )
-}
-
-pub fn precompute_v_keys(precomputes_account: &mut PrecomputesAccount) -> ProgramResult {
-    precomputes_account.partial_precompute()
 }
 
 /// Closes the active MT and activates the next one
@@ -312,7 +290,7 @@ pub fn derive_lut_reference_account_address(warden: &Pubkey) -> (Pubkey, u8) {
 }
 
 /// Verifies a single user-supplied sub-account and then saves it's pubkey in the `main_account`
-fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
+pub fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
     main_account: &AccountInfo,
     sub_account: &AccountInfo,
     sub_account_index: usize,
@@ -332,7 +310,7 @@ fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
 
     // Check that the sub-account is not already in use (=> global duplicate check)
     let data = &mut sub_account.data.borrow_mut()[..];
-    let mut acc = SubAccount::new(data);
+    let mut acc = SubAccountMut::new(data);
     guard!(!acc.get_is_in_use(), InvalidAccount);
     acc.set_is_in_use(true);
 
@@ -341,7 +319,7 @@ fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
 
 fn reset_map_sub_account(sub_account: &AccountInfo) {
     let data = &mut sub_account.data.borrow_mut()[..];
-    let acc = SubAccount::new(data);
+    let acc = SubAccountMut::new(data);
     let len = ElusivMap::<(), (), 1>::SIZE;
     let mut map = ElusivMap::<(), (), 1>::new(&mut acc.data[..len]);
     map.reset();

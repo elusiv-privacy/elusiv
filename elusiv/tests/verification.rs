@@ -1,21 +1,18 @@
 //! Tests the proof verification
 
-#[cfg(not(tarpaulin_include))]
 mod common;
-use std::collections::HashMap;
 
-use borsh::BorshDeserialize;
+use borsh::{BorshSerialize, BorshDeserialize};
 use common::*;
-use elusiv::proof::precompute::{VirtualPrecomputes, precompute_account_size2, PrecomputesAccount};
 use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
 use elusiv_computation::PartialComputation;
-use elusiv_types::{SUB_ACCOUNT_ADDITIONAL_SIZE, MultiAccountProgramAccount};
+use elusiv_types::MultiAccountAccountData;
 use pyth_sdk_solana::Price;
 use solana_program::program_pack::Pack;
 use solana_program::system_program;
 use elusiv::bytes::{ElusivOption, BorshSerDeSized};
 use elusiv::instruction::{ElusivInstruction, WritableUserAccount, SignerAccount, WritableSignerAccount, UserAccount};
-use elusiv::proof::vkey::SendQuadraVKey;
+use elusiv::proof::vkey::{SendQuadraVKey, VerifyingKeyInfo, VKeyAccount, VKeyAccountEager};
 use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, VerificationState, CombinedMillerLoop};
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
 use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT};
@@ -26,7 +23,6 @@ use elusiv::processor::{ProofRequest, FinalizeSendData, program_token_account_ad
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
-use solana_sdk::signer::Signer;
 use spl_associated_token_account::get_associated_token_address;
 
 async fn start_verification_test() -> ElusivProgramTest {
@@ -248,12 +244,41 @@ async fn skip_finalize_verification_send(verification_account_index: u32, recipi
     }).await;
 }
 
+async fn setup_vkey_account<VKey: VerifyingKeyInfo>(test: &mut ElusivProgramTest) -> (Pubkey, Pubkey) {
+    let sub_account_pubkey = Pubkey::new_unique();
+    let mut data = VKey::verifying_key_source();
+    data.insert(0, 1);
+    test.set_account_rent_exempt(&sub_account_pubkey, &data, &elusiv::id()).await;
+
+    let (pda, bump) = VKeyAccount::find(Some(VKey::VKEY_ID));
+    let data = VKeyAccountEager {
+        pda_data: PDAAccountData {
+            bump_seed: bump,
+            version: 0,
+            initialized: true,
+        },
+        multi_account_data: MultiAccountAccountData {
+            pubkeys: [ElusivOption::Some(sub_account_pubkey)]
+        },
+        vkey_id: VKey::VKEY_ID,
+        hash: VKey::HASH,
+        public_inputs_count: VKey::PUBLIC_INPUTS_COUNT,
+        is_checked: true,
+        deploy_authority: ElusivOption::None,
+        instruction: 0,
+    }.try_to_vec().unwrap();
+    test.set_program_account_rent_exempt(&pda, &data).await;
+
+    (pda, sub_account_pubkey)
+}
+
 #[tokio::test]
 async fn test_init_proof_signers() {
     let mut test = start_verification_test().await;
     let warden = test.new_actor().await;
     let warden2 = test.new_actor().await;
     let nullifier_accounts = test.nullifier_accounts(0).await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let fee = test.genesis_fee().await;
     let mut request = send_request(0);
@@ -279,6 +304,7 @@ async fn test_init_proof_signers() {
     test.ix_should_succeed(
         ElusivInstruction::init_verification_instruction(
             0,
+            SendQuadraVKey::VKEY_ID,
             [0, 1],
             ProofRequest::Send(request.public_inputs.clone()),
             false,
@@ -344,6 +370,7 @@ async fn test_init_proof_lamports() {
     let mut test = start_verification_test().await;
     let warden = test.new_actor().await;
     let nullifier_accounts = test.nullifier_accounts(0).await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let fee = test.genesis_fee().await;
     let mut request = send_request(0);
@@ -364,6 +391,7 @@ async fn test_init_proof_lamports() {
     let init_verification_instruction = |v_index: u32, skip_nullifier_pda: bool| {
         ElusivInstruction::init_verification_instruction(
             v_index,
+            SendQuadraVKey::VKEY_ID,
             [0, 1],
             ProofRequest::Send(request.public_inputs.clone()),
             skip_nullifier_pda,
@@ -432,6 +460,7 @@ async fn test_init_proof_lamports() {
 async fn test_init_proof_token() {
     let mut test = start_verification_test().await;
     test.create_spl_token(USDC_TOKEN_ID, true).await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut warden = test.new_actor().await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
@@ -475,6 +504,7 @@ async fn test_init_proof_token() {
     test.ix_should_succeed(
         ElusivInstruction::init_verification_instruction(
             0,
+            SendQuadraVKey::VKEY_ID,
             [0, 1],
             ProofRequest::Send(request.public_inputs.clone()),
             false,
@@ -532,6 +562,7 @@ async fn test_finalize_proof_lamports() {
     let warden = test.new_actor().await;
     let nullifier_accounts = test.nullifier_accounts(0).await;
     let fee = test.genesis_fee().await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut request = send_request(0);
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &fee);
@@ -541,7 +572,7 @@ async fn test_finalize_proof_lamports() {
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
 
     let public_inputs = request.public_inputs.public_signals_skip_mr();
-    let input_preparation_tx_count = prepare_public_inputs_instructions::<SendQuadraVKey>(&public_inputs).len();
+    let input_preparation_tx_count = prepare_public_inputs_instructions(&public_inputs, SendQuadraVKey::public_inputs_count()).len();
     let subvention = fee.proof_subvention;
     let proof_verification_fee = fee.proof_verification_computation_fee(input_preparation_tx_count);
     let commitment_hash_fee = fee.commitment_hash_computation_fee(0);
@@ -561,6 +592,7 @@ async fn test_finalize_proof_lamports() {
         &[
             ElusivInstruction::init_verification_instruction(
                 0,
+                SendQuadraVKey::VKEY_ID,
                 [0, 1],
                 ProofRequest::Send(request.public_inputs.clone()),
                 false,
@@ -678,6 +710,7 @@ async fn test_finalize_proof_lamports() {
 async fn test_finalize_proof_token() {
     let mut test = start_verification_test().await;
     test.create_spl_token(USDC_TOKEN_ID, true).await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut recipient = test.new_actor().await;
     recipient.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
@@ -711,7 +744,7 @@ async fn test_finalize_proof_token() {
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
 
     let public_inputs = request.public_inputs.public_signals_skip_mr();
-    let input_preparation_tx_count = prepare_public_inputs_instructions::<SendQuadraVKey>(&public_inputs).len();
+    let input_preparation_tx_count = prepare_public_inputs_instructions(&public_inputs, SendQuadraVKey::public_inputs_count()).len();
     let subvention = fee.proof_subvention.into_token(&price, USDC_TOKEN_ID).unwrap();
     let proof_verification_fee = fee.proof_verification_computation_fee(input_preparation_tx_count).into_token(&price, USDC_TOKEN_ID).unwrap();
     let commitment_hash_fee = fee.commitment_hash_computation_fee(0);
@@ -735,6 +768,7 @@ async fn test_finalize_proof_token() {
         &[
             ElusivInstruction::init_verification_instruction(
                 0,
+                SendQuadraVKey::VKEY_ID,
                 [0, 1],
                 ProofRequest::Send(request.public_inputs.clone()),
                 false,
@@ -855,6 +889,7 @@ async fn test_finalize_proof_token() {
 #[tokio::test]
 async fn test_finalize_proof_skip_nullifier_pda() {
     let mut test = start_verification_test().await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
     let warden = test.new_actor().await;
     let recipient = test.new_actor().await;
     let nullifier_accounts = test.nullifier_accounts(0).await;
@@ -879,6 +914,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
         [
             ElusivInstruction::init_verification_instruction(
                 v_index,
+                SendQuadraVKey::VKEY_ID,
                 [0, 1],
                 ProofRequest::Send(request.public_inputs.clone()),
                 skip_nullifier_pda,
@@ -966,6 +1002,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
 async fn test_associated_token_account() {
     let mut test = start_verification_test().await;
     test.create_spl_token(USDC_TOKEN_ID, true).await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut warden = test.new_actor().await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
@@ -1012,6 +1049,7 @@ async fn test_associated_token_account() {
     test.ix_should_succeed(
         ElusivInstruction::init_verification_instruction(
             0,
+            SendQuadraVKey::VKEY_ID,
             [0, 1],
             ProofRequest::Send(request.clone().public_inputs),
             false,
@@ -1161,6 +1199,7 @@ async fn test_finalize_proof_failure_token() {
 #[tokio::test]
 async fn test_compute_proof_verifcation_instruction_uniformity() {
     let mut test = start_verification_test().await;
+    let (_, vkey_sub_account) = setup_vkey_account::<SendQuadraVKey>(&mut test).await;
     let warden = test.new_actor().await;
     let nullifier_accounts = test.nullifier_accounts(0).await;
     let fee = test.genesis_fee().await;
@@ -1171,7 +1210,7 @@ async fn test_compute_proof_verifcation_instruction_uniformity() {
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
 
     let public_inputs = request.public_inputs.public_signals_skip_mr();
-    let input_preparation_tx_count = prepare_public_inputs_instructions::<SendQuadraVKey>(&public_inputs).len();
+    let input_preparation_tx_count = prepare_public_inputs_instructions(&public_inputs, SendQuadraVKey::public_inputs_count()).len();
     let subvention = fee.proof_subvention;
     let commitment_hash_fee = fee.commitment_hash_computation_fee(0);
     let verification_account_rent = test.rent(VerificationAccount::SIZE).await;
@@ -1188,6 +1227,7 @@ async fn test_compute_proof_verifcation_instruction_uniformity() {
         &[
             ElusivInstruction::init_verification_instruction(
                 0,
+                SendQuadraVKey::VKEY_ID,
                 [0, 1],
                 ProofRequest::Send(request.public_inputs.clone()),
                 false,
@@ -1209,33 +1249,15 @@ async fn test_compute_proof_verifcation_instruction_uniformity() {
         &[&warden.keypair],
     ).await;
 
-    // Enable sub accounts
-    let precomputes_account_size = precompute_account_size2(0) + SUB_ACCOUNT_ADDITIONAL_SIZE;
-    let precomputes_account = test.create_program_account_rent_exempt(precomputes_account_size).await.pubkey();
-    test.ix_should_succeed_simple(
-        ElusivInstruction::enable_precompute_sub_account_instruction(
-            0,
-            WritableUserAccount(precomputes_account)
-        )
-    ).await;
-    let mut data = vec![0; precomputes_account_size];
-    VirtualPrecomputes::<SendQuadraVKey>::new(&mut data[1..]);
-    test.set_program_account_rent_exempt(&precomputes_account, &data).await;
-
-    let mut data = test.data(&PrecomputesAccount::find(None).0).await;
-    let mut pre = PrecomputesAccount::new(&mut data, HashMap::new()).unwrap();
-    pre.set_is_setup(&true);
-    test.set_program_account_rent_exempt(&PrecomputesAccount::find(None).0, &data).await;
-
     // Both input preparation and combined miller loop work with 4 instructions (but input preparation only uses one)
     for _ in 0..input_preparation_tx_count + CombinedMillerLoop::TX_COUNT {
         test.tx_should_succeed_simple(
             &[
                 request_compute_units(1_400_000),
-                ElusivInstruction::compute_verification_instruction(0, &[UserAccount(precomputes_account)]),
-                ElusivInstruction::compute_verification_instruction(0, &[UserAccount(precomputes_account)]),
-                ElusivInstruction::compute_verification_instruction(0, &[UserAccount(precomputes_account)]),
-                ElusivInstruction::compute_verification_instruction(0, &[UserAccount(precomputes_account)]),
+                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
             ]
         ).await;
     }

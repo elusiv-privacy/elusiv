@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
-use crate::proof::vkey::{SendQuadraVKey, VerificationKey, MigrateUnaryVKey};
+use crate::proof::vkey::{SendQuadraVKey, MigrateUnaryVKey, VerifyingKeyInfo};
 use crate::u64_array;
 use crate::fields::{G1A, G2A, u64_to_u256_skip_mr, u256_to_big_uint, fr_to_u256_le};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use elusiv_types::SizedType;
 use solana_program::pubkey::Pubkey;
-use crate::bytes::{BorshSerDeSized, max};
+use crate::bytes::BorshSerDeSized;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use crate::macros::BorshSerDeSized;
@@ -360,10 +360,8 @@ pub struct MigratePublicInputs {
     pub next_nsmt_root: RawU256,
 }
 
-pub const MAX_PUBLIC_INPUTS_COUNT: usize = max(SendPublicInputs::PUBLIC_INPUTS_COUNT, MigratePublicInputs::PUBLIC_INPUTS_COUNT);
-
 impl PublicInputs for SendPublicInputs {
-    const PUBLIC_INPUTS_COUNT: usize = SendQuadraVKey::PUBLIC_INPUTS_COUNT;
+    const PUBLIC_INPUTS_COUNT: usize = SendQuadraVKey::PUBLIC_INPUTS_COUNT as usize;
     
     fn verify_additional_constraints(&self) -> bool {
         // Maximum `commitment_count` is 4
@@ -424,7 +422,7 @@ impl PublicInputs for SendPublicInputs {
 }
 
 impl PublicInputs for MigratePublicInputs {
-    const PUBLIC_INPUTS_COUNT: usize = MigrateUnaryVKey::PUBLIC_INPUTS_COUNT;
+    const PUBLIC_INPUTS_COUNT: usize = MigrateUnaryVKey::PUBLIC_INPUTS_COUNT as usize;
     
     fn verify_additional_constraints(&self) -> bool {
         // `commitment_count` is 1
@@ -459,14 +457,15 @@ impl PublicInputs for MigratePublicInputs {
 }
 
 #[cfg(feature = "elusiv-client")]
-pub fn compute_fee_rec<VKey: crate::proof::vkey::VerificationKey, P: PublicInputs>(
+pub fn compute_fee_rec<V: crate::proof::vkey::VerifyingKeyInfo, P: PublicInputs>(
     public_inputs: &mut P,
     program_fee: &crate::state::fee::ProgramFee,
     price: &crate::token::TokenPrice,
 ) {
     let fee = program_fee.proof_verification_fee(
-        crate::proof::prepare_public_inputs_instructions::<VKey>(
-            &public_inputs.public_signals_skip_mr()
+        crate::proof::prepare_public_inputs_instructions(
+            &public_inputs.public_signals_skip_mr(),
+            V::public_inputs_count()
         ).len(),
         0,
         public_inputs.join_split_inputs().amount,
@@ -476,17 +475,17 @@ pub fn compute_fee_rec<VKey: crate::proof::vkey::VerificationKey, P: PublicInput
 
     if fee != public_inputs.join_split_inputs().fee {
         public_inputs.set_fee(fee);
-        compute_fee_rec::<VKey, P>(public_inputs, program_fee, price)
+        compute_fee_rec::<V, P>(public_inputs, program_fee, price)
     }
 }
 
 #[cfg(feature = "elusiv-client")]
-pub fn compute_fee_rec_lamports<VKey: crate::proof::vkey::VerificationKey, P: PublicInputs>(
+pub fn compute_fee_rec_lamports<V: crate::proof::vkey::VerifyingKeyInfo, P: PublicInputs>(
     public_inputs: &mut P,
     program_fee: &crate::state::fee::ProgramFee,
 ) {
     use crate::token::TokenPrice;
-    compute_fee_rec::<VKey, P>(public_inputs, program_fee, &TokenPrice::new_lamports())
+    compute_fee_rec::<V, P>(public_inputs, program_fee, &TokenPrice::new_lamports())
 }
 
 pub fn u256_to_le_limbs(v: U256) -> [u64; 4] {
