@@ -1,13 +1,11 @@
-mod proof;
-mod commitment;
 mod accounts;
+mod commitment;
+mod proof;
 mod utils;
+mod vkey;
 
+pub use accounts::*;
 pub use commitment::*;
 pub use proof::*;
-pub use accounts::*;
-pub use utils::program_token_account_address;
-
-pub fn nop() -> solana_program::entrypoint::ProgramResult {
-    Ok(())
-}
+pub use utils::{nop, program_token_account_address};
+pub use vkey::*;
