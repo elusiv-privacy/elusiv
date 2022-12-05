@@ -915,6 +915,27 @@ fn mutate<T: Clone, F>(v: &T, f: F) -> T where F: Fn(&mut T) {
 }
 
 #[cfg(test)]
+macro_rules! vkey_account {
+    ($id: ident, $vkey: ident) => {
+        let mut source = <$vkey as crate::proof::vkey::VerifyingKeyInfo>::verifying_key_source();
+        source.insert(0, 0);
+
+        let pk = solana_program::pubkey::Pubkey::new_unique();
+        crate::macros::account_info!(sub_account, pk, source);
+
+        let mut map = std::collections::HashMap::new();
+        map.insert(0, &sub_account);
+
+        let mut data = vec![0; <VKeyAccount as elusiv_types::SizedAccount>::SIZE];
+        let mut $id = VKeyAccount::new(&mut data, map).unwrap();
+        $id.set_public_inputs_count(&<$vkey as crate::proof::vkey::VerifyingKeyInfo>::PUBLIC_INPUTS_COUNT);
+        $id.set_is_checked(&true); 
+    };
+}
+
+#[cfg(test)] pub(crate) use vkey_account;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
@@ -1301,24 +1322,6 @@ mod tests {
 
         // Already setup proof
         assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, proof), Err(_));
-    }
-    
-    macro_rules! vkey_account {
-        ($id: ident, $vkey: ident) => {
-            let mut source = <$vkey>::verifying_key_source();
-            source.insert(0, 0);
-
-            let pk = Pubkey::new_unique();
-            account_info!(sub_account, pk, source);
-
-            let mut map = HashMap::new();
-            map.insert(0, &sub_account);
-
-            let mut data = vec![0; VKeyAccount::SIZE];
-            let mut $id = VKeyAccount::new(&mut data, map).unwrap();
-            $id.set_public_inputs_count(&<$vkey>::PUBLIC_INPUTS_COUNT);
-            $id.set_is_checked(&true); 
-        };
     }
 
     #[test]

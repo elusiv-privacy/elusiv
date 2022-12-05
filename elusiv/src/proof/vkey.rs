@@ -4,7 +4,6 @@ use ark_ff::Zero;
 use borsh::BorshDeserialize;
 use elusiv_proc_macros::elusiv_account;
 use elusiv_types::{PDAAccountData, ElusivOption, BorshSerDeSized, MultiAccountAccountData};
-use solana_program::pubkey::Pubkey;
 use crate::{types::U256, fields::{Wrap, G1A, G2A}};
 
 #[elusiv_account(eager_type: true)]
@@ -19,13 +18,13 @@ pub struct VKeyAccount {
     pda_data: PDAAccountData,
     multi_account_data: MultiAccountAccountData<1>,
     
-    vkey_id: u32,
-    hash: U256,
+    pub hash: U256,
     pub public_inputs_count: u32,
-    pub is_checked: bool,
+    pub deploy_authority: ElusivOption<U256>,
 
-    deploy_authority: ElusivOption<Pubkey>,
-    instruction: u32,
+    pub is_checked: bool,
+    pub check_instruction: u32,
+    pub check_hash: U256,
 }
  
 pub trait VerifyingKeyInfo {

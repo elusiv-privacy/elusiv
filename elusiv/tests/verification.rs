@@ -260,12 +260,12 @@ async fn setup_vkey_account<VKey: VerifyingKeyInfo>(test: &mut ElusivProgramTest
         multi_account_data: MultiAccountAccountData {
             pubkeys: [ElusivOption::Some(sub_account_pubkey)]
         },
-        vkey_id: VKey::VKEY_ID,
         hash: VKey::HASH,
         public_inputs_count: VKey::PUBLIC_INPUTS_COUNT,
         is_checked: true,
         deploy_authority: ElusivOption::None,
-        instruction: 0,
+        check_instruction: 0,
+        check_hash: [0; 32],
     }.try_to_vec().unwrap();
     test.set_program_account_rent_exempt(&pda, &data).await;
 

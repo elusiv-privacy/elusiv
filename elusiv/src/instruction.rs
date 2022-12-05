@@ -3,7 +3,7 @@
 use crate::macros::*;
 use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum};
 use crate::state::fee::ProgramFee;
-use crate::types::Proof;
+use crate::types::{Proof, U256};
 use super::processor;
 use super::processor::BaseCommitmentHashRequest;
 use crate::processor::{
@@ -26,6 +26,7 @@ use crate::state::{
 };
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::proof::{VerificationAccount, vkey::{VKeyAccount, VKeyAccountManangerAccount}};
+use elusiv_types::ElusivOption;
 use solana_program::{system_program, sysvar::instructions};
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -206,14 +207,26 @@ pub enum ElusivInstruction {
     CreateVkeyAccount {
         vkey_id: u32,
         public_inputs_count: u32,
+        deploy_authority: ElusivOption<U256>,
     },
 
-    #[acc(signer, { writable, signer })]
+    #[acc(signer, { signer })]
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, multi_accounts })]
     SetVkeyAccountData {
         vkey_id: u32,
         data_position: u32,
-        data: VKeyAccountDataPacket,
+        packet: VKeyAccountDataPacket,
+    },
+
+    #[acc(signer, { signer })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, multi_accounts })]
+    CheckVkeyAccount {
+        vkey_id: u32,
+    },
+
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, multi_accounts, ignore_sub_accounts })]
+    FinalizeVkeyAccountCheck {
+        vkey_id: u32,
     },
 
     // -------- MT management --------
