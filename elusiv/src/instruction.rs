@@ -224,6 +224,7 @@ pub enum ElusivInstruction {
         vkey_id: u32,
     },
 
+    #[acc(signer, { signer })]
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, multi_accounts, ignore_sub_accounts })]
     FinalizeVkeyAccountCheck {
         vkey_id: u32,

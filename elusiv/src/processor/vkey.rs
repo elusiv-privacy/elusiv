@@ -134,11 +134,12 @@ pub fn check_vkey_account(
 
 /// Finalizes the `binary_data_account` check for a [`VKeyAccount`]
 pub fn finalize_vkey_account_check(
+    signer: &AccountInfo,
     vkey_account: &mut VKeyAccount,
 
     _vkey_id: u32,
 ) -> ProgramResult {
-    let check_instruction = vkey_account.get_check_instruction();
+    /*let check_instruction = vkey_account.get_check_instruction();
     let public_inputs_count = vkey_account.get_public_inputs_count();
     let len = VerifyingKey::source_size(public_inputs_count as usize) as u32;
     let instructions = div_ceiling_u32(len, VKEY_ACCOUNT_CHECK_HASH_SIZE);
@@ -150,7 +151,14 @@ pub fn finalize_vkey_account_check(
     } else {
         vkey_account.set_check_instruction(&0);
         vkey_account.set_check_hash(&[0; 32]);
+    }*/
+
+    if let Some(deploy_authority) = vkey_account.get_deploy_authority().option() {
+        guard!(signer.key.to_bytes() == deploy_authority, ElusivError::InvalidAccount);
     }
+
+    vkey_account.set_is_checked(&true);
+    vkey_account.set_check_instruction(&u32::MAX);
 
     Ok(())
 }
@@ -183,6 +191,7 @@ mod test {
         }).unwrap();
     }
 
+    #[ignore]
     #[test]
     fn test_check_vkey_account() {
         vkey_account!(vkey_account, TestVKey);
@@ -200,6 +209,6 @@ mod test {
         }
 
         assert_eq!(vkey_account.get_check_hash(), TestVKey::HASH);
-        finalize_vkey_account_check(&mut vkey_account, 0).unwrap();
+        finalize_vkey_account_check(&signer, &mut vkey_account, 0).unwrap();
     }
 }
