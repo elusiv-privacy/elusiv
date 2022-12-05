@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use elusiv_types::MultiAccountAccount;
 use solana_program::pubkey::Pubkey;
 use solana_program::sysvar::instructions;
 use solana_program::{
@@ -7,10 +8,11 @@ use solana_program::{
     clock::Clock,
     sysvar::Sysvar,
 };
+use borsh::{BorshSerialize, BorshDeserialize};
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex, pda_account};
 use crate::processor::ZERO_COMMITMENT_RAW;
 use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent, verify_program_token_account};
-use crate::proof::precompute::PrecomputesAccount;
+use crate::proof::vkey::{VKeyAccount, VerifyingKey, SendQuadraVKey, VerifyingKeyInfo, MigrateUnaryVKey};
 use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState};
 use crate::state::MT_COMMITMENT_COUNT;
 use crate::state::governor::{FeeCollectorAccount, PoolAccount};
@@ -33,17 +35,12 @@ use crate::error::ElusivError::{
     ComputationIsNotYetFinished,
     CouldNotInsertNullifier,
     InvalidFeeVersion,
-    FeatureNotAvailable,
+    FeatureNotAvailable, self,
 };
-use crate::proof::{
-    VerificationAccount,
-    vkey::{SendQuadraVKey, MigrateUnaryVKey},
-};
+use crate::proof::{VerificationAccount};
 use crate::token::{Token, verify_token_account, TokenPrice, verify_associated_token_account, Lamports, elusiv_token};
 use crate::types::{Proof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, RawU256, compute_extra_data_hash};
 use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
-use borsh::{BorshSerialize, BorshDeserialize};
-
 use super::CommitmentHashRequest;
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized, EnumVariantIndex, PartialEq, Debug, Clone)]
@@ -52,17 +49,6 @@ pub enum ProofRequest {
     Send(SendPublicInputs),
     Merge(SendPublicInputs),
     Migrate(MigratePublicInputs),
-}
-
-macro_rules! execute_with_vkey {
-    ($kind: expr, $vk: ident, $e: expr) => {
-        match $kind {
-            0 => { type $vk = SendQuadraVKey; $e }
-            1 => { type $vk = SendQuadraVKey; $e }
-            2 => { type $vk = MigrateUnaryVKey; $e }
-            _ => panic!()
-        }
-    };
 }
 
 macro_rules! proof_request {
@@ -87,6 +73,14 @@ impl ProofRequest {
             _ => 0
         }
     }
+
+    pub fn vkey_id(&self) -> u32 {
+        match self {
+            ProofRequest::Send(_) => SendQuadraVKey::VKEY_ID,
+            ProofRequest::Merge(_) => SendQuadraVKey::VKEY_ID,
+            ProofRequest::Migrate(_) => MigrateUnaryVKey::VKEY_ID,
+        }
+    }
 }
 
 /// We only allow two distinct MTs in a join-split (merge can be used to reduce the amount of MTs)
@@ -106,32 +100,34 @@ macro_rules! nullifier_duplicate_account_pda_seed {
 pub fn init_verification<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'a>,
     verification_account: &AccountInfo<'a>,
+    vkey_account: &VKeyAccount,
     nullifier_duplicate_account: &AccountInfo<'a>,
     storage_account: &StorageAccount,
     nullifier_account0: &NullifierAccount<'b, 'c, 'd>,
     nullifier_account1: &NullifierAccount<'b, 'c, 'd>,
 
     verification_account_index: u32,
+    vkey_id: u32,
     tree_indices: [u32; MAX_MT_COUNT],
     request: ProofRequest,
     skip_nullifier_pda: bool,
 ) -> ProgramResult {
-    let vkey = request.variant_index();
     let raw_public_inputs = proof_request!(
         &request,
         public_inputs,
         public_inputs.public_signals()
     );
-    let instructions = execute_with_vkey!(
-        vkey,
-        VKey,
-        prepare_public_inputs_instructions::<VKey>(
-            &proof_request!(
-                &request,
-                public_inputs,
-                public_inputs.public_signals_skip_mr()
-            )
-        )
+
+    guard!(vkey_account.get_is_checked(), InvalidAccount);
+    guard!(vkey_id == request.vkey_id(), InvalidAccount);
+
+    let instructions = prepare_public_inputs_instructions(
+        &proof_request!(
+            &request,
+            public_inputs,
+            public_inputs.public_signals_skip_mr()
+        ),
+        vkey_account.get_public_inputs_count() as usize
     );
 
     // TODO: reject zero-commitment nullifier
@@ -199,7 +195,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         skip_nullifier_pda,
         &raw_public_inputs,
         &instructions,
-        vkey,
+        vkey_id,
         request,
         tree_indices,
     )
@@ -351,18 +347,19 @@ pub fn init_verification_proof(
 /// Partial proof verification computation
 pub fn compute_verification(
     verification_account: &mut VerificationAccount,
-    precomputes_account: &PrecomputesAccount,
+    vkey_account: &VKeyAccount,
     instructions_account: &AccountInfo,
 
     _verification_account_index: u32,
+    vkey_id: u32,
 ) -> ProgramResult {
-    guard!(precomputes_account.get_is_setup(), InvalidAccountState);
+    guard!(vkey_account.get_is_checked(), InvalidAccount);
+    guard!(verification_account.get_vkey_id() == vkey_id, InvalidAccount);
+    guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
     guard!(
-        matches!(verification_account.get_state(), VerificationState::None) ||
-        matches!(verification_account.get_state(), VerificationState::ProofSetup),
+        matches!(verification_account.get_state(), VerificationState::None | VerificationState::ProofSetup),
         InvalidAccountState
     );
-    guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
 
     // instruction_index is used to allow a uniform number of ixs per tx
     let instruction_index = if cfg!(test) {
@@ -371,28 +368,31 @@ pub fn compute_verification(
         instructions::load_current_index_checked(instructions_account)?
     };
 
-    match execute_with_vkey!(
-        verification_account.get_kind(),
-        VKey,
-        verify_partial::<_, VKey>(verification_account, precomputes_account, instruction_index)
-    ) {
+    let result = vkey_account.execute_on_sub_account_mut::<_, Result<Option<bool>, ElusivError>>(0, |data| {
+        let vkey = VerifyingKey::new(data, vkey_account.get_public_inputs_count() as usize)
+            .ok_or(InvalidAccountState)?;
+
+        verify_partial(verification_account, &vkey, instruction_index)
+    })?;
+
+    match result {
         Ok(result) => {
             if let Some(final_result) = result { // After last round we receive the verification result
                 verification_account.set_is_verified(&ElusivOption::Some(final_result));
             }
+
+            Ok(())
         }
         Err(e) => {
             match e {
-                InvalidAccountState => return Err(e.into()),
+                InvalidAccountState => Err(e.into()),
                 _ => { // An error (!= InvalidAccountState) can only happen with flawed inputs -> cancel verification
                     verification_account.set_is_verified(&ElusivOption::Some(false));
-                    return Ok(())
+                    Ok(())
                 }
             }
         }
     }
-
-    Ok(())
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone, Copy)]
@@ -926,7 +926,6 @@ mod tests {
     use solana_program::system_program;
     use crate::fields::{u256_from_str, u256_from_str_skip_mr};
     use crate::processor::ZERO_COMMITMENT_RAW;
-    use crate::proof::precompute::{VirtualPrecomputes, precompute_account_size};
     use crate::proof::{COMBINED_MILLER_LOOP_IXS, FINAL_EXPONENTIATION_IXS, proof_from_str, CombinedMillerLoop, FinalExponentiation};
     use crate::state::fee::{ProgramFee, BasisPointFee};
     use crate::state::governor::PoolAccount;
@@ -977,11 +976,19 @@ mod tests {
 
         account_info!(n_duplicate_acc, inputs.join_split.nullifier_duplicate_pda().0, vec![1]);
 
+        let vkey_id = SendQuadraVKey::VKEY_ID;
+        let mut data = vec![0; VKeyAccount::SIZE];
+        let mut vkey = VKeyAccount::new(&mut data, HashMap::new()).unwrap();
+        vkey.set_public_inputs_count(&SendQuadraVKey::PUBLIC_INPUTS_COUNT);
+        vkey.set_is_checked(&true);
+
         // TODO: test skip nullifier pda
+        // TODO: wrong vkey-id
+        // TODO: vkey not checked
 
         // Commitment-count too low
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.commitment_count = 0;
             })), false),
             Err(_)
@@ -989,7 +996,7 @@ mod tests {
 
         // Commitment-count too high
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.commitment_count = JOIN_SPLIT_MAX_N_ARITY + 1;
             })), false),
             Err(_)
@@ -997,7 +1004,7 @@ mod tests {
 
         // Invalid root
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.roots[0] = Some(RawU256::new(u256_from_str_skip_mr("1")));
             })), false),
             Err(_)
@@ -1005,7 +1012,7 @@ mod tests {
 
         // First root is None
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.roots[0] = None;
             })), false),
             Err(_)
@@ -1013,13 +1020,13 @@ mod tests {
 
         // Mismatched tree indices
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &s, &n, &n, 0, [1, 0], Send(inputs.clone()), false),
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [1, 0], Send(inputs.clone()), false),
             Err(_)
         );
 
         // Zero commitment
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &s, &n, &n, 0, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.commitment = RawU256::new(ZERO_COMMITMENT_RAW);
             })), false),
             Err(_)
@@ -1028,7 +1035,7 @@ mod tests {
         // Nullifier already exists
         n.try_insert_nullifier_hash(inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &s, &n, &n, 0, [0, 1], Send(inputs.clone()), false),
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
         );
         
@@ -1036,13 +1043,13 @@ mod tests {
         nullifier_account!(n);
         account_info!(invalid_n_duplicate_acc, VerificationAccount::find(Some(0)).0, vec![1]);
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &invalid_n_duplicate_acc, &s, &n, &n, 0, [0, 1], Send(inputs.clone()), false),
+            init_verification(&fee_payer, &v_acc, &vkey, &invalid_n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
         );
 
         // Migrate always fails 
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &s, &n, &n, 0, [0, 1], Migrate(
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Migrate(
                 MigratePublicInputs {
                     join_split: inputs.join_split.clone(),
                     current_nsmt_root: RawU256::new([0; 32]),
@@ -1053,7 +1060,7 @@ mod tests {
         );
 
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &n_duplicate_acc, &s, &n, &n, 0, [0, 1], Send(inputs), false),
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs), false),
             Ok(())
         );
     }
@@ -1085,7 +1092,7 @@ mod tests {
             current_time: 0,
         };
         compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut inputs, &fee());
-        let instructions = prepare_public_inputs_instructions::<SendQuadraVKey>(&inputs.public_signals_skip_mr());
+        let instructions = prepare_public_inputs_instructions(&inputs.public_signals_skip_mr(), SendQuadraVKey::public_inputs_count());
 
         zero_program_account!(mut verification_acc, VerificationAccount);
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
@@ -1192,7 +1199,7 @@ mod tests {
             current_time: 0,
         };
         compute_fee_rec::<SendQuadraVKey, _>(&mut inputs, &fee(), &price);
-        let instructions = prepare_public_inputs_instructions::<SendQuadraVKey>(&inputs.public_signals_skip_mr());
+        let instructions = prepare_public_inputs_instructions(&inputs.public_signals_skip_mr(), SendQuadraVKey::public_inputs_count());
 
         zero_program_account!(mut verification_acc, VerificationAccount);
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
@@ -1295,37 +1302,29 @@ mod tests {
         // Already setup proof
         assert_matches!(init_verification_proof(&fee_payer, &mut verification_account, 0, proof), Err(_));
     }
-
-    macro_rules! precomputes_sub_account {
+    
+    macro_rules! vkey_account {
         ($id: ident, $vkey: ident) => {
-            let mut data = vec![0; precompute_account_size::<$vkey>()];
-            let precomputes = VirtualPrecomputes::<$vkey>::new(&mut data);
+            let mut source = <$vkey>::verifying_key_source();
+            source.insert(0, 0);
 
-            let mut d = vec![1];
-            d.extend(precomputes.data.to_vec());
+            let pk = Pubkey::new_unique();
+            account_info!(sub_account, pk, source);
 
-            let pk = solana_program::pubkey::Pubkey::new_unique();
-            account_info!($id, pk, d);
-        };
-    }
-
-    macro_rules! precomputes_account {
-        ($id: ident) => {
-            let mut data = vec![0; PrecomputesAccount::SIZE];
             let mut map = HashMap::new();
+            map.insert(0, &sub_account);
 
-            precomputes_sub_account!(acc0, SendQuadraVKey);
-            map.insert(0, &acc0);
-
-            let mut $id = PrecomputesAccount::new(&mut data, map).unwrap();
-            $id.set_is_setup(&true);
+            let mut data = vec![0; VKeyAccount::SIZE];
+            let mut $id = VKeyAccount::new(&mut data, map).unwrap();
+            $id.set_public_inputs_count(&<$vkey>::PUBLIC_INPUTS_COUNT);
+            $id.set_is_checked(&true); 
         };
     }
 
     #[test]
     fn test_compute_verification() {
         zero_program_account!(mut verification_account, VerificationAccount);
-        precomputes_account!(precomputes_account);
+        vkey_account!(vkey, SendQuadraVKey);
         test_account_info!(any, 0);
 
         // Setup
@@ -1333,7 +1332,7 @@ mod tests {
         for (i, &public_input) in public_inputs.iter().enumerate() {
             verification_account.set_public_input(i, &RawU256::new(public_input));
         }
-        let instructions = prepare_public_inputs_instructions::<SendQuadraVKey>(&public_inputs);
+        let instructions = prepare_public_inputs_instructions(&public_inputs, SendQuadraVKey::public_inputs_count());
         verification_account.set_prepare_inputs_instructions_count(&(instructions.len() as u32));
         for (i, &ix) in instructions.iter().enumerate() {
             verification_account.set_prepare_inputs_instructions(i, &(ix as u16));
@@ -1341,16 +1340,16 @@ mod tests {
 
         // Computation is already finished (is_verified is Some)
         verification_account.set_is_verified(&ElusivOption::Some(true));
-        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Err(_));
+        assert_matches!(compute_verification(&mut verification_account, &vkey, &any, 0, SendQuadraVKey::VKEY_ID), Err(_));
         verification_account.set_is_verified(&ElusivOption::None);
 
         // Success for public input preparation
         for _ in 0..instructions.len() {
-            assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Ok(()));
+            assert_matches!(compute_verification(&mut verification_account, &vkey, &any, 0, SendQuadraVKey::VKEY_ID), Ok(()));
         }
 
         // Failure for miller loop (proof not setup)
-        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Err(_));
+        assert_matches!(compute_verification(&mut verification_account, &vkey, &any, 0, SendQuadraVKey::VKEY_ID), Err(_));
 
         let proof = test_proof();
         verification_account.a.set(&proof.a);
@@ -1360,11 +1359,11 @@ mod tests {
 
         // Success
         for _ in 0..COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS {
-            assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Ok(()));
+            assert_matches!(compute_verification(&mut verification_account, &vkey, &any, 0, SendQuadraVKey::VKEY_ID), Ok(()));
         }
         
         // Computation is finished
-        assert_matches!(compute_verification(&mut verification_account, &precomputes_account, &any, 0), Err(_));
+        assert_matches!(compute_verification(&mut verification_account, &vkey, &any, 0, SendQuadraVKey::VKEY_ID), Err(_));
         assert_matches!(verification_account.get_is_verified().option(), Some(false));
     }
 

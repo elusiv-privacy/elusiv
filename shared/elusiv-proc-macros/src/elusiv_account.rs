@@ -389,6 +389,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         quote! {
             #[cfg(feature = "elusiv-client")]
             #[derive(Debug)]
+            #[derive(borsh::BorshSerialize)]
             #vis struct #eager_ident {
                 #eager_defs
             }

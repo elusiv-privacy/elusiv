@@ -134,8 +134,13 @@ impl<const COUNT: usize> MultiAccountAccountData<COUNT> {
 macro_rules! sub_account_safe {
     ($id: ident, $self: ident, $account_index: expr) => {
         let account = unsafe { $self.get_account_unsafe($account_index)? };
-        let data = &mut account.data.borrow_mut()[..];
+        let data = &account.data.borrow()[..];
         let $id = SubAccount::new(data); 
+    };
+    (mut $id: ident, $self: ident, $account_index: expr) => {
+        let account = unsafe { $self.get_account_unsafe($account_index)? };
+        let data = &mut account.data.borrow_mut()[..];
+        let $id = SubAccountMut::new(data); 
     };
 }
 
@@ -205,19 +210,45 @@ pub trait MultiAccountAccount<'t>: PDAAccount {
     /// Returns the sub-account for the specified index
     /// 
     /// # Safety
+    /// 
     /// - Each sub-account has to be serialized using the `SubAccount` struct.
     /// - Modifiying/accessing without the `SubAccount` struct, can lead to undefined behaviour.
     /// - Use `execute_on_sub_account` instead of `get_account_unsafe` directly.
     unsafe fn get_account_unsafe(&self, account_index: usize) -> Result<&AccountInfo<'t>, ProgramError>;
 
-    /// Ensures that the fields of `SubAccount` are not manipulated on a sub-account
-    fn try_execute_on_sub_account<F, T, E>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> Result<T, E> {
+    fn try_execute_on_sub_account<F, T, E>(
+        &self,
+        account_index: usize,
+        f: F,
+    ) -> Result<T, ProgramError> where F: FnOnce(&[u8]) -> Result<T, E> {
         sub_account_safe!(account, self, account_index);
         f(account.data).or(Err(ProgramError::InvalidAccountData))
     }
 
-    fn execute_on_sub_account<F, T>(&self, account_index: usize, f: F) -> Result<T, ProgramError> where F: Fn(&mut [u8]) -> T {
+    fn try_execute_on_sub_account_mut<F, T, E>(
+        &self,
+        account_index: usize,
+        f: F,
+    ) -> Result<T, ProgramError> where F: FnOnce(&mut [u8]) -> Result<T, E> {
+        sub_account_safe!(mut account, self, account_index);
+        f(account.data).or(Err(ProgramError::InvalidAccountData))
+    }
+
+    fn execute_on_sub_account<F, T>(
+        &self,
+        account_index: usize,
+        f: F,
+    ) -> Result<T, ProgramError> where F: FnOnce(&[u8]) -> T {
         sub_account_safe!(account, self, account_index);
+        Ok(f(account.data))
+    }
+
+    fn execute_on_sub_account_mut<F, T>(
+        &self,
+        account_index: usize,
+        f: F,
+    ) -> Result<T, ProgramError> where F: FnOnce(&mut [u8]) -> T {
+        sub_account_safe!(mut account, self, account_index);
         Ok(f(account.data))
     }
 }
@@ -225,21 +256,46 @@ pub trait MultiAccountAccount<'t>: PDAAccount {
 /// Size required for the `is_in_use` boolean
 pub const SUB_ACCOUNT_ADDITIONAL_SIZE: usize = 1;
 
-pub struct SubAccount<'a> {
+pub struct SubAccountMut<'a> {
     is_in_use: &'a mut [u8],
     pub data: &'a mut [u8],
 }
 
-impl<'a> SubAccount<'a> {
+impl<'a> SubAccountMut<'a> {
     pub fn new(data: &'a mut [u8]) -> Self {
         let (is_in_use, data) = data.split_at_mut(1);
-        Self { is_in_use, data }
+
+        Self {
+            is_in_use,
+            data,
+        }
     }
 
     pub fn get_is_in_use(&self) -> bool {
         self.is_in_use[0] == 1
     }
+
     pub fn set_is_in_use(&mut self, value: bool) {
         self.is_in_use[0] = u8::from(value);
+    }
+}
+
+pub struct SubAccount<'a> {
+    is_in_use: &'a [u8],
+    pub data: &'a [u8],
+}
+
+impl<'a> SubAccount<'a> {
+    pub fn new(data: &'a [u8]) -> Self {
+        let (is_in_use, data) = data.split_at(1);
+
+        Self {
+            is_in_use,
+            data,
+        }
+    }
+
+    pub fn get_is_in_use(&self) -> bool {
+        self.is_in_use[0] == 1
     }
 }

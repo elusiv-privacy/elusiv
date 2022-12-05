@@ -95,7 +95,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         assert!(level <= MT_HEIGHT as usize);
 
         let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
-        self.try_execute_on_sub_account(account_index, |data| {
+        self.try_execute_on_sub_account_mut(account_index, |data| {
             U256::override_slice(
                 value,
                 &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]

@@ -1,21 +1,19 @@
 //! Tests the account setup process
 
-#[cfg(not(tarpaulin_include))]
 mod common;
-use std::collections::HashMap;
 
+use std::collections::HashMap;
 use borsh::BorshSerialize;
 use common::*;
-use elusiv::proof::precompute::{precompute_account_size2, VKEY_COUNT, PrecomputesAccount, VirtualPrecomputes, PrecomutedValues};
-use elusiv::proof::vkey::{SendQuadraVKey, VerificationKey};
-use elusiv::state::program_account::{MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE, PDAOffset, SubAccount};
+use elusiv::proof::vkey::VKeyAccountManangerAccount;
+use elusiv::state::program_account::{MultiAccountAccount, PDAOffset};
 use elusiv::state::queue::RingQueue;
 use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT};
 use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
 use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, CommitmentHashRequest};
 use elusiv::token::SPL_TOKEN_COUNT;
-use elusiv_utils::batch_instructions;
+use elusiv_types::SubAccountMut;
 use solana_program::instruction::{Instruction, AccountMeta};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
@@ -49,7 +47,7 @@ async fn test_setup_initial_accounts() {
     assert_account::<GovernorAccount>(&mut test, None).await;
     assert_account::<PoolAccount>(&mut test, None).await;
     assert_account::<FeeCollectorAccount>(&mut test, None).await;
-    assert_account::<PrecomputesAccount>(&mut test, None).await;
+    assert_account::<VKeyAccountManangerAccount>(&mut test, None).await;
     assert_account::<CommitmentHashingAccount>(&mut test, None).await;
     assert_account::<CommitmentQueueAccount>(&mut test, None).await;
 }
@@ -235,7 +233,7 @@ async fn test_reset_active_mt() {
     // Override the root
     let root = [1; 32];
     let mut data = test.data(&root_storage_account).await;
-    SubAccount::new(&mut data).data[..32].copy_from_slice(&root[..32]);
+    SubAccountMut::new(&mut data).data[..32].copy_from_slice(&root[..32]);
     test.set_program_account_rent_exempt(&root_storage_account, &data).await;
 
     // Failure since active_nullifier_account is invalid
@@ -398,159 +396,4 @@ async fn test_global_sub_account_duplicates() {
     let data = test.data(&account2.pubkey()).await;
     assert_eq!(data[0], 1);
     assert_eq!(&data[1..5], &[0,0,0,0]);
-}
-
-#[tokio::test]
-async fn test_enable_precomputes_subaccounts() {
-    let mut test = ElusivProgramTest::start().await;
-    test.setup_initial_pdas().await;
-
-    // Open storage account
-    test.ix_should_succeed_simple(
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::StorageAccount,
-            WritableSignerAccount(test.payer()),
-            WritableUserAccount(StorageAccount::find(None).0)
-        )
-    ).await;
-
-    // Invalid size
-    let size = precompute_account_size2(0);
-    let account = test.create_program_account_rent_exempt(size).await;
-    test.ix_should_fail_simple(
-        ElusivInstruction::enable_precompute_sub_account_instruction(0, WritableUserAccount(account.pubkey()))
-    ).await;
-
-    // Subaccount already in use
-    let size = precompute_account_size2(0) + SUB_ACCOUNT_ADDITIONAL_SIZE;
-    let account = test.create_program_account_rent_exempt(size).await;
-    let mut data = vec![1];
-    data.extend(vec![0; precompute_account_size2(0)]);
-    let lamports = test.lamports(&account.pubkey()).await;
-    test.set_program_account(&account.pubkey(), &data, lamports).await;
-    test.ix_should_fail_simple(
-        ElusivInstruction::enable_precompute_sub_account_instruction(0, WritableUserAccount(account.pubkey()))
-    ).await;
-
-    // Success
-    let account = test.create_program_account_rent_exempt(size).await;
-    test.ix_should_succeed_simple(
-        ElusivInstruction::enable_precompute_sub_account_instruction(0, WritableUserAccount(account.pubkey()))
-    ).await;
-
-    let mut data = test.data(&PrecomputesAccount::find(None).0).await;
-    let precomputes = PrecomputesAccount::new(&mut data, HashMap::new()).unwrap();
-    let pubkeys = precomputes.get_multi_account_data().pubkeys;
-    assert_eq!(pubkeys[0].option().unwrap(), account.pubkey());
-    assert!(pubkeys[1].option().is_none());
-
-    // Index already set
-    let account = test.create_program_account_rent_exempt(size).await;
-    test.ix_should_fail_simple(
-        ElusivInstruction::enable_precompute_sub_account_instruction(0, WritableUserAccount(account.pubkey()))
-    ).await;
-}
-
-async fn precompute_test() -> (ElusivProgramTest, Vec<Pubkey>) {
-    let mut test = ElusivProgramTest::start().await;
-    test.setup_initial_pdas().await;
-
-    // Enable sub accounts
-    let mut ixs = Vec::new();
-    let mut pubkeys = Vec::new();
-    for i in 0..VKEY_COUNT {
-        let size = precompute_account_size2(i) + SUB_ACCOUNT_ADDITIONAL_SIZE;
-        let account = test.create_program_account_rent_exempt(size).await;
-        pubkeys.push(account.pubkey());
-        ixs.push(
-            ElusivInstruction::enable_precompute_sub_account_instruction(
-                i as u32,
-                WritableUserAccount(account.pubkey())
-            )
-        );
-    }
-    test.tx_should_succeed_simple(&ixs).await;
-
-    (test, pubkeys)
-}
-
-#[tokio::test]
-#[ignore]
-async fn test_precompute_full() {
-    // Setup requires multiple thousand tx atm -> no CI integration test possible -> ignore (we use test_precompute_partial instead and unit tests)
-    let (mut test, pubkeys) = precompute_test().await;
-    let precompute_accounts: Vec<WritableUserAccount> = pubkeys.iter().map(|p| WritableUserAccount(*p)).collect();
-
-    // Init precomputing
-    let ixs = [
-        request_compute_units(1_400_000),
-        ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts),
-    ];
-    
-    for _ in 0..SendQuadraVKey::PUBLIC_INPUTS_COUNT {
-        // Init public input
-        test.tx_should_succeed_simple(&ixs.clone()).await;
-
-        for _ in 0..32 {
-            // Tuples
-            test.tx_should_succeed_simple(&ixs.clone()).await;
-
-            // Quads
-            test.tx_should_succeed_simple(&ixs.clone()).await;
-            test.tx_should_succeed_simple(&ixs.clone()).await;
-            
-            // Octs
-            let txs = batch_instructions(
-                15 * 15,
-                120_000,
-                ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts)
-            );
-            for tx in txs {
-                test.tx_should_succeed_simple(&tx).await;
-            }
-        }
-    }
-}
-
-#[tokio::test]
-async fn test_precompute_partial() {
-    let (mut test, pubkeys) = precompute_test().await;
-    let precompute_accounts: Vec<WritableUserAccount> = pubkeys.iter().map(|p| WritableUserAccount(*p)).collect();
-    let ixs = [
-        request_compute_units(1_400_000),
-        ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts),
-    ];
-    test.tx_should_succeed_simple(&ixs.clone()).await;
-
-    // Precompute the first two bytes of the first public input 
-    for _ in 0..2 {
-        // Tuples
-        test.tx_should_succeed_simple(&ixs.clone()).await;
-
-        // Quads
-        test.tx_should_succeed_simple(&ixs.clone()).await;
-        test.tx_should_succeed_simple(&ixs.clone()).await;
-        
-        // Octs
-        let txs = batch_instructions(
-            15 * 15,
-            120_000,
-            ElusivInstruction::precompute_v_keys_instruction(&precompute_accounts)
-        );
-        for tx in txs {
-            test.tx_should_succeed_simple(&tx).await;
-        }
-    }
-
-    let expected = 1 + 2 * (3 + 15 * 15);
-    let mut data = vec![0; precompute_account_size2(0)];
-    let p = VirtualPrecomputes::<SendQuadraVKey>::new(&mut data);
-    fn cmp<VKey: VerificationKey, A: PrecomutedValues<VKey>, B: PrecomutedValues<VKey>>(a: &A, b: &B) {
-        assert_eq!(a.point(0, 0, 1), b.point(0, 0, 1));
-        assert_eq!(a.point(0, 0, 2), b.point(0, 0, 2));
-    }
-    precomputes_account(None, &mut test, |precomputes| {
-        assert_eq!(precomputes.get_instruction(), expected);
-        cmp(&p, precomputes);
-    }).await;
 }

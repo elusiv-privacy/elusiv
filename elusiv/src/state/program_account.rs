@@ -29,7 +29,7 @@ mod tests {
     #[test]
     fn test_sub_account() {
         let mut data = vec![0; 100];
-        let mut account = SubAccount::new(&mut data);
+        let mut account = SubAccountMut::new(&mut data);
 
         assert!(!account.get_is_in_use());
         account.set_is_in_use(true);
@@ -114,7 +114,7 @@ mod tests {
 
         for i in 0..SUB_ACCOUNT_COUNT {
             assert_eq!(
-                account.try_execute_on_sub_account::<_, usize, ProgramError>(i, |data| {
+                account.try_execute_on_sub_account_mut::<_, usize, ProgramError>(i, |data| {
                     data[0] = i as u8 + 1;
                     Ok(42)
                 }).unwrap(),
@@ -132,7 +132,7 @@ mod tests {
         test_multi_account!(account);
 
         for i in 0..SUB_ACCOUNT_COUNT {
-            account.execute_on_sub_account(i, |data| {
+            account.execute_on_sub_account_mut(i, |data| {
                 data[0] = i as u8 + 1;
             }).unwrap();
         }

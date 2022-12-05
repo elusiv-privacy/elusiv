@@ -1,6 +1,5 @@
 pub mod vkey;
 pub mod verifier;
-pub mod precompute;
 #[cfg(test)] mod test_proofs;
 
 use borsh::{BorshSerialize, BorshDeserialize};
@@ -9,12 +8,11 @@ use elusiv_derive::{BorshSerDeSized, EnumVariantIndex};
 use solana_program::entrypoint::ProgramResult;
 pub use verifier::*;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12};
-use vkey::VerificationKey;
 use crate::error::ElusivError;
 use crate::processor::{ProofRequest, MAX_MT_COUNT};
 use crate::state::program_account::PDAAccountData;
 use crate::token::Lamports;
-use crate::types::{U256, MAX_PUBLIC_INPUTS_COUNT, LazyField, Lazy, RawU256};
+use crate::types::{U256, LazyField, Lazy, RawU256};
 use crate::fields::{Wrap, G1A, G2A, G2HomProjective};
 use crate::macros::{elusiv_account, guard};
 use crate::bytes::{BorshSerDeSized, SizedType, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
@@ -25,6 +23,7 @@ pub type RAMFq6<'a> = LazyRAM<'a, Fq6, 3>;
 pub type RAMFq12<'a> = LazyRAM<'a, Fq12, 7>;
 pub type RAMG2A<'a> = LazyRAM<'a, G2A, 1>;
 
+const MAX_PUBLIC_INPUTS_COUNT: usize = 14;
 const MAX_PREPARE_INPUTS_INSTRUCTIONS: usize = MAX_PUBLIC_INPUTS_COUNT * 10;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, EnumVariantIndex, Debug)]
@@ -54,7 +53,7 @@ pub struct VerificationAccount {
     pub prepare_inputs_instructions_count: u32,
     pub prepare_inputs_instructions: [u16; MAX_PREPARE_INPUTS_INSTRUCTIONS],
 
-    pub kind: u8,
+    pub vkey_id: u32,
     pub step: VerificationStep,
     pub state: VerificationState,
 
@@ -127,11 +126,11 @@ impl<'a> VerificationAccount<'a> {
         skip_nullifier_pda: bool,
         public_inputs: &[RawU256],
         instructions: &Vec<u32>,
-        kind: u8,
+        vkey_id: u32,
         request: ProofRequest,
         tree_indices: [u32; MAX_MT_COUNT],
     ) -> ProgramResult {
-        self.set_kind(&kind);
+        self.set_vkey_id(&vkey_id);
         self.set_request(&request);
         for (i, tree_index) in tree_indices.iter().enumerate() {
             self.set_tree_indices(i, tree_index);
@@ -276,10 +275,11 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
     }
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use elusiv_types::SizedAccount;
     use crate::{state::{program_account::ProgramAccount}, fields::{u256_from_str, u256_from_str_skip_mr}, types::{SendPublicInputs, PublicInputs, JoinSplitPublicInputs}};
 
     #[test]
@@ -302,35 +302,33 @@ mod tests {
                 fee: 123,
                 token_id: 0,
             },
-            recipient: RawU256::new(u256_from_str_skip_mr("7777777")),
+            extra_data_hash: u256_from_str_skip_mr("7777777"),
             current_time: 0,
-            identifier: RawU256::new(u256_from_str_skip_mr("88888888")),
-            salt: RawU256::new(u256_from_str_skip_mr("999999999")),
+            recipient_is_associated_token_account: true,
         };
         let request = ProofRequest::Send(public_inputs.clone());
-        let nullifier_duplicate_pda = RawU256::new(public_inputs.join_split.nullifier_duplicate_pda().0.to_bytes());
         let data = VerificationAccountData {
             fee_payer: RawU256::new([1; 32]),
-            nullifier_duplicate_pda,
-            min_batching_rate: 111,
-            unadjusted_fee: 3333333333,
+            skip_nullifier_pda: true,
+            ..Default::default()
         };
 
         let public_inputs = public_inputs.public_signals();
         let instructions = vec![1, 2, 3];
-        let kind = 255;
+        let vkey_id = 255;
 
         verification_account.setup(
+            data.fee_payer,
+            true,
             &public_inputs,
             &instructions,
-            kind,
-            data.clone(),
+            vkey_id,
             request,
             [123, 456],
         ).unwrap();
 
         assert_matches!(verification_account.get_state(), VerificationState::None);
-        assert_eq!(verification_account.get_kind(), kind);
+        assert_eq!(verification_account.get_vkey_id(), vkey_id);
         
         assert_eq!(verification_account.get_prepare_inputs_instructions_count() as usize, instructions.len());
         for (i, instruction) in instructions.iter().enumerate() {
@@ -397,4 +395,4 @@ mod tests {
         assert_eq!(ram.data.len(), 3);
         assert_eq!(ram.changes.len(), 3);
     }
-}*/
+}

@@ -1,5 +1,5 @@
-pub mod accounts;
-pub mod bytes;
+#[cfg(feature = "accounts")] pub mod accounts;
+#[cfg(feature = "bytes")] pub mod bytes;
 
-pub use accounts::*;
-pub use bytes::*;
+#[cfg(feature = "accounts")] pub use accounts::*;
+#[cfg(feature = "bytes")] pub use bytes::*;

@@ -17,6 +17,11 @@ use crate::token::{Token, Lamports, SPLToken, elusiv_token};
 
 pub use elusiv_utils::*;
 
+/// No-operation instruction
+pub fn nop() -> solana_program::entrypoint::ProgramResult {
+    Ok(())
+}
+
 pub fn transfer_token<'a>(
     source: &AccountInfo<'a>,
     source_token_account: &AccountInfo<'a>,

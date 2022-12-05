@@ -1,10 +1,10 @@
-use crate::macros::{elusiv_account, two_pow, guard};
-use crate::map::{ElusivSet, ElusivMapError};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
+use crate::macros::{elusiv_account, two_pow, guard};
+use crate::map::{ElusivSet, ElusivMapError};
 use crate::types::{U256, OrdU256};
 use crate::bytes::*;
-use crate::error::ElusivError::{CouldNotInsertNullifier};
+use crate::error::ElusivError::CouldNotInsertNullifier;
 use super::program_account::{PDAAccountData, MultiAccountAccountData, MultiAccountAccount, SUB_ACCOUNT_ADDITIONAL_SIZE};
 
 /// The count of nullifiers is the count of leaves in the MT
@@ -18,8 +18,8 @@ const ACCOUNT_SIZE: usize = NullifierMap::SIZE + SUB_ACCOUNT_ADDITIONAL_SIZE;
 const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling(NULLIFIERS_COUNT as u64, NULLIFIERS_PER_ACCOUNT as u64));
 const_assert_eq!(ACCOUNTS_COUNT, 16);
 
-/// NullifierAccount is a big-array storing `NULLIFIERS_COUNT` nullifiers over multiple accounts
-/// - we use `NullifierMap`s to store the nullifiers
+/// Account storing [`NULLIFIERS_COUNT`] nullifiers over multiple accounts
+/// - we use [`NullifierMap`]s to store the nullifiers
 #[elusiv_account(multi_account: { sub_account_count: ACCOUNTS_COUNT, sub_account_size: ACCOUNT_SIZE }, eager_type: true)]
 pub struct NullifierAccount {
     pda_data: PDAAccountData,
@@ -46,7 +46,7 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
         let nullifier_hash = OrdU256(nullifier_hash);
 
         for i in 0..=nmap_index {
-            let contains = self.execute_on_sub_account(i, |data| {
+            let contains = self.execute_on_sub_account_mut(i, |data| {
                 let mut map = NullifierMap::new(data);
                 map.contains(&nullifier_hash).is_some()
             })?;
@@ -65,7 +65,7 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
         let mut account_index = 0;
         let mut value = Some(nullifier_hash);
         while let Some(nullifier_hash) = value {
-            let insertion = self.try_execute_on_sub_account::<_, _, ElusivMapError<()>>(account_index, |data| {
+            let insertion = self.try_execute_on_sub_account_mut::<_, _, ElusivMapError<()>>(account_index, |data| {
                 NullifierMap::new(data).try_insert_default(nullifier_hash)
             });
 
