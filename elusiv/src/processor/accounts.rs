@@ -250,8 +250,8 @@ pub fn close_program_account<'a>(
 
 pub fn create_lut_reference_account<'a>(
     warden: &AccountInfo<'a>,
-    lut_account: &AccountInfo<'a>,
     lut_reference: &AccountInfo<'a>,
+    lut_account: &AccountInfo<'a>,
 ) -> ProgramResult {
     // TODO: move this functionality to the warden-network
     // TODO: in the future also verify lut_account to be a valid, frozen LUT
