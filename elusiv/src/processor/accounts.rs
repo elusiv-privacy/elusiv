@@ -40,7 +40,7 @@ pub enum SingleInstancePDAAccountKind {
     VKeyAccountManangerAccount,
 }
 
-/// Opens one single instance `PDAAccount`, as long this PDA does not already exist
+/// Opens one single instance [`elusiv_types::PDAAccount`], as long this PDA does not already exist
 pub fn open_single_instance_account<'a>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
@@ -74,7 +74,7 @@ pub enum MultiInstancePDAAccountKind {
     NullifierAccount,
 }
 
-/// Opens one multi instance `PDAAccount` with the offset `Some(pda_offset)`, as long this PDA does not already exist
+/// Opens one multi instance [`elusiv_types::PDAAccount`] with the offset [`Some(pda_offset)`], as long this PDA does not already exist
 pub fn open_multi_instance_account<'a>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
@@ -106,9 +106,9 @@ pub fn enable_storage_sub_account(
     )
 }
 
-/// Enables the supplied sub-account for a `NullifierAccount`
-/// - Note: requires a prior call to `open_multi_instance_account`
-/// - Note: the `NullifierAccount` will be useless until the MT with `index = merkle_tree_index - 1` is closed
+/// Enables the supplied sub-account for a [`NullifierAccount`]
+/// - Note: requires a prior call to [`open_multi_instance_account`]
+/// - Note: the [`NullifierAccount`] will be useless until the MT with `index = merkle_tree_index - 1` is closed
 pub fn enable_nullifier_sub_account(
     nullifier_account: &AccountInfo,
     sub_account: &AccountInfo,
@@ -171,7 +171,7 @@ fn is_mt_full(
     Ok(false)
 }
 
-/// Archives a closed MT by creating creating a N-SMT in an `ArchivedTreeAccount`
+/// Archives a closed MT by creating creating a N-SMT in an [`ArchivedTreeAccount`]
 pub fn archive_closed_merkle_tree<'a>(
     _payer: &AccountInfo<'a>,
     storage_account: &mut StorageAccount,
@@ -184,7 +184,7 @@ pub fn archive_closed_merkle_tree<'a>(
     panic!("N-SMT not implemented yet");
 }
 
-/// Setup the `GovernorAccount` with the default values
+/// Setup the [`GovernorAccount`] with the default values
 /// - Note: there is no way of upgrading it atm
 pub fn setup_governor_account<'a>(
     payer: &AccountInfo<'a>,
@@ -200,7 +200,7 @@ pub fn setup_governor_account<'a>(
     Ok(())
 }
 
-/// Changes the state of the `GovernorAccount`
+/// Changes the state of the [`GovernorAccount`]
 pub fn upgrade_governor_state(
     _authority: &AccountInfo,
     _governor_account: &mut GovernorAccount,
@@ -214,7 +214,7 @@ pub fn upgrade_governor_state(
     // TODO: fee changes require empty queues
 }
 
-/// Setup a new `FeeAccount`
+/// Setup a new [`FeeAccount`]
 /// - Note: there is no way of upgrading the program fees atm
 pub fn init_new_fee_version<'a>(
     payer: &AccountInfo<'a>,
@@ -265,7 +265,7 @@ pub fn create_lut_reference_account<'a>(
         lut_reference,
         32 + PDAAccountData::SIZE,
         bump,
-        &[&lut_reference_seed(warden.key), &[bump]],
+        &[b"lut_ref", &warden.key.to_bytes(), &[bump]],
     )?;
 
     // Store the `lut_account` pubkey
@@ -287,15 +287,9 @@ pub fn close_lut_reference_account<'a>(
     close_account(warden, lut_reference)
 }
 
-fn lut_reference_seed(warden: &Pubkey) -> Vec<u8> {
-    let mut v = b"lut_reference".to_vec();
-    v.extend(warden.to_bytes());
-    v
-}
-
 pub fn derive_lut_reference_account_address(warden: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[&lut_reference_seed(warden)],
+        &[b"lut_ref", &warden.to_bytes()],
         &crate::id(),
     )
 }
@@ -550,5 +544,11 @@ mod tests {
         let data = &mut map_account.data.borrow_mut()[1..];
         let mut map = Map::new(data);
         assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_derive_lut_reference_account_address() {
+        let warden = Pubkey::new_unique();
+        derive_lut_reference_account_address(&warden);
     }
 }
