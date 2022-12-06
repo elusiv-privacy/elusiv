@@ -5,7 +5,7 @@ use elusiv_utils::{guard, open_pda_account_with_offset};
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::{proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey}, error::ElusivError, processor::setup_sub_account, types::U256};
 
-pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 1024;
+pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 950;
 
 /// A binary data packet containing [`VKEY_ACCOUNT_DATA_PACKET_SIZE`] bytes
 #[derive(BorshSerialize)]
