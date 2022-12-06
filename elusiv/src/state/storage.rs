@@ -27,7 +27,7 @@ pub const HISTORY_ARRAY_COUNT: usize = 100;
 pub const VALUES_PER_STORAGE_SUB_ACCOUNT: usize = 83_887;
 const ACCOUNT_SIZE: usize = SUB_ACCOUNT_ADDITIONAL_SIZE + VALUES_PER_STORAGE_SUB_ACCOUNT * U256::SIZE;
 
-const ACCOUNTS_COUNT: usize = u64_as_usize_safe(div_ceiling((MT_SIZE * U256::SIZE) as u64, ACCOUNT_SIZE as u64));
+const ACCOUNTS_COUNT: usize = div_ceiling_usize(MT_SIZE * U256::SIZE, ACCOUNT_SIZE);
 const_assert_eq!(ACCOUNTS_COUNT, 25);
 
 // The `StorageAccount` contains the active MT that stores new commitments

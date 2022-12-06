@@ -1,12 +1,24 @@
 use borsh::BorshSerialize;
-
 pub use elusiv_types::bytes::*;
 
-/// Rounds a integer division up
-pub const fn div_ceiling(divident: u64, divisor: u64) -> u64 {
-    if divisor == 0 { panic!() }
-    (divident + divisor - 1) / divisor
+macro_rules! div_ceiling {
+    ($id: ident, $ty: ty) => {
+        
+        #[doc = " Rounds a integer division up"]
+        #[doc = ""]
+        #[doc = " # Panics"]
+        #[doc = ""]
+        #[doc = " Panics for a zero-divisor"]
+        pub const fn $id(divident: $ty, divisor: $ty) -> $ty {
+            if divisor == 0 { panic!() }
+            (divident + divisor - 1) / divisor
+        }
+    };
 }
+
+div_ceiling!(div_ceiling_u32, u32);
+div_ceiling!(div_ceiling_u64, u64);
+div_ceiling!(div_ceiling_usize, usize);
 
 macro_rules! safe_num_downcast {
     ($id: ident, $h: ty, $l: ty) => {
@@ -87,15 +99,15 @@ mod tests {
 
     #[test]
     fn test_div_ceiling() {
-        assert_eq!(div_ceiling(3, 2), 2);
-        assert_eq!(div_ceiling(4, 3), 2);
-        assert_eq!(div_ceiling(7, 3), 3);
+        assert_eq!(div_ceiling_u32(3, 2), 2);
+        assert_eq!(div_ceiling_u64(4, 3), 2);
+        assert_eq!(div_ceiling_usize(7, 3), 3);
     }
 
     #[test]
     #[should_panic]
     fn test_div_ceiling_zero() {
-        div_ceiling(0, 0);
+        div_ceiling_u32(0, 0);
     }
 
     #[test]
