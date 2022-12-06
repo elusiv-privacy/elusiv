@@ -237,6 +237,17 @@ pub fn init_new_fee_version<'a>(
     Ok(())
 }
 
+pub fn close_program_account<'a>(
+    payer: &AccountInfo<'a>,
+    account: &AccountInfo<'a>,
+) -> ProgramResult {
+    if cfg!(feature = "mainnet") {
+        panic!()
+    } else {
+        elusiv_utils::close_account(payer, account)
+    }
+}
+
 pub fn create_lut_reference_account<'a>(
     warden: &AccountInfo<'a>,
     lut_account: &AccountInfo<'a>,

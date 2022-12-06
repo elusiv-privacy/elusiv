@@ -5,7 +5,7 @@ use elusiv_utils::{guard, open_pda_account_with_offset};
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
 use crate::{proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey}, error::ElusivError, processor::setup_sub_account, types::U256};
 
-pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 950;
+pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 964;
 
 /// A binary data packet containing [`VKEY_ACCOUNT_DATA_PACKET_SIZE`] bytes
 #[derive(BorshSerialize)]
@@ -59,6 +59,7 @@ pub fn create_vkey_account<'a>(
     let data = &mut vkey_account.data.borrow_mut()[..];
     let mut vkey_account = VKeyAccount::new(data, HashMap::new())?;
     vkey_account.set_deploy_authority(&deploy_authority);
+    vkey_account.set_public_inputs_count(&public_inputs_count);
 
     Ok(())
 }
@@ -82,8 +83,9 @@ pub fn set_vkey_account_data(
     let len = VerifyingKey::source_size(public_inputs_count as usize);
     let start = data_position as usize * VKEY_ACCOUNT_DATA_PACKET_SIZE;
     let end = start + VKEY_ACCOUNT_DATA_PACKET_SIZE;
-    guard!(start < len, ElusivError::InvalidPublicInputs);
     let cutoff = if end > len { end - len } else { 0 };
+
+    guard!(start < len, ElusivError::InvalidPublicInputs);
 
     vkey_account.execute_on_sub_account_mut(0, |data| {
         data[start..end - cutoff].copy_from_slice(&packet.0[..VKEY_ACCOUNT_DATA_PACKET_SIZE - cutoff])

@@ -298,6 +298,11 @@ pub enum ElusivInstruction {
         program_fee: ProgramFee,
     },
 
+    #[acc(payer, { writable, signer })]
+    #[acc(account, { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    CloseProgramAccount,
+
     // -------- Address-LUTs -------- (only temporary, will be moved to warden-network)
 
     #[acc(warden, { writable, signer })]
