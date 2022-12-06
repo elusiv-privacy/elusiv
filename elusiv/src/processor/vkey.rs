@@ -8,19 +8,11 @@ use crate::{proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey}
 pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 964;
 
 /// A binary data packet containing [`VKEY_ACCOUNT_DATA_PACKET_SIZE`] bytes
-#[derive(BorshSerialize)]
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct VKeyAccountDataPacket(pub Vec<u8>);
 
 impl elusiv_types::BorshSerDeSized for VKeyAccountDataPacket {
-    const SIZE: usize = VKEY_ACCOUNT_DATA_PACKET_SIZE;
-}
-
-impl BorshDeserialize for VKeyAccountDataPacket {
-    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
-        let data = Vec::deserialize(buf)?;
-        assert_eq!(data.len(), VKEY_ACCOUNT_DATA_PACKET_SIZE);
-        Ok(Self(data))
-    }
+    const SIZE: usize = VKEY_ACCOUNT_DATA_PACKET_SIZE + u32::SIZE;
 }
 
 /// Creates a new [`VKeyAccount`]
