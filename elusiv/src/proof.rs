@@ -302,7 +302,7 @@ mod tests {
                 fee: 123,
                 token_id: 0,
             },
-            extra_data_hash: u256_from_str_skip_mr("7777777"),
+            hashed_inputs: u256_from_str_skip_mr("7777777"),
             current_time: 0,
             recipient_is_associated_token_account: true,
         };

@@ -17,7 +17,7 @@ use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, Ver
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
 use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
-use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, OrdU256, U256, compute_extra_data_hash};
+use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, OrdU256, U256, generate_hashed_inputs};
 use elusiv::proof::verifier::proof_from_str;
 use elusiv::processor::{ProofRequest, FinalizeSendData, program_token_account_address};
 use solana_program::native_token::LAMPORTS_PER_SOL;
@@ -86,7 +86,7 @@ fn send_request(index: usize) -> FullSendRequest {
                 },
                 recipient_is_associated_token_account: false,
                 current_time: 0,
-                extra_data_hash: u256_from_str_skip_mr(DEFAULT_EXTRA_DATA_HASH),
+                hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
             }
         },
         FullSendRequest {
@@ -110,7 +110,7 @@ fn send_request(index: usize) -> FullSendRequest {
                 },
                 recipient_is_associated_token_account: false,
                 current_time: 0,
-                extra_data_hash: u256_from_str_skip_mr(DEFAULT_EXTRA_DATA_HASH),
+                hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
             }
         },
         FullSendRequest {
@@ -134,7 +134,7 @@ fn send_request(index: usize) -> FullSendRequest {
                 },
                 recipient_is_associated_token_account: false,
                 current_time: 0,
-                extra_data_hash: u256_from_str_skip_mr(DEFAULT_EXTRA_DATA_HASH),
+                hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
             }
         },
         FullSendRequest {
@@ -160,7 +160,7 @@ fn send_request(index: usize) -> FullSendRequest {
                 },
                 recipient_is_associated_token_account: false,
                 current_time: 0,
-                extra_data_hash: u256_from_str_skip_mr(DEFAULT_EXTRA_DATA_HASH),
+                hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
             }
         },
         FullSendRequest {
@@ -188,7 +188,7 @@ fn send_request(index: usize) -> FullSendRequest {
                 },
                 recipient_is_associated_token_account: false,
                 current_time: 0,
-                extra_data_hash: u256_from_str_skip_mr(DEFAULT_EXTRA_DATA_HASH),
+                hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
             }
         },
     ];
@@ -200,9 +200,11 @@ struct ExtraData {
     identifier: U256,
     iv: U256,
     encrypted_owner: U256,
+    solana_pay_id: U256,
+    is_associated_token_account: bool,
 }
 
-const DEFAULT_EXTRA_DATA_HASH: &str = "241513166508321350627618709707967777063380694253583200648944705250489865558";
+const DEFAULT_HASHED_INPUTS: &str = "241513166508321350627618709707967777063380694253583200648944705250489865558";
 
 impl Default for ExtraData {
     fn default() -> Self {
@@ -211,13 +213,22 @@ impl Default for ExtraData {
             identifier: u256_from_str_skip_mr("1"),
             iv: u256_from_str_skip_mr("5683487854789"),
             encrypted_owner: u256_from_str_skip_mr("5789489458548458945478235642378"),
+            solana_pay_id: [0; 32],
+            is_associated_token_account: false,
         }
     }
 }
 
 impl ExtraData {
     fn hash(&self) -> U256 {
-        compute_extra_data_hash(self.recipient, self.identifier, self.iv, self.encrypted_owner)
+        generate_hashed_inputs(
+            self.recipient,
+            self.identifier,
+            self.iv,
+            self.encrypted_owner,
+            self.solana_pay_id,
+            self.is_associated_token_account,
+        )
     }
 }
 
@@ -562,6 +573,8 @@ async fn test_finalize_proof_lamports() {
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut request = send_request(0);
+    let extra_data = ExtraData::default();
+    request.public_inputs.hashed_inputs = extra_data.hash();
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &fee);
 
     let pool = PoolAccount::find(None).0;
@@ -617,7 +630,6 @@ async fn test_finalize_proof_lamports() {
     // Skip computation
     skip_computation(0, true, &mut test).await;
 
-    let extra_data = ExtraData::default();
     let recipient = Pubkey::new_from_array(extra_data.recipient);
     let identifier = Pubkey::new_from_array(extra_data.identifier);
     let iv = Pubkey::new_from_array(extra_data.iv);
@@ -736,7 +748,7 @@ async fn test_finalize_proof_token() {
         recipient: recipient_token_account.to_bytes(),
         ..Default::default()
     };
-    request.public_inputs.extra_data_hash = extra_data.hash();
+    request.public_inputs.hashed_inputs = extra_data.hash();
 
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
 
@@ -897,7 +909,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
         recipient: recipient.pubkey.to_bytes(),
         ..Default::default()
     };
-    request.public_inputs.extra_data_hash = extra_data.hash();
+    request.public_inputs.hashed_inputs = extra_data.hash();
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &test.genesis_fee().await);
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
@@ -1017,7 +1029,7 @@ async fn test_associated_token_account() {
         ..Default::default()
     };
     request.public_inputs.recipient_is_associated_token_account = true;
-    request.public_inputs.extra_data_hash = extra_data.hash();
+    request.public_inputs.hashed_inputs = extra_data.hash();
     request.public_inputs.join_split.token_id = USDC_TOKEN_ID;
     request.public_inputs.join_split.amount = 1_000_000;
 

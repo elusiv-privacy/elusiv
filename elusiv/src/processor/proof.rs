@@ -37,9 +37,9 @@ use crate::error::ElusivError::{
     InvalidFeeVersion,
     FeatureNotAvailable, self,
 };
-use crate::proof::{VerificationAccount};
+use crate::proof::VerificationAccount;
 use crate::token::{Token, verify_token_account, TokenPrice, verify_associated_token_account, Lamports, elusiv_token};
-use crate::types::{Proof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, RawU256, compute_extra_data_hash};
+use crate::types::{Proof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, RawU256, generate_hashed_inputs};
 use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
 use super::CommitmentHashRequest;
 
@@ -444,14 +444,18 @@ pub fn finalize_verification_send(
         _ => return Err(FeatureNotAvailable.into())
     };
 
-    // Verify `extra_data_hash`
-    let hash = compute_extra_data_hash(
+    // TODO: add solana_pay_identifier
+
+    // Verify `hashed_inputs`
+    let hash = generate_hashed_inputs(
         recipient.key.to_bytes(),
         identifier_account.key.to_bytes(),
         iv_account.key.to_bytes(),
         data.encrypted_owner,
+        [0; 32],
+        public_inputs.recipient_is_associated_token_account,
     );
-    guard!(hash == public_inputs.extra_data_hash, InvalidInstructionData);
+    guard!(hash == public_inputs.hashed_inputs, InvalidInstructionData);
 
     // Set `recipient_wallet`
     verification_account.set_other_data(
@@ -989,7 +993,7 @@ mod tests {
                 token_id: 0,
             },
             recipient_is_associated_token_account: true,
-            extra_data_hash: u256_from_str_skip_mr("1"),
+            hashed_inputs: u256_from_str_skip_mr("1"),
             current_time: 0,
         };
         compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut inputs, &fee());
@@ -1108,7 +1112,7 @@ mod tests {
                 token_id: 0,
             },
             recipient_is_associated_token_account: false,
-            extra_data_hash: u256_from_str_skip_mr("1"),
+            hashed_inputs: u256_from_str_skip_mr("1"),
             current_time: 0,
         };
         compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut inputs, &fee());
@@ -1215,7 +1219,7 @@ mod tests {
                 token_id: USDC_TOKEN_ID,
             },
             recipient_is_associated_token_account: false,
-            extra_data_hash: u256_from_str_skip_mr("1"),
+            hashed_inputs: u256_from_str_skip_mr("1"),
             current_time: 0,
         };
         compute_fee_rec::<SendQuadraVKey, _>(&mut inputs, &fee(), &price);
@@ -1398,11 +1402,13 @@ mod tests {
                     token_id: $token_id,
                 },
                 recipient_is_associated_token_account: false,
-                extra_data_hash: compute_extra_data_hash(
+                hashed_inputs: generate_hashed_inputs(
                     $recipient.clone(),
                     $identifier.clone(),
                     $iv.clone(),
                     encrypted_owner,
+                    [0; 32],
+                    false,
                 ),
                 current_time: 1234567,
             };

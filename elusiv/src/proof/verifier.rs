@@ -1306,7 +1306,7 @@ mod tests {
                 fee: 0,
                 token_id: 0,
             },
-            extra_data_hash: u256_from_str_skip_mr("230508240750559904196809564625"),
+            hashed_inputs: u256_from_str_skip_mr("230508240750559904196809564625"),
             current_time: 0,
             recipient_is_associated_token_account: true,
         };

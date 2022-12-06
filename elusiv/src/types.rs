@@ -331,23 +331,28 @@ pub struct SendPublicInputs {
     pub join_split: JoinSplitPublicInputs,
     pub current_time: u64,
     pub recipient_is_associated_token_account: bool,
-    pub extra_data_hash: U256,
+    pub hashed_inputs: U256,
 }
 
-pub fn compute_extra_data_hash(
+pub fn generate_hashed_inputs(
     recipient: U256,
     identifier: U256,
     iv: U256,
     encrypted_owner: U256,
+    solana_pay_id: U256,
+    is_associated_token_account: bool,
 ) -> U256 {
     let mut data = recipient.to_vec();
     data.extend(identifier);
     data.extend(iv);
     data.extend(encrypted_owner);
+    data.extend(solana_pay_id);
+    data.extend([u8::from(is_associated_token_account)]);
+
     let mut hash = solana_program::hash::hash(&data).to_bytes();
 
-    // TODO: cutoff bit 256, 255, 254 hash[31] &= 0b11111;
-    hash[31] = 0;
+    // mask the lower 253 bits
+    hash[31] &= 0b11111;
     hash
 }
 
@@ -410,7 +415,7 @@ impl PublicInputs for SendPublicInputs {
             self.join_split.commitment,
             RawU256(u64_to_u256_skip_mr(self.join_split.fee_version as u64)),
             RawU256(u64_to_u256_skip_mr(self.join_split.token_id as u64)),
-            RawU256(self.extra_data_hash),
+            RawU256(self.hashed_inputs),
         ]);
 
         public_signals
@@ -632,7 +637,7 @@ mod test {
                 token_id: 0,
             },
             current_time: 0,
-            extra_data_hash: [0; 32],
+            hashed_inputs: [0; 32],
             recipient_is_associated_token_account: true,
         };
         assert!(valid_inputs.verify_additional_constraints());
@@ -670,7 +675,7 @@ mod test {
                 token_id: 3,
             },
             current_time: 1657927306,
-            extra_data_hash: u256_from_str_skip_mr("306186522190603117929438292402982536627"),
+            hashed_inputs: u256_from_str_skip_mr("306186522190603117929438292402982536627"),
             recipient_is_associated_token_account: true,
         };
 
@@ -711,7 +716,7 @@ mod test {
                 \"token_id\":0
             },
             \"current_time\":1669971,
-            \"extra_data_hash\":[239,6,63,227,53,18,117,85,172,69,192,148,3,201,244,219,177,39,64,179,204,41,240,146,189,20,177,226,231,33,176,0],
+            \"hashed_inputs\":[239,6,63,227,53,18,117,85,172,69,192,148,3,201,244,219,177,39,64,179,204,41,240,146,189,20,177,226,231,33,176,0],
             \"recipient_is_associated_token_account\":true
         }
         ";
@@ -826,13 +831,19 @@ mod test {
     }
 
     #[test]
-    fn test_compute_extra_data_hash() {
+    fn test_compute_hashed_inputs() {
         let recipient = u256_from_str_skip_mr("115792089237316195423570985008687907853269984665640564039457584007913129639935");
-        let identifier = u256_from_str_skip_mr("1");
+        let identifier = u256_from_str_skip_mr("7664287681500223472370483741580378590496434315208292049383954342296148132753");
         let iv = u256_from_str_skip_mr("5683487854789");
-        let encrypted_owner = u256_from_str_skip_mr("5789489458548458945478235642378");
-        let expected = u256_from_str_skip_mr("241513166508321350627618709707967777063380694253583200648944705250489865558");
+        let encrypted_owner = u256_from_str_skip_mr("21620303059720667189546524860541209640581655979702452251272504609177116384089");
+        let solana_pay_id = u256_from_str_skip_mr("15301892188911160449341837174902405446602050384096489477117140364841430914614");
+        let is_associated_token_account = true;
 
-        assert_eq!(compute_extra_data_hash(recipient, identifier, iv, encrypted_owner), expected);
+        let expected = u256_from_str_skip_mr("13377023609243152888087996289546074665572546267939720535001129695597521747191");
+
+        assert_eq!(
+            generate_hashed_inputs(recipient, identifier, iv, encrypted_owner, solana_pay_id, is_associated_token_account),
+            expected
+        );
     }
 }
