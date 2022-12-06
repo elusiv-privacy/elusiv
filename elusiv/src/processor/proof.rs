@@ -118,7 +118,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         public_inputs.public_signals()
     );
 
-    guard!(vkey_account.get_is_checked(), InvalidAccount);
+    guard!(vkey_account.get_is_frozen(), InvalidAccount);
     guard!(vkey_id == request.vkey_id(), InvalidAccount);
 
     let instructions = prepare_public_inputs_instructions(
@@ -353,7 +353,7 @@ pub fn compute_verification(
     _verification_account_index: u32,
     vkey_id: u32,
 ) -> ProgramResult {
-    guard!(vkey_account.get_is_checked(), InvalidAccount);
+    guard!(vkey_account.get_is_frozen(), InvalidAccount);
     guard!(verification_account.get_vkey_id() == vkey_id, InvalidAccount);
     guard!(verification_account.get_is_verified().option().is_none(), ComputationIsAlreadyFinished);
     guard!(
@@ -929,7 +929,6 @@ macro_rules! vkey_account {
         let mut data = vec![0; <VKeyAccount as elusiv_types::SizedAccount>::SIZE];
         let mut $id = VKeyAccount::new(&mut data, map).unwrap();
         $id.set_public_inputs_count(&<$vkey as crate::proof::vkey::VerifyingKeyInfo>::PUBLIC_INPUTS_COUNT);
-        $id.set_is_checked(&true); 
     };
 }
 
@@ -1001,7 +1000,7 @@ mod tests {
         let mut data = vec![0; VKeyAccount::SIZE];
         let mut vkey = VKeyAccount::new(&mut data, HashMap::new()).unwrap();
         vkey.set_public_inputs_count(&SendQuadraVKey::PUBLIC_INPUTS_COUNT);
-        vkey.set_is_checked(&true);
+        vkey.set_is_frozen(&true);
 
         // TODO: test skip nullifier pda
         // TODO: wrong vkey-id
@@ -1328,6 +1327,7 @@ mod tests {
     fn test_compute_verification() {
         zero_program_account!(mut verification_account, VerificationAccount);
         vkey_account!(vkey, SendQuadraVKey);
+        vkey.set_is_frozen(&true);
         test_account_info!(any, 0);
 
         // Setup

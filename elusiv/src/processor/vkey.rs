@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::{SUB_ACCOUNT_ADDITIONAL_SIZE, MultiAccountProgramAccount, ElusivOption, MultiAccountAccount};
 use elusiv_utils::{guard, open_pda_account_with_offset};
-use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo, hash::Hash};
-use crate::{proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey}, error::ElusivError, processor::setup_sub_account, types::U256, bytes::div_ceiling_u32};
+use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
+use crate::{proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey}, error::ElusivError, processor::setup_sub_account, types::U256};
 
 pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 1024;
 
@@ -72,7 +72,7 @@ pub fn set_vkey_account_data(
     data_position: u32,
     packet: VKeyAccountDataPacket,
 ) -> ProgramResult {
-    guard!(vkey_account.get_check_instruction() == 0, ElusivError::InvalidAccountState);
+    guard!(!vkey_account.get_is_frozen(), ElusivError::InvalidAccountState);
 
     if let Some(deploy_authority) = vkey_account.get_deploy_authority().option() {
         guard!(signer.key.to_bytes() == deploy_authority, ElusivError::InvalidAccount);
@@ -92,79 +92,28 @@ pub fn set_vkey_account_data(
     Ok(())
 }
 
-pub const VKEY_ACCOUNT_CHECK_HASH_SIZE: u32 = 256 * 20;
-
-/// Computes the `binary_data_account` check for a [`VKeyAccount`]
-pub fn check_vkey_account(
+/// Freezes a [`VKeyAccount`]
+pub fn freeze_vkey_account(
     signer: &AccountInfo,
     vkey_account: &mut VKeyAccount,
 
     _vkey_id: u32,
 ) -> ProgramResult {
-    let check_instruction = vkey_account.get_check_instruction();
-    let public_inputs_count = vkey_account.get_public_inputs_count();
-    let len = VerifyingKey::source_size(public_inputs_count as usize) as u32;
-    let instructions = div_ceiling_u32(len, VKEY_ACCOUNT_CHECK_HASH_SIZE);
-
-    if check_instruction == 0 {
-        if let Some(deploy_authority) = vkey_account.get_deploy_authority().option() {
-            guard!(signer.key.to_bytes() == deploy_authority, ElusivError::InvalidAccount);
-        }
-    }
-
-    guard!(check_instruction < instructions, ElusivError::ComputationIsAlreadyFinished);
-    vkey_account.set_check_instruction(&(check_instruction + 1));
-
-    let hash = vkey_account.get_check_hash();
-    let hash = vkey_account.execute_on_sub_account(0, |data| {
-        let start = (check_instruction * VKEY_ACCOUNT_CHECK_HASH_SIZE) as usize;
-        let end = std::cmp::min(start + VKEY_ACCOUNT_CHECK_HASH_SIZE as usize, len as usize);
-        let slice = &data[start..end];
-
-        if check_instruction == 0 {
-            solana_program::hash::hash(slice)
-        } else {
-            solana_program::hash::extend_and_hash(&Hash::new_from_array(hash), slice)
-        }
-    })?;
-    vkey_account.set_check_hash(&hash.to_bytes());
-
-    Ok(())
-}
-
-/// Finalizes the `binary_data_account` check for a [`VKeyAccount`]
-pub fn finalize_vkey_account_check(
-    signer: &AccountInfo,
-    vkey_account: &mut VKeyAccount,
-
-    _vkey_id: u32,
-) -> ProgramResult {
-    /*let check_instruction = vkey_account.get_check_instruction();
-    let public_inputs_count = vkey_account.get_public_inputs_count();
-    let len = VerifyingKey::source_size(public_inputs_count as usize) as u32;
-    let instructions = div_ceiling_u32(len, VKEY_ACCOUNT_CHECK_HASH_SIZE);
-
-    guard!(check_instruction == instructions, ElusivError::ComputationIsAlreadyFinished);
-
-    if vkey_account.get_hash() == vkey_account.get_check_hash() {
-        vkey_account.set_is_checked(&true);
-    } else {
-        vkey_account.set_check_instruction(&0);
-        vkey_account.set_check_hash(&[0; 32]);
-    }*/
+    guard!(!vkey_account.get_is_frozen(), ElusivError::InvalidAccountState);
 
     if let Some(deploy_authority) = vkey_account.get_deploy_authority().option() {
         guard!(signer.key.to_bytes() == deploy_authority, ElusivError::InvalidAccount);
     }
 
-    vkey_account.set_is_checked(&true);
-    vkey_account.set_check_instruction(&u32::MAX);
+    vkey_account.set_is_frozen(&true);
 
     Ok(())
 }
 
 #[cfg(test)]
 mod test {
+    use assert_matches::assert_matches;
+
     use crate::{processor::vkey_account, proof::vkey::{TestVKey, VerifyingKeyInfo}, macros::test_account_info, bytes::div_ceiling_usize};
     use super::*;
 
@@ -173,6 +122,12 @@ mod test {
         let data = TestVKey::verifying_key_source();
         vkey_account!(vkey_account, TestVKey);
         test_account_info!(signer);
+
+        vkey_account.execute_on_sub_account_mut(0, |d| {
+            for b in d.iter_mut() {
+                *b = 0;
+            }
+        }).unwrap();
 
         let positions = div_ceiling_usize(VerifyingKey::source_size(TestVKey::public_inputs_count()), VKEY_ACCOUNT_DATA_PACKET_SIZE);
         for i in 0..positions {
@@ -191,24 +146,19 @@ mod test {
         }).unwrap();
     }
 
-    #[ignore]
     #[test]
-    fn test_check_vkey_account() {
+    fn test_freeze_vkey_account() {
         vkey_account!(vkey_account, TestVKey);
         test_account_info!(signer);
 
         vkey_account.set_public_inputs_count(&TestVKey::PUBLIC_INPUTS_COUNT);
-        vkey_account.set_hash(&TestVKey::HASH);
         vkey_account.execute_on_sub_account_mut(0, |data| {
             data.copy_from_slice(&TestVKey::verifying_key_source())
         }).unwrap();
 
-        let instructions = div_ceiling_u32(VerifyingKey::source_size(TestVKey::public_inputs_count()) as u32, VKEY_ACCOUNT_CHECK_HASH_SIZE);
-        for _ in 0..instructions {
-            check_vkey_account(&signer, &mut vkey_account, 0).unwrap();
-        }
+        freeze_vkey_account(&signer, &mut vkey_account, 0).unwrap();
 
-        assert_eq!(vkey_account.get_check_hash(), TestVKey::HASH);
-        finalize_vkey_account_check(&signer, &mut vkey_account, 0).unwrap();
+        assert!(vkey_account.get_is_frozen());
+        assert_matches!(freeze_vkey_account(&signer, &mut vkey_account, 0), Err(_));
     }
 }

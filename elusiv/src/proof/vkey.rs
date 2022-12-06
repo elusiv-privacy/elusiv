@@ -1,4 +1,4 @@
-use ark_bn254::{Fq2, Fq12, G1Affine, G2Affine, G1Projective};
+use ark_bn254::{Fq2, Fq12, G1Affine, G1Projective};
 use ark_ec::AffineCurve;
 use ark_ff::Zero;
 use borsh::BorshDeserialize;
@@ -18,13 +18,9 @@ pub struct VKeyAccount {
     pda_data: PDAAccountData,
     multi_account_data: MultiAccountAccountData<1>,
     
-    pub hash: U256,
     pub public_inputs_count: u32,
+    pub is_frozen: bool,
     pub deploy_authority: ElusivOption<U256>,
-
-    pub is_checked: bool,
-    pub check_instruction: u32,
-    pub check_hash: U256,
 }
  
 pub trait VerifyingKeyInfo {
@@ -202,21 +198,21 @@ impl<'a> VerifyingKey<'a> {
     }
 
     #[cfg(feature = "elusiv-client")]
-    pub fn beta(&self) -> G2Affine {
+    pub fn beta(&self) -> ark_bn254::G2Affine {
         let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + 2 * Self::COEFFS_ARRAY_SIZE + G1A::SIZE;
         let slice = &self.source[offset..offset + G2A::SIZE];
         G2A::try_from_slice(slice).unwrap().0
     }
 
     #[cfg(feature = "elusiv-client")]
-    pub fn gamma(&self) -> G2Affine {
+    pub fn gamma(&self) -> ark_bn254::G2Affine {
         let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + 2 * Self::COEFFS_ARRAY_SIZE + G1A::SIZE + G2A::SIZE;
         let slice = &self.source[offset..offset + G2A::SIZE];
         G2A::try_from_slice(slice).unwrap().0
     }
 
     #[cfg(feature = "elusiv-client")]
-    pub fn delta(&self) -> G2Affine {
+    pub fn delta(&self) -> ark_bn254::G2Affine {
         let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + 2 * Self::COEFFS_ARRAY_SIZE + G1A::SIZE + 2 * G2A::SIZE;
         let slice = &self.source[offset..offset + G2A::SIZE];
         G2A::try_from_slice(slice).unwrap().0
@@ -269,7 +265,7 @@ impl From<G1PRep> for G1Affine {
 struct G2PRep([[String; 2]; 3]);
 
 #[cfg(feature = "test-elusiv")]
-impl From<G2PRep> for G2Affine {
+impl From<G2PRep> for ark_bn254::G2Affine {
     fn from(value: G2PRep) -> Self {
         use std::str::FromStr;
 
