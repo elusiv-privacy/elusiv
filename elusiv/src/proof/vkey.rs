@@ -36,21 +36,14 @@ pub trait VerifyingKeyInfo {
     }
 
     #[cfg(feature = "elusiv-client")]
-    fn verifying_key_source() -> Vec<u8> {
-        use std::io::Read;
+    fn verifying_key_source() -> Vec<u8>;
 
-        let file = std::fs::File::open(format!("src/proof/vkeys/{}/elusiv_vkey", Self::DIRECTORY)).unwrap();
-        let mut reader = std::io::BufReader::new(file);
-        let mut buffer = Vec::new();
-        reader.read_to_end(&mut buffer).unwrap();
-        buffer
-    }
+    #[cfg(test)]
+    fn verification_key_json() -> &'static str;
 
     #[cfg(test)]
     fn arkworks_vk() -> ark_groth16::VerifyingKey<ark_bn254::Bn254> {
-        let json = std::fs::read_to_string(format!("src/proof/vkeys/{}/verification_key.json", Self::DIRECTORY)).unwrap();
-        let vk: TestingVerifyingKeyFile = serde_json::from_str(&json).unwrap();
-
+        let vk: TestingVerifyingKeyFile = serde_json::from_str(Self::verification_key_json()).unwrap();
         ark_groth16::VerifyingKey {
             alpha_g1: vk.alpha.into(),
             beta_g2: vk.beta.into(),
@@ -70,7 +63,7 @@ pub trait VerifyingKeyInfo {
 }
 
 macro_rules! verification_key_info {
-    ($ident: ident, $id: expr, $public_inputs_count: expr, $hash: expr, $dir: expr) => {
+    ($ident: ident, $id: expr, $public_inputs_count: expr, $hash: expr, $dir: literal) => {
         pub struct $ident;
 
         impl VerifyingKeyInfo for $ident {
@@ -80,6 +73,16 @@ macro_rules! verification_key_info {
 
             #[cfg(feature = "elusiv-client")]
             const DIRECTORY: &'static str = $dir;
+
+            #[cfg(feature = "elusiv-client")]
+            fn verifying_key_source() -> Vec<u8> {
+                include_bytes!(concat!("vkeys", "/", $dir, "/", "elusiv_vkey")).to_vec()
+            }
+
+            #[cfg(test)]
+            fn verification_key_json() -> &'static str {
+                include_str!(concat!("vkeys", "/", $dir, "/", "verification_key.json"))
+            }
         }
     };
 }
