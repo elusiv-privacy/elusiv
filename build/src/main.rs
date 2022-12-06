@@ -1,4 +1,5 @@
 use structopt::StructOpt;
+use strum::{EnumString, EnumVariantNames};
 use std::{process::Command, env};
 
 #[derive(Debug, StructOpt)]
@@ -15,7 +16,14 @@ enum BuildTarget {
 #[derive(Debug, StructOpt)]
 enum BuildCommand {
     /// Build the program
-    Build(BuildTarget),
+    Build {
+        #[structopt(flatten)]
+        target: BuildTarget,
+
+        /// The deployment cluster
+        #[structopt(short, long)]
+        cluster: Cluster,
+    },
 
     /// Test the program
     Test {
@@ -36,6 +44,14 @@ enum BuildCommand {
     },
 }
 
+#[derive(EnumString, EnumVariantNames, Debug)]
+#[strum(serialize_all = "kebab_case")]
+enum Cluster {
+    Mainnet,
+    Devnet,
+    Local,
+}
+
 fn main() {
     let command;
     let build_target;
@@ -44,10 +60,16 @@ fn main() {
     let mut features = Vec::new();
 
     match BuildCommand::from_args() {
-        BuildCommand::Build(target) => {
+        BuildCommand::Build { target, cluster } => {
             build_target = target;
             command = "build-bpf";
             use_bpf = true;
+
+            match cluster {
+                Cluster::Mainnet => features.push("mainnet"),
+                Cluster::Devnet => features.push("devnet"),
+                _ => {}
+            }
         }
         BuildCommand::Test{ target, unit, integration, tarpaulin } => {
             build_target = target;

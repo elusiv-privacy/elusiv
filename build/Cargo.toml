@@ -6,3 +6,4 @@ publish = false
 
 [dependencies]
 structopt = "0.3.26"
+strum = { version = "0.24.1", features = ["derive"] }
