@@ -28,18 +28,18 @@ pub trait VerifyingKeyInfo {
     const PUBLIC_INPUTS_COUNT: u32;
     const HASH: U256;
 
-    #[cfg(feature = "test-elusiv")]
-    const TEST_DIRECTORY: &'static str;
+    #[cfg(feature = "elusiv-client")]
+    const DIRECTORY: &'static str;
 
     fn public_inputs_count() -> usize {
         Self::PUBLIC_INPUTS_COUNT as usize
     }
 
-    #[cfg(feature = "test-elusiv")]
+    #[cfg(feature = "elusiv-client")]
     fn verifying_key_source() -> Vec<u8> {
         use std::io::Read;
 
-        let file = std::fs::File::open(format!("src/proof/test_vkeys/{}/elusiv_vkey", Self::TEST_DIRECTORY)).unwrap();
+        let file = std::fs::File::open(format!("src/proof/vkeys/{}/elusiv_vkey", Self::DIRECTORY)).unwrap();
         let mut reader = std::io::BufReader::new(file);
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).unwrap();
@@ -48,7 +48,7 @@ pub trait VerifyingKeyInfo {
 
     #[cfg(test)]
     fn arkworks_vk() -> ark_groth16::VerifyingKey<ark_bn254::Bn254> {
-        let json = std::fs::read_to_string(format!("src/proof/test_vkeys/{}/verification_key.json", Self::TEST_DIRECTORY)).unwrap();
+        let json = std::fs::read_to_string(format!("src/proof/vkeys/{}/verification_key.json", Self::DIRECTORY)).unwrap();
         let vk: TestingVerifyingKeyFile = serde_json::from_str(&json).unwrap();
 
         ark_groth16::VerifyingKey {
@@ -70,7 +70,7 @@ pub trait VerifyingKeyInfo {
 }
 
 macro_rules! verification_key_info {
-    ($ident: ident, $id: expr, $public_inputs_count: expr, $hash: expr, $test_dir: expr) => {
+    ($ident: ident, $id: expr, $public_inputs_count: expr, $hash: expr, $dir: expr) => {
         pub struct $ident;
 
         impl VerifyingKeyInfo for $ident {
@@ -78,8 +78,8 @@ macro_rules! verification_key_info {
             const PUBLIC_INPUTS_COUNT: u32 = $public_inputs_count;
             const HASH: U256 = $hash;
 
-            #[cfg(feature = "test-elusiv")]
-            const TEST_DIRECTORY: &'static str = $test_dir;
+            #[cfg(feature = "elusiv-client")]
+            const DIRECTORY: &'static str = $dir;
         }
     };
 }
