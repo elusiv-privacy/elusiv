@@ -21,6 +21,7 @@ use crate::bytes::{usize_as_u8_safe, BorshSerDeSizedEnum};
 use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError, CouldNotProcessProof, InvalidAccountState};
 use crate::error::ElusivResult;
 use crate::fields::G2HomProjective;
+use crate::processor::COMPUTE_VERIFICATION_IX_COUNT;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
 pub enum VerificationStep {
@@ -41,8 +42,8 @@ pub fn verify_partial(
 
     match step {
         VerificationStep::PublicInputPreparation => {
-            // This enables us to use a uniform number of ixs per tx
-            if instruction_index != 0 {
+            // This enables us to use a uniform number of ixs per tx (by only allowing the last ix to perform the computation)
+            if instruction_index != COMPUTE_VERIFICATION_IX_COUNT - 1 {
                 return Ok(None)
             }
 
@@ -57,8 +58,8 @@ pub fn verify_partial(
             verifier_account.serialize_rams().unwrap();
         }
         VerificationStep::FinalExponentiation => {
-            // This enables us to use a uniform number of ixs per tx
-            if instruction_index != 0 {
+            // This enables us to use a uniform number of ixs per tx (by only allowing the last ix to perform the computation)
+            if instruction_index != COMPUTE_VERIFICATION_IX_COUNT - 1 {
                 return Ok(None)
             }
 
@@ -322,14 +323,23 @@ const_assert_eq!(MUL_BY_CHARACTERISTICS_ROUNDS_COUNT, 2);
 const_assert_eq!(MUL_BY_034_ROUNDS_COUNT, 3);
 const_assert_eq!(COMBINED_ELL_ROUNDS_COUNT, 13);
 
-pub const COMBINED_MILLER_LOOP_IXS: usize = 153;
-pub const FINAL_EXPONENTIATION_IXS: usize = 16;
+pub const COMBINED_MILLER_LOOP_IXS: usize = 215;
+pub const FINAL_EXPONENTIATION_IXS: usize = 17;
+
+#[cfg(test)]
 const_assert_eq!(CombinedMillerLoop::IX_COUNT, COMBINED_MILLER_LOOP_IXS);
+
+#[cfg(test)]
+const_assert_eq!(CombinedMillerLoop::TX_COUNT, 43);
+
+#[cfg(test)]
 const_assert_eq!(FinalExponentiation::IX_COUNT, FINAL_EXPONENTIATION_IXS);
 
+#[cfg(test)]
+const_assert_eq!(FinalExponentiation::TX_COUNT, 17);
+
 elusiv_computations!(
-    // For the `combined_miller_loop` we use 4 instructions with each 350_000 compute units
-    combined_miller_loop, CombinedMillerLoop, 350_000,
+    combined_miller_loop, CombinedMillerLoop, 250_000,
 
     // Doubling step
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/g2.rs#L139
@@ -573,8 +583,7 @@ const_assert_eq!(INVERSE_FQ12_ROUNDS_COUNT, 4);
 const_assert_eq!(EXP_BY_NEG_X_ROUNDS_COUNT, 128);
 
 elusiv_computations!(
-    // For the `final_exponentiation` we use 1 instruction with 1.4m compute units (and 20k padding)
-    final_exponentiation, FinalExponentiation, 1_380_000,
+    final_exponentiation, FinalExponentiation, 1_300_000,
 
     // https://github.com/arkworks-rs/algebra/blob/80857c9714c5a59068f8c20f1298e2138440a1d0/ff/src/fields/models/quadratic_extension.rs#L688
     // Guide to Pairing-based cryprography, Algorithm 5.16.
@@ -1336,7 +1345,7 @@ mod tests {
 
         let mut result = None;
         for _ in 0..instruction_count {
-            result = verify_partial(&mut storage, vkey, 0).unwrap();
+            result = verify_partial(&mut storage, vkey, COMPUTE_VERIFICATION_IX_COUNT - 1).unwrap();
         }
 
         result.unwrap()
@@ -1366,11 +1375,11 @@ mod tests {
         vkey!(vkey, TestVKey);
 
         for _ in 0..instruction_count {
-            verify_partial(&mut storage, &vkey, 0).unwrap();
+            verify_partial(&mut storage, &vkey, COMPUTE_VERIFICATION_IX_COUNT - 1).unwrap();
         }
 
         // Additional ix will result in error
-        assert_matches!(verify_partial(&mut storage, &vkey, 0), Err(_));
+        assert_matches!(verify_partial(&mut storage, &vkey, COMPUTE_VERIFICATION_IX_COUNT - 1), Err(_));
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59

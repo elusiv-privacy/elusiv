@@ -344,6 +344,8 @@ pub fn init_verification_proof(
     Ok(())
 }
 
+pub const COMPUTE_VERIFICATION_IX_COUNT: u16 = 7; // two compute-unit-instructions, five compute-instructions
+
 /// Partial proof verification computation
 pub fn compute_verification(
     verification_account: &mut VerificationAccount,
@@ -363,7 +365,7 @@ pub fn compute_verification(
 
     // instruction_index is used to allow a uniform number of ixs per tx
     let instruction_index = if cfg!(test) {
-        0
+        COMPUTE_VERIFICATION_IX_COUNT - 1
     } else {
         instructions::load_current_index_checked(instructions_account)?
     };

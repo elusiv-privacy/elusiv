@@ -13,7 +13,7 @@ use solana_program::system_program;
 use elusiv::bytes::{ElusivOption, BorshSerDeSized};
 use elusiv::instruction::{ElusivInstruction, WritableUserAccount, SignerAccount, WritableSignerAccount, UserAccount};
 use elusiv::proof::vkey::{SendQuadraVKey, VerifyingKeyInfo, VKeyAccount, VKeyAccountEager};
-use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, VerificationState, CombinedMillerLoop};
+use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, VerificationState, CombinedMillerLoop, FinalExponentiation, VerificationStep};
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
 use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
@@ -23,6 +23,7 @@ use elusiv::processor::{ProofRequest, FinalizeSendData, program_token_account_ad
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
+use solana_sdk::compute_budget::ComputeBudgetInstruction;
 use spl_associated_token_account::get_associated_token_address;
 
 async fn start_verification_test() -> ElusivProgramTest {
@@ -1206,7 +1207,7 @@ async fn test_finalize_proof_failure_token() {
 }
 
 #[tokio::test]
-async fn test_compute_proof_verifcation_instruction_uniformity() {
+async fn test_compute_proof_verifcation_invalid_proof() {
     let mut test = start_verification_test().await;
     let (_, vkey_sub_account) = setup_vkey_account::<SendQuadraVKey>(&mut test).await;
     let warden = test.new_actor().await;
@@ -1258,16 +1259,41 @@ async fn test_compute_proof_verifcation_instruction_uniformity() {
         &[&warden.keypair],
     ).await;
 
-    // Both input preparation and combined miller loop work with 4 instructions (but input preparation only uses one)
-    for _ in 0..input_preparation_tx_count + CombinedMillerLoop::TX_COUNT {
-        test.tx_should_succeed_simple(
-            &[
-                request_compute_units(1_400_000),
-                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-            ]
-        ).await;
+    let instructions = [
+        request_compute_units(1_400_000),
+        ComputeBudgetInstruction::set_compute_unit_price(0),
+
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+    ];
+
+    // Input preparation
+    for _ in 0..input_preparation_tx_count {
+        test.tx_should_succeed_simple(&instructions).await;
     }
+
+    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    assert_eq!(v_acc.get_is_verified().option(), None);
+    assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::CombinedMillerLoop);
+
+    // Combined miller loop
+    for _ in 0..CombinedMillerLoop::TX_COUNT {
+        test.tx_should_succeed_simple(&instructions).await;
+    }
+
+    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    assert_eq!(v_acc.get_is_verified().option(), None);
+    assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
+
+    // Final exponentiation
+    for _ in 0..FinalExponentiation::TX_COUNT {
+        test.tx_should_succeed_simple(&instructions).await;
+    }
+
+    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    assert_eq!(v_acc.get_is_verified().option(), Some(false));
+    assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
 }
