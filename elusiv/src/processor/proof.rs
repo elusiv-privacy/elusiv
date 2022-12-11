@@ -240,7 +240,7 @@ pub fn init_verification_transfer_fee<'a>(
     let proof_verification_fee = fee.proof_verification_computation_fee(input_preparation_tx_count).into_token(&price, token_id)?;
     let commitment_hash_fee = fee.commitment_hash_computation_fee(min_batching_rate);
     let commitment_hash_fee_token = commitment_hash_fee.into_token(&price, token_id)?;
-    let network_fee = Token::new_checked(token_id, fee.proof_network_fee.calc(join_split.amount))?;
+    let network_fee = Token::new(token_id, fee.proof_network_fee.calc(join_split.amount));
 
     let fee = (((commitment_hash_fee_token + proof_verification_fee)? + network_fee)? - subvention)?;
     guard!(join_split.fee >= fee.amount(), InvalidPublicInputs);
