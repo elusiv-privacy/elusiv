@@ -1,6 +1,8 @@
 use syn::{Type, Data, Field, Fields};
 use quote::{quote, ToTokens};
 use proc_macro2::{TokenStream, TokenTree};
+use solana_program::pubkey::Pubkey;
+use std::str::FromStr;
 
 struct ElusivAccountAttr {
     ident: String,
@@ -433,6 +435,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         quote!()
     };
 
+    let program_id = Pubkey::from_str(&crate::program_id::read_program_id()).unwrap();
+    let (first_pubkey, _) = Pubkey::find_program_address(&[pda_seed], &program_id);
+    let first_pubkey: TokenStream = format!("{:?}", first_pubkey.to_bytes()).parse().unwrap();
+
     quote! {
         #vis struct #ident < #lifetimes > {
             #field_defs
@@ -465,6 +471,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         impl < #lifetimes > elusiv_types::accounts::PDAAccount for #ident < #lifetimes > {
             const PROGRAM_ID: solana_program::pubkey::Pubkey = crate::PROGRAM_ID;            
             const SEED: &'static [u8] = &#pda_seed_tokens;
+            const FIRST_PUBKEY: solana_program::pubkey::Pubkey = solana_program::pubkey::Pubkey::new_from_array(#first_pubkey);
 
             #[cfg(feature = "elusiv-client")]
             const IDENT: &'static str = #ident_str;

@@ -221,6 +221,9 @@ pub type PDAOffset = Option<u32>;
 pub trait PDAAccount {
     const PROGRAM_ID: Pubkey;
     const SEED: &'static [u8];
+
+    /// The [`Pubkey`] associated with the [`None`] [`PDAOffset`]
+    const FIRST_PUBKEY: Pubkey;
     
     #[cfg(feature = "elusiv-client")]
     const IDENT: &'static str;
@@ -251,6 +254,10 @@ pub trait PDAAccount {
     }
 
     fn is_valid_pubkey(account: &AccountInfo, offset: PDAOffset, pubkey: &Pubkey) -> Result<bool, ProgramError> {
+        if offset.is_none() {
+            return Ok(Self::FIRST_PUBKEY == *pubkey)
+        }
+
         let bump = Self::get_bump(account);
         Ok(Self::pubkey(offset, bump)? == *pubkey)
     }
