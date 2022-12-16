@@ -356,7 +356,7 @@ mod tests {
     use crate::state::governor::PoolAccount;
     use crate::state::{MT_HEIGHT, EMPTY_TREE};
     use crate::state::program_account::{SizedAccount, PDAAccount};
-    use crate::macros::{zero_program_account, account_info, test_account_info, storage_account, pyth_price_account_info, program_token_account_info, test_pda_account_info};
+    use crate::macros::{zero_program_account, account_info, test_account_info, parent_account, pyth_price_account_info, program_token_account_info, test_pda_account_info};
     use crate::token::{LAMPORTS_TOKEN_ID, lamports_token, USDC_TOKEN_ID, usdc_token};
     use ark_ff::Zero;
     use assert_matches::assert_matches;
@@ -647,7 +647,7 @@ mod tests {
 
     #[test]
     fn test_init_commitment_hash_empty_queue() {
-        storage_account!(storage_account);
+        parent_account!(storage_account, StorageAccount);
         zero_program_account!(mut queue, CommitmentQueueAccount);
         zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -670,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_init_commitment_hash_full_storage() {
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
         zero_program_account!(mut queue, CommitmentQueueAccount);
         zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn test_init_commitment_hash_incomplete_batch() {
-        storage_account!(storage_account);
+        parent_account!(storage_account, StorageAccount);
         zero_program_account!(mut queue, CommitmentQueueAccount);
         zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -697,7 +697,7 @@ mod tests {
 
     #[test]
     fn test_init_commitment_hash_batch_too_big() {
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
         zero_program_account!(mut queue, CommitmentQueueAccount);
         zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -712,7 +712,7 @@ mod tests {
     #[test]
     #[allow(clippy::needless_range_loop)]
     fn test_init_commitment_hash_valid() {
-        storage_account!(storage_account);
+        parent_account!(storage_account, StorageAccount);
         zero_program_account!(mut queue, CommitmentQueueAccount);
         zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
@@ -763,7 +763,7 @@ mod tests {
 
     #[test]
     fn test_finalize_commitment_hash() {
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
         zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         // Computation not finished
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn test_finalize_commitment_hash_valid() {
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
         zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         let batching_rate = 4;

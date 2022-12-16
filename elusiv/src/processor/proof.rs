@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use elusiv_types::MultiAccountAccount;
+use elusiv_types::ParentAccount;
 use solana_program::pubkey::Pubkey;
 use solana_program::sysvar::instructions;
 use solana_program::{
@@ -35,7 +35,7 @@ use crate::error::ElusivError::{
     ComputationIsNotYetFinished,
     CouldNotInsertNullifier,
     InvalidFeeVersion,
-    FeatureNotAvailable, self,
+    FeatureNotAvailable,
 };
 use crate::proof::VerificationAccount;
 use crate::token::{Token, verify_token_account, TokenPrice, verify_associated_token_account, Lamports, elusiv_token};
@@ -370,7 +370,7 @@ pub fn compute_verification(
         instructions::load_current_index_checked(instructions_account)?
     };
 
-    let result = vkey_account.execute_on_sub_account_mut::<_, Result<Option<bool>, ElusivError>>(0, |data| {
+    let result = vkey_account.execute_on_child_account_mut(0, |data| {
         let vkey = VerifyingKey::new(data, vkey_account.get_public_inputs_count() as usize)
             .ok_or(InvalidAccountState)?;
 
@@ -929,11 +929,8 @@ macro_rules! vkey_account {
         let pk = solana_program::pubkey::Pubkey::new_unique();
         crate::macros::account_info!(sub_account, pk, source);
 
-        let mut map = std::collections::HashMap::new();
-        map.insert(0, &sub_account);
-
-        let mut data = vec![0; <VKeyAccount as elusiv_types::SizedAccount>::SIZE];
-        let mut $id = VKeyAccount::new(&mut data, map).unwrap();
+        let mut data = vec![0; <VKeyAccount as elusiv_types::accounts::SizedAccount>::SIZE];
+        let mut $id = <VKeyAccount as elusiv_types::accounts::ParentAccount>::new_with_child_accounts(&mut data, vec![Some(&sub_account)]).unwrap();
         $id.set_public_inputs_count(&<$vkey as crate::proof::vkey::VerifyingKeyInfo>::PUBLIC_INPUTS_COUNT);
     };
 }
@@ -943,7 +940,6 @@ macro_rules! vkey_account {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use assert_matches::assert_matches;
     use elusiv_computation::PartialComputation;
     use pyth_sdk_solana::Price;
@@ -955,9 +951,9 @@ mod tests {
     use crate::proof::{COMBINED_MILLER_LOOP_IXS, FINAL_EXPONENTIATION_IXS, proof_from_str, CombinedMillerLoop, FinalExponentiation};
     use crate::state::fee::{ProgramFee, BasisPointFee};
     use crate::state::governor::PoolAccount;
-    use crate::state::empty_root_raw;
-    use crate::state::program_account::{SizedAccount, PDAAccount, MultiAccountProgramAccount, MultiAccountAccount};
-    use crate::macros::{two_pow, zero_program_account, account_info, test_account_info, storage_account, nullifier_account, pyth_price_account_info, program_token_account_info, test_pda_account_info};
+    use crate::state::{empty_root_raw, NullifierChildAccount};
+    use crate::state::program_account::{SizedAccount, PDAAccount};
+    use crate::macros::{two_pow, zero_program_account, account_info, test_account_info, parent_account, pyth_price_account_info, program_token_account_info, test_pda_account_info};
     use crate::token::{Lamports, USDC_TOKEN_ID, LAMPORTS_TOKEN_ID, spl_token_account_data, USDT_TOKEN_ID};
     use crate::types::{RawU256, Proof, compute_fee_rec, compute_fee_rec_lamports, JOIN_SPLIT_MAX_N_ARITY};
 
@@ -978,8 +974,8 @@ mod tests {
     fn test_init_verification() {
         use ProofRequest::*;
 
-        storage_account!(s);
-        nullifier_account!(mut n);
+        parent_account!(s, StorageAccount);
+        parent_account!(mut n, NullifierAccount);
         test_account_info!(fee_payer, 0);
         account_info!(v_acc, VerificationAccount::find(Some(0)).0, vec![0; VerificationAccount::SIZE]);
 
@@ -1004,7 +1000,7 @@ mod tests {
 
         let vkey_id = SendQuadraVKey::VKEY_ID;
         let mut data = vec![0; VKeyAccount::SIZE];
-        let mut vkey = VKeyAccount::new(&mut data, HashMap::new()).unwrap();
+        let mut vkey = VKeyAccount::new(&mut data).unwrap();
         vkey.set_public_inputs_count(&SendQuadraVKey::PUBLIC_INPUTS_COUNT);
         vkey.set_is_frozen(&true);
 
@@ -1066,7 +1062,7 @@ mod tests {
         );
         
         // Invalid nullifier_duplicate_account
-        nullifier_account!(n);
+        parent_account!(n, NullifierAccount);
         account_info!(invalid_n_duplicate_acc, VerificationAccount::find(Some(0)).0, vec![1]);
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &invalid_n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
@@ -1445,7 +1441,7 @@ mod tests {
     macro_rules! storage_account {
         ($id: ident) => {
             let mut data = vec![0; StorageAccount::SIZE];
-            let $id = StorageAccount::new(&mut data, HashMap::new()).unwrap();
+            let $id = <StorageAccount as elusiv_types::accounts::ProgramAccount>::new(&mut data).unwrap();
         };
     }
 
@@ -1619,8 +1615,8 @@ mod tests {
         );
 
         let mut verification_acc = VerificationAccount::new(&mut verification_acc_data).unwrap();
-        nullifier_account!(mut n_acc_0);
-        nullifier_account!(mut n_acc_1);
+        parent_account!(mut n_acc_0, NullifierAccount);
+        parent_account!(mut n_acc_1, NullifierAccount);
 
         // finalize_verification_send not called
         verification_acc.set_state(&VerificationState::InsertNullifiers);
@@ -1632,7 +1628,7 @@ mod tests {
             Err(_)
         );
 
-        nullifier_account!(mut n_acc_0);
+        parent_account!(mut n_acc_0, NullifierAccount);
 
         // Success
         assert_matches!(
@@ -1852,7 +1848,7 @@ mod tests {
     #[test]
     fn test_check_join_split_public_inputs() {
         storage_account!(storage);
-        nullifier_account!(n_account);
+        parent_account!(n_account, NullifierAccount);
 
         let valid_inputs = JoinSplitPublicInputs {
             commitment_count: 1,
@@ -1960,14 +1956,15 @@ mod tests {
         }
 
         // Duplicate nullifier_hash already exists
-        let data = vec![0; NullifierAccount::ACCOUNT_SIZE];
+        let data = vec![0; NullifierChildAccount::SIZE];
         let pk = Pubkey::new_unique();
         account_info!(sub_account, pk, data);
 
-        let mut map = HashMap::new();
-        map.insert(0, &sub_account);
+        let mut child_accounts = vec![None; NullifierAccount::COUNT];
+        child_accounts[0] = Some(&sub_account);
+
         let mut data = vec![0; NullifierAccount::SIZE];
-        let mut n_account = NullifierAccount::new(&mut data, map).unwrap();
+        let mut n_account = NullifierAccount::new_with_child_accounts(&mut data, child_accounts).unwrap();
 
         n_account.try_insert_nullifier_hash(u256_from_str("1")).unwrap();
 

@@ -430,7 +430,7 @@ mod tests {
     use crate::fields::{u256_from_str, u64_to_u256_skip_mr, u64_to_scalar_skip_mr, u64_to_scalar};
     use crate::state::EMPTY_TREE;
     use crate::state::program_account::{ProgramAccount, SizedAccount};
-    use crate::macros::storage_account;
+    use crate::macros::parent_account;
     use crate::types::RawU256;
     use ark_bn254::Fr;
     use ark_ff::Zero;
@@ -607,7 +607,7 @@ mod tests {
     fn test_update_mt() {
         let mut data = vec![0; CommitmentHashingAccount::SIZE];
         let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
 
         let batching_rates: Vec<u32> = (0..MAX_COMMITMENT_BATCHING_RATE as u32).collect();
         let mut previous_commitments_count = 0;

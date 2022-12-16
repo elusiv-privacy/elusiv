@@ -2,19 +2,19 @@
 #![allow(unused_macros)]
 
 use elusiv_computation::PartialComputation;
-use elusiv_types::PDAOffset;
+use elusiv_types::{PDAOffset, ParentAccount};
 use spl_associated_token_account::instruction::create_associated_token_account;
 use std::{collections::HashMap, str::FromStr};
 use pyth_sdk_solana::Price;
 use solana_program::{
     pubkey::Pubkey,
-    instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL, program_option::COption, account_info::{AccountInfo, Account},
+    instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL, program_option::COption,
 };
 use solana_program_test::*;
 use solana_program::program_pack::Pack;
 use solana_sdk::{signature::Keypair, transaction::Transaction, signer::Signer, account::AccountSharedData, compute_budget::ComputeBudgetInstruction};
 use assert_matches::assert_matches;
-use elusiv::{token::{TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token}, process_instruction, instruction::{open_all_initial_accounts, ElusivInstruction, WritableSignerAccount, WritableUserAccount, UserAccount}, state::{fee::{ProgramFee, BasisPointFee}, program_account::{SizedAccount, PDAAccount, MultiAccountAccount, MultiAccountProgramAccount, MultiAccountAccountData}, StorageAccount, NullifierAccount, governor::{PoolAccount, FeeCollectorAccount}}, proof::{CombinedMillerLoop, FinalExponentiation}, processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind}, fields::fr_to_u256_le, types::U256};
+use elusiv::{token::{TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token}, process_instruction, instruction::{open_all_initial_accounts, ElusivInstruction, WritableSignerAccount, WritableUserAccount, UserAccount}, state::{fee::{ProgramFee, BasisPointFee}, program_account::{SizedAccount, PDAAccount}, StorageAccount, NullifierAccount, governor::{PoolAccount, FeeCollectorAccount}}, proof::{CombinedMillerLoop, FinalExponentiation}, processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind}, fields::fr_to_u256_le, types::U256};
 
 pub struct ElusivProgramTest {
     context: ProgramTestContext,
@@ -104,10 +104,10 @@ impl ElusivProgramTest {
         ).await;
     
         let mut instructions = Vec::new();
-        let pubkeys = self.create_multi_program_account::<StorageAccount>().await;
+        let pubkeys = self.create_parent_account::<StorageAccount>().await;
         for (i, p) in pubkeys.iter().enumerate() {
             instructions.push(
-                ElusivInstruction::enable_storage_sub_account_instruction(
+                ElusivInstruction::enable_storage_child_account_instruction(
                     i as u32,
                     WritableUserAccount(*p),
                 )
@@ -128,10 +128,14 @@ impl ElusivProgramTest {
             )
         ];
     
-        let pubkeys = self.create_multi_program_account::<NullifierAccount>().await;
+        let pubkeys = self.create_parent_account::<NullifierAccount>().await;
         for (i, p) in pubkeys.iter().enumerate() {
             instructions.push(
-                ElusivInstruction::enable_nullifier_sub_account_instruction(mt_index, i as u32, WritableUserAccount(*p))
+                ElusivInstruction::enable_nullifier_child_account_instruction(
+                    mt_index,
+                    i as u32,
+                    WritableUserAccount(*p),
+                )
             );
         }
         self.tx_should_succeed_simple(&instructions).await;
@@ -415,11 +419,11 @@ impl ElusivProgramTest {
         self.create_account(0, Lamports(0), &elusiv::id()).await
     }
 
-    pub async fn create_multi_program_account<'a, T: MultiAccountAccount<'a>>(&mut self) -> Vec<Pubkey> {
+    pub async fn create_parent_account<'a, 'b, 't, T: ParentAccount<'a, 'b, 't>>(&mut self) -> Vec<Pubkey> {
         let mut result = Vec::new();
     
         for _ in 0..T::COUNT {
-            let pk = self.create_program_account_rent_exempt(T::ACCOUNT_SIZE).await.pubkey();
+            let pk = self.create_program_account_rent_exempt(T::Child::SIZE).await.pubkey();
             result.push(pk);
         }
     
@@ -571,22 +575,19 @@ impl ElusivProgramTest {
         self.set_program_account(&address, &data, rent_exemption).await;
     }
 
-    pub async fn storage_accounts(&mut self) -> Vec<Pubkey> {
-        let data = self.data(&StorageAccount::find(None).0).await;
-        let pubkeys: Vec<Pubkey> = MultiAccountAccountData::<{StorageAccount::COUNT}>::new(&data).unwrap()
-            .pubkeys.iter().map(|x| x.option().unwrap()).collect();
-
-        pubkeys
+    pub async fn child_accounts<'a, P: ParentAccount<'a, 'a, 'a> + PDAAccount>(&mut self, data: &'a mut [u8]) -> Vec<Pubkey> {
+        let parent = P::new(data).unwrap();
+        (0..P::COUNT).map(|i| parent.get_child_pubkey(i).unwrap()).collect()
     }
 
-    const NULLIFIER_SUB_ACCOUNT_SIZE: usize = NullifierAccount::COUNT;
+    pub async fn storage_accounts(&mut self) -> Vec<Pubkey> {
+        let mut data = self.data(&StorageAccount::find(None).0).await;
+        self.child_accounts::<StorageAccount>(&mut data).await
+    }
 
     pub async fn nullifier_accounts(&mut self, mt_index: u32) -> Vec<Pubkey> {
-        let data = self.data(&NullifierAccount::find(Some(mt_index)).0).await;
-        let pubkeys: Vec<Pubkey> = MultiAccountAccountData::<{NullifierAccount::COUNT}>::new(&data).unwrap()
-            .pubkeys.iter().map(|x| x.option().unwrap()).collect();
-
-        pubkeys
+        let mut data = self.data(&NullifierAccount::find(Some(mt_index)).0).await;
+        self.child_accounts::<NullifierAccount>(&mut data).await
     }
 }
 
@@ -742,18 +743,15 @@ macro_rules! set_single_pda_account {
 
 #[allow(unused_imports)] pub(crate) use set_single_pda_account;
 
-macro_rules! multi_account {
+macro_rules! parent_account {
     ($id: ident, $ty: ty) => {
         pub async fn $id<F>(
-            pda_offset: Option<u32>,
+            pda_offset: elusiv_types::PDAOffset,
             test: &mut ElusivProgramTest,
             f: F,
-        ) where
-            F: Fn(&$ty),
-        {
-            let mut data = test.data(&<$ty>::find(pda_offset).0).await;
-            let pks = elusiv::state::program_account::MultiAccountAccountData::<{<$ty>::COUNT}>::new(&data).unwrap();
-            let keys = pks.pubkeys.iter().map(|p| p.option().unwrap()).collect::<Vec<Pubkey>>();
+        ) where F: Fn(&$ty) {
+            let mut data = test.data(&<$ty as elusiv_types::PDAAccount>::find(pda_offset).0).await;
+            let keys = test.child_accounts::<$ty>(&mut data).await;
         
             let mut v = vec![];
             for &key in keys.iter() {
@@ -762,23 +760,27 @@ macro_rules! multi_account {
             }
         
             let accs = v.iter_mut();
-            let mut sub_accounts = HashMap::new();
+            let mut child_accounts = Vec::new();
+            use solana_program::account_info::Account;
+
             for (i, a) in accs.enumerate() {
                 let (lamports, d, owner, executable, epoch) = a.get();
-                let sub_account = AccountInfo::new(&keys[i], false, false, lamports, d, owner, executable, epoch);
-                sub_accounts.insert(i, sub_account);
+                let child_account = solana_program::account_info::AccountInfo::new(&keys[i], false, false, lamports, d, owner, executable, epoch);
+                child_accounts.push(child_account);
             }
         
-            let map: HashMap<usize, &AccountInfo> = sub_accounts.iter().map(|(&i, x)| (i, x)).collect();
-        
-            let account = <$ty>::new(&mut data, map).unwrap();
+            let account = <$ty as elusiv_types::accounts::ParentAccount>::new_with_child_accounts(
+                &mut data,
+                child_accounts.iter().map(|x| Some(x)).collect()
+            ).unwrap();
+
             f(&account)
         }
     };
 }
 
-multi_account!(storage_account, StorageAccount);
-multi_account!(nullifier_account, NullifierAccount);
+parent_account!(storage_account, StorageAccount);
+parent_account!(nullifier_account, NullifierAccount);
 
 pub async fn enable_program_token_account<A: PDAAccount>(
     test: &mut ElusivProgramTest,

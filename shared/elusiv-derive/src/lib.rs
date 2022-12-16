@@ -17,7 +17,7 @@ use jit::*;
 /// # Account attributes
 /// - Each enum variant (instruction) can require accounts
 /// - Specify accounts using attributes with the following syntax:
-/// `#[type(name, Type, pda_offset = .., key = .., [ signer, writable, multi_accounts, account_info ])]`
+/// `#[type(name, Type, pda_offset = .., key = .., [ signer, writable, include_child_accounts, account_info ])]`
 /// - with:
 ///     - type:
 ///         - `acc`: user accounts or any `AccountInfo` that has no basic checks
@@ -34,8 +34,7 @@ use jit::*;
 ///         - `writable`
 ///         - `find_pda`: does a PDA verification with a pda_offset but with unknown runtime, since no bump is supplied (used for renting new PDAs)
 ///         - `account_info`: returns an `AccountInfo` object (only relevant for PDAs)
-///         - `multi_accounts`: the `Type` has to implement the `crate::state::program_account::MultiAccountAccount` trait and `Type::COUNT + 1` accounts will be required
-///         - `ignore_sub_accounts`: ignores all sub-accounts of a multi-account
+///         - `include_child_accounts`: the `Type` has to implement the `crate::state::program_account::ParentAccount` trait and up to `Type::COUNT + 1` accounts can be matched (but at least 1)
 ///         - `skip_abi`: can be used to add manual pda_offsets in the abi
 /// 
 /// # Usage

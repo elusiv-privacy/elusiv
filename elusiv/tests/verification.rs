@@ -6,7 +6,6 @@ use borsh::{BorshSerialize, BorshDeserialize};
 use common::*;
 use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
 use elusiv_computation::PartialComputation;
-use elusiv_types::MultiAccountAccountData;
 use pyth_sdk_solana::Price;
 use solana_program::program_pack::Pack;
 use solana_program::system_program;
@@ -269,9 +268,7 @@ async fn setup_vkey_account<VKey: VerifyingKeyInfo>(test: &mut ElusivProgramTest
             version: 0,
             initialized: true,
         },
-        multi_account_data: MultiAccountAccountData {
-            pubkeys: [ElusivOption::Some(sub_account_pubkey)]
-        },
+        pubkeys: [ElusivOption::Some(sub_account_pubkey)],
         public_inputs_count: VKey::PUBLIC_INPUTS_COUNT,
         is_frozen: true,
         deploy_authority: ElusivOption::None,

@@ -122,61 +122,38 @@ macro_rules! zero_program_account {
     };
 }
 
-/// Creates an instance `$id` of a [`crate::state::StorageAccount`]
+/// Creates an instance `$id` of a `$ty` implementing [`elusiv_types::accounts::ParentAccount`]
+/// 
+/// # Notes
+/// 
+/// - This only works for up to 32 child-accounts.
 /// 
 /// # Usage
 /// 
-/// - `storage_account!($id: ident)`
-/// - mutable instance: `storage_account!(mut $id: ident)`
+/// - `parent_account!($id: ident, $ty: ty)`
+/// - mutable instance: `parent_account!(mut $id: ident, $ty: ty)`
 #[cfg(test)]
-macro_rules! storage_account {
-    (internal $sub_accounts: ident, $data: ident) => {
-        let mut $data = vec![0; <crate::state::StorageAccount as elusiv_types::accounts::SizedAccount>::SIZE];
-        let mut sub_accounts = std::collections::HashMap::new();
+macro_rules! parent_account {
+    (internal $ty: ty, $child_accounts: ident, $data: ident) => {
+        let mut $data = vec![0; <$ty as elusiv_types::accounts::SizedAccount>::SIZE];
+
+        let mut child_accounts = Vec::with_capacity(<$ty as elusiv_types::accounts::ParentAccount>::COUNT);
         elusiv_proc_macros::repeat!({
             let pk = solana_program::pubkey::Pubkey::new_unique();
-            crate::macros::account_info!(acc_index, pk, vec![0; <crate::state::StorageAccount as elusiv_types::MultiAccountAccount<'_>>::ACCOUNT_SIZE]);
-            sub_accounts.insert(_index, &acc_index);
-        }, 25);
-        let $sub_accounts = sub_accounts;
+            crate::macros::account_info!(acc_index, pk, vec![0; <<$ty as elusiv_types::accounts::ParentAccount>::Child as elusiv_types::accounts::SizedAccount>::SIZE]);
+            child_accounts.push(Some(&acc_index));
+        }, 32);
+
+        let $child_accounts = child_accounts[..<$ty as elusiv_types::accounts::ParentAccount>::COUNT].to_vec();
     };
 
-    ($id: ident) => {
-        crate::macros::storage_account!(internal sub_accounts, data);
-        let $id = <crate::state::StorageAccount as elusiv_types::MultiAccountProgramAccount>::new(&mut data, sub_accounts).unwrap();
+    ($id: ident, $ty: ty) => {
+        crate::macros::parent_account!(internal $ty, child_accounts, data);
+        let $id = <$ty as elusiv_types::ParentAccount>::new_with_child_accounts(&mut data, child_accounts).unwrap();
     };
-    (mut $id: ident) => {
-        crate::macros::storage_account!(internal sub_accounts, data);
-        let mut $id = <crate::state::StorageAccount as elusiv_types::MultiAccountProgramAccount>::new(&mut data, sub_accounts).unwrap();
-    };
-}
-
-/// Creates an instance `$id` of a [`crate::state::NullifierAccount`]
-/// 
-/// # Usage
-/// 
-/// - `nullifier_account!($id: ident)`
-/// - mutable instance: `nullifier_account!(mut $id: ident)`
-#[cfg(test)]
-macro_rules! nullifier_account {
-    (internal $sub_accounts: ident, $data: ident) => {
-        let mut $data = vec![0; <NullifierAccount as elusiv_types::accounts::SizedAccount>::SIZE];
-        let mut sub_accounts = std::collections::HashMap::new();
-        elusiv_proc_macros::repeat!({
-            let pk = solana_program::pubkey::Pubkey::new_unique();
-            crate::macros::account_info!(acc_index, pk, vec![0; <crate::state::NullifierAccount as elusiv_types::MultiAccountAccount<'_>>::ACCOUNT_SIZE]);
-            sub_accounts.insert(_index, &acc_index);
-        }, 16);
-        let $sub_accounts = sub_accounts;
-    };
-
-    ($id: ident) => {
-        crate::macros::nullifier_account!(internal sub_accounts, data);
-        let $id = <crate::state::NullifierAccount as elusiv_types::MultiAccountProgramAccount>::new(&mut data, sub_accounts).unwrap();
-    };
-    (mut $id: ident) => {
-        crate::macros::nullifier_account!(internal sub_accounts, data);
-        let mut $id = <crate::state::NullifierAccount as elusiv_types::MultiAccountProgramAccount>::new(&mut data, sub_accounts).unwrap();
+    (mut $id: ident, $ty: ty) => {
+        crate::macros::parent_account!(internal $ty, child_accounts, data);
+        let mut $id = <$ty as elusiv_types::ParentAccount>::new_with_child_accounts(&mut data, child_accounts).unwrap();
     };
 }
 
@@ -186,5 +163,4 @@ macro_rules! nullifier_account {
 #[cfg(test)] pub(crate) use test_pda_account_info;
 #[cfg(test)] pub(crate) use zero_program_account;
 #[cfg(test)] pub(crate) use program_token_account_info;
-#[cfg(test)] pub(crate) use storage_account;
-#[cfg(test)] pub(crate) use nullifier_account;
+#[cfg(test)] pub(crate) use parent_account;

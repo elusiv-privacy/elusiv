@@ -1,5 +1,5 @@
 use borsh::{BorshSerialize, BorshDeserialize};
-use elusiv_types::{PDAAccountData, SubAccountMut};
+use elusiv_types::{PDAAccountData, ParentAccount, ChildAccount, SizedAccount, ChildAccountConfig};
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
@@ -8,10 +8,10 @@ use solana_program::{
 };
 use crate::{state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
-    program_account::{MultiAccountAccount, ProgramAccount, MultiAccountAccountData},
+    program_account::ProgramAccount,
     StorageAccount,
     queue::{CommitmentQueueAccount, CommitmentQueue, Queue},
-    fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT,
+    fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT, NullifierChildAccount,
 }, proof::vkey::VKeyAccountManangerAccount};
 use crate::commitment::{CommitmentHashingAccount, DEFAULT_COMMITMENT_BATCHING_RATE};
 use crate::{
@@ -89,44 +89,44 @@ pub fn open_multi_instance_account<'a>(
     }
 }
 
-/// Enables the supplied sub-account for the [`StorageAccount`]
-pub fn enable_storage_sub_account(
-    storage_account: &AccountInfo,
-    sub_account: &AccountInfo,
+/// Enables the supplied child-account for the [`StorageAccount`]
+pub fn enable_storage_child_account(
+    storage_account: &mut StorageAccount,
+    child_account: &AccountInfo,
 
-    sub_account_index: u32,
+    child_index: u32,
 ) -> ProgramResult {
     // Note: we don't zero-check these accounts, since we will never access data that has not been set by the program
-    setup_sub_account::<StorageAccount, {StorageAccount::COUNT}>(
+    setup_child_account(
         storage_account,
-        sub_account,
-        sub_account_index as usize,
+        child_account,
+        child_index as usize,
         false,
         None,
     )
 }
 
-/// Enables the supplied sub-account for a [`NullifierAccount`]
+/// Enables the supplied child-account for a [`NullifierAccount`]
 /// - Note: requires a prior call to [`open_multi_instance_account`]
 /// - Note: the [`NullifierAccount`] will be useless until the MT with `index = merkle_tree_index - 1` is closed
-pub fn enable_nullifier_sub_account(
-    nullifier_account: &AccountInfo,
-    sub_account: &AccountInfo,
+pub fn enable_nullifier_child_account(
+    nullifier_account: &mut NullifierAccount,
+    child_account: &AccountInfo,
 
     _merkle_tree_index: u32,
-    sub_account_index: u32,
+    child_index: u32,
 ) -> ProgramResult {
     // Note: we don't zero-check these accounts, BUT we need to manipulate the maps we store in each account and set the size to zero 
-    setup_sub_account::<NullifierAccount, {NullifierAccount::COUNT}>(
+    setup_child_account(
         nullifier_account,
-        sub_account,
-        sub_account_index as usize,
+        child_account,
+        child_index as usize,
         false,
         None,
     )?;
 
     // Set map size to zero
-    reset_map_sub_account(sub_account);
+    reset_map_child_account::<NullifierChildAccount>(child_account)?;
 
     Ok(())
 }
@@ -294,40 +294,36 @@ pub fn derive_lut_reference_account_address(warden: &Pubkey) -> (Pubkey, u8) {
     )
 }
 
-/// Verifies a single user-supplied sub-account and then saves it's pubkey in the `main_account`
-pub fn setup_sub_account<'a, T: MultiAccountAccount<'a>, const COUNT: usize>(
-    main_account: &AccountInfo,
-    sub_account: &AccountInfo,
-    sub_account_index: usize,
+/// Verifies a single user-supplied [`ChildAccount`] and then saves it's pubkey in the `parent_account`
+/// 
+/// # Notes
+/// 
+/// - If `size` is manually supplied (not the default [`C::SIZE`] is used) [`elusiv_types::ChildAccountConfig::SIZE`] needs to be contained in the size.
+pub fn setup_child_account<'a, 'b, 't, P: ParentAccount<'a, 'b, 't>>(
+    parent_account: &mut P,
+    child_account: &AccountInfo,
+    child_index: usize,
     check_zeroness: bool,
     size: Option<usize>,
 ) -> ProgramResult {
-    let data = &mut main_account.data.borrow_mut()[..];
-    let mut account_data = <MultiAccountAccountData<{COUNT}>>::new(data)?;
-
-    if account_data.pubkeys[sub_account_index].option().is_some() {
+    if parent_account.get_child_pubkey(child_index).is_some() {
         return Err(SubAccountAlreadyExists.into())
     }
 
-    verify_extern_data_account(sub_account, size.unwrap_or(T::ACCOUNT_SIZE), check_zeroness)?;
-    account_data.pubkeys[sub_account_index] = ElusivOption::Some(*sub_account.key);
-    MultiAccountAccountData::override_slice(&account_data, data)?;
-
-    // Check that the sub-account is not already in use (=> global duplicate check)
-    let data = &mut sub_account.data.borrow_mut()[..];
-    let mut acc = SubAccountMut::new(data);
-    guard!(!acc.get_is_in_use(), InvalidAccount);
-    acc.set_is_in_use(true);
+    verify_extern_data_account(child_account, size.unwrap_or(<P::Child as SizedAccount>::SIZE), check_zeroness)?;
+    parent_account.set_child_pubkey(child_index, ElusivOption::Some(*child_account.key));
+    P::Child::try_start_using_account(child_account)?;
 
     Ok(())
 }
 
-fn reset_map_sub_account(sub_account: &AccountInfo) {
-    let data = &mut sub_account.data.borrow_mut()[..];
-    let acc = SubAccountMut::new(data);
-    let len = ElusivMap::<(), (), 1>::SIZE;
-    let mut map = ElusivMap::<(), (), 1>::new(&mut acc.data[..len]);
+fn reset_map_child_account<C: ChildAccount>(child_account: &AccountInfo) -> ProgramResult {
+    let data = &mut child_account.data.borrow_mut()[..];
+    let (_, inner_data) = C::split_data_mut(data)?;
+    let mut map = ElusivMap::<(), (), 1>::new(&mut inner_data[..ElusivMap::<(), (), 1>::SIZE]);
     map.reset();
+
+    Ok(())
 }
 
 /// Verifies that an account with `data_len` > 10 KiB (non PDA) is formatted correctly
@@ -337,6 +333,8 @@ fn verify_extern_data_account(
     check_zeroness: bool,
 ) -> ProgramResult {
     guard!(account.data_len() == data_len, InvalidInstructionData);
+    guard!(data_len >= ChildAccountConfig::SIZE, InvalidInstructionData);
+
     if check_zeroness {
         guard!(is_zero(&account.data.borrow()[..]), InvalidInstructionData);
     }
@@ -357,12 +355,11 @@ fn verify_extern_data_account(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
     use crate::{
         macros::account_info,
-        state::{program_account::{PDAAccount, SizedAccount, MultiAccountProgramAccount}, queue::RingQueue},
+        state::{program_account::{PDAAccount, SizedAccount, ParentAccount}, queue::RingQueue, StorageChildAccount},
         processor::CommitmentHashRequest,
         types::U256,
     };
@@ -413,59 +410,53 @@ mod tests {
     }
 
     #[test]
-    fn test_enable_storage_sub_account() {
+    fn test_enable_storage_child_account() {
         let mut data = vec![0; StorageAccount::SIZE];
-        let mut storage_account = StorageAccount::new(&mut data, HashMap::new()).unwrap();
-        let mut d = storage_account.get_multi_account_data();
-        d.pubkeys[0] = ElusivOption::Some(Pubkey::new_unique());
-        storage_account.set_multi_account_data(&d);
-        account_info!(storage, StorageAccount::find(None).0, data);
+        let mut storage_account = StorageAccount::new(&mut data).unwrap();
+        storage_account.set_child_pubkey(0, ElusivOption::Some(Pubkey::new_unique()));
 
         // Account has invalid size
-        account_info!(sub_account, Pubkey::new_unique(), vec![0; StorageAccount::ACCOUNT_SIZE - 1]);
-        assert_matches!(enable_storage_sub_account(&storage, &sub_account, 0), Err(_));
+        account_info!(child_account, Pubkey::new_unique(), vec![0; StorageChildAccount::SIZE - 1]);
+        assert_matches!(enable_storage_child_account(&mut storage_account, &child_account, 0), Err(_));
 
         // Account has already been setup
-        account_info!(sub_account, Pubkey::new_unique(), vec![0; StorageAccount::ACCOUNT_SIZE]);
-        assert_matches!(enable_storage_sub_account(&storage, &sub_account, 0), Err(_));
+        account_info!(child_account, Pubkey::new_unique(), vec![0; StorageChildAccount::SIZE]);
+        assert_matches!(enable_storage_child_account(&mut storage_account, &child_account, 0), Err(_));
 
         // Success at different index
-        assert_matches!(enable_storage_sub_account(&storage, &sub_account, 3), Ok(()));
-        assert_eq!(sub_account.data.borrow()[0], 1);
+        assert_matches!(enable_storage_child_account(&mut storage_account, &child_account, 3), Ok(()));
+        assert_eq!(child_account.data.borrow()[0], 1);
 
         // Account already is use
-        assert_matches!(enable_storage_sub_account(&storage, &sub_account, 1), Err(_));
+        assert_matches!(enable_storage_child_account(&mut storage_account, &child_account, 1), Err(_));
     }
 
     #[test]
-    fn test_enable_nullifier_sub_account() {
+    fn test_enable_nullifier_child_account() {
         let mut data = vec![0; NullifierAccount::SIZE];
-        let mut nullifier_account = NullifierAccount::new(&mut data, HashMap::new()).unwrap();
-        let mut d = nullifier_account.get_multi_account_data();
-        d.pubkeys[0] = ElusivOption::Some(Pubkey::new_unique());
-        nullifier_account.set_multi_account_data(&d);
-        account_info!(nullifier, NullifierAccount::find(Some(0)).0, data);
+        let mut nullifier_account = NullifierAccount::new(&mut data).unwrap();
+        nullifier_account.set_child_pubkey(0, ElusivOption::Some(Pubkey::new_unique()));
 
         // Account has invalid size
-        account_info!(sub_account, Pubkey::new_unique(), vec![0; NullifierAccount::ACCOUNT_SIZE - 1]);
-        assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 0), Err(_));
+        account_info!(child_account, Pubkey::new_unique(), vec![0; NullifierChildAccount::SIZE - 1]);
+        assert_matches!(enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 0), Err(_));
 
         // Account has already been setup
-        account_info!(sub_account, Pubkey::new_unique(), vec![0; NullifierAccount::ACCOUNT_SIZE]);
-        assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 0), Err(_));
+        account_info!(child_account, Pubkey::new_unique(), vec![0; NullifierChildAccount::SIZE]);
+        assert_matches!(enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 0), Err(_));
 
         // Success at different index with
-        assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 3), Ok(()));
-        assert_eq!(sub_account.data.borrow()[0], 1);
+        assert_matches!(enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 3), Ok(()));
+        assert_eq!(child_account.data.borrow()[0], 1);
 
         // Account already is use
-        assert_matches!(enable_nullifier_sub_account(&nullifier, &sub_account, 0, 1), Err(_));
+        assert_matches!(enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 1), Err(_));
     }
 
     #[test]
     fn test_is_mt_full() {
         let mut data = vec![0; StorageAccount::SIZE];
-        let mut storage_account = StorageAccount::new(&mut data, HashMap::new()).unwrap();
+        let mut storage_account = StorageAccount::new(&mut data).unwrap();
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
 
         let mut q_data = vec![0; CommitmentQueueAccount::SIZE];
@@ -488,9 +479,9 @@ mod tests {
     fn test_archive_closed_merkle_tree() {
         test_account_info!(payer, 0);
         let mut data = vec![0; StorageAccount::SIZE];
-        let mut storage_account = StorageAccount::new(&mut data, HashMap::new()).unwrap();
+        let mut storage_account = StorageAccount::new(&mut data).unwrap();
         let mut data = vec![0; NullifierAccount::SIZE];
-        let mut nullifier_account = NullifierAccount::new(&mut data, HashMap::new()).unwrap();
+        let mut nullifier_account = NullifierAccount::new(&mut data).unwrap();
         test_account_info!(archived_tree_account, 0);
 
         archive_closed_merkle_tree(&payer, &mut storage_account, &mut nullifier_account, &archived_tree_account, 0).unwrap();
@@ -526,8 +517,14 @@ mod tests {
         assert_matches!(verify_extern_data_account(&account, 100, true), Ok(()));
     }
 
+    struct TestChildAccount;
+
+    impl ChildAccount for TestChildAccount {
+        const INNER_SIZE: usize = 0;
+    }
+
     #[test]
-    fn test_reset_map_sub_account() {
+    fn test_reset_map_child_account() {
         type Map<'a> = ElusivMap<'a, U256, (), 1>;
 
         let pk = Pubkey::new_unique();
@@ -539,7 +536,7 @@ mod tests {
         let mut d = vec![1];
         d.extend(data);
         account_info!(map_account, pk, d);
-        reset_map_sub_account(&map_account);
+        reset_map_child_account::<TestChildAccount>(&map_account).unwrap();
 
         let data = &mut map_account.data.borrow_mut()[1..];
         let mut map = Map::new(data);

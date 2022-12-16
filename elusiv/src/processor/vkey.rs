@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_types::{SUB_ACCOUNT_ADDITIONAL_SIZE, MultiAccountProgramAccount, ElusivOption, MultiAccountAccount};
+use elusiv_types::{ElusivOption, ChildAccountConfig, BorshSerDeSized, ProgramAccount, ParentAccount};
 use elusiv_utils::{guard, open_pda_account_with_offset};
 use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
-use crate::{proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey}, error::ElusivError, processor::setup_sub_account, types::U256};
+use crate::{proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey}, error::ElusivError, types::U256, processor::setup_child_account};
 
 pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 964;
 
@@ -39,19 +38,20 @@ pub fn create_vkey_account<'a>(
         vkey_id,
     )?;
 
-    let binary_data_account_size = VerifyingKey::source_size(public_inputs_count as usize) + SUB_ACCOUNT_ADDITIONAL_SIZE;
-    setup_sub_account::<VKeyAccount, 1>(
-        vkey_account,
+    let data = &mut vkey_account.data.borrow_mut()[..];
+    let mut vkey_account = VKeyAccount::new(data)?;
+
+    vkey_account.set_deploy_authority(&deploy_authority);
+    vkey_account.set_public_inputs_count(&public_inputs_count);
+
+    let binary_data_account_size = VerifyingKey::source_size(public_inputs_count as usize) + ChildAccountConfig::SIZE;
+    setup_child_account(
+        &mut vkey_account,
         vkey_binary_data_account,
         0,
         false,  // don't care about zeroness, signer can submit any data
         Some(binary_data_account_size),
     )?;
-
-    let data = &mut vkey_account.data.borrow_mut()[..];
-    let mut vkey_account = VKeyAccount::new(data, HashMap::new())?;
-    vkey_account.set_deploy_authority(&deploy_authority);
-    vkey_account.set_public_inputs_count(&public_inputs_count);
 
     Ok(())
 }
@@ -79,7 +79,7 @@ pub fn set_vkey_account_data(
 
     guard!(start < len, ElusivError::InvalidPublicInputs);
 
-    vkey_account.execute_on_sub_account_mut(0, |data| {
+    vkey_account.execute_on_child_account_mut(0, |data| {
         data[start..end - cutoff].copy_from_slice(&packet.0[..VKEY_ACCOUNT_DATA_PACKET_SIZE - cutoff])
     })?;
 
@@ -107,7 +107,6 @@ pub fn freeze_vkey_account(
 #[cfg(test)]
 mod test {
     use assert_matches::assert_matches;
-
     use crate::{processor::vkey_account, proof::vkey::{TestVKey, VerifyingKeyInfo}, macros::test_account_info, bytes::div_ceiling_usize};
     use super::*;
 
@@ -117,7 +116,7 @@ mod test {
         vkey_account!(vkey_account, TestVKey);
         test_account_info!(signer);
 
-        vkey_account.execute_on_sub_account_mut(0, |d| {
+        vkey_account.execute_on_child_account_mut(0, |d| {
             for b in d.iter_mut() {
                 *b = 0;
             }
@@ -135,7 +134,7 @@ mod test {
             ).unwrap();
         }
 
-        vkey_account.execute_on_sub_account(0, |d| {
+        vkey_account.execute_on_child_account(0, |d| {
             assert_eq!(d, data);
         }).unwrap();
     }
@@ -146,7 +145,7 @@ mod test {
         test_account_info!(signer);
 
         vkey_account.set_public_inputs_count(&TestVKey::PUBLIC_INPUTS_COUNT);
-        vkey_account.execute_on_sub_account_mut(0, |data| {
+        vkey_account.execute_on_child_account_mut(0, |data| {
             data.copy_from_slice(&TestVKey::verifying_key_source())
         }).unwrap();
 
