@@ -246,7 +246,7 @@ pub trait PDAAccount {
     fn offset_seed(seed: &[u8], offset: PDAOffset) -> Vec<Vec<u8>> {
         match offset {
             Some(offset) => vec![seed.to_vec(), offset.to_le_bytes().to_vec()],
-            None => vec![Self::SEED.to_vec()]
+            None => vec![seed.to_vec()]
         }
     }
 
