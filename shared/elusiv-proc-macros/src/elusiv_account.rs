@@ -197,6 +197,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         let mut use_getter = true;
         let mut use_setter = true;
 
+        if field_ident == "data" {
+            panic!("'data' is a reserved keyword, please pick a different field identifier")
+        }
+
         eager_idents.extend(quote!{ #field_ident, });
 
         let mut doc = quote!();

@@ -8,7 +8,7 @@ use crate::bytes::*;
 use crate::processor::CommitmentHashRequest;
 use super::program_account::{SizedAccount, ProgramAccount, PDAAccountData};
 
-/// Generates a `QueueAccount` and a `Queue` that implements the `RingQueue` trait
+/// Generates a [`QueueAccount`] and a [`Queue`] that implements the [`RingQueue`] trait
 macro_rules! queue_account {
     ($id: ident, $id_account: ident, $seed: literal, $size: literal, $ty_element: ty) => {
         #[elusiv_account(eager_type: true)]
@@ -19,7 +19,7 @@ macro_rules! queue_account {
 
             head: u32,
             tail: u32,
-            data: [$ty_element; $size],
+            raw_data: [$ty_element; $size],
         }
 
         const_assert_eq!(
@@ -49,8 +49,8 @@ macro_rules! queue_account {
             fn set_head(&mut self, value: &u32) { self.account.set_head(value) }
             fn get_tail(&self) -> u32 { self.account.get_tail() }
             fn set_tail(&mut self, value: &u32) { self.account.set_tail(value) }
-            fn get_data(&self, index: usize) -> Self::N { self.account.get_data(index) }
-            fn set_data(&mut self, index: usize, value: &Self::N) { self.account.set_data(index, value) }
+            fn get_data(&self, index: usize) -> Self::N { self.account.get_raw_data(index) }
+            fn set_data(&mut self, index: usize, value: &Self::N) { self.account.set_raw_data(index, value) }
         }
     };
 }
