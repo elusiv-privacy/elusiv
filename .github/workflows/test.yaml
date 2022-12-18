@@ -59,7 +59,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run unit tests, codecoverage
+      - name: Run unit tests for codecoverage
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV }}
         run: |
@@ -67,7 +67,7 @@ jobs:
           sh ./build.sh test --tarpaulin elusiv
           bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
 
-      - name: Run unit- and integration-tests
+      - name: Run unit- and integration-tests with BPF
         run: |
           rustup component add rustfmt --toolchain nightly-x86_64-unknown-linux-gnu
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"

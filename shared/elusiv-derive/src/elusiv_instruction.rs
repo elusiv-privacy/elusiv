@@ -1,6 +1,22 @@
-use quote::quote;
+use quote::{quote, ToTokens};
 use super::utils::{ upper_camel_to_upper_snake, named_sub_attribute };
 use proc_macro2::TokenStream;
+
+const ACC_ATTR: &str = "acc";
+const SYS_ATTR: &str = "sys";
+const PDA_ATTR: &str = "pda";
+
+const RESERVED_ATTR_IDENTS: [&str; 3] = [
+    ACC_ATTR,
+    SYS_ATTR,
+    PDA_ATTR,
+];
+
+enum AttrType {
+    Docs,
+    Any,
+    Account,
+}
 
 pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
     let ast_ident = &ast.ident;
@@ -17,14 +33,18 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             let fn_name: TokenStream = name.parse().unwrap();
 
             // Processor calls
-            let mut accounts = quote!{};
-            let mut fields = quote!{};
-            let mut signature = quote!{};
+            let mut accounts = quote!();
+            let mut fields = quote!();
+            let mut signature = quote!();
 
             // Instruction creation
-            let mut fields_with_type = quote!{};
-            let mut user_accounts = quote!{};
-            let mut instruction_accounts = quote!{};
+            let mut fields_with_type = quote!();
+            let mut user_accounts = quote!();
+            let mut instruction_accounts = quote!();
+
+            let mut docs = quote!();
+            let mut other_attrs = quote!();
+            let mut current_attr_type = AttrType::Docs;
 
             for field in &var.fields {
                 let field_name = field.ident.clone().unwrap();
@@ -37,6 +57,30 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             // Account attributes
             for (_, attr) in var.attrs.iter().enumerate() {
                 let attr_name = attr.path.get_ident().unwrap().to_string();
+
+                // No `ElusivInstruction` specific attribute
+                if !RESERVED_ATTR_IDENTS.contains(&attr_name.as_str()) {
+                    if attr_name == "doc" {
+                        assert!(
+                            matches!(current_attr_type, AttrType::Docs),
+                            "Invalid attribute order"
+                        );
+
+                        other_attrs.extend(docs.to_token_stream());
+                    } else {
+                        assert!(
+                            matches!(current_attr_type, AttrType::Docs | AttrType::Any),
+                            "Invalid attribute order"
+                        );
+
+                        current_attr_type = AttrType::Any;
+                        other_attrs.extend(attr.to_token_stream());
+                    }
+
+                    continue
+                }
+
+                current_attr_type = AttrType::Account;
 
                 // Sub-attrs are the fields as in #[usr(sub_attr0 = .., sub_attr1, ..)]
                 let mut fields = attr.tokens.to_string();
@@ -89,7 +133,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                 match attr_name.as_str() {
                     // `AccountInfo` (usage: <name>)
-                    "acc" => {
+                    ACC_ATTR => {
                         user_accounts.extend(quote!{ #account: #user_account_type, });
                         account_init.push(quote!{
                             accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(#account.0, #is_signer));
@@ -97,7 +141,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     }
 
                     // System program `AccountInfo` (usage: <name> <key = ..>)
-                    "sys" => {
+                    SYS_ATTR => {
                         // Check that system program pubkey is correct (for this we have a field `key` that the pubkey gets compared to)
                         let key: TokenStream = named_sub_attribute("key", sub_attrs[1]).parse().unwrap();
 
@@ -111,7 +155,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                     }
 
                     // PDA accounts (usage: <name> <AccountType> <pda_offset: u32 = ..>? <account_info>? <include_child_accounts>? <ownership>)
-                    "pda" => {
+                    PDA_ATTR => {
                         // Every PDA account needs to implement the trait `elusiv::state::program_account::PDAAccount`
                         // - this trait allows us to verify PDAs
                         // - this allows us to define `ParentAccount`s, which are a single main PDA account with `COUNT` child-accounts
@@ -218,12 +262,15 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             }
 
             matches.extend(quote! {
+                #other_attrs
                 #ast_ident::#ident { #fields } => {
                     Self::#fn_name(program_id, accounts, #fields)
                 },
             });
 
             functions.extend(quote!{
+                #docs
+                #other_attrs
                 pub fn #fn_name(program_id: &solana_program::pubkey::Pubkey, accounts: &[solana_program::account_info::AccountInfo], #fields_with_type) -> solana_program::entrypoint::ProgramResult {
                     let mut account_info_iter = &mut accounts.iter();
                     #accounts
@@ -232,6 +279,8 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             });
 
             abi_functions.extend(quote!{
+                #docs
+                #other_attrs
                 pub fn #fn_name_abi(#fields_with_type #user_accounts) -> solana_program::instruction::Instruction {
                     let mut accounts = Vec::new();
 
