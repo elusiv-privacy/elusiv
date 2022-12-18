@@ -149,7 +149,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 eager_impls.extend(quote!{
                     #[cfg(feature = "elusiv-client")]
-                    impl elusiv_types::accounts::EagerParentAccount for #eager_ident {
+                    impl elusiv_types::accounts::EagerParentAccountRepr for #eager_ident {
                         fn child_pubkeys(&self) -> Vec<Option<solana_program::pubkey::Pubkey>> {
                             self.pubkeys.iter()
                                 .map(|p| p.option())
@@ -428,7 +428,12 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             }
 
             #[cfg(feature = "elusiv-client")]
-            impl elusiv_types::accounts::EagerProgramAccount for #eager_ident {
+            impl < #lifetimes > elusiv_types::accounts::EagerAccount < #program_account_lifetime > for #ident < #lifetimes > {
+                type Repr = #eager_ident;
+            }
+
+            #[cfg(feature = "elusiv-client")]
+            impl elusiv_types::accounts::EagerAccountRepr for #eager_ident {
                 fn new(data: Vec<u8>) -> Result<Self, std::io::Error> {
                     if data.len() != < #ident < #anonymous_lifetimes > as elusiv_types::accounts::SizedAccount>::SIZE {
                         return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid account data len"))
@@ -448,7 +453,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         quote! {
             #[cfg(feature = "elusiv-client")]
             pub fn new_eager(data: Vec<u8>) -> Result<#eager_ident, std::io::Error> {
-                <#eager_ident as elusiv_types::accounts::EagerProgramAccount>::new(data)
+                <#eager_ident as elusiv_types::accounts::EagerAccountRepr>::new(data)
             }
         }
     } else {

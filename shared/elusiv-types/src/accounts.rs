@@ -303,16 +303,27 @@ impl PDAAccountData {
     }
 }
 
-/// A [`SizedAccount`] being owned by the program, fully deserialized
+/// A [`ProgramAccount`] that also has a eager representation
 #[cfg(feature = "elusiv-client")]
-pub trait EagerProgramAccount: Sized {
+pub trait EagerAccount<'a>: ProgramAccount<'a> {
+    type Repr: EagerAccountRepr;
+
+    /// Attempts to create a new instance of the associated eager representation [`Repr`] from a buffer
+    fn new_eager(data: Vec<u8>) -> Result<Self::Repr, std::io::Error> {
+        Self::Repr::new(data)
+    }
+}
+
+/// Eager representation of a [`ProgramAccount`]
+#[cfg(feature = "elusiv-client")]
+pub trait EagerAccountRepr: Sized {
     /// Attempts to create a new instance of [`Self`] from a buffer
     fn new(data: Vec<u8>) -> Result<Self, std::io::Error>;
 }
 
 /// Eager representation of a [`ParentAccount`]
 #[cfg(feature = "elusiv-client")]
-pub trait EagerParentAccount: EagerProgramAccount {
+pub trait EagerParentAccountRepr: EagerAccountRepr {
     /// All children pubkeys
     fn child_pubkeys(&self) -> Vec<Option<Pubkey>>;
 }
