@@ -3,7 +3,8 @@ use ark_ec::AffineCurve;
 use ark_ff::Zero;
 use borsh::BorshDeserialize;
 use elusiv_proc_macros::elusiv_account;
-use elusiv_types::{PDAAccountData, ElusivOption, BorshSerDeSized, MultiAccountAccountData};
+use elusiv_types::{PDAAccountData, ElusivOption, BorshSerDeSized, ChildAccount};
+use solana_program::pubkey::Pubkey;
 use crate::{types::U256, fields::{Wrap, G1A, G2A}};
 
 #[elusiv_account(eager_type: true)]
@@ -12,11 +13,17 @@ pub struct VKeyAccountManangerAccount {
     pub active_vkey_count: u32,
 }
 
+pub struct VKeyChildAccount;
+
+impl ChildAccount for VKeyChildAccount {
+    const INNER_SIZE: usize = 0;
+}
+
 /// Account used for storing a single immutable [`VerifyingKey`]
-#[elusiv_account(multi_account: { sub_account_count: 1, sub_account_size: 1 }, eager_type: tru)]
+#[elusiv_account(parent_account: { child_account_count: 1, child_account: VKeyChildAccount }, eager_type: true)]
 pub struct VKeyAccount {
     pda_data: PDAAccountData,
-    multi_account_data: MultiAccountAccountData<1>,
+    pubkeys: [ElusivOption<Pubkey>; 1],
     
     pub public_inputs_count: u32,
     pub is_frozen: bool,

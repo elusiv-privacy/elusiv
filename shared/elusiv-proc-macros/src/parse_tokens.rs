@@ -26,7 +26,7 @@ struct Token {
 pub fn impl_parse_tokens() -> TokenStream {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let file_name = manifest_dir + "/Token.toml";
-    let contents = fs::read_to_string(&file_name).unwrap();
+    let contents = fs::read_to_string(file_name).unwrap();
     let tokens: Tokens = toml::from_str(&contents).unwrap();
     let count = tokens.token.len();
 

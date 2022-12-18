@@ -2,24 +2,23 @@
 
 mod common;
 
-use std::collections::HashMap;
 use borsh::BorshSerialize;
 use common::*;
 use elusiv::proof::vkey::VKeyAccountManangerAccount;
-use elusiv::state::program_account::{MultiAccountAccount, PDAOffset};
+use elusiv::state::program_account::PDAOffset;
 use elusiv::state::queue::RingQueue;
-use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT};
+use elusiv::state::{StorageAccount, MT_COMMITMENT_COUNT, StorageChildAccount, NullifierChildAccount};
 use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
 use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, CommitmentHashRequest};
 use elusiv::token::SPL_TOKEN_COUNT;
-use elusiv_types::SubAccountMut;
+use elusiv_types::ChildAccount;
 use solana_program::instruction::{Instruction, AccountMeta};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use elusiv::state::{
     queue::{CommitmentQueue, CommitmentQueueAccount, Queue},
-    program_account::{PDAAccount, SizedAccount, ProgramAccount, MultiAccountProgramAccount, PDAAccountData},
+    program_account::{PDAAccount, SizedAccount, ProgramAccount, PDAAccountData},
     fee::FeeAccount,
     NullifierAccount,
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
@@ -138,10 +137,7 @@ async fn test_setup_storage_account() {
     let mut test = ElusivProgramTest::start().await;
     let keys = test.setup_storage_account().await;
 
-    storage_account(None, &mut test, |storage_account| {
-        let pks: Vec<Pubkey> = storage_account.get_multi_account_data().pubkeys.iter().map(|p| p.option().unwrap()).collect();
-        assert_eq!(keys, pks);
-    }).await;
+    assert_eq!(keys, test.storage_accounts().await);
 }
 
 #[tokio::test]
@@ -149,10 +145,10 @@ async fn test_setup_storage_account_duplicate() {
     let mut test = ElusivProgramTest::start().await;
     test.setup_storage_account().await;
 
-    // Cannot set a sub-account twice
-    let k = test.create_program_account_rent_exempt(StorageAccount::ACCOUNT_SIZE).await;
+    // Cannot set a child-account twice
+    let k = test.create_program_account_rent_exempt(StorageChildAccount::SIZE).await;
     test.ix_should_fail_simple(
-        ElusivInstruction::enable_storage_sub_account_instruction(1, WritableUserAccount(k.pubkey()))
+        ElusivInstruction::enable_storage_child_account_instruction(1, WritableUserAccount(k.pubkey()))
     ).await;
 
     // Cannot init storage PDA twice
@@ -172,11 +168,7 @@ async fn test_open_new_merkle_tree() {
     // Multiple MTs can be opened
     for mt_index in 0..3 {
         let keys = test.create_merkle_tree(mt_index).await;
-
-        nullifier_account(Some(mt_index), &mut test, |nullfier_account: &NullifierAccount| {
-            let pks: Vec<Pubkey> = nullfier_account.get_multi_account_data().pubkeys.iter().map(|p| p.option().unwrap()).collect();
-            assert_eq!(keys, pks);
-        }).await;
+        assert_eq!(keys, test.nullifier_accounts(mt_index).await);
     }
 }
 
@@ -195,10 +187,10 @@ async fn test_open_new_merkle_tree_duplicate() {
         )
     ).await;
 
-    // Cannot set sub-account twice
-    let k = test.create_program_account_rent_exempt(NullifierAccount::ACCOUNT_SIZE).await;
+    // Cannot set child-account twice
+    let k = test.create_program_account_rent_exempt(NullifierChildAccount::SIZE).await;
     test.ix_should_fail_simple(
-        ElusivInstruction::enable_nullifier_sub_account_instruction(
+        ElusivInstruction::enable_nullifier_child_account_instruction(
             0,
             1,
             WritableUserAccount(k.pubkey()),
@@ -226,14 +218,17 @@ async fn test_reset_active_mt() {
 
     // Set active MT as full
     test.set_pda_account::<StorageAccount, _>(None, |data| {
-        let mut storage_account = StorageAccount::new(data, HashMap::new()).unwrap();
+        let mut storage_account = StorageAccount::new(data).unwrap();
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
     }).await;
 
     // Override the root
     let root = [1; 32];
     let mut data = test.data(&root_storage_account).await;
-    SubAccountMut::new(&mut data).data[..32].copy_from_slice(&root[..32]);
+    {
+        let (_, inner_data) = StorageChildAccount::split_data_mut(&mut data).unwrap();
+        inner_data[..32].copy_from_slice(&root[..32]);
+    }
     test.set_program_account_rent_exempt(&root_storage_account, &data).await;
 
     // Failure since active_nullifier_account is invalid
@@ -276,7 +271,7 @@ async fn test_reset_active_mt() {
 
     // Too big batch will also allow for closing of MT
     test.set_pda_account::<StorageAccount, _>(None, |data| {
-        let mut storage_account = StorageAccount::new(data, HashMap::new()).unwrap();
+        let mut storage_account = StorageAccount::new(data).unwrap();
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32 - 1));
     }).await;
     set_single_pda_account!(CommitmentQueueAccount, None, test, |account: &mut CommitmentQueueAccount| {
@@ -323,9 +318,9 @@ async fn test_global_sub_account_duplicates() {
     test.ix_should_succeed_simple(open_mt(1, test.payer())).await;
 
     // Setting in first MT should succeed
-    let account = test.create_program_account_rent_exempt(NullifierAccount::ACCOUNT_SIZE).await;
+    let account = test.create_program_account_rent_exempt(NullifierChildAccount::SIZE).await;
     test.ix_should_succeed_simple(
-        ElusivInstruction::enable_nullifier_sub_account_instruction(
+        ElusivInstruction::enable_nullifier_child_account_instruction(
             0,
             0,
             WritableUserAccount(account.pubkey()),
@@ -334,7 +329,7 @@ async fn test_global_sub_account_duplicates() {
 
     // Setting twice at same index
     test.ix_should_fail_simple(
-        ElusivInstruction::enable_nullifier_sub_account_instruction(
+        ElusivInstruction::enable_nullifier_child_account_instruction(
             0,
             0,
             WritableUserAccount(account.pubkey()),
@@ -343,7 +338,7 @@ async fn test_global_sub_account_duplicates() {
 
     // Setting twice in same account (different index)
     test.ix_should_fail_simple(
-        ElusivInstruction::enable_nullifier_sub_account_instruction(
+        ElusivInstruction::enable_nullifier_child_account_instruction(
             0,
             1,
             WritableUserAccount(account.pubkey()),
@@ -352,7 +347,7 @@ async fn test_global_sub_account_duplicates() {
 
     // Setting in different account
     test.ix_should_fail_simple(
-        ElusivInstruction::enable_nullifier_sub_account_instruction(
+        ElusivInstruction::enable_nullifier_child_account_instruction(
             1,
             0,
             WritableUserAccount(account.pubkey()),
@@ -361,16 +356,16 @@ async fn test_global_sub_account_duplicates() {
 
     // Setting in storage-account
     test.ix_should_fail_simple(
-        ElusivInstruction::enable_storage_sub_account_instruction(
+        ElusivInstruction::enable_storage_child_account_instruction(
             0,
             WritableUserAccount(account.pubkey()),
         )
     ).await;
 
     // Setting a different account at same index should fail
-    let account2 = test.create_program_account_rent_exempt(NullifierAccount::ACCOUNT_SIZE).await;
+    let account2 = test.create_program_account_rent_exempt(NullifierChildAccount::SIZE).await;
     test.ix_should_fail_simple(
-        ElusivInstruction::enable_nullifier_sub_account_instruction(
+        ElusivInstruction::enable_nullifier_child_account_instruction(
             0,
             0,
             WritableUserAccount(account2.pubkey()),
@@ -378,14 +373,14 @@ async fn test_global_sub_account_duplicates() {
     ).await;
 
     // Manipulate map size
-    let mut data = vec![1; NullifierAccount::ACCOUNT_SIZE];
+    let mut data = vec![1; NullifierChildAccount::SIZE];
     data[0] = 0;
     let lamports = test.lamports(&account2.pubkey()).await;
     test.set_program_account(&account2.pubkey(), &data, lamports,).await;
 
     // Setting a different account at a different index should succeed
     test.ix_should_succeed_simple(
-        ElusivInstruction::enable_nullifier_sub_account_instruction(
+        ElusivInstruction::enable_nullifier_child_account_instruction(
             0,
             1,
             WritableUserAccount(account2.pubkey()),

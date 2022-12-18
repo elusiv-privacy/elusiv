@@ -5,6 +5,7 @@ use super::program_account::*;
 use borsh::BorshDeserialize;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
+use solana_program::pubkey::Pubkey;
 
 /// Height of the active MT
 /// - we define the height using the amount of leaves
@@ -25,18 +26,22 @@ pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
 pub const HISTORY_ARRAY_COUNT: usize = 100;
 
 pub const VALUES_PER_STORAGE_SUB_ACCOUNT: usize = 83_887;
-const ACCOUNT_SIZE: usize = SUB_ACCOUNT_ADDITIONAL_SIZE + VALUES_PER_STORAGE_SUB_ACCOUNT * U256::SIZE;
-
-const ACCOUNTS_COUNT: usize = div_ceiling_usize(MT_SIZE * U256::SIZE, ACCOUNT_SIZE);
+const ACCOUNTS_COUNT: usize = div_ceiling_usize(MT_SIZE, VALUES_PER_STORAGE_SUB_ACCOUNT);
 const_assert_eq!(ACCOUNTS_COUNT, 25);
+
+pub struct StorageChildAccount;
+
+impl ChildAccount for StorageChildAccount {
+    const INNER_SIZE: usize = VALUES_PER_STORAGE_SUB_ACCOUNT * U256::SIZE;
+}
 
 // The `StorageAccount` contains the active MT that stores new commitments
 // - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
-#[elusiv_account(multi_account: { sub_account_count: ACCOUNTS_COUNT, sub_account_size: ACCOUNT_SIZE }, eager_type: true)]
+#[elusiv_account(parent_account: { child_account_count: ACCOUNTS_COUNT, child_account: StorageChildAccount }, eager_type: true)]
 pub struct StorageAccount {
     pda_data: PDAAccountData,
-    pub multi_account_data: MultiAccountAccountData<ACCOUNTS_COUNT>,
+    pubkeys: [ElusivOption<Pubkey>; ACCOUNTS_COUNT],
 
     // Points to the next commitment in the active MT
     pub next_commitment_ptr: u32,
@@ -83,11 +88,13 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
             Ok(EMPTY_TREE[MT_HEIGHT as usize - level])
         } else {
             let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
-            self.try_execute_on_sub_account(account_index, |data| {
+            let result = self.execute_on_child_account(account_index, |data| {
                 U256::try_from_slice(
                     &data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
                 )
-            })
+            })??;
+
+            Ok(result)
         }
     }
 
@@ -95,12 +102,14 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         assert!(level <= MT_HEIGHT as usize);
 
         let (account_index, local_index) = self.account_and_local_index(mt_array_index(index, level));
-        self.try_execute_on_sub_account_mut(account_index, |data| {
+        self.execute_on_child_account_mut(account_index, |data| {
             U256::override_slice(
                 value,
                 &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE]
             )
-        })
+        })??;
+
+        Ok(())
     }
 
     pub fn get_root(&self) -> Result<U256, ProgramError> {
@@ -181,7 +190,7 @@ pub fn empty_root_raw() -> crate::types::RawU256 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{macros::storage_account, commitment::{poseidon_hash::full_poseidon2_hash}, fields::{u256_to_fr_skip_mr, u256_from_str}};
+    use crate::{macros::parent_account, commitment::{poseidon_hash::full_poseidon2_hash}, fields::{u256_to_fr_skip_mr, u256_from_str}};
     use ark_bn254::Fr;
     use std::str::FromStr;
 
@@ -205,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_set_node() {
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
 
         for level in 0..=MT_HEIGHT {
@@ -224,14 +233,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_set_node_invalid_level() {
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
         storage_account.set_node(&[1; 32], 0, MT_HEIGHT as usize + 1).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_set_node_invalid_level_index() {
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
         storage_account.set_node(&[1; 32], 4, 2).unwrap();
     }
 
@@ -252,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_get_node() {
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
 
         // No commitments -> default values
         assert_eq!(
@@ -293,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_get_root() {
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
         storage_account.set_node(&[1; 32], 0, 0).unwrap();
         storage_account.set_next_commitment_ptr(&1);
 
@@ -317,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_is_root_valid() {
-        storage_account!(storage_account);
+        parent_account!(storage_account, StorageAccount);
         assert!(storage_account.is_root_valid(EMPTY_TREE[MT_HEIGHT as usize]));
         assert!(!storage_account.is_root_valid([0; 32]));
     }

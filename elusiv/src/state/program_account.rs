@@ -3,18 +3,17 @@ pub use elusiv_types::accounts::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::macros::account_info;
-    use std::collections::HashMap;
-    use borsh::BorshSerialize;
-    use elusiv_proc_macros::repeat;
-    use elusiv_types::ElusivOption;
+    use crate::macros::{parent_account, account_info};
+    use borsh::BorshDeserialize;
+    use elusiv_types::{ElusivOption, BorshSerDeSized};
     use solana_program::{account_info::AccountInfo, pubkey::Pubkey, program_error::ProgramError};
 
-    struct TestPDAAccount { }
+    struct TestPDAAccount;
 
     impl PDAAccount for TestPDAAccount {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"ABC";
+        const FIRST_PUBKEY: Pubkey = Pubkey::new_from_array([68, 179, 231, 162, 105, 190, 164, 236, 219, 59, 110, 153, 250, 190, 228, 201, 206, 98, 34, 111, 200, 139, 69, 232, 47, 91, 47, 54, 136, 144, 12, 62]);
 
         #[cfg(feature = "elusiv-client")]
         const IDENT: &'static str = "TestPDAAccount";
@@ -24,166 +23,166 @@ mod tests {
     fn test_pda_account() {
         assert_ne!(TestPDAAccount::find(None), TestPDAAccount::find(Some(0)));
         assert_ne!(TestPDAAccount::find(Some(0)), TestPDAAccount::find(Some(1)));
+
+        assert_eq!(TestPDAAccount::find(None).0, TestPDAAccount::FIRST_PUBKEY);
+        assert_eq!(TestPDAAccount::find(None).0, Pubkey::find_program_address(&[TestPDAAccount::SEED], &crate::PROGRAM_ID).0);
+    }
+
+    struct TestChildAccount;
+
+    impl ChildAccount for TestChildAccount {
+        const INNER_SIZE: usize = 123;
     }
 
     #[test]
-    fn test_sub_account() {
-        let mut data = vec![0; 100];
-        let mut account = SubAccountMut::new(&mut data);
-
-        assert!(!account.get_is_in_use());
-        account.set_is_in_use(true);
-        assert!(account.get_is_in_use());
-        account.set_is_in_use(false);
-        assert!(!account.get_is_in_use());
-
-        assert_eq!(account.data.len(), 99);
+    fn test_child_account_size() {
+        assert_eq!(
+            TestChildAccount::SIZE,
+            TestChildAccount::INNER_SIZE + ChildAccountConfig::SIZE
+        );
     }
 
-    struct TestMultiAccount<'a, 'b> {
-        pub pubkeys: [ElusivOption<Pubkey>; SUB_ACCOUNT_COUNT],
-        pub accounts: std::collections::HashMap<usize, &'a AccountInfo<'b>>,
+    #[test]
+    fn test_child_account() {
+        let data = vec![0; TestChildAccount::SIZE];
+        let (config, inner_data) = TestChildAccount::split_data(&data).unwrap();
+        let config = ChildAccountConfig::try_from_slice(config).unwrap();
+
+        assert!(!config.is_in_use);
+        assert_eq!(inner_data.len(), TestChildAccount::INNER_SIZE);
     }
 
-    impl<'a, 'b> PDAAccount for TestMultiAccount<'a, 'b> {
+    const CHILD_ACCOUNT_COUNT: usize = 3;
+
+    struct TestParentAccount<'a, 'b, 't> {
+        _data: &'a [u8],
+        pub pubkeys: [ElusivOption<Pubkey>; CHILD_ACCOUNT_COUNT],
+        pub accounts: Vec<Option<&'b AccountInfo<'t>>>,
+    }
+
+    impl<'a, 'b, 't> PDAAccount for TestParentAccount<'a, 'b, 't> {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"ABC";
+        const FIRST_PUBKEY: Pubkey = Pubkey::new_from_array([68, 179, 231, 162, 105, 190, 164, 236, 219, 59, 110, 153, 250, 190, 228, 201, 206, 98, 34, 111, 200, 139, 69, 232, 47, 91, 47, 54, 136, 144, 12, 62]);
 
         #[cfg(feature = "elusiv-client")]
-        const IDENT: &'static str = "TestMultiAccount";
+        const IDENT: &'static str = "TestParentAccount";
     }
 
-    impl<'a, 'b> MultiAccountAccount<'b> for TestMultiAccount<'a, 'b> {
-        const COUNT: usize = SUB_ACCOUNT_COUNT;
-        const ACCOUNT_SIZE: usize = 2;
+    impl<'a, 'b, 't> SizedAccount for TestParentAccount<'a, 'b, 't> {
+        const SIZE: usize = 0;
+    }
 
-        unsafe fn get_account_unsafe(&self, account_index: usize) -> Result<&AccountInfo<'b>, ProgramError> {
-            Ok(self.accounts[&account_index])
+    impl<'a, 'b, 't> ProgramAccount<'a> for TestParentAccount<'a, 'b, 't> {
+        fn new(_data: &'a mut [u8]) -> Result<Self, ProgramError> {
+            Ok(
+                Self {
+                    _data,
+                    pubkeys: [ElusivOption::None; CHILD_ACCOUNT_COUNT],
+                    accounts: vec![None; CHILD_ACCOUNT_COUNT],
+                }
+            )
         }
     }
 
-    impl<'a, 'b> TestMultiAccount<'a, 'b> {
-        fn serialize(&self) -> Vec<u8> {
-            let mut v = Vec::new();
-            v.extend(vec![0; 3]);
-            v.extend(self.pubkeys.try_to_vec().unwrap());
-            v
+    impl<'a, 'b, 't> ParentAccount<'a, 'b, 't> for TestParentAccount<'a, 'b, 't> {
+        const COUNT: usize = CHILD_ACCOUNT_COUNT;
+        type Child = TestChildAccount;
+
+        unsafe fn get_child_account_unsafe(&self, child_index: usize) -> Result<&AccountInfo<'t>, ProgramError> {
+            match self.accounts[child_index] {
+                Some(account) => Ok(account),
+                None => Err(ProgramError::InvalidArgument)
+            }
         }
-    }
 
-    const SUB_ACCOUNT_COUNT: usize = 3;
+        fn set_child_accounts(parent: &mut Self, child_accounts: Vec<Option<&'b AccountInfo<'t>>>) {
+            parent.accounts.copy_from_slice(&child_accounts)
+        }
 
-    macro_rules! test_multi_account {
-        ($accounts: ident, $pubkeys: ident) => {
-            let mut accounts = HashMap::new();
-            let mut pubkeys = [ElusivOption::None; SUB_ACCOUNT_COUNT];
+        fn get_child_pubkey(&self, index: usize) -> Option<Pubkey> {
+            self.pubkeys[index].option()
+        }
 
-            repeat!({
-                let pk = solana_program::pubkey::Pubkey::new_unique();
-                account_info!(account_index, pk, vec![1, 0]);
-                accounts.insert(_index, &account_index);
-
-                pubkeys[_index] = ElusivOption::Some(pk);
-            }, 3);
-
-            let $accounts = accounts;
-            let $pubkeys = pubkeys;
-
-        };
-
-        ($id: ident) => {
-            test_multi_account!(accounts, pubkeys);
-            let $id = TestMultiAccount { pubkeys, accounts };
-        };
-        (mut $id: ident) => {
-            test_multi_account!(accounts, pubkeys);
-            let mut $id = TestMultiAccount { pubkeys, accounts };
-        };
+        fn set_child_pubkey(&mut self, index: usize, pubkey: ElusivOption<Pubkey>) {
+            self.pubkeys[index] = pubkey
+        }
     }
 
     #[test]
     #[should_panic]
-    fn test_get_account_unsafe() {
-        test_multi_account!(account);
-        unsafe { _ = account.get_account_unsafe(3); }
+    fn test_get_child_account_unsafe() {
+        parent_account!(account, TestParentAccount);
+        unsafe { _ = account.get_child_account_unsafe(3); }
     }
 
     #[test]
-    fn test_try_execute_on_sub_account() {
-        test_multi_account!(account);
+    fn test_execute_on_child_account() {
+        parent_account!(account, TestParentAccount);
 
-        for i in 0..SUB_ACCOUNT_COUNT {
-            assert_eq!(
-                account.try_execute_on_sub_account_mut::<_, usize, ProgramError>(i, |data| {
-                    data[0] = i as u8 + 1;
-                    Ok(42)
-                }).unwrap(),
-                42
-            );
-        }
-
-        for i in 0..SUB_ACCOUNT_COUNT {
-            assert_eq!(account.accounts[&i].data.borrow()[1], i as u8 + 1);
-        }
-    }
-
-    #[test]
-    fn test_execute_on_sub_account() {
-        test_multi_account!(account);
-
-        for i in 0..SUB_ACCOUNT_COUNT {
-            account.execute_on_sub_account_mut(i, |data| {
+        for i in 0..CHILD_ACCOUNT_COUNT {
+            account.execute_on_child_account_mut(i, |data| {
                 data[0] = i as u8 + 1;
             }).unwrap();
         }
 
-        for i in 0..SUB_ACCOUNT_COUNT {
-            assert_eq!(account.accounts[&i].data.borrow()[1], i as u8 + 1);
+        for i in 0..CHILD_ACCOUNT_COUNT {
+            assert_eq!(
+                account.accounts[i].unwrap().data.borrow()[1],
+                i as u8 + 1
+            );
+        }
+
+        for i in 0..CHILD_ACCOUNT_COUNT {
+            account.execute_on_child_account(i, |data| {
+                assert_eq!(data[0], i as u8 + 1);
+            }).unwrap();
         }
     }
 
     fn test_find(
-        pubkey_is_setup: [bool; SUB_ACCOUNT_COUNT],
-        accounts: Vec<Option<usize>>,
-        expected: Vec<usize>,
+        pubkey_is_setup: [bool; CHILD_ACCOUNT_COUNT],
+        provided_accounts: Vec<Option<usize>>,
+        expected_accounts: Vec<usize>,
     ) {
-        test_multi_account!(mut account);
+        parent_account!(mut parent, TestParentAccount);
         for (i, &is_setup) in pubkey_is_setup.iter().enumerate() {
-            if is_setup { continue }
-            account.pubkeys[i] = ElusivOption::None;
+            if is_setup {
+                parent.set_child_pubkey(i, ElusivOption::Some(*parent.accounts[i].unwrap().key));
+            }
         }
 
-        let data = account.serialize();
-        let pk = solana_program::pubkey::Pubkey::new_unique();
-        account_info!(main_account, pk, data);
-
-        let pk = solana_program::pubkey::Pubkey::new_unique();
-        account_info!(unused_account, pk, vec![1, 0]);
-
-        let account_info_iter = &mut accounts.iter().map(|a| match a {
-            Some(i) => account.accounts[i],
-            None => &unused_account,
-        });
-        let len_prev = account_info_iter.len();
-        let map = TestMultiAccount::find_sub_accounts::<_, TestMultiAccount, {SUB_ACCOUNT_COUNT}>(
-            &main_account,
+        account_info!(unused_account, Pubkey::new_unique(), vec![1, 0]);
+        let account_info_iter = &mut provided_accounts.iter()
+            .map(|i| match i {
+                Some(i) => parent.accounts[*i].unwrap(),
+                None => &unused_account
+            });
+    
+        let matched_accounts = TestParentAccount::find_child_accounts(
+            &parent,
             &crate::ID,
             false,
             account_info_iter,
         ).unwrap();
-        assert_eq!(len_prev, account_info_iter.len() + map.len());
 
-        let mut keys: Vec<usize> = map.iter().map(|(&k, _)| k).collect();
-        keys.sort_unstable();
-        assert_eq!(keys, expected);
-        for key in keys {
-            assert_eq!(map[&key].key, account.accounts[&key].key);
+        assert_eq!(matched_accounts.len(), TestParentAccount::COUNT);
+
+        let mut indices = Vec::new();
+        for (i, value) in matched_accounts.iter().enumerate() {
+            if let Some(account) = value {
+                assert_eq!(parent.accounts[i].unwrap().key, account.key);
+
+                indices.push(i);
+            }
         }
+
+        assert_eq!(indices, expected_accounts);
     }
 
     #[test]
-    fn test_find_sub_accounts() {
-        // All none
+    fn test_find_child_accounts() {
+        // All None
         test_find(
             [false, false, false],
             vec![Some(0), Some(1), Some(2)],

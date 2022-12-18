@@ -156,7 +156,7 @@ pub const fn commitments_per_batch(batching_rate: u32) -> usize {
 /// - the HT contains the commitments and has `2ˆ{batching_rate + 1} - 1` hashes
 pub const fn hash_count_per_batch(batching_rate: u32) -> usize {
     // batching_rate - 1 is the height of the sub-tree without commitments
-    two_pow!(batching_rate) - 1 + MT_HEIGHT as usize - batching_rate as usize
+    two_pow!(batching_rate) - 1 + MT_HEIGHT - batching_rate as usize
 }
 
 /// Max amount of nodes in a HT (commitments + hashes)
@@ -388,7 +388,7 @@ impl<'a> CommitmentHashingAccount<'a> {
 
                 storage_account.set_node(
                     &self.get_above_hashes(i),
-                    ordering as usize,
+                    ordering,
                     mt_layer,
                 ).unwrap();
             }
@@ -430,7 +430,7 @@ mod tests {
     use crate::fields::{u256_from_str, u64_to_u256_skip_mr, u64_to_scalar_skip_mr, u64_to_scalar};
     use crate::state::EMPTY_TREE;
     use crate::state::program_account::{ProgramAccount, SizedAccount};
-    use crate::macros::storage_account;
+    use crate::macros::parent_account;
     use crate::types::RawU256;
     use ark_bn254::Fr;
     use ark_ff::Zero;
@@ -451,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_hash_count_per_batch() {
-        let n = MT_HEIGHT as usize;
+        let n = MT_HEIGHT;
 
         // 1 or 2 commitments => tree height hashes
         assert_eq!(hash_count_per_batch(0), n);
@@ -607,7 +607,7 @@ mod tests {
     fn test_update_mt() {
         let mut data = vec![0; CommitmentHashingAccount::SIZE];
         let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
-        storage_account!(mut storage_account);
+        parent_account!(mut storage_account, StorageAccount);
 
         let batching_rates: Vec<u32> = (0..MAX_COMMITMENT_BATCHING_RATE as u32).collect();
         let mut previous_commitments_count = 0;

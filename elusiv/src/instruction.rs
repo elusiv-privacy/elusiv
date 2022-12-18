@@ -13,12 +13,6 @@ use crate::processor::{
 };
 use crate::state::queue::CommitmentQueueAccount;
 use crate::state::{
-    program_account::{
-        PDAAccount,
-        MultiAccountAccount,
-        ProgramAccount,
-        MultiAccountProgramAccount,
-    },
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
     StorageAccount,
     NullifierAccount,
@@ -75,7 +69,7 @@ pub enum ElusivInstruction {
 
     // Hashes commitments in a new MT-root
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
-    #[pda(storage_account, StorageAccount, { multi_accounts })]
+    #[pda(storage_account, StorageAccount, { include_child_accounts })]
     InitCommitmentHashSetup,
 
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
@@ -92,7 +86,7 @@ pub enum ElusivInstruction {
     },
 
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
-    #[pda(storage_account, StorageAccount, { multi_accounts, writable })]
+    #[pda(storage_account, StorageAccount, { include_child_accounts, writable })]
     FinalizeCommitmentHash,
 
     // -------- Proof Verification --------
@@ -100,12 +94,13 @@ pub enum ElusivInstruction {
     // Proof verification initialization
     #[acc(fee_payer, { writable, signer })]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable, account_info, find_pda })]
-    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { multi_accounts, ignore_sub_accounts })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id))]
     #[acc(nullifier_duplicate_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
-    #[pda(storage_account, StorageAccount, { multi_accounts, ignore_sub_accounts })]
-    #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(tree_indices[0]), { multi_accounts })]
-    #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(tree_indices[1]), { multi_accounts })]
+    #[acc(identifier_account)]
+    #[pda(storage_account, StorageAccount)]
+    #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(tree_indices[0]), { include_child_accounts })]
+    #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(tree_indices[1]), { include_child_accounts })]
     InitVerification {
         verification_account_index: u32,
         vkey_id: u32,
@@ -139,7 +134,7 @@ pub enum ElusivInstruction {
 
     // Proof verification computation
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
-    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { multi_accounts })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { include_child_accounts })]
     #[sys(instructions_account, key = instructions::ID)]
     ComputeVerification {
         verification_account_index: u32,
@@ -149,18 +144,17 @@ pub enum ElusivInstruction {
     // Finalizing proofs that finished 
     #[acc(recipient)]
     #[acc(identifier_account)]
-    #[acc(salt_account)]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
-    #[pda(storage_account, StorageAccount, { multi_accounts, ignore_sub_accounts })]
+    #[pda(storage_account, StorageAccount)]
     FinalizeVerificationSend {
         data: FinalizeSendData,
         verification_account_index: u32,
     },
 
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
-    #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, multi_accounts, skip_abi })]
-    #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, multi_accounts, skip_abi  })]
+    #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, include_child_accounts, skip_abi })]
+    #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, include_child_accounts, skip_abi  })]
     FinalizeVerificationSendNullifiers {
         verification_account_index: u32,
     },
@@ -211,7 +205,7 @@ pub enum ElusivInstruction {
     },
 
     #[acc(signer, { signer })]
-    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, multi_accounts })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, include_child_accounts })]
     SetVkeyAccountData {
         vkey_id: u32,
         data_position: u32,
@@ -219,7 +213,7 @@ pub enum ElusivInstruction {
     },
 
     #[acc(signer, { signer })]
-    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, multi_accounts, ignore_sub_accounts })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable })]
     FreezeVkeyAccount {
         vkey_id: u32,
     },
@@ -227,17 +221,17 @@ pub enum ElusivInstruction {
     // -------- MT management --------
 
     // Set the next MT as the active MT
-    #[pda(storage_account, StorageAccount, { writable, multi_accounts })]
+    #[pda(storage_account, StorageAccount, { writable, include_child_accounts })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
-    #[pda(active_nullifier_account, NullifierAccount, pda_offset = Some(active_mt_index), { writable, multi_accounts, ignore_sub_accounts })]
+    #[pda(active_nullifier_account, NullifierAccount, pda_offset = Some(active_mt_index), { writable })]
     ResetActiveMerkleTree {
         active_mt_index: u32,
     },
 
     // Archives a `NullifierAccount` into a N-SMT (Nullifier-Sparse-Merkle-Tree)
     #[acc(payer, { writable, signer })]
-    #[pda(storage_account, StorageAccount, { writable, multi_accounts })]
-    #[pda(nullifier_account, NullifierAccount, pda_offset = Some(closed_mt_index), { writable, multi_accounts })]
+    #[pda(storage_account, StorageAccount, { writable, include_child_accounts })]
+    #[pda(nullifier_account, NullifierAccount, pda_offset = Some(closed_mt_index), { writable, include_child_accounts })]
     #[acc(archived_tree_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     ArchiveClosedMerkleTree {
@@ -263,17 +257,17 @@ pub enum ElusivInstruction {
         pda_offset: u32,
     },
 
-    #[pda(storage_account, StorageAccount, { account_info, writable })]
+    #[pda(storage_account, StorageAccount, { writable })]
     #[acc(sub_account, { owned, writable })]
-    EnableStorageSubAccount {
-        sub_account_index: u32,
+    EnableStorageChildAccount {
+        child_index: u32,
     },
 
-    #[pda(nullifier_account, NullifierAccount, pda_offset = Some(mt_index), { account_info, writable })]
+    #[pda(nullifier_account, NullifierAccount, pda_offset = Some(mt_index), { writable })]
     #[acc(sub_account, { owned, writable })]
-    EnableNullifierSubAccount {
+    EnableNullifierChildAccount {
         mt_index: u32,
-        sub_account_index: u32,
+        child_index: u32,
     },
 
     #[acc(payer, { writable, signer })]
@@ -322,8 +316,8 @@ pub enum ElusivInstruction {
     Nop,
 }
 
-#[cfg(feature = "elusiv-client")]
-use solana_program::pubkey::Pubkey;
+#[cfg(feature = "elusiv-client")] use solana_program::pubkey::Pubkey;
+#[cfg(feature = "elusiv-client")] use elusiv_types::accounts::PDAAccount;
 
 #[cfg(feature = "elusiv-client")]
 pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {

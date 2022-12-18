@@ -6,14 +6,13 @@ use borsh::{BorshSerialize, BorshDeserialize};
 use common::*;
 use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
 use elusiv_computation::PartialComputation;
-use elusiv_types::MultiAccountAccountData;
 use pyth_sdk_solana::Price;
 use solana_program::program_pack::Pack;
 use solana_program::system_program;
 use elusiv::bytes::{ElusivOption, BorshSerDeSized};
 use elusiv::instruction::{ElusivInstruction, WritableUserAccount, SignerAccount, WritableSignerAccount, UserAccount};
 use elusiv::proof::vkey::{SendQuadraVKey, VerifyingKeyInfo, VKeyAccount, VKeyAccountEager};
-use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, VerificationState, CombinedMillerLoop};
+use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, VerificationState, CombinedMillerLoop, FinalExponentiation, VerificationStep};
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
 use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
@@ -23,6 +22,7 @@ use elusiv::processor::{ProofRequest, FinalizeSendData, program_token_account_ad
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
+use solana_sdk::compute_budget::ComputeBudgetInstruction;
 use spl_associated_token_account::get_associated_token_address;
 
 async fn start_verification_test() -> ElusivProgramTest {
@@ -268,9 +268,7 @@ async fn setup_vkey_account<VKey: VerifyingKeyInfo>(test: &mut ElusivProgramTest
             version: 0,
             initialized: true,
         },
-        multi_account_data: MultiAccountAccountData {
-            pubkeys: [ElusivOption::Some(sub_account_pubkey)]
-        },
+        pubkeys: [ElusivOption::Some(sub_account_pubkey)],
         public_inputs_count: VKey::PUBLIC_INPUTS_COUNT,
         is_frozen: true,
         deploy_authority: ElusivOption::None,
@@ -318,6 +316,7 @@ async fn test_init_proof_signers() {
             false,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(Pubkey::new_unique()),
             &user_accounts(&[nullifier_accounts[0]]),
             &[],
         ),
@@ -405,6 +404,7 @@ async fn test_init_proof_lamports() {
             skip_nullifier_pda,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(Pubkey::new_unique()),
             &user_accounts(&[nullifier_accounts[0]]),
             &[],
         )
@@ -518,6 +518,7 @@ async fn test_init_proof_token() {
             false,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(Pubkey::new_unique()),
             &user_accounts(&[nullifier_accounts[0]]),
             &[],
         ),
@@ -608,6 +609,7 @@ async fn test_finalize_proof_lamports() {
                 false,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_from_array(extra_data.identifier)),
                 &user_accounts(&[nullifier_accounts[0]]),
                 &[],
             ),
@@ -632,7 +634,6 @@ async fn test_finalize_proof_lamports() {
 
     let recipient = Pubkey::new_from_array(extra_data.recipient);
     let identifier = Pubkey::new_from_array(extra_data.identifier);
-    let iv = Pubkey::new_from_array(extra_data.iv);
 
     // Fill in nullifiers to test heap/compute unit limits
     {   
@@ -659,11 +660,11 @@ async fn test_finalize_proof_lamports() {
                     mt_index: 0,
                     commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
+                    iv: extra_data.iv,
                 },
                 0,
                 UserAccount(recipient),
                 UserAccount(identifier),
-                UserAccount(iv),
             )
         ]
     ).await;
@@ -783,6 +784,7 @@ async fn test_finalize_proof_token() {
                 false,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_from_array(extra_data.identifier)),
                 &user_accounts(&[nullifier_accounts[0]]),
                 &[],
             ),
@@ -813,7 +815,6 @@ async fn test_finalize_proof_token() {
     skip_computation(0, true, &mut test).await;
 
     let identifier = Pubkey::new_from_array(extra_data.identifier);
-    let iv = Pubkey::new_from_array(extra_data.iv);
 
     // Finalize
     test.ix_should_succeed_simple(
@@ -825,11 +826,11 @@ async fn test_finalize_proof_token() {
                 mt_index: 0,
                 commitment_index: 0,
                 encrypted_owner: extra_data.encrypted_owner,
+                iv: extra_data.iv,
             },
             0,
             UserAccount(recipient_token_account),
             UserAccount(identifier),
-            UserAccount(iv),
         )
     ).await;
 
@@ -913,7 +914,6 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &test.genesis_fee().await);
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
-    let iv = Pubkey::new_from_array(extra_data.iv);
 
     warden.airdrop(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL, &mut test).await;
     test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
@@ -929,6 +929,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                 skip_nullifier_pda,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_from_array(extra_data.identifier)),
                 &user_accounts(&[nullifier_accounts[0]]),
                 &[],
             ),
@@ -964,11 +965,11 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                     mt_index: 0,
                     commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
+                    iv: extra_data.iv,
                 },
                 v_index,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
-                UserAccount(iv),
             ),
             ElusivInstruction::finalize_verification_send_nullifiers_instruction(
                 v_index,
@@ -1064,6 +1065,7 @@ async fn test_associated_token_account() {
             false,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(Pubkey::new_from_array(extra_data.identifier)),
             &user_accounts(&[nullifier_accounts[0]]),
             &[],
         ),
@@ -1206,7 +1208,7 @@ async fn test_finalize_proof_failure_token() {
 }
 
 #[tokio::test]
-async fn test_compute_proof_verifcation_instruction_uniformity() {
+async fn test_compute_proof_verifcation_invalid_proof() {
     let mut test = start_verification_test().await;
     let (_, vkey_sub_account) = setup_vkey_account::<SendQuadraVKey>(&mut test).await;
     let warden = test.new_actor().await;
@@ -1242,6 +1244,7 @@ async fn test_compute_proof_verifcation_instruction_uniformity() {
                 false,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_unique()),
                 &user_accounts(&[nullifier_accounts[0]]),
                 &[],
             ),
@@ -1258,16 +1261,41 @@ async fn test_compute_proof_verifcation_instruction_uniformity() {
         &[&warden.keypair],
     ).await;
 
-    // Both input preparation and combined miller loop work with 4 instructions (but input preparation only uses one)
-    for _ in 0..input_preparation_tx_count + CombinedMillerLoop::TX_COUNT {
-        test.tx_should_succeed_simple(
-            &[
-                request_compute_units(1_400_000),
-                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-                ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-            ]
-        ).await;
+    let instructions = [
+        request_compute_units(1_400_000),
+        ComputeBudgetInstruction::set_compute_unit_price(0),
+
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+    ];
+
+    // Input preparation
+    for _ in 0..input_preparation_tx_count {
+        test.tx_should_succeed_simple(&instructions).await;
     }
+
+    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    assert_eq!(v_acc.get_is_verified().option(), None);
+    assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::CombinedMillerLoop);
+
+    // Combined miller loop
+    for _ in 0..CombinedMillerLoop::TX_COUNT {
+        test.tx_should_succeed_simple(&instructions).await;
+    }
+
+    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    assert_eq!(v_acc.get_is_verified().option(), None);
+    assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
+
+    // Final exponentiation
+    for _ in 0..FinalExponentiation::TX_COUNT {
+        test.tx_should_succeed_simple(&instructions).await;
+    }
+
+    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    assert_eq!(v_acc.get_is_verified().option(), Some(false));
+    assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
 }

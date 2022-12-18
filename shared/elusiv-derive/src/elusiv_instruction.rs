@@ -110,12 +110,12 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         });
                     }
 
-                    // PDA accounts (usage: <name> <AccountType> <pda_offset: u32 = ..>? <account_info>? <multi_account>? <ownership>)
+                    // PDA accounts (usage: <name> <AccountType> <pda_offset: u32 = ..>? <account_info>? <include_child_accounts>? <ownership>)
                     "pda" => {
                         // Every PDA account needs to implement the trait `elusiv::state::program_account::PDAAccount`
                         // - this trait allows us to verify PDAs
-                        // - this allows us to define `MultiAccountAccount`s, which are a single main PDA account with `COUNT` sub-accounts
-                        // - the seed of the main account plus the index of each sub-account is used to generate their PDAs
+                        // - this allows us to define `ParentAccount`s, which are a single main PDA account with `COUNT` child-accounts
+                        // - the seed of the main account plus the index of each child-account is used to generate their PDAs
 
                         // The PDA account type
                         let ty: TokenStream = String::from(sub_attrs[1]).parse().unwrap();
@@ -128,22 +128,19 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             } else { quote!{ None } }
                         } else { quote!{ None } };
 
-                        // Multi account account
-                        let multi_account = sub_attrs.contains(&"multi_accounts");
-
-                        // (For multi accounts): skips all sub-accounts (-> no checks required -> speed up)
-                        let ignore_sub_accounts = sub_attrs.contains(&"ignore_sub_accounts");
+                        // ParentAccount?
+                        let include_child_accounts = sub_attrs.contains(&"include_child_accounts");
 
                         let skip_abi = sub_attrs.contains(&"skip_abi");
                         if skip_abi {
                             let offset_ident: TokenStream = format!("{}_pda_offset", sub_attrs[0]).parse().unwrap();
                             user_accounts.extend(quote!{ #offset_ident: Option<u32>, });
                             account_init.push(quote!{
-                                accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(<#ty>::find(#offset_ident).0, #is_signer));
+                                accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(<#ty as elusiv_types::accounts::PDAAccount>::find(#offset_ident).0, #is_signer));
                             });
                         } else {
                             account_init.push(quote!{
-                                accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(<#ty>::find(#pda_offset).0, #is_signer));
+                                accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(<#ty as elusiv_types::accounts::PDAAccount>::find(#pda_offset).0, #is_signer));
                             });
                         }
 
@@ -151,39 +148,33 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         let find_pda = sub_attrs.contains(&"find_pda"); // does not read the bump byte from the account data
                         if find_pda {
                             accounts.extend(quote!{
-                                if <#ty>::find(#pda_offset).0 != *#account.key { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
+                                if <#ty as elusiv_types::accounts::PDAAccount>::find(#pda_offset).0 != *#account.key { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
                             });
                         } else {
                             accounts.extend(quote!{
-                                if !<#ty>::is_valid_pubkey(&#account, #pda_offset, #account.key)? { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
+                                if !<#ty as elusiv_types::accounts::PDAAccount>::is_valid_pubkey(&#account, #pda_offset, #account.key)? { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
                             });
                         }
 
-                        if multi_account {
-                            // Sub-accounts with PDA and ownership check for each
-                            if !ignore_sub_accounts {
-                                accounts.extend(quote!{
-                                    let accounts = <#ty>::find_sub_accounts::<_, #ty, {<#ty>::COUNT}>(
-                                        #account,
-                                        program_id,
-                                        #is_writable,
-                                        account_info_iter,
-                                    )?;
-                                    let acc_data = &mut #account.data.borrow_mut()[..];
-                                });
+                        if include_child_accounts { // ParentAccount with arbitrary number of child-accounts
+                            accounts.extend(quote!{
+                                let acc_data = &mut #account.data.borrow_mut()[..];
+                                let mut #account = <#ty as elusiv_types::accounts::ProgramAccount>::new(acc_data)?;
 
-                                user_accounts.extend(quote!{ #account: &[#user_account_type], });
-                                account_init.push(quote!{
-                                    for account in #account {
-                                        accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(account.0, #is_signer));
-                                    }
-                                });
-                            } else {
-                                accounts.extend(quote!{
-                                    let acc_data = &mut #account.data.borrow_mut()[..];
-                                    let mut accounts = std::collections::HashMap::new();
-                                });
-                            }
+                                let child_accounts = <#ty as elusiv_types::accounts::ParentAccount>::find_child_accounts(
+                                    &#account,
+                                    program_id,
+                                    #is_writable,
+                                    account_info_iter,
+                                )?;
+                            });
+
+                            user_accounts.extend(quote!{ #account: &[#user_account_type], });
+                            account_init.push(quote!{
+                                for account in #account {
+                                    accounts.push(solana_program::instruction::AccountMeta::#account_init_fn(account.0, #is_signer));
+                                }
+                            });
 
                             if as_account_info {
                                 accounts.extend(quote!{
@@ -192,10 +183,10 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 });
                                 account = quote!{ #account };
                             } else if is_writable {
-                                accounts.extend(quote!{ let mut #account = #ty::new(acc_data, accounts)?; });
+                                accounts.extend(quote!{ <#ty as elusiv_types::accounts::ParentAccount>::set_child_accounts(&mut #account, child_accounts); });
                                 account = quote!{ &mut #account };
                             } else {
-                                accounts.extend(quote!{ let #account = #ty::new(acc_data, accounts)?; });
+                                accounts.extend(quote!{ <#ty as elusiv_types::accounts::ParentAccount>::set_child_accounts(&mut #account, child_accounts); });
                                 account = quote!{ &#account };
                             }
                         } else if as_account_info {
@@ -203,13 +194,13 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         } else if is_writable {
                             accounts.extend(quote!{
                                 let acc_data = &mut #account.data.borrow_mut()[..];
-                                let #mut_token #account = <#ty>::new(acc_data)?;
+                                let #mut_token #account = <#ty as elusiv_types::accounts::ProgramAccount>::new(acc_data)?;
                             });
                             account = quote!{ &mut #account };
                         } else {
                             accounts.extend(quote!{
                                 let acc_data = &mut #account.data.borrow_mut()[..];
-                                let #mut_token #account = <#ty>::new(acc_data)?;
+                                let #mut_token #account = <#ty as elusiv_types::accounts::ProgramAccount>::new(acc_data)?;
                             });
                             account = quote!{ &#account };
                         }

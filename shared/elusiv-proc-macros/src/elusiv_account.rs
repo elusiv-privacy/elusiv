@@ -1,6 +1,8 @@
 use syn::{Type, Data, Field, Fields};
 use quote::{quote, ToTokens};
 use proc_macro2::{TokenStream, TokenTree};
+use solana_program::pubkey::Pubkey;
+use std::str::FromStr;
 
 struct ElusivAccountAttr {
     ident: String,
@@ -84,48 +86,52 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let mut eager_init = quote!();
     let mut use_eager_type = false;
 
-    // Signature for the `new`
-    let mut account_ty = quote!{ elusiv_types::accounts::ProgramAccount };
-    let mut new_signature = quote!{ d: &'a mut [u8], };
-
     // 'a lifetime for the `ProgramAccount` impl
-    lifetimes.push(quote!('a));
+    let program_account_lifetime = quote!('a);
+    lifetimes.push(program_account_lifetime.clone());
 
     for attr in attrs {
         match attr.ident.as_str() {
-            // Turns the account into an `MultiAccountAccount`
-            "multi_account" => {
-                let sub_account_count = inner_attr_value("sub_account_count", &attr.value);
-                let sub_account_size = inner_attr_value("sub_account_size", &attr.value);
+            // Turns the account into an `ParentAccount` with `child_account_count` childs
+            "parent_account" => {
+                let child_account_count = inner_attr_value("child_account_count", &attr.value);
+                let child_account_type = inner_attr_value("child_account", &attr.value);
 
+                // TODO: field no longer does not need to be enforced at a specific index
                 enforce_field(
                     quote!{
-                        multi_account_data : MultiAccountAccountData < #sub_account_count >
+                        pubkeys : [ElusivOption < Pubkey >; #child_account_count]
                     },
                     1,
                     &s.fields,
                 );
             
-                account_ty = quote!{ elusiv_types::accounts::MultiAccountProgramAccount };
-
-                // 'a, 'b, 't lifetimes for the `MultiAccountProgramAccount` impl
+                // 'a, 'b, 't lifetimes for the `ParentAccount` impl
                 lifetimes.push(quote!('b));
                 lifetimes.push(quote!('t));
                 let b_lifetime = lifetimes.lifetimes[1].clone();
                 let t_lifetime = lifetimes.lifetimes[2].clone();
 
-                new_signature = quote!{
-                    d: &'a mut [u8], accounts: std::collections::HashMap<usize, &'b solana_program::account_info::AccountInfo<'t>>,
-                };
-
                 impls.extend(quote!{
-                    impl < #lifetimes > elusiv_types::accounts::MultiAccountAccount < #t_lifetime > for #ident < #lifetimes > {
-                        const COUNT: usize = #sub_account_count;
-                        const ACCOUNT_SIZE: usize = #sub_account_size;
+                    impl < #lifetimes > elusiv_types::accounts::ParentAccount < #program_account_lifetime, #b_lifetime, #t_lifetime > for #ident < #lifetimes > {
+                        const COUNT: usize = #child_account_count;
+                        type Child = #child_account_type;
 
-                        unsafe fn get_account_unsafe(&self, account_index: usize) -> Result<&solana_program::account_info::AccountInfo< #t_lifetime >, solana_program::program_error::ProgramError> {
-                            match self.accounts.get(&account_index) {
-                                Some(&m) => Ok(m),
+                        fn set_child_accounts(parent: &mut Self, child_accounts: Vec<Option<&'b solana_program::account_info::AccountInfo<'t>>>) {
+                            parent.child_accounts = child_accounts
+                        }
+
+                        fn set_child_pubkey(&mut self, index: usize, pubkey: ElusivOption<solana_program::pubkey::Pubkey>) {
+                            self.set_pubkeys(index, &pubkey)
+                        }
+
+                        fn get_child_pubkey(&self, index: usize) -> Option<solana_program::pubkey::Pubkey> {
+                            self.get_pubkeys(index).option()
+                        }
+
+                        unsafe fn get_child_account_unsafe(&self, child_index: usize) -> Result<& #b_lifetime solana_program::account_info::AccountInfo< #t_lifetime >, solana_program::program_error::ProgramError> {
+                            match self.child_accounts[child_index] {
+                                Some(child) => Ok(child),
                                 None => Err(solana_program::program_error::ProgramError::InvalidArgument)
                             }
                         }
@@ -133,12 +139,15 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 });
 
                 field_idents.extend(quote!{
-                    accounts,
+                    child_accounts,
+                });
+
+                fields_split.extend(quote!{
+                    let child_accounts = vec![None; <Self as elusiv_types::accounts::ParentAccount>::COUNT];
                 });
 
                 field_defs.extend(quote!{
-                    #[doc = "The sub accounts, mapped by their index"]
-                    accounts: std::collections::HashMap<usize, &#b_lifetime solana_program::account_info::AccountInfo< #t_lifetime >>,
+                    child_accounts: Vec<Option<&#b_lifetime solana_program::account_info::AccountInfo< #t_lifetime >>>,
                 });
             }
 
@@ -197,6 +206,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         let mut use_getter = true;
         let mut use_setter = true;
 
+        if field_ident == "data" {
+            panic!("'data' is a reserved keyword, please pick a different field identifier")
+        }
+
         eager_idents.extend(quote!{ #field_ident, });
 
         let mut doc = quote!();
@@ -222,7 +235,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     });
 
                     fields_split.extend(quote!{
-                        let (#field_ident, d) = d.split_at_mut(<#ty as elusiv_types::bytes::SizedType>::SIZE);
+                        let (#field_ident, data) = data.split_at_mut(<#ty as elusiv_types::bytes::SizedType>::SIZE);
                         let #field_ident = <#ty>::new(#field_ident);
                     });
 
@@ -288,12 +301,12 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         let mut ty2 = ty.clone();
                         anonymize_type_lifetimes(&mut ty2);
                         eager_init.extend(quote!{
-                            let (#field_ident, d) = d.split_at(<#ty2 as elusiv_types::bytes::SizedType>::SIZE);
+                            let (#field_ident, data) = data.split_at(<#ty2 as elusiv_types::bytes::SizedType>::SIZE);
                             let #field_ident = #field_ident.to_vec();
                         });
                     } else {
                         eager_init.extend(quote!{
-                            let (#field_ident, d) = d.split_at(<#ty as elusiv_types::bytes::SizedType>::SIZE);
+                            let (#field_ident, data) = data.split_at(<#ty as elusiv_types::bytes::SizedType>::SIZE);
                             let #field_ident = <#ty>::new(#field_ident)?;
                         });
                     }
@@ -301,11 +314,11 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     sizes.push(quote!{ <#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE });
 
                     fields_split.extend(quote!{
-                        let (#field_ident, d) = d.split_at_mut(<#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE);
+                        let (#field_ident, data) = data.split_at_mut(<#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE);
                     });
 
                     eager_init.extend(quote!{
-                        let (#field_ident, d) = d.split_at(<#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE);
+                        let (#field_ident, data) = data.split_at(<#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE);
                         let #field_ident = <#ty as borsh::BorshDeserialize>::try_from_slice(#field_ident)?;
                     });
 
@@ -340,11 +353,11 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 sizes.push(size.clone());
 
                 fields_split.extend(quote!{
-                    let (#field_ident, d) = d.split_at_mut(#size);
+                    let (#field_ident, data) = data.split_at_mut(#size);
                 });
 
                 eager_init.extend(quote!{
-                    let (#field_ident, d) = d.split_at(#size);
+                    let (#field_ident, data) = data.split_at(#size);
                     let #field_ident = <[#ty; #len] as borsh::BorshDeserialize>::try_from_slice(#field_ident)?;
                 });
 
@@ -396,8 +409,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
             #[cfg(feature = "elusiv-client")]
             impl #eager_ident {
-                pub fn new(d: Vec<u8>) -> Result<Self, std::io::Error> {
-                    if d.len() != < #ident < #anonymous_lifetimes > as elusiv_types::accounts::SizedAccount>::SIZE {
+                pub fn new(data: Vec<u8>) -> Result<Self, std::io::Error> {
+                    if data.len() != < #ident < #anonymous_lifetimes > as elusiv_types::accounts::SizedAccount>::SIZE {
                         return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid account data len"))
                     }
 
@@ -414,13 +427,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let eager_type_alternative_constructor = if use_eager_type {
         quote! {
             #[cfg(feature = "elusiv-client")]
-            pub fn new_eager(d: Vec<u8>) -> Result<#eager_ident, std::io::Error> {
-                <#eager_ident>::new(d)
+            pub fn new_eager(data: Vec<u8>) -> Result<#eager_ident, std::io::Error> {
+                <#eager_ident>::new(data)
             }
         }
     } else {
         quote!()
     };
+
+    let program_id = Pubkey::from_str(&crate::program_id::read_program_id()).unwrap();
+    let (first_pubkey, _) = Pubkey::find_program_address(&[pda_seed], &program_id);
+    let first_pubkey: TokenStream = format!("{:?}", first_pubkey.to_bytes()).parse().unwrap();
 
     quote! {
         #vis struct #ident < #lifetimes > {
@@ -435,9 +452,9 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
         #impls
 
-        impl < #lifetimes > #account_ty < #lifetimes > for #ident < #lifetimes > {
-            fn new(#new_signature) -> Result<Self, solana_program::program_error::ProgramError> {
-                if d.len() != <Self as elusiv_types::accounts::SizedAccount>::SIZE {
+        impl < #lifetimes > elusiv_types::accounts::ProgramAccount < #program_account_lifetime > for #ident < #lifetimes > {
+            fn new(data: &'a mut [u8]) -> Result<Self, solana_program::program_error::ProgramError> {
+                if data.len() != <Self as elusiv_types::accounts::SizedAccount>::SIZE {
                     return Err(solana_program::program_error::ProgramError::InvalidArgument)
                 }
 
@@ -454,6 +471,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         impl < #lifetimes > elusiv_types::accounts::PDAAccount for #ident < #lifetimes > {
             const PROGRAM_ID: solana_program::pubkey::Pubkey = crate::PROGRAM_ID;            
             const SEED: &'static [u8] = &#pda_seed_tokens;
+            const FIRST_PUBKEY: solana_program::pubkey::Pubkey = solana_program::pubkey::Pubkey::new_from_array(#first_pubkey);
 
             #[cfg(feature = "elusiv-client")]
             const IDENT: &'static str = #ident_str;
