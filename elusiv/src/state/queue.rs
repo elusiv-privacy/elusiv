@@ -237,7 +237,7 @@ mod tests {
         test_queue!(queue, 7, 0, 0);
 
         for i in 0..queue.capacity() {
-            queue.enqueue(i as u32).unwrap();
+            queue.enqueue(i).unwrap();
             assert_eq!(0, queue.view_first().unwrap()); // first element does not change
             assert_eq!(queue.len(), i + 1);
         }
@@ -248,7 +248,7 @@ mod tests {
         test_queue!(queue, 7, 0, 0);
 
         for i in 0..queue.capacity() {
-            queue.enqueue(i as u32).unwrap();
+            queue.enqueue(i).unwrap();
             assert_eq!(0, queue.view_first().unwrap()); // first element does not change
             assert_eq!(queue.len(), i + 1);
         }

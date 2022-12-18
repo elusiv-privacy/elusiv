@@ -156,7 +156,7 @@ pub const fn commitments_per_batch(batching_rate: u32) -> usize {
 /// - the HT contains the commitments and has `2ˆ{batching_rate + 1} - 1` hashes
 pub const fn hash_count_per_batch(batching_rate: u32) -> usize {
     // batching_rate - 1 is the height of the sub-tree without commitments
-    two_pow!(batching_rate) - 1 + MT_HEIGHT as usize - batching_rate as usize
+    two_pow!(batching_rate) - 1 + MT_HEIGHT - batching_rate as usize
 }
 
 /// Max amount of nodes in a HT (commitments + hashes)
@@ -388,7 +388,7 @@ impl<'a> CommitmentHashingAccount<'a> {
 
                 storage_account.set_node(
                     &self.get_above_hashes(i),
-                    ordering as usize,
+                    ordering,
                     mt_layer,
                 ).unwrap();
             }
@@ -451,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_hash_count_per_batch() {
-        let n = MT_HEIGHT as usize;
+        let n = MT_HEIGHT;
 
         // 1 or 2 commitments => tree height hashes
         assert_eq!(hash_count_per_batch(0), n);

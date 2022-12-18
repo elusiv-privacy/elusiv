@@ -1167,7 +1167,7 @@ mod tests {
 
         for i in 0..COMBINED_MILLER_LOOP_IXS {
             let round = storage.get_round();
-            combined_miller_loop(&mut storage, &vkey, i as usize, round as usize).unwrap();
+            combined_miller_loop(&mut storage, &vkey, i, round as usize).unwrap();
         }
         assert_eq!(storage.f.get().0, expected);
     }
@@ -1291,7 +1291,7 @@ mod tests {
 
         for i in 0..FINAL_EXPONENTIATION_IXS {
             let round = storage.get_round();
-            final_exponentiation(&mut storage, &vkey, i as usize, round as usize).unwrap();
+            final_exponentiation(&mut storage, &vkey, i, round as usize).unwrap();
         }
         assert_eq!(storage.f.get().0, expected);
     }

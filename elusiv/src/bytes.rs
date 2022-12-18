@@ -159,7 +159,7 @@ mod tests {
 
         for i in 0..length {
             assert!(contains(i as u64, &data[..]));
-            assert_eq!(find(i as u64, &data[..], length).unwrap(), i as usize);
+            assert_eq!(find(i as u64, &data[..], length).unwrap(), i);
         }
         for i in length..length + 20 {
             assert!(!contains(i as u64, &data[..]));

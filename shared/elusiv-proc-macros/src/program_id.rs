@@ -31,7 +31,7 @@ pub fn impl_program_id() -> TokenStream {
 pub fn read_program_id() -> String {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let file_name = manifest_dir + "/Id.toml";
-    let contents = fs::read_to_string(&file_name).unwrap();
+    let contents = fs::read_to_string(file_name).unwrap();
     let id: Elusiv = toml::from_str(&contents).unwrap();
 
     if cfg!(feature = "mainnet") {

@@ -175,7 +175,7 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         }
 
         let len = self.len.get();
-        let next_len = len + if self.is_full() { 0 } else { 1 };
+        let next_len = len + u32::from(!self.is_full());
 
         /*if (index as u32) < len / 2 { // Move mid to the left
             let min_ptr = self.min_ptr.get();

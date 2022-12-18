@@ -198,5 +198,5 @@ pub fn batched_instructions_tx_count(
     compute_units_per_ix: u32,
 ) -> usize {
     let batch_size = elusiv_computation::MAX_COMPUTE_UNIT_LIMIT as usize / compute_units_per_ix as usize;
-    total_ix_count / batch_size + if total_ix_count % batch_size == 0 { 0 } else { 1 }
+    total_ix_count / batch_size + usize::from(total_ix_count % batch_size != 0)
 }
