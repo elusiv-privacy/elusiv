@@ -65,6 +65,14 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let vis = vis_token(&ast.vis);
     let s = if let Data::Struct(s) = &ast.data { s } else { panic!("Only structs can be used with `elusiv_account`") };
 
+    let struct_attrs = ast.attrs
+        .iter()
+        .fold(TokenStream::new(), |acc, x| {
+            let mut acc = acc;
+            acc.extend(x.to_token_stream());
+            acc
+        });
+
     let attrs: Vec<TokenTree> = attrs.into_iter().collect();
     let attrs = match_attrs(&attrs);
 
@@ -440,6 +448,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let first_pubkey: TokenStream = format!("{:?}", first_pubkey.to_bytes()).parse().unwrap();
 
     quote! {
+        #struct_attrs
         #vis struct #ident < #lifetimes > {
             #field_defs
         }
