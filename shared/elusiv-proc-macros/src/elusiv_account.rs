@@ -92,6 +92,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let mut eager_idents = quote!();
     let mut eager_defs = quote!();
     let mut eager_init = quote!();
+    let mut eager_impls = quote!();
     let mut use_eager_type = false;
 
     // 'a lifetime for the `ProgramAccount` impl
@@ -142,6 +143,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                                 Some(child) => Ok(child),
                                 None => Err(solana_program::program_error::ProgramError::InvalidArgument)
                             }
+                        }
+                    }
+                });
+
+                eager_impls.extend(quote!{
+                    #[cfg(feature = "elusiv-client")]
+                    impl elusiv_types::accounts::EagerParentAccount for #eager_ident {
+                        fn child_pubkeys(&self) -> Vec<Option<solana_program::pubkey::Pubkey>> {
+                            self.pubkeys.iter()
+                                .map(|p| p.option())
+                                .collect()
                         }
                     }
                 });
