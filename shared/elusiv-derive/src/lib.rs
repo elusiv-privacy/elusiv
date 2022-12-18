@@ -37,6 +37,11 @@ use jit::*;
 ///         - `include_child_accounts`: the `Type` has to implement the `crate::state::program_account::ParentAccount` trait and up to `Type::COUNT + 1` accounts can be matched (but at least 1)
 ///         - `skip_abi`: can be used to add manual pda_offsets in the abi
 /// 
+/// # Other attributes
+/// - Each variant can also be equipped with any other kind of attributes (cfg or do documentation).
+/// - Documentation can either be added using the `doc` attribute or with the normal syntax.
+/// - The only restriction is that docs need to be first, followed by any kind of attr and then the account attrs.
+/// 
 /// # Usage
 /// ```
 /// #[derive(ElusivInstruction)]

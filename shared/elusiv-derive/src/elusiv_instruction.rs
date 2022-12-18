@@ -66,7 +66,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                             "Invalid attribute order"
                         );
 
-                        other_attrs.extend(docs.to_token_stream());
+                        docs.extend(docs.to_token_stream());
                     } else {
                         assert!(
                             matches!(current_attr_type, AttrType::Docs | AttrType::Any),

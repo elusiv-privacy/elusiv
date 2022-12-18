@@ -11,10 +11,17 @@ pub trait SizedAccount: Sized {
     const SIZE: usize;
 }
 
-/// A [`SizedAccount`] being owned by the program
+/// A [`SizedAccount`] being owned by the program, represented by a mutable byte slice
 pub trait ProgramAccount<'a>: SizedAccount {
     /// Attempts to create a new instance of [`Self`] from a buffer
     fn new(data: &'a mut [u8]) -> Result<Self, ProgramError>;
+}
+
+/// A [`SizedAccount`] being owned by the program, fully deserialized
+#[cfg(feature = "elusiv-client")]
+pub trait EagerProgramAccount: Sized {
+    /// Attempts to create a new instance of [`Self`] from a buffer
+    fn new(data: Vec<u8>) -> Result<Self, std::io::Error>;
 }
 
 /// A program owned system-program account that can store data up to 10 MiB in size

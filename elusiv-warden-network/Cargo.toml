@@ -16,7 +16,7 @@ members = [
 mainnet = ["elusiv-proc-macros/mainnet"]
 devnet = ["elusiv-proc-macros/devnet"]
 
-elusiv-client = []
+elusiv-client = ["elusiv-types/elusiv-client"]
 no-entrypoint = []
 
 test-bpf = []
