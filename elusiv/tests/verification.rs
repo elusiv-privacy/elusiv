@@ -316,6 +316,7 @@ async fn test_init_proof_signers() {
             false,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(Pubkey::new_unique()),
             &user_accounts(&[nullifier_accounts[0]]),
             &[],
         ),
@@ -403,6 +404,7 @@ async fn test_init_proof_lamports() {
             skip_nullifier_pda,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(Pubkey::new_unique()),
             &user_accounts(&[nullifier_accounts[0]]),
             &[],
         )
@@ -516,6 +518,7 @@ async fn test_init_proof_token() {
             false,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(Pubkey::new_unique()),
             &user_accounts(&[nullifier_accounts[0]]),
             &[],
         ),
@@ -606,6 +609,7 @@ async fn test_finalize_proof_lamports() {
                 false,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_from_array(extra_data.identifier)),
                 &user_accounts(&[nullifier_accounts[0]]),
                 &[],
             ),
@@ -630,7 +634,6 @@ async fn test_finalize_proof_lamports() {
 
     let recipient = Pubkey::new_from_array(extra_data.recipient);
     let identifier = Pubkey::new_from_array(extra_data.identifier);
-    let iv = Pubkey::new_from_array(extra_data.iv);
 
     // Fill in nullifiers to test heap/compute unit limits
     {   
@@ -657,11 +660,11 @@ async fn test_finalize_proof_lamports() {
                     mt_index: 0,
                     commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
+                    iv: extra_data.iv,
                 },
                 0,
                 UserAccount(recipient),
                 UserAccount(identifier),
-                UserAccount(iv),
             )
         ]
     ).await;
@@ -781,6 +784,7 @@ async fn test_finalize_proof_token() {
                 false,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_from_array(extra_data.identifier)),
                 &user_accounts(&[nullifier_accounts[0]]),
                 &[],
             ),
@@ -811,7 +815,6 @@ async fn test_finalize_proof_token() {
     skip_computation(0, true, &mut test).await;
 
     let identifier = Pubkey::new_from_array(extra_data.identifier);
-    let iv = Pubkey::new_from_array(extra_data.iv);
 
     // Finalize
     test.ix_should_succeed_simple(
@@ -823,11 +826,11 @@ async fn test_finalize_proof_token() {
                 mt_index: 0,
                 commitment_index: 0,
                 encrypted_owner: extra_data.encrypted_owner,
+                iv: extra_data.iv,
             },
             0,
             UserAccount(recipient_token_account),
             UserAccount(identifier),
-            UserAccount(iv),
         )
     ).await;
 
@@ -911,7 +914,6 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &test.genesis_fee().await);
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
-    let iv = Pubkey::new_from_array(extra_data.iv);
 
     warden.airdrop(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL, &mut test).await;
     test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
@@ -927,6 +929,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                 skip_nullifier_pda,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_from_array(extra_data.identifier)),
                 &user_accounts(&[nullifier_accounts[0]]),
                 &[],
             ),
@@ -962,11 +965,11 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                     mt_index: 0,
                     commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
+                    iv: extra_data.iv,
                 },
                 v_index,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
-                UserAccount(iv),
             ),
             ElusivInstruction::finalize_verification_send_nullifiers_instruction(
                 v_index,
@@ -1062,6 +1065,7 @@ async fn test_associated_token_account() {
             false,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(Pubkey::new_from_array(extra_data.identifier)),
             &user_accounts(&[nullifier_accounts[0]]),
             &[],
         ),
@@ -1240,6 +1244,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
                 false,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_unique()),
                 &user_accounts(&[nullifier_accounts[0]]),
                 &[],
             ),

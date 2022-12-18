@@ -102,6 +102,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     verification_account: &AccountInfo<'a>,
     vkey_account: &VKeyAccount,
     nullifier_duplicate_account: &AccountInfo<'a>,
+    _identifier_account: &AccountInfo,
     storage_account: &StorageAccount,
     nullifier_account0: &NullifierAccount<'b, 'c, 'd>,
     nullifier_account1: &NullifierAccount<'b, 'c, 'd>,
@@ -131,6 +132,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     );
 
     // TODO: reject zero-commitment nullifier
+    // TODO: add identifier_account verification
 
     // Verify public inputs
     let join_split = match &request {
@@ -410,6 +412,7 @@ pub struct FinalizeSendData {
     /// Estimated index of the next-commitment in the MT
     pub commitment_index: u32,
 
+    pub iv: U256,
     pub encrypted_owner: U256,
 }
 
@@ -420,7 +423,6 @@ pub struct FinalizeSendData {
 pub fn finalize_verification_send(
     recipient: &AccountInfo,
     identifier_account: &AccountInfo,
-    iv_account: &AccountInfo,
     commitment_hash_queue: &mut CommitmentQueueAccount,
     verification_account: &mut VerificationAccount,
     storage_account: &StorageAccount,
@@ -452,7 +454,7 @@ pub fn finalize_verification_send(
     let hash = generate_hashed_inputs(
         recipient.key.to_bytes(),
         identifier_account.key.to_bytes(),
-        iv_account.key.to_bytes(),
+        data.iv,
         data.encrypted_owner,
         [0; 32],
         public_inputs.recipient_is_associated_token_account,
@@ -977,6 +979,7 @@ mod tests {
         parent_account!(s, StorageAccount);
         parent_account!(mut n, NullifierAccount);
         test_account_info!(fee_payer, 0);
+        test_account_info!(identifier, 0);
         account_info!(v_acc, VerificationAccount::find(Some(0)).0, vec![0; VerificationAccount::SIZE]);
 
         let mut inputs = SendPublicInputs {
@@ -1010,7 +1013,7 @@ mod tests {
 
         // Commitment-count too low
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.commitment_count = 0;
             })), false),
             Err(_)
@@ -1018,7 +1021,7 @@ mod tests {
 
         // Commitment-count too high
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.commitment_count = JOIN_SPLIT_MAX_N_ARITY + 1;
             })), false),
             Err(_)
@@ -1026,7 +1029,7 @@ mod tests {
 
         // Invalid root
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.roots[0] = Some(RawU256::new(u256_from_str_skip_mr("1")));
             })), false),
             Err(_)
@@ -1034,7 +1037,7 @@ mod tests {
 
         // First root is None
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.roots[0] = None;
             })), false),
             Err(_)
@@ -1042,13 +1045,13 @@ mod tests {
 
         // Mismatched tree indices
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [1, 0], Send(inputs.clone()), false),
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [1, 0], Send(inputs.clone()), false),
             Err(_)
         );
 
         // Zero commitment
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
                 v.join_split.commitment = RawU256::new(ZERO_COMMITMENT_RAW);
             })), false),
             Err(_)
@@ -1057,7 +1060,7 @@ mod tests {
         // Nullifier already exists
         n.try_insert_nullifier_hash(inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
         );
         
@@ -1065,13 +1068,13 @@ mod tests {
         parent_account!(n, NullifierAccount);
         account_info!(invalid_n_duplicate_acc, VerificationAccount::find(Some(0)).0, vec![1]);
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &invalid_n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
+            init_verification(&fee_payer, &v_acc, &vkey, &invalid_n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
         );
 
         // Migrate always fails 
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Migrate(
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Migrate(
                 MigratePublicInputs {
                     join_split: inputs.join_split.clone(),
                     current_nsmt_root: RawU256::new([0; 32]),
@@ -1082,7 +1085,7 @@ mod tests {
         );
 
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs), false),
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs), false),
             Ok(())
         );
     }
@@ -1380,12 +1383,11 @@ mod tests {
             $nullifier_duplicate_pda: ident,
             $recipient: ident,
             $identifier: ident,
-            $iv: ident,
             $finalize_data: ident
         ) => {
             let $recipient = Pubkey::new_unique().to_bytes();
             let $identifier = Pubkey::new_unique().to_bytes();
-            let $iv = Pubkey::new_unique().to_bytes();
+            let iv = Pubkey::new_unique().to_bytes();
             let encrypted_owner = Pubkey::new_unique().to_bytes();
 
             let $public_inputs = SendPublicInputs {
@@ -1403,7 +1405,7 @@ mod tests {
                 hashed_inputs: generate_hashed_inputs(
                     $recipient.clone(),
                     $identifier.clone(),
-                    $iv.clone(),
+                    iv.clone(),
                     encrypted_owner,
                     [0; 32],
                     false,
@@ -1434,6 +1436,7 @@ mod tests {
                 mt_index: 0,
                 commitment_index: 0,
                 encrypted_owner,
+                iv,
             };
         };
     }
@@ -1454,7 +1457,6 @@ mod tests {
             _nullifier_duplicate_pda,
             recipient_bytes,
             identifier_bytes,
-            iv_bytes,
             finalize_data
         );
 
@@ -1465,12 +1467,11 @@ mod tests {
 
         account_info!(recipient, Pubkey::new_from_array(recipient_bytes));
         account_info!(identifier, Pubkey::new_from_array(identifier_bytes));
-        account_info!(iv, Pubkey::new_from_array(iv_bytes));
 
         // Verification is not finished
         verification_acc.set_is_verified(&ElusivOption::None);
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &iv, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
             Err(_)
         );
 
@@ -1478,27 +1479,18 @@ mod tests {
 
         // Invalid recipient
         {
-            account_info!(recipient, Pubkey::new_from_array(iv_bytes));
+            account_info!(recipient, Pubkey::new_from_array(identifier_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &iv, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
+                finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
                 Err(_)
             );
         }
 
         // Invalid identifier
         {
-            account_info!(identifier, Pubkey::new_from_array(iv_bytes));
+            account_info!(identifier, Pubkey::new_from_array(recipient_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &iv, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
-                Err(_)
-            );
-        }
-
-        // Invalid iv
-        {
-            account_info!(iv, Pubkey::new_from_array(identifier_bytes));
-            assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &iv, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
+                finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
                 Err(_)
             );
         }
@@ -1510,16 +1502,18 @@ mod tests {
             mutate(&finalize_data, |d| { d.token_id = 0 }),
             mutate(&finalize_data, |d| { d.commitment_index = 1 }),
             mutate(&finalize_data, |d| { d.mt_index = 1 }),
+            mutate(&finalize_data, |d| { d.encrypted_owner = d.iv }),
+            mutate(&finalize_data, |d| { d.iv = d.encrypted_owner }),
         ] {
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &iv, &mut queue, &mut verification_acc, &storage, invalid_data, 0),
+                finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, invalid_data, 0),
                 Err(_)
             );
         }
 
         // Success
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &iv, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
             Ok(())
         );
 
@@ -1527,7 +1521,7 @@ mod tests {
 
         // Called twice
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &iv, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
             Err(_)
         );
     }
@@ -1541,7 +1535,6 @@ mod tests {
             _nullifier_duplicate_pda,
             recipient_bytes,
             identifier_bytes,
-            iv_bytes,
             finalize_data
         );
 
@@ -1552,12 +1545,11 @@ mod tests {
 
         account_info!(recipient, Pubkey::new_from_array(recipient_bytes));
         account_info!(identifier, Pubkey::new_from_array(identifier_bytes));
-        account_info!(iv, Pubkey::new_from_array(iv_bytes));
 
         verification_acc.set_is_verified(&ElusivOption::Some(false));
 
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &iv, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, finalize_data, 0),
             Ok(())
         );        
         assert_matches!(verification_acc.get_state(), VerificationState::Finalized);
@@ -1596,7 +1588,7 @@ mod tests {
         storage_account!(storage);
 
         assert_matches!(
-            finalize_verification_send(&acc, &acc, &acc, &mut queue, &mut v_account, &storage, finalize_data, 0),
+            finalize_verification_send(&acc, &acc, &mut queue, &mut v_account, &storage, finalize_data, 0),
             Err(_)
         );
     }
@@ -1610,7 +1602,6 @@ mod tests {
             _nullifier_duplicate_pda,
             _recipient_bytes,
             _identifier_bytes,
-            _salt_bytes,
             _finalize_data
         );
 
@@ -1655,7 +1646,6 @@ mod tests {
             nullifier_duplicate_pda,
             recipient_bytes,
             _identifier_bytes,
-            _salt_bytes,
             _finalize_data
         );
 
@@ -1743,7 +1733,6 @@ mod tests {
             nullifier_duplicate_pda,
             recipient_bytes,
             _identifier_bytes,
-            _salt_bytes,
             _finalize_data
         );
 

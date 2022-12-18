@@ -97,6 +97,7 @@ pub enum ElusivInstruction {
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id))]
     #[acc(nullifier_duplicate_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
+    #[acc(identifier_account)]
     #[pda(storage_account, StorageAccount)]
     #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(tree_indices[0]), { include_child_accounts })]
     #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(tree_indices[1]), { include_child_accounts })]
@@ -143,7 +144,6 @@ pub enum ElusivInstruction {
     // Finalizing proofs that finished 
     #[acc(recipient)]
     #[acc(identifier_account)]
-    #[acc(salt_account)]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(verification_account, VerificationAccount, pda_offset = Some(verification_account_index), { writable })]
     #[pda(storage_account, StorageAccount)]
