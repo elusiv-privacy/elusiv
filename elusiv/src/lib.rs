@@ -18,4 +18,5 @@ pub use entrypoint::*;
 pub use elusiv_computation;
 
 #[macro_use]
+#[cfg(feature = "static_assertions")]
 extern crate static_assertions;

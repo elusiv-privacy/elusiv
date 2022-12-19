@@ -297,19 +297,6 @@ pub enum ElusivInstruction {
     #[sys(system_program, key = system_program::ID, { ignore })]
     CloseProgramAccount,
 
-    // -------- Address-LUTs -------- (only temporary, will be moved to warden-network)
-
-    #[acc(warden, { writable, signer })]
-    #[acc(lut_reference, { writable })]
-    #[acc(lut_account)]
-    #[sys(system_program, key = system_program::ID, { ignore })]
-    CreateLutReferenceAccount,
-
-    #[acc(warden, { writable, signer })]
-    #[acc(lut_reference, { writable })]
-    #[sys(system_program, key = system_program::ID, { ignore })]
-    CloseLutReferenceAccount,
-
     // -------- NOP --------
 
     // NOP-instruction

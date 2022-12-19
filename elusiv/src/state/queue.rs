@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
 use solana_program::program_error::ProgramError;
+use elusiv_types::{ProgramAccount, PDAAccountData};
 use crate::commitment::commitments_per_batch;
 use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty, InvalidFeeVersion, InvalidQueueAccess};
 use crate::macros::{guard, elusiv_account};
 use crate::bytes::*;
 use crate::processor::CommitmentHashRequest;
-use super::program_account::{SizedAccount, ProgramAccount, PDAAccountData};
 
 /// Generates a [`QueueAccount`] and a [`Queue`] that implements the [`RingQueue`] trait
 macro_rules! queue_account {
@@ -22,11 +22,13 @@ macro_rules! queue_account {
             raw_data: [$ty_element; $size],
         }
 
+        #[cfg(feature = "static_assertions")]
         const_assert_eq!(
-            <$id_account>::SIZE,
+            <$id_account as elusiv_types::SizedAccount>::SIZE,
             PDAAccountData::SIZE + (4 + 4) + <$ty_element>::SIZE * ($size)
         );
 
+        #[cfg(feature = "static_assertions")]
         const_assert_eq!(
             <$id>::SIZE,
             $size
@@ -396,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_next_batch() {
-        let mut data = vec![0; CommitmentQueueAccount::SIZE];
+        let mut data = vec![0; <CommitmentQueueAccount as elusiv_types::SizedAccount>::SIZE];
         let mut q = CommitmentQueueAccount::new(&mut data).unwrap();
         let mut q = CommitmentQueue::new(&mut q);
 

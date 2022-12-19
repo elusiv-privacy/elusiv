@@ -6,10 +6,10 @@ publish = false
 
 [workspace]
 members = [
-    "shared/elusiv-types",
-    "shared/elusiv-utils",
     "shared/elusiv-derive",
     "shared/elusiv-proc-macros",
+    "shared/elusiv-types",
+    "shared/elusiv-utils",
 ]
 
 [features]
@@ -21,6 +21,7 @@ no-entrypoint = []
 
 test-bpf = []
 test-elusiv = []
+test-unit = ["elusiv-utils/test-unit"]
 
 [dependencies]
 elusiv-types = { path = "shared/elusiv-types" }

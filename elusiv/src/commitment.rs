@@ -23,7 +23,7 @@ use self::poseidon_hash::BinarySpongeHashingState;
 pub struct BaseCommitmentHashComputation {}
 
 elusiv_hash_compute_units!(BaseCommitmentHashComputation, 1);
-const_assert_eq!(BaseCommitmentHashComputation::TX_COUNT, 2);
+#[cfg(feature = "static_assertions")] const_assert_eq!(BaseCommitmentHashComputation::TX_COUNT, 2);
 
 /// Account used for computing `commitment = h(base_commitment, amount)`
 /// - https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/commitment.circom#L7
@@ -109,7 +109,11 @@ struct CommitmentHashComputation<const BATCHING_RATE: usize> {}
 macro_rules! commitment_batch_hashing {
     ($batching_rate: literal, $hash_count: literal, $instruction_count: literal) => {
         elusiv_hash_compute_units!(CommitmentHashComputation<$batching_rate>, $hash_count);
+
+        #[cfg(feature = "static_assertions")]
         const_assert_eq!($hash_count, hash_count_per_batch($batching_rate));
+
+        #[cfg(feature = "static_assertions")]
         const_assert_eq!($instruction_count, <CommitmentHashComputation<$batching_rate>>::IX_COUNT);
     };
 }
@@ -163,8 +167,8 @@ pub const fn hash_count_per_batch(batching_rate: u32) -> usize {
 const MAX_HT_SIZE: usize = two_pow!(usize_as_u32_safe(MAX_COMMITMENT_BATCHING_RATE) + 1) - 1;
 pub const MAX_HT_COMMITMENTS: usize = commitments_per_batch(usize_as_u32_safe(MAX_COMMITMENT_BATCHING_RATE));
 
-const_assert_eq!(MAX_HT_SIZE, 31);
-const_assert_eq!(MAX_HT_COMMITMENTS, 16);
+#[cfg(feature = "static_assertions")] const_assert_eq!(MAX_HT_SIZE, 31);
+#[cfg(feature = "static_assertions")] const_assert_eq!(MAX_HT_COMMITMENTS, 16);
 
 /// Account used for computing the hashes of a MT
 /// - only one of these accounts can exist per MT

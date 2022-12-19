@@ -1,10 +1,10 @@
 use borsh::{BorshSerialize, BorshDeserialize};
-use elusiv_types::{PDAAccountData, ParentAccount, ChildAccount, SizedAccount, ChildAccountConfig};
+use elusiv_types::{ParentAccount, ChildAccount, SizedAccount, ChildAccountConfig};
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
     sysvar::Sysvar,
-    rent::Rent, program_error::ProgramError, pubkey::Pubkey,
+    rent::Rent, program_error::ProgramError,
 };
 use crate::{state::{
     governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
@@ -20,7 +20,6 @@ use crate::{
     map::ElusivMap,
 };
 use crate::error::ElusivError::{
-    InvalidAccount,
     InvalidInstructionData,
     InvalidFeeVersion,
     MerkleTreeIsNotFullYet,
@@ -246,52 +245,6 @@ pub fn close_program_account<'a>(
     } else {
         elusiv_utils::close_account(payer, account)
     }
-}
-
-pub fn create_lut_reference_account<'a>(
-    warden: &AccountInfo<'a>,
-    lut_reference: &AccountInfo<'a>,
-    lut_account: &AccountInfo<'a>,
-) -> ProgramResult {
-    // TODO: move this functionality to the warden-network
-    // TODO: in the future also verify lut_account to be a valid, frozen LUT
-
-    let (pubkey, bump) = derive_lut_reference_account_address(warden.key);
-    guard!(*lut_reference.key == pubkey, InvalidAccount);
-
-    create_pda_account(
-        &crate::id(),
-        warden,
-        lut_reference,
-        32 + PDAAccountData::SIZE,
-        bump,
-        &[b"lut_ref", &warden.key.to_bytes(), &[bump]],
-    )?;
-
-    // Store the `lut_account` pubkey
-    let data = &mut lut_reference.data.borrow_mut()[..];
-    data[PDAAccountData::SIZE..].copy_from_slice(&lut_account.key.to_bytes());
-
-    Ok(())
-}
-
-pub fn close_lut_reference_account<'a>(
-    warden: &AccountInfo<'a>,
-    lut_reference: &AccountInfo<'a>,
-) -> ProgramResult {
-    // TODO: move this functionality to the warden-network
-
-    let (pubkey, _) = derive_lut_reference_account_address(warden.key);
-    guard!(*lut_reference.key == pubkey, InvalidAccount);
-
-    close_account(warden, lut_reference)
-}
-
-pub fn derive_lut_reference_account_address(warden: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[b"lut_ref", &warden.to_bytes()],
-        &crate::id(),
-    )
 }
 
 /// Verifies a single user-supplied [`ChildAccount`] and then saves it's pubkey in the `parent_account`
@@ -541,11 +494,5 @@ mod tests {
         let data = &mut map_account.data.borrow_mut()[1..];
         let mut map = Map::new(data);
         assert!(map.is_empty());
-    }
-
-    #[test]
-    fn test_derive_lut_reference_account_address() {
-        let warden = Pubkey::new_unique();
-        derive_lut_reference_account_address(&warden);
     }
 }

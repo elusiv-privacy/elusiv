@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_utils::{open_pda_account_with_offset, guard, pda_account};
+use elusiv_utils::{open_pda_account_with_offset, pda_account};
 use solana_program::{
     pubkey::Pubkey,
     account_info::AccountInfo,
@@ -10,26 +10,27 @@ use solana_program::{
 use elusiv_types::{accounts::PDAAccountData, BorshSerDeSized, ProgramAccount};
 use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError};
 
+/// A unique ID publicly identifying a single Warden
 pub type ElusivWardenID = u32;
 
-#[elusiv_account]
+/// The [`ElusivWardensAccount`] assigns each new Warden it's [`ElusivWardenID`]
+#[elusiv_account(eager_type: true)]
 pub struct ElusivWardensAccount {
     pda_data: PDAAccountData,
 
-    next_warden_id: ElusivWardenID,
+    pub next_warden_id: ElusivWardenID,
     pub full_network_configured: bool,
 }
 
 impl<'a> ElusivWardensAccount<'a> {
-    #[allow(clippy::or_fun_call)]
-    fn bump_next_warden_id(&mut self) -> ProgramResult {
+    fn inc_next_warden_id(&mut self) -> ProgramResult {
         let next_id = self.get_next_warden_id();
+
+        #[allow(clippy::or_fun_call)]
         self.set_next_warden_id(
-            &(
-                next_id
-                    .checked_add(1)
-                    .ok_or(ProgramError::from(ElusivWardenNetworkError::WardenRegistrationError))?
-            )
+            &next_id
+                .checked_add(1)
+                .ok_or(ProgramError::from(ElusivWardenNetworkError::WardenRegistrationError))?
         );
 
         Ok(())
@@ -42,7 +43,7 @@ impl<'a> ElusivWardensAccount<'a> {
         warden_account: &AccountInfo<'b>,
     ) -> ProgramResult {
         let warden_id = self.get_next_warden_id();
-        self.bump_next_warden_id()?;
+        self.inc_next_warden_id()?;
 
         open_pda_account_with_offset::<ElusivBasicWardenAccount>(
             &crate::id(),
@@ -56,60 +57,44 @@ impl<'a> ElusivWardensAccount<'a> {
 
         Ok(())
     }
+}
 
-    pub fn add_full_warden<'b>(
-        &mut self,
-        payer: &AccountInfo<'b>,
-        warden: ElusivFullWarden,
-        warden_account: &AccountInfo<'b>,
-    ) -> ProgramResult {
-        let warden_id = self.get_next_warden_id();
-        self.bump_next_warden_id()?;
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct FixedLenString<const MAX_LEN: usize> {
+    len: u8,
+    data: [u8; MAX_LEN],
+}
 
-        open_pda_account_with_offset::<ElusivFullWardenAccount>(
-            &crate::id(),
-            payer,
-            warden_account,
-            warden_id,
-        )?;
+pub type WardenIdentifier = FixedLenString<256>;
 
-        pda_account!(mut warden_account, ElusivFullWardenAccount, warden_account);
-        warden_account.set_warden(&warden);
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct ElusivBasicWardenConfig {
+    pub ident: WardenIdentifier,
+    pub key: Pubkey,
+    pub owner: Pubkey,
 
-        Ok(())
-    }
+    pub addr: Ipv4Addr,
+    pub port: u16,
+
+    pub country: u16,
+    pub asn: u32,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct ElusivBasicWarden {
-    pub key: Pubkey,
-    pub addr: Ipv4Addr,
-    pub active: bool,
+    pub warden_id: ElusivWardenID,
+    pub config: ElusivBasicWardenConfig,
+    pub lut: Pubkey,
+
+    pub is_active: bool,
+
+    pub join_timestamp: u64,
+    pub activation_timestamp: u64,
 }
 
-#[elusiv_account]
+/// An account associated to a single [`ElusivBasicWarden`]
+#[elusiv_account(eager_type: true)]
 pub struct ElusivBasicWardenAccount {
     pda_data: PDAAccountData,
     pub warden: ElusivBasicWarden,
-}
-
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
-pub struct ElusivFullWarden {
-    pub warden: ElusivBasicWarden,
-    pub apae_key: Pubkey,
-}
-
-#[elusiv_account]
-pub struct ElusivFullWardenAccount {
-    pda_data: PDAAccountData,
-    warden: ElusivFullWarden,
-}
-
-impl<'a> ElusivFullWardenAccount<'a> {
-    pub fn verify(&self, signer: &AccountInfo) -> ProgramResult {
-        guard!(signer.is_signer, ElusivWardenNetworkError::InvalidSignature);
-        guard!(*signer.key == self.get_warden().warden.key, ElusivWardenNetworkError::InvalidSignature);
-
-        Ok(())
-    }
 }

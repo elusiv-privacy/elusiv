@@ -92,7 +92,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let mut eager_idents = quote!();
     let mut eager_defs = quote!();
     let mut eager_init = quote!();
-    let mut eager_impls = quote!();
     let mut use_eager_type = false;
 
     // 'a lifetime for the `ProgramAccount` impl
@@ -147,7 +146,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     }
                 });
 
-                eager_impls.extend(quote!{
+                impls.extend(quote!{
                     #[cfg(feature = "elusiv-client")]
                     impl elusiv_types::accounts::EagerParentAccountRepr for #eager_ident {
                         fn child_pubkeys(&self) -> Vec<Option<solana_program::pubkey::Pubkey>> {
@@ -449,20 +448,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         quote!()
     };
 
-    let eager_type_alternative_constructor = if use_eager_type {
-        quote! {
-            #[cfg(feature = "elusiv-client")]
-            pub fn new_eager(data: Vec<u8>) -> Result<#eager_ident, std::io::Error> {
-                <#eager_ident as elusiv_types::accounts::EagerAccountRepr>::new(data)
-            }
-        }
-    } else {
-        quote!()
-    };
-
     let program_id = Pubkey::from_str(&crate::program_id::read_program_id()).unwrap();
     let (first_pubkey, _) = Pubkey::find_program_address(&[pda_seed], &program_id);
     let first_pubkey: TokenStream = format!("{:?}", first_pubkey.to_bytes()).parse().unwrap();
+    let account_size_test: TokenStream = format!("test_{}_account_size", ident.to_string().to_lowercase()).parse().unwrap();
 
     quote! {
         #struct_attrs
@@ -472,8 +461,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
         impl < #lifetimes > #ident < #lifetimes > {
             #fns
-
-            #eager_type_alternative_constructor
         }
 
         #impls
@@ -492,6 +479,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
         impl < #lifetimes > elusiv_types::accounts::SizedAccount for #ident < #lifetimes > {
             const SIZE: usize = #account_size;
+        }
+
+        // Test to verify the account to be of valid PDA-size (10 KiB)
+        #[cfg(test)]
+        mod #account_size_test {
+            use super::*;
+
+            #[test]
+            fn #account_size_test() {
+                assert!(<#ident as elusiv_types::accounts::SizedAccount>::SIZE <= 10240);
+            }
         }
 
         impl < #lifetimes > elusiv_types::accounts::PDAAccount for #ident < #lifetimes > {

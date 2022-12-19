@@ -27,7 +27,7 @@ pub const HISTORY_ARRAY_COUNT: usize = 100;
 
 pub const VALUES_PER_STORAGE_SUB_ACCOUNT: usize = 83_887;
 const ACCOUNTS_COUNT: usize = div_ceiling_usize(MT_SIZE, VALUES_PER_STORAGE_SUB_ACCOUNT);
-const_assert_eq!(ACCOUNTS_COUNT, 25);
+#[cfg(feature = "static_assertions")] const_assert_eq!(ACCOUNTS_COUNT, 25);
 
 pub struct StorageChildAccount;
 

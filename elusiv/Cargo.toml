@@ -6,12 +6,12 @@ publish = false
 
 [workspace]
 members = [
+    "shared/elusiv-computation",
+    "shared/elusiv-derive",
+    "shared/elusiv-interpreter",
+    "shared/elusiv-proc-macros",
     "shared/elusiv-types",
     "shared/elusiv-utils",
-    "shared/elusiv-derive",
-    "shared/elusiv-proc-macros",
-    "shared/elusiv-interpreter",
-    "shared/elusiv-computation",
 ]
 
 [features]
@@ -39,7 +39,7 @@ spl-token = { version = "3.5", features = ["no-entrypoint"] }
 spl-associated-token-account = { version = "1.1.1", features = ["no-entrypoint"] }
 pyth-sdk-solana = "0.4.2"
 
-static_assertions = "1.1.0"
+static_assertions = { version = "1.1.0", optional = true }
 borsh = { version = "=0.9.3", features = ["const-generics"] }
 serde = { version = "1.0.85", features = ["derive"], optional = true }
 bytemuck = { version = "1.7.2", optional = true }
@@ -50,7 +50,7 @@ ark-ec = { version = "=0.3.0", default-features = false }
 
 [dev-dependencies]
 serde_json = "1.0.87"
-elusiv = { path = ".", features = ["elusiv-client", "test-elusiv", "logging", "serde"] }
+elusiv = { path = ".", features = ["static_assertions", "elusiv-client", "test-elusiv", "logging", "serde"] }
 elusiv-utils = { path = "shared/elusiv-utils", features = ["sdk"] }
 
 solana-program-test = "1.10"
