@@ -292,6 +292,7 @@ pub enum ElusivInstruction {
         program_fee: ProgramFee,
     },
 
+    #[cfg(not(feature = "mainnet"))]
     #[acc(payer, { writable, signer })]
     #[acc(account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]

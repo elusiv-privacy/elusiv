@@ -236,15 +236,20 @@ pub fn init_new_fee_version<'a>(
     Ok(())
 }
 
+/// Closes a program owned account in devnet and localhost
+/// 
+/// # Note
+/// 
+/// - `signer` needs to be the program's keypair
+#[cfg(not(feature = "mainnet"))]
 pub fn close_program_account<'a>(
-    payer: &AccountInfo<'a>,
+    signer: &AccountInfo<'a>,
     account: &AccountInfo<'a>,
 ) -> ProgramResult {
-    if cfg!(feature = "mainnet") {
-        panic!()
-    } else {
-        elusiv_utils::close_account(payer, account)
-    }
+    assert!(!cfg!(feature = "mainnet"));
+    assert_eq!(*signer.key, crate::ID);
+
+    elusiv_utils::close_account(signer, account)
 }
 
 /// Verifies a single user-supplied [`ChildAccount`] and then saves it's pubkey in the `parent_account`
