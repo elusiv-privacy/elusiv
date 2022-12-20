@@ -8,7 +8,7 @@ use solana_program::{
     program_error::ProgramError,
 };
 use elusiv_types::{accounts::PDAAccountData, BorshSerDeSized, ProgramAccount};
-use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError, processor::get_day_and_year};
+use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError};
 
 /// A unique ID publicly identifying a single Warden
 pub type ElusivWardenID = u32;
@@ -108,7 +108,7 @@ pub struct WardenStatistics {
     pub total: u32,
 }
 
-const BASE_YEAR: u32 = 2022;
+const BASE_YEAR: u16 = 2022;
 const YEARS_COUNT: usize = 100;
 const WARDENS_COUNT: u32 = u32::MAX / YEARS_COUNT as u32;
 
@@ -132,23 +132,16 @@ pub struct BasicWardenStatsAccount {
     pda_data: PDAAccountData,
 
     pub warden_id: ElusivWardenID,
-    pub year: u32,
+    pub year: u16,
 
     pub store: WardenStatistics,
     pub send: WardenStatistics,
     pub migrate: WardenStatistics,
 }
 
-pub fn stats_account_offset(warden_id: ElusivWardenID, year: u32) -> u32 {
+pub fn stats_account_pda_offset(warden_id: ElusivWardenID, year: u16) -> u32 {
     assert!(year >= BASE_YEAR);
     assert!(warden_id < WARDENS_COUNT);
 
-    (year - BASE_YEAR) * WARDENS_COUNT + warden_id
-}
-
-pub fn try_stats_account_offset(warden_id: ElusivWardenID) -> Result<u32, ProgramError> {
-    guard!(warden_id < WARDENS_COUNT, ElusivWardenNetworkError::StatsError);
-    let year = get_day_and_year()?.1;
-
-    Ok((year - BASE_YEAR) * WARDENS_COUNT + warden_id)
+    (year - BASE_YEAR) as u32 * WARDENS_COUNT + warden_id
 }
