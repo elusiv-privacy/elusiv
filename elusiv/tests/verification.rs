@@ -266,7 +266,6 @@ async fn setup_vkey_account<VKey: VerifyingKeyInfo>(test: &mut ElusivProgramTest
         pda_data: PDAAccountData {
             bump_seed: bump,
             version: 0,
-            initialized: true,
         },
         pubkeys: [ElusivOption::Some(sub_account_pubkey)],
         public_inputs_count: VKey::PUBLIC_INPUTS_COUNT,

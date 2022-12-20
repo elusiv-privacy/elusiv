@@ -292,9 +292,6 @@ pub struct PDAAccountData {
 
     /// Used for future account migrations
     pub version: u8,
-
-    /// In general useless, only if an account-type uses it
-    pub initialized: bool,
 }
 
 impl PDAAccountData {

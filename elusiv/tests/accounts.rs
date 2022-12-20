@@ -40,7 +40,6 @@ async fn test_setup_initial_accounts() {
         let data = PDAAccountData::new(&data).unwrap();
         assert_eq!(data.bump_seed, T::find(pda_offset).1);
         assert_eq!(data.version, 0);
-        assert!(!data.initialized);
     }
 
     assert_account::<GovernorAccount>(&mut test, None).await;

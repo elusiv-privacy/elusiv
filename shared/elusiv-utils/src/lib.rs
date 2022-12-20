@@ -105,7 +105,6 @@ pub fn create_pda_account<'a>(
         &PDAAccountData {
             bump_seed: bump,
             version: 0,
-            initialized: false,
         },
         data
     )?;
