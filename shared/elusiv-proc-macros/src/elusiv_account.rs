@@ -80,7 +80,16 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     // TODO: It would be ideal to use the whole module path to automatically prevent duplicates
 
     let ident_str = ident.to_string();
-    let pda_seed = ident_str.as_bytes();
+    let pda_seed_string = if ident_str.ends_with("Account") {
+        String::from(&ident_str[..ident_str.len() - "Account".len()])
+    } else {
+        ident_str.clone()
+    };
+    let pda_seed = pda_seed_string.as_bytes();
+    
+    if pda_seed.len() > 28 {
+        panic!("PDA-Seeds are only allowed to be <= 28 bytes in length (found {})", pda_seed.len());
+    }
 
     let mut lifetimes = Lifetimes::new();
     let mut field_idents = quote!();

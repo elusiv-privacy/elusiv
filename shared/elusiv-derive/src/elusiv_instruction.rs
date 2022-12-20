@@ -1,6 +1,6 @@
 use quote::{quote, ToTokens};
 use super::utils::{ upper_camel_to_upper_snake, named_sub_attribute };
-use proc_macro2::TokenStream;
+use proc_macro2::{TokenStream, TokenTree};
 
 const ACC_ATTR: &str = "acc";
 const SYS_ATTR: &str = "sys";
@@ -82,10 +82,24 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                 current_attr_type = AttrType::Account;
 
-                // Sub-attrs are the fields as in #[usr(sub_attr0 = .., sub_attr1, ..)]
+                // Sub-attrs are the fields as in #[usr(sub_attr_0 = .., sub_attr_1, .., { sub_attr_n, .. })] (braces are ignored)
                 let mut fields = attr.tokens.to_string();
                 fields.retain(|x| x != '{' && x != '}' && !x.is_whitespace());
-                let sub_attrs: Vec<&str> = fields[1..fields.len() - 1].split(',').collect();
+                let mut sub_attrs = Vec::new();
+                let mut sub_attr = String::new();
+                for token in fields[1..fields.len() - 1].parse::<TokenStream>().unwrap().into_iter() {
+                    if let TokenTree::Punct(punct) = &token {
+                        if punct.to_string() == "," {
+                            sub_attrs.push(sub_attr);
+                            sub_attr = String::new();
+                            continue
+                        }
+                    }
+
+                    sub_attr.push_str(&token.to_string());
+                }
+                sub_attrs.push(sub_attr);
+                let sub_attrs: Vec<&str> = sub_attrs.iter().map(|s| &s[..]).collect();
 
                 let mut account: TokenStream = sub_attrs[0].parse().unwrap();
                 let mut account_init = Vec::new(); // used for creating the instruction objects with the abi-feature
