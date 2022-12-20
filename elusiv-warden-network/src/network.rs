@@ -30,14 +30,14 @@ impl WardenNetwork for ElusivBasicWardenNetwork {
 }
 
 #[elusiv_account(eager_type: true)]
-pub struct ElusivBasicWardenNetworkAccount {
+pub struct BasicWardenNetworkAccount {
     pda_data: PDAAccountData,
 
     members: [ElusivWardenID; ElusivBasicWardenNetwork::SIZE.max()],
     members_count: u32,
 }
 
-impl<'a> ElusivBasicWardenNetworkAccount<'a> {
+impl<'a> BasicWardenNetworkAccount<'a> {
     pub fn try_add_member(&mut self, warden_id: ElusivWardenID) -> ProgramResult {
         let members_count = self.get_members_count();
         guard!(

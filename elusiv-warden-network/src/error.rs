@@ -7,6 +7,10 @@ pub enum ElusivWardenNetworkError {
     WardenRegistrationError,
     ProposalError,
     VotingError,
+    StatsError,
+
+    Overflow,
+    Underflow,
 }
 
 impl From<ElusivWardenNetworkError> for ProgramError {

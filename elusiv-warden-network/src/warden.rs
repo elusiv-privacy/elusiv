@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_utils::{open_pda_account_with_offset, pda_account};
+use elusiv_utils::{open_pda_account_with_offset, pda_account, guard};
 use solana_program::{
     pubkey::Pubkey,
     account_info::AccountInfo,
@@ -8,21 +8,21 @@ use solana_program::{
     program_error::ProgramError,
 };
 use elusiv_types::{accounts::PDAAccountData, BorshSerDeSized, ProgramAccount};
-use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError};
+use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError, processor::get_day_and_year};
 
 /// A unique ID publicly identifying a single Warden
 pub type ElusivWardenID = u32;
 
 /// The [`ElusivWardensAccount`] assigns each new Warden it's [`ElusivWardenID`]
 #[elusiv_account(eager_type: true)]
-pub struct ElusivWardensAccount {
+pub struct WardensAccount {
     pda_data: PDAAccountData,
 
     pub next_warden_id: ElusivWardenID,
     pub full_network_configured: bool,
 }
 
-impl<'a> ElusivWardensAccount<'a> {
+impl<'a> WardensAccount<'a> {
     fn inc_next_warden_id(&mut self) -> ProgramResult {
         let next_id = self.get_next_warden_id();
 
@@ -45,14 +45,14 @@ impl<'a> ElusivWardensAccount<'a> {
         let warden_id = self.get_next_warden_id();
         self.inc_next_warden_id()?;
 
-        open_pda_account_with_offset::<ElusivBasicWardenAccount>(
+        open_pda_account_with_offset::<BasicWardenAccount>(
             &crate::id(),
             payer,
             warden_account,
             warden_id,
         )?;
 
-        pda_account!(mut warden_account, ElusivBasicWardenAccount, warden_account);
+        pda_account!(mut warden_account, BasicWardenAccount, warden_account);
         warden_account.set_warden(&warden);
 
         Ok(())
@@ -65,11 +65,11 @@ pub struct FixedLenString<const MAX_LEN: usize> {
     data: [u8; MAX_LEN],
 }
 
-pub type WardenIdentifier = FixedLenString<256>;
+pub type Identifier = FixedLenString<256>;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct ElusivBasicWardenConfig {
-    pub ident: WardenIdentifier,
+    pub ident: Identifier,
     pub key: Pubkey,
     pub owner: Pubkey,
 
@@ -78,6 +78,9 @@ pub struct ElusivBasicWardenConfig {
 
     pub country: u16,
     pub asn: u32,
+
+    pub version: [u16; 3],
+    pub platform: Identifier,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
@@ -94,7 +97,58 @@ pub struct ElusivBasicWarden {
 
 /// An account associated to a single [`ElusivBasicWarden`]
 #[elusiv_account(eager_type: true)]
-pub struct ElusivBasicWardenAccount {
+pub struct BasicWardenAccount {
     pda_data: PDAAccountData,
     pub warden: ElusivBasicWarden,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct WardenStatistics {
+    pub activity: [u32; 365],
+    pub total: u32,
+}
+
+const BASE_YEAR: u32 = 2022;
+const YEARS_COUNT: usize = 100;
+const WARDENS_COUNT: u32 = u32::MAX / YEARS_COUNT as u32;
+
+impl WardenStatistics {
+    pub fn inc(&self, day: u32) -> Result<&Self, ProgramError> {
+        guard!(day < 365, ElusivWardenNetworkError::StatsError);
+
+        self.total.checked_add(1)
+            .ok_or(ElusivWardenNetworkError::Overflow)?;
+
+        self.activity[day as usize].checked_add(1)
+            .ok_or(ElusivWardenNetworkError::Overflow)?;
+
+        Ok(self)
+    }
+}
+
+/// An account associated to a single [`ElusivBasicWarden`] storing activity statistics for a single year
+#[elusiv_account(eager_type: true)]
+pub struct BasicWardenStatsAccount {
+    pda_data: PDAAccountData,
+
+    pub warden_id: ElusivWardenID,
+    pub year: u32,
+
+    pub store: WardenStatistics,
+    pub send: WardenStatistics,
+    pub migrate: WardenStatistics,
+}
+
+pub fn stats_account_offset(warden_id: ElusivWardenID, year: u32) -> u32 {
+    assert!(year >= BASE_YEAR);
+    assert!(warden_id < WARDENS_COUNT);
+
+    (year - BASE_YEAR) * WARDENS_COUNT + warden_id
+}
+
+pub fn try_stats_account_offset(warden_id: ElusivWardenID) -> Result<u32, ProgramError> {
+    guard!(warden_id < WARDENS_COUNT, ElusivWardenNetworkError::StatsError);
+    let year = get_day_and_year()?.1;
+
+    Ok((year - BASE_YEAR) * WARDENS_COUNT + warden_id)
 }

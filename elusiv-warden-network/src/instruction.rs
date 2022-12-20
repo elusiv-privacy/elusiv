@@ -2,12 +2,15 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::system_program;
-use crate::network::ElusivBasicWardenNetworkAccount;
+use solana_program::sysvar::instructions;
+use crate::network::BasicWardenNetworkAccount;
 use crate::warden::{
     ElusivWardenID,
     ElusivBasicWardenConfig,
-    ElusivWardensAccount,
-    ElusivBasicWardenAccount,
+    WardensAccount,
+    BasicWardenAccount,
+    BasicWardenStatsAccount,
+    try_stats_account_offset,
 };
 use crate::macros::ElusivInstruction;
 use crate::processor;
@@ -17,17 +20,17 @@ pub enum ElusivWardenNetworkInstruction {
     // -------- Program initialization --------
 
     #[acc(payer, { signer, writable })]
-    #[pda(wardens, ElusivWardensAccount, { writable, find_pda, account_info })]
-    #[pda(basic_network, ElusivBasicWardenNetworkAccount, { writable, find_pda, account_info })]
+    #[pda(wardens, WardensAccount, { writable, find_pda, account_info })]
+    #[pda(basic_network, BasicWardenNetworkAccount, { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     Init,
 
     // -------- Basic Warden --------
 
     #[acc(warden, { signer, writable })]
-    #[pda(warden_account, ElusivBasicWardenAccount, pda_offset = Some(warden_id), { writable, find_pda, account_info })]
-    #[pda(wardens, ElusivWardensAccount, { writable })]
-    #[pda(basic_network, ElusivBasicWardenNetworkAccount, { writable })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable, find_pda, account_info })]
+    #[pda(wardens, WardensAccount, { writable })]
+    #[pda(basic_network, BasicWardenNetworkAccount, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     RegisterBasicWarden {
         warden_id: ElusivWardenID,
@@ -35,23 +38,39 @@ pub enum ElusivWardenNetworkInstruction {
     },
 
     #[acc(warden, { signer })]
-    #[pda(warden_account, ElusivBasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
     UpdateBasicWardenState {
         warden_id: ElusivWardenID,
         is_active: bool,
     },
 
     #[acc(warden, { signer })]
-    #[pda(warden_account, ElusivBasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
     #[acc(lut_account)]
     UpdateBasicWardenLut {
         warden_id: ElusivWardenID,
     },
 
     #[acc(warden, { signer, writable })]
-    #[pda(warden_account, ElusivBasicWardenAccount, pda_offset = Some(warden_id), { writable, account_info })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     CloseBasicWarden {
+        warden_id: ElusivWardenID,
+    },
+
+    // -------- Basic Warden statistics --------
+
+    #[acc(payer, { signer, writable })]
+    #[pda(stats_account, BasicWardenStatsAccount, pda_offset = Some(try_stats_account_offset(warden_id)?), { writable, find_pda, account_info })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    OpenBasicWardenStatsAccount {
+        warden_id: ElusivWardenID,
+    },
+
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id))]
+    #[pda(stats_account, BasicWardenStatsAccount, { writable })]
+    #[sys(system_program, key = instructions::ID)]
+    TrackBasicWardenStats {
         warden_id: ElusivWardenID,
     },
 }

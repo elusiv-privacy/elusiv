@@ -24,13 +24,13 @@ test-elusiv = []
 test-unit = ["elusiv-utils/test-unit"]
 
 [dependencies]
+borsh = { version = "=0.9.3", features = ["const-generics"] }
+chrono = "0.4"
 elusiv-types = { path = "shared/elusiv-types" }
 elusiv-utils = { path = "shared/elusiv-utils" }
 elusiv-derive = { path = "shared/elusiv-derive" }
 elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }
-
 solana-program = "1.10"
-borsh = { version = "=0.9.3", features = ["const-generics"] }
 
 [profile.test]
 opt-level = 2
