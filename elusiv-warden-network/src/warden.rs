@@ -59,7 +59,7 @@ impl<'a> WardensAccount<'a> {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
 pub struct FixedLenString<const MAX_LEN: usize> {
     len: u8,
     data: [u8; MAX_LEN],
@@ -67,7 +67,7 @@ pub struct FixedLenString<const MAX_LEN: usize> {
 
 pub type Identifier = FixedLenString<256>;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
 pub struct ElusivBasicWardenConfig {
     pub ident: Identifier,
     pub key: Pubkey,
@@ -83,7 +83,7 @@ pub struct ElusivBasicWardenConfig {
     pub platform: Identifier,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
 pub struct ElusivBasicWarden {
     pub warden_id: ElusivWardenID,
     pub config: ElusivBasicWardenConfig,
@@ -102,7 +102,7 @@ pub struct BasicWardenAccount {
     pub warden: ElusivBasicWarden,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
 pub struct WardenStatistics {
     pub activity: [u32; 365],
     pub total: u32,

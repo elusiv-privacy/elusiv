@@ -18,6 +18,7 @@ devnet = ["elusiv-proc-macros/devnet"]
 
 elusiv-client = ["elusiv-types/elusiv-client"]
 no-entrypoint = []
+logging = []
 
 test-bpf = []
 test-elusiv = []
@@ -31,6 +32,9 @@ elusiv-utils = { path = "shared/elusiv-utils" }
 elusiv-derive = { path = "shared/elusiv-derive" }
 elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }
 solana-program = "1.10"
+
+[dev-dependencies]
+elusiv-warden-network = { path = ".", features = ["elusiv-client", "test-elusiv", "logging"] }
 
 [profile.test]
 opt-level = 2

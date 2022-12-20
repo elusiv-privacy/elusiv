@@ -14,6 +14,7 @@ use crate::warden::{
 };
 use crate::macros::ElusivInstruction;
 use crate::processor;
+pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount, WritableSignerAccount};
 
 #[derive(BorshDeserialize, BorshSerialize, ElusivInstruction)]
 pub enum ElusivWardenNetworkInstruction {

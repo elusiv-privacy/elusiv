@@ -23,6 +23,7 @@ use crate::proof::{VerificationAccount, vkey::{VKeyAccount, VKeyAccountManangerA
 use elusiv_types::ElusivOption;
 use solana_program::{system_program, sysvar::instructions};
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount, WritableSignerAccount};
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
 #[allow(clippy::large_enum_variant)]
@@ -403,22 +404,6 @@ impl ElusivInstruction {
         )
     }
 }
-
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct UserAccount(pub solana_program::pubkey::Pubkey);
-
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct WritableUserAccount(pub solana_program::pubkey::Pubkey);
-
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct SignerAccount(pub solana_program::pubkey::Pubkey);
-
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct WritableSignerAccount(pub solana_program::pubkey::Pubkey);
 
 #[cfg(test)]
 mod tests {

@@ -324,3 +324,19 @@ pub trait EagerParentAccountRepr: EagerAccountRepr {
     /// All children pubkeys
     fn child_pubkeys(&self) -> Vec<Option<Pubkey>>;
 }
+
+#[cfg(feature = "elusiv-client")]
+#[derive(Debug)]
+pub struct UserAccount(pub Pubkey);
+
+#[cfg(feature = "elusiv-client")]
+#[derive(Debug)]
+pub struct WritableUserAccount(pub Pubkey);
+
+#[cfg(feature = "elusiv-client")]
+#[derive(Debug)]
+pub struct SignerAccount(pub Pubkey);
+
+#[cfg(feature = "elusiv-client")]
+#[derive(Debug)]
+pub struct WritableSignerAccount(pub Pubkey);
