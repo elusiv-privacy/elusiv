@@ -12,7 +12,7 @@ use elusiv::commitment::CommitmentHashingAccount;
 use elusiv::instruction::*;
 use elusiv::processor::{SingleInstancePDAAccountKind, MultiInstancePDAAccountKind, CommitmentHashRequest};
 use elusiv::token::SPL_TOKEN_COUNT;
-use elusiv_types::ChildAccount;
+use elusiv_types::split_child_account_data_mut;
 use solana_program::instruction::{Instruction, AccountMeta};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
@@ -225,7 +225,7 @@ async fn test_reset_active_mt() {
     let root = [1; 32];
     let mut data = test.data(&root_storage_account).await;
     {
-        let (_, inner_data) = StorageChildAccount::split_data_mut(&mut data).unwrap();
+        let (_, inner_data) = split_child_account_data_mut(&mut data).unwrap();
         inner_data[..32].copy_from_slice(&root[..32]);
     }
     test.set_program_account_rent_exempt(&root_storage_account, &data).await;

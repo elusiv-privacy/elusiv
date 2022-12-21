@@ -5,7 +5,7 @@ mod tests {
     use super::*;
     use crate::macros::{parent_account, account_info};
     use borsh::BorshDeserialize;
-    use elusiv_types::{ElusivOption, BorshSerDeSized};
+    use elusiv_types::{ElusivOption, BorshSerDeSized, split_child_account_data};
     use solana_program::{account_info::AccountInfo, pubkey::Pubkey, program_error::ProgramError};
 
     struct TestPDAAccount;
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn test_child_account() {
         let data = vec![0; TestChildAccount::SIZE];
-        let (config, inner_data) = TestChildAccount::split_data(&data).unwrap();
+        let (config, inner_data) = split_child_account_data(&data).unwrap();
         let config = ChildAccountConfig::try_from_slice(config).unwrap();
 
         assert!(!config.is_in_use);

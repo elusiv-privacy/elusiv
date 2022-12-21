@@ -27,32 +27,10 @@ pub trait ChildAccount: Sized {
     /// The size of [`Self`] measured in bytes (without the additional [`ChildAccountConfig::SIZE`])
     const INNER_SIZE: usize;
 
-    /// Splits the accounts data into the [`ChildAccountConfig`] and inner-data
-    fn split_data(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
-        // TODO: disabled due to vkey having dynamic size
-        /*if data.len() != Self::SIZE {
-            return Err(ProgramError::InvalidAccountData)
-        }*/
-
-        let (config, inner_data) = data.split_at(ChildAccountConfig::SIZE);
-        Ok((config, inner_data))
-    }
-
-    /// Splits the accounts data into the [`ChildAccountConfig`] and inner-data mutably
-    fn split_data_mut(data: &mut [u8]) -> Result<(&mut [u8], &mut [u8]), ProgramError> {
-        // TODO: disabled due to vkey having dynamic size
-        /*if data.len() != Self::SIZE {
-            return Err(ProgramError::InvalidAccountData)
-        }*/
-
-        let (config, inner_data) = data.split_at_mut(ChildAccountConfig::SIZE);
-        Ok((config, inner_data))
-    }
-
     /// Attempts to set the child-accounts [`ChildAccountConfig`]
     fn try_start_using_account(account: &AccountInfo) -> Result<(), ProgramError> {
         let data = &mut account.data.borrow_mut()[..];
-        let (config_data, _) = Self::split_data_mut(data)?;
+        let (config_data, _) = split_child_account_data_mut(data)?;
         let mut config = ChildAccountConfig::try_from_slice(config_data)?;
 
         if config.is_in_use {
@@ -67,13 +45,29 @@ pub trait ChildAccount: Sized {
     }
 }
 
+/// Splits the accounts data into the [`ChildAccountConfig`] and inner-data
+pub fn split_child_account_data(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramError> {
+    let (config, inner_data) = data.split_at(ChildAccountConfig::SIZE);
+    Ok((config, inner_data))
+}
+
+/// Splits the accounts data into the [`ChildAccountConfig`] and inner-data mutably
+pub fn split_child_account_data_mut(data: &mut [u8]) -> Result<(&mut [u8], &mut [u8]), ProgramError> {
+    let (config, inner_data) = data.split_at_mut(ChildAccountConfig::SIZE);
+    Ok((config, inner_data))
+}
+
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
 pub struct ChildAccountConfig {
     pub is_in_use: bool,
 }
 
+pub const fn child_account_size(inner_size: usize) -> usize {
+    inner_size + ChildAccountConfig::SIZE
+}
+
 impl<A: ChildAccount> SizedAccount for A {
-    const SIZE: usize = A::INNER_SIZE + ChildAccountConfig::SIZE;
+    const SIZE: usize = child_account_size(A::INNER_SIZE);
 }
 
 /// A [`ProgramAccount`] that itself "owns" one or more [`ChildAccount`]s
@@ -190,7 +184,7 @@ pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
     {
         let account: &AccountInfo<'t> = unsafe { self.get_child_account_unsafe(child_index) }?;
         let data = &account.data.borrow()[..];
-        let (_, inner_data) = Self::Child::split_data(data)?;
+        let (_, inner_data) = split_child_account_data(data)?;
         Ok(closure(inner_data))
     }
 
@@ -204,7 +198,7 @@ pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
     {
         let account: &AccountInfo<'t> = unsafe { self.get_child_account_unsafe(child_index) }?;
         let data = &mut account.data.borrow_mut()[..];
-        let (_, inner_data) = Self::Child::split_data_mut(data)?;
+        let (_, inner_data) = split_child_account_data_mut(data)?;
         Ok(closure(inner_data))
     }
 }
