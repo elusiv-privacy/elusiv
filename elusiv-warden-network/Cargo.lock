@@ -572,6 +572,7 @@ dependencies = [
  "elusiv-proc-macros",
  "elusiv-types",
  "elusiv-utils",
+ "elusiv-warden-network",
  "solana-program",
 ]
 

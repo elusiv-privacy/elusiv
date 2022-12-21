@@ -7,7 +7,7 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::sysvar::instructions;
 use crate::error::ElusivWardenNetworkError;
 use crate::processor::current_timestamp;
-use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, stats_account_offset};
+use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, stats_account_pda_offset};
 use crate::{
     warden::{WardensAccount, ElusivWardenID, ElusivBasicWardenConfig, ElusivBasicWarden},
     network::BasicWardenNetworkAccount,
@@ -53,7 +53,7 @@ pub fn register_basic_warden<'a>(
         join_timestamp: current_timestamp,
     };
     wardens_account.add_basic_warden(warden, basic_warden, warden_account)?;
-    basic_network_account.try_add_member(warden_id)?;
+    basic_network_account.try_add_member(warden_id, warden.key)?;
     
     Ok(())
 }
@@ -109,9 +109,10 @@ pub fn open_basic_warden_stats_account<'a>(
     stats_account: &AccountInfo<'a>,
 
     warden_id: ElusivWardenID,
+    _year: u16,
 ) -> ProgramResult {
     let (_, year) = get_day_and_year()?;
-    let offset = stats_account_offset(warden_id, year);
+    let offset = stats_account_pda_offset(warden_id, year);
 
     open_pda_account_with_offset::<BasicWardenStatsAccount>(
         &crate::id(),
@@ -134,8 +135,11 @@ pub fn track_basic_warden_stats(
     instructions_account: &AccountInfo,
 
     warden_id: ElusivWardenID,
+    year: u16,
 ) -> ProgramResult {
-    let (day, year) = get_day_and_year()?;
+    let (day, y) = get_day_and_year()?;
+    guard!(y == year, ElusivWardenNetworkError::StatsError);
+
     let warden_key = warden_account.get_warden().config.key;
 
     guard!(stats_account.get_warden_id() == warden_id, ElusivWardenNetworkError::StatsError);

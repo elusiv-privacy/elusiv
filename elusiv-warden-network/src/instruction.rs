@@ -10,10 +10,11 @@ use crate::warden::{
     WardensAccount,
     BasicWardenAccount,
     BasicWardenStatsAccount,
-    try_stats_account_offset,
+    stats_account_pda_offset,
 };
 use crate::macros::ElusivInstruction;
 use crate::processor;
+pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount, WritableSignerAccount};
 
 #[derive(BorshDeserialize, BorshSerialize, ElusivInstruction)]
 pub enum ElusivWardenNetworkInstruction {
@@ -61,16 +62,18 @@ pub enum ElusivWardenNetworkInstruction {
     // -------- Basic Warden statistics --------
 
     #[acc(payer, { signer, writable })]
-    #[pda(stats_account, BasicWardenStatsAccount, pda_offset = Some(try_stats_account_offset(warden_id)?), { writable, find_pda, account_info })]
+    #[pda(stats_account, BasicWardenStatsAccount, pda_offset = Some(stats_account_pda_offset(warden_id, year)), { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     OpenBasicWardenStatsAccount {
         warden_id: ElusivWardenID,
+        year: u16,
     },
 
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id))]
-    #[pda(stats_account, BasicWardenStatsAccount, { writable })]
+    #[pda(stats_account, BasicWardenStatsAccount, pda_offset = Some(stats_account_pda_offset(warden_id, year)), { writable })]
     #[sys(system_program, key = instructions::ID)]
     TrackBasicWardenStats {
         warden_id: ElusivWardenID,
+        year: u16,
     },
 }

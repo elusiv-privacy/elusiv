@@ -12,7 +12,7 @@ use borsh_serde_sized::*;
 use enum_variant::*;
 use jit::*;
 
-/// Instructions account parsing
+/// Instructions parsing
 /// 
 /// # Account attributes
 /// - Each enum variant (instruction) can require accounts

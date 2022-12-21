@@ -6,7 +6,7 @@ pub fn current_timestamp() -> Result<u64, ProgramError> {
     Ok(clock.unix_timestamp.try_into().unwrap())
 }
 
-pub fn get_day_and_year() -> Result<(u32, u32), ProgramError> {
+pub fn get_day_and_year() -> Result<(u32, u16), ProgramError> {
     let clock = Clock::get()?;
     let datetime: DateTime<Utc> = DateTime::from_utc(
         NaiveDateTime::from_timestamp(clock.unix_timestamp, 0),

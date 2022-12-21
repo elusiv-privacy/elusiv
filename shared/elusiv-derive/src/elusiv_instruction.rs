@@ -300,7 +300,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
 
                     #instruction_accounts
                     let data = #ast_ident::#ident { #fields };
-                    let data = ElusivInstruction::try_to_vec(&data).unwrap();
+                    let data = #ast_ident::try_to_vec(&data).unwrap();
 
                     solana_program::instruction::Instruction::new_with_bytes(
                         crate::id(),
