@@ -1,0 +1,17 @@
+name: Verifying-key check
+
+on:
+  push:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  run-bash-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: send_quadra vkey up-to-date-check
+        run: |
+          sh ./vkey.sh send_quadra temp2/send_quadra
+          diff -rq temp2/send_quadra elusiv/src/proof/vkeys/send_quadra && exit 1
+        if: failure()

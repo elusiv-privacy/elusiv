@@ -83,7 +83,7 @@ macro_rules! verification_key_info {
 
             #[cfg(feature = "elusiv-client")]
             fn verifying_key_source() -> Vec<u8> {
-                include_bytes!(concat!("vkeys", "/", $dir, "/", "elusiv_vkey")).to_vec()
+                include_bytes!(concat!("vkeys", "/", $dir, "/", "elusiv_vkey.bin")).to_vec()
             }
 
             #[cfg(test)]
