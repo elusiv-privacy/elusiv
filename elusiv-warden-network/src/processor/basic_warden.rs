@@ -53,7 +53,7 @@ pub fn register_basic_warden<'a>(
         join_timestamp: current_timestamp,
     };
     wardens_account.add_basic_warden(warden, basic_warden, warden_account)?;
-    basic_network_account.try_add_member(warden_id)?;
+    basic_network_account.try_add_member(warden_id, warden.key)?;
     
     Ok(())
 }
