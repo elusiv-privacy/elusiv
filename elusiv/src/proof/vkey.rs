@@ -33,7 +33,6 @@ pub struct VKeyAccount {
 pub trait VerifyingKeyInfo {
     const VKEY_ID: u32;
     const PUBLIC_INPUTS_COUNT: u32;
-    const HASH: U256;
 
     #[cfg(feature = "elusiv-client")]
     const DIRECTORY: &'static str;
@@ -70,13 +69,12 @@ pub trait VerifyingKeyInfo {
 }
 
 macro_rules! verification_key_info {
-    ($ident: ident, $id: expr, $public_inputs_count: expr, $hash: expr, $dir: literal) => {
+    ($ident: ident, $id: expr, $public_inputs_count: expr, $dir: literal) => {
         pub struct $ident;
 
         impl VerifyingKeyInfo for $ident {
             const VKEY_ID: u32 = $id;
             const PUBLIC_INPUTS_COUNT: u32 = $public_inputs_count;
-            const HASH: U256 = $hash;
 
             #[cfg(feature = "elusiv-client")]
             const DIRECTORY: &'static str = $dir;
@@ -94,29 +92,11 @@ macro_rules! verification_key_info {
     };
 }
 
-verification_key_info!(
-    SendQuadraVKey,
-    0,
-    14,
-    [137, 24, 71, 15, 128, 43, 188, 80, 166, 100, 193, 32, 100, 73, 167, 112, 40, 200, 93, 18, 248, 164, 169, 78, 34, 202, 238, 214, 96, 105, 174, 123],
-    "send_quadra"
-);
-verification_key_info!(
-    MigrateUnaryVKey,
-    1,
-    7,
-    [193, 134, 16, 33, 191, 44, 3, 199, 83, 33, 27, 183, 211, 29, 165, 48, 198, 177, 177, 166, 224, 39, 4, 144, 220, 184, 78, 226, 167, 56, 223, 14],
-    "migrate_unary"
-);
+verification_key_info!(SendQuadraVKey, 0, 14, "send_quadra");
+verification_key_info!(MigrateUnaryVKey, 1, 7, "migrate_unary");
 
 #[cfg(test)]
-verification_key_info!(
-    TestVKey,
-    2,
-    14,
-    [137, 24, 71, 15, 128, 43, 188, 80, 166, 100, 193, 32, 100, 73, 167, 112, 40, 200, 93, 18, 248, 164, 169, 78, 34, 202, 238, 214, 96, 105, 174, 123],
-    "send_quadra"
-);
+verification_key_info!(TestVKey, 2, 14, "test");
 
 /// A Groth16 verifying key with precomputed values
 pub struct VerifyingKey<'a> {
