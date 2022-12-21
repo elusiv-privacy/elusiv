@@ -1,5 +1,5 @@
 use borsh::{BorshSerialize, BorshDeserialize};
-use elusiv_types::{ParentAccount, ChildAccount, SizedAccount, ChildAccountConfig};
+use elusiv_types::{ParentAccount, ChildAccount, SizedAccount, ChildAccountConfig, split_child_account_data_mut};
 use solana_program::{
     entrypoint::ProgramResult,
     account_info::AccountInfo,
@@ -277,7 +277,7 @@ pub fn setup_child_account<'a, 'b, 't, P: ParentAccount<'a, 'b, 't>>(
 
 fn reset_map_child_account<C: ChildAccount>(child_account: &AccountInfo) -> ProgramResult {
     let data = &mut child_account.data.borrow_mut()[..];
-    let (_, inner_data) = C::split_data_mut(data)?;
+    let (_, inner_data) = split_child_account_data_mut(data)?;
     let mut map = ElusivMap::<(), (), 1>::new(&mut inner_data[..ElusivMap::<(), (), 1>::SIZE]);
     map.reset();
 

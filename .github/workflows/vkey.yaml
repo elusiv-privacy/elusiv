@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+        with:
+            token: ${{ secrets.GITHUB_TOKEN }}
       - name: send_quadra vkey up-to-date-check
         run: |
           sh ./vkey.sh send_quadra temp2/send_quadra
