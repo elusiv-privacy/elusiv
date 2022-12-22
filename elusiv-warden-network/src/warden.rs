@@ -104,7 +104,7 @@ pub struct BasicWardenAccount {
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
 pub struct WardenStatistics {
-    pub activity: [u32; 365],
+    pub activity: [u32; 366],
     pub total: u32,
 }
 
@@ -114,7 +114,7 @@ const WARDENS_COUNT: u32 = u32::MAX / YEARS_COUNT as u32;
 
 impl WardenStatistics {
     pub fn inc(&self, day: u32) -> Result<&Self, ProgramError> {
-        guard!(day < 365, ElusivWardenNetworkError::StatsError);
+        guard!(day < 366, ElusivWardenNetworkError::StatsError);
 
         self.total.checked_add(1)
             .ok_or(ElusivWardenNetworkError::Overflow)?;
