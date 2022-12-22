@@ -1,6 +1,6 @@
 [program_id]
 mainnet = "AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7"
-devnet = "21yGVvsEPHBe6WMRKtL63CwXa6Zi6kJ2UyZzsbT1vg4F"
+devnet = "HSwKaCUZPTQXsrrgV1KYUvF5yn9RHg86jEtRViTE5fUV"
 
 # For local testing you can generate the local test keypair with this BIP39 seed:
 # chronic river provide glue citizen hybrid omit siege fan crime match ball

@@ -239,7 +239,7 @@ pub enum ElusivInstruction {
         closed_mt_index: u32,
     },
 
-    // -------- Program State Setup/Management --------
+    // -------- Program state management --------
 
     // Opens one `PDAAccount` with offset = None
     #[acc(payer, { writable, signer })]

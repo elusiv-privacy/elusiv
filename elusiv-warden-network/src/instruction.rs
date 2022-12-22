@@ -76,4 +76,12 @@ pub enum ElusivWardenNetworkInstruction {
         warden_id: ElusivWardenID,
         year: u16,
     },
+
+    // -------- Program state management --------
+
+    #[cfg(not(feature = "mainnet"))]
+    #[acc(payer, { writable, signer })]
+    #[acc(account, { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    CloseProgramAccount,
 }
