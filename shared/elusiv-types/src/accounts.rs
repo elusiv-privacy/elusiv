@@ -281,6 +281,7 @@ pub trait ComputationAccount: PDAAccount {
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
+#[cfg_attr(feature = "elusiv-client", derive(Clone))]
 pub struct PDAAccountData {
     pub bump_seed: u8,
 

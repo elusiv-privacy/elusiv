@@ -26,7 +26,7 @@ pub type RAMG2A<'a> = LazyRAM<'a, G2A, 1>;
 const MAX_PUBLIC_INPUTS_COUNT: usize = 14;
 const MAX_PREPARE_INPUTS_INSTRUCTIONS: usize = MAX_PUBLIC_INPUTS_COUNT * 10;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, EnumVariantIndex, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, EnumVariantIndex, Debug, Clone)]
 /// Describes the state of the proof-verification setup
 /// - after the `PublicInputsSetup` state has been reached (`is_setup() == true`), the computation can start (but before the miller loop `ProofSetup` has to be reached)
 pub enum VerificationState {

@@ -23,7 +23,7 @@ use crate::error::ElusivResult;
 use crate::fields::G2HomProjective;
 use crate::processor::COMPUTE_VERIFICATION_IX_COUNT;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
 pub enum VerificationStep {
     PublicInputPreparation,
     CombinedMillerLoop,

@@ -65,13 +65,13 @@ impl<'a> WardensAccount<'a> {
         )?;
 
         let data = &mut warden_map_account.data.borrow_mut()[..];
-        data.copy_from_slice(&warden_id.try_to_vec()?);
+        data.copy_from_slice(&warden_id.to_le_bytes());
 
         Ok(())
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
 pub struct FixedLenString<const MAX_LEN: usize> {
     len: u8,
     data: [u8; MAX_LEN],
@@ -79,7 +79,7 @@ pub struct FixedLenString<const MAX_LEN: usize> {
 
 pub type Identifier = FixedLenString<256>;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
 pub struct ElusivBasicWardenConfig {
     pub ident: Identifier,
     pub key: Pubkey,
@@ -95,7 +95,7 @@ pub struct ElusivBasicWardenConfig {
     pub platform: Identifier,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
 pub struct ElusivBasicWarden {
     pub warden_id: ElusivWardenID,
     pub config: ElusivBasicWardenConfig,
@@ -114,7 +114,7 @@ pub struct BasicWardenAccount {
     pub warden: ElusivBasicWarden,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
 pub struct WardenStatistics {
     pub activity: [u32; 366],
     pub total: u32,

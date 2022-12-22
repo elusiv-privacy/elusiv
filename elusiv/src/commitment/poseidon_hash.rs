@@ -26,7 +26,7 @@ macro_rules! round {
     };
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BinarySpongeHashingState(pub [Fr; 3]);
 
 impl BinarySpongeHashingState {
