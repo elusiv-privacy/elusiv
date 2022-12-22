@@ -12,15 +12,16 @@ pub fn get_day_and_year() -> Result<(u32, u16), ProgramError> {
 }
 
 const TWO_K_EPOCH: u64 = 946_684_800;
+const TWO_K_100_EPOCH: u64 = 4_102_444_800;
 const DAYS_PER_QUADRENNIAL: u64 = 365 * 4 + 1;
 
 /// Returns the day (of the year) and year for a unix-timestamp
 /// 
 /// # Notes
 /// 
-/// Will return an None for all years outside the range 2000-2099
+/// Will return [`None`] for all years outside the range 2000-2099
 fn unix_timestamp_to_day_and_year(timestamp: u64) -> Option<(u32, u16)> {
-    if timestamp < TWO_K_EPOCH {
+    if !(TWO_K_EPOCH..TWO_K_100_EPOCH).contains(&timestamp) {
         return None
     }
 
