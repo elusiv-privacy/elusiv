@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_utils::{open_pda_account_with_offset, pda_account, guard};
+use elusiv_utils::{open_pda_account_with_offset, pda_account, guard, open_pda_account};
 use solana_program::{
     pubkey::Pubkey,
     account_info::AccountInfo,
@@ -26,11 +26,10 @@ impl<'a> WardensAccount<'a> {
     fn inc_next_warden_id(&mut self) -> ProgramResult {
         let next_id = self.get_next_warden_id();
 
-        #[allow(clippy::or_fun_call)]
         self.set_next_warden_id(
             &next_id
                 .checked_add(1)
-                .ok_or(ProgramError::from(ElusivWardenNetworkError::WardenRegistrationError))?
+                .ok_or_else(|| ProgramError::from(ElusivWardenNetworkError::WardenRegistrationError))?
         );
 
         Ok(())
@@ -38,22 +37,35 @@ impl<'a> WardensAccount<'a> {
 
     pub fn add_basic_warden<'b>(
         &mut self,
-        payer: &AccountInfo<'b>,
-        warden: ElusivBasicWarden,
+        warden: &AccountInfo<'b>,
+        basic_warden: ElusivBasicWarden,
         warden_account: &AccountInfo<'b>,
+        warden_map_account: &AccountInfo<'b>,
     ) -> ProgramResult {
         let warden_id = self.get_next_warden_id();
         self.inc_next_warden_id()?;
 
         open_pda_account_with_offset::<BasicWardenAccount>(
             &crate::id(),
-            payer,
+            warden,
             warden_account,
             warden_id,
         )?;
 
         pda_account!(mut warden_account, BasicWardenAccount, warden_account);
-        warden_account.set_warden(&warden);
+        warden_account.set_warden(&basic_warden);
+
+        // `warden_map_account` is used to store the `warden_id` and prevent duplicate registrations
+        open_pda_account(
+            &crate::id(),
+            warden,
+            warden_map_account,
+            ElusivWardenID::SIZE,
+            &[&warden.key.to_bytes()],
+        )?;
+
+        let data = &mut warden_map_account.data.borrow_mut()[..];
+        data.copy_from_slice(&warden_id.try_to_vec()?);
 
         Ok(())
     }
@@ -137,6 +149,11 @@ pub struct BasicWardenStatsAccount {
     pub store: WardenStatistics,
     pub send: WardenStatistics,
     pub migrate: WardenStatistics,
+}
+
+/// Returns the PDA and bump for an account mapping a warden pubkey to a [`ElusivWardenID`]
+pub fn basic_warden_map_account_pda(pubkey: Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[&pubkey.to_bytes()], &crate::PROGRAM_ID)
 }
 
 pub fn stats_account_pda_offset(warden_id: ElusivWardenID, year: u16) -> u32 {

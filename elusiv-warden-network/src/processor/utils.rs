@@ -20,7 +20,7 @@ const DAYS_PER_QUADRENNIAL: u64 = 365 * 4 + 1;
 /// # Notes
 /// 
 /// Will return [`None`] for all years outside the range 2000-2099
-fn unix_timestamp_to_day_and_year(timestamp: u64) -> Option<(u32, u16)> {
+pub fn unix_timestamp_to_day_and_year(timestamp: u64) -> Option<(u32, u16)> {
     if !(TWO_K_EPOCH..TWO_K_100_EPOCH).contains(&timestamp) {
         return None
     }

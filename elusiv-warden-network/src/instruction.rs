@@ -32,6 +32,7 @@ pub enum ElusivWardenNetworkInstruction {
 
     #[acc(warden, { signer, writable })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable, find_pda, account_info })]
+    #[acc(warden_map_account, { writable })]
     #[pda(wardens, WardensAccount, { writable })]
     #[pda(basic_network, BasicWardenNetworkAccount, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]

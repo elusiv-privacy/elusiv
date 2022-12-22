@@ -37,6 +37,7 @@ pub fn init<'a>(
 pub fn register_basic_warden<'a>(
     warden: &AccountInfo<'a>,
     warden_account: &AccountInfo<'a>,
+    warden_map_account: &AccountInfo<'a>,
     wardens_account: &mut WardensAccount,
     basic_network_account: &mut BasicWardenNetworkAccount,
 
@@ -52,8 +53,8 @@ pub fn register_basic_warden<'a>(
         activation_timestamp: current_timestamp,
         join_timestamp: current_timestamp,
     };
-    wardens_account.add_basic_warden(warden, basic_warden, warden_account)?;
-    basic_network_account.try_add_member(warden_id, warden.key)?;
+    wardens_account.add_basic_warden(warden, basic_warden, warden_account, warden_map_account)?;
+    basic_network_account.try_add_member(warden_id)?;
     
     Ok(())
 }
