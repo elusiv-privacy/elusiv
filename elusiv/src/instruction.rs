@@ -23,6 +23,8 @@ use crate::proof::{VerificationAccount, vkey::{VKeyAccount, VKeyAccountManangerA
 use elusiv_types::ElusivOption;
 use solana_program::{system_program, sysvar::instructions};
 use borsh::{BorshDeserialize, BorshSerialize};
+
+#[cfg(feature = "elusiv-client")]
 pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount, WritableSignerAccount};
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
