@@ -73,8 +73,29 @@ impl<'a> WardensAccount<'a> {
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
 pub struct FixedLenString<const MAX_LEN: usize> {
-    len: u8,
+    len: u64,
     data: [u8; MAX_LEN],
+}
+
+#[cfg(feature = "elusiv-client")]
+impl<const MAX_LEN: usize> TryFrom<String> for FixedLenString<MAX_LEN> {
+    type Error = std::io::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.len() > MAX_LEN {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "String is too long"))
+        }
+
+        let mut data = [0; MAX_LEN];
+        data[..value.len()].copy_from_slice(value.as_bytes());
+
+        Ok(
+            Self {
+                len: value.len() as u64,
+                data,
+            }
+        )
+    }
 }
 
 pub type Identifier = FixedLenString<256>;
