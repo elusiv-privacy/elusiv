@@ -19,26 +19,9 @@ use elusiv::{
     commitment::{BaseCommitmentHashingAccount, BaseCommitmentHashComputation, commitment_hash_computation_instructions, CommitmentHashingAccount, COMMITMENT_HASH_COMPUTE_BUDGET, poseidon_hash::{full_poseidon2_hash, BinarySpongeHashingState}, commitments_per_batch}
 };
 use elusiv_computation::PartialComputation;
-use pyth_sdk_solana::{Price, load_price_feed_from_account};
+use elusiv_types::tokens::Price;
 use solana_program::{native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, system_program};
 use solana_program_test::*;
-
-#[tokio::test]
-async fn test_setup_spl_token_and_pyth() {
-    let mut test = ElusivProgramTest::start_with_setup().await;
-    let mut client = test.new_actor().await;
-
-    test.create_spl_token(USDC_TOKEN_ID, true).await;
-    client.open_token_account(USDC_TOKEN_ID, 1_000_000, &mut test).await;
-    assert_eq!(client.balance(USDC_TOKEN_ID, &mut test).await, 1_000_000);
-
-    let price = Price { price: 123456, expo: 2, conf: 789 };
-    test.set_token_to_usd_price_pyth(USDC_TOKEN_ID, price).await;
-    let price_key = test.token_to_usd_price_pyth_account(USDC_TOKEN_ID);
-    let mut price_account = test.context().banks_client.get_account(price_key).await.unwrap().unwrap();
-    let price_feed = load_price_feed_from_account(&price_key, &mut price_account).unwrap();
-    assert_eq!(price_feed.get_current_price().unwrap(), price);
-}
 
 #[tokio::test]
 async fn test_store_base_commitment_lamports_transfer() {

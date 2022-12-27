@@ -4,6 +4,8 @@ use quote::quote;
 use serde::{Serialize, Deserialize};
 use solana_program::pubkey::Pubkey;
 
+const TOKEN_TOML_PATH: &str = "/Token.toml";
+
 #[derive(Serialize, Deserialize, Debug)]
 struct Tokens {
     token: Vec<Token>,
@@ -25,7 +27,7 @@ struct Token {
 
 pub fn impl_parse_tokens() -> TokenStream {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let file_name = manifest_dir + "/Token.toml";
+    let file_name = manifest_dir + TOKEN_TOML_PATH;
     let contents = fs::read_to_string(file_name).unwrap();
     let tokens: Tokens = toml::from_str(&contents).unwrap();
     let count = tokens.token.len();

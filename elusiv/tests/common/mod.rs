@@ -5,7 +5,7 @@ use elusiv_computation::PartialComputation;
 use elusiv_types::{PDAOffset, ParentAccount};
 use spl_associated_token_account::instruction::create_associated_token_account;
 use std::{collections::HashMap, str::FromStr};
-use pyth_sdk_solana::Price;
+use elusiv_types::tokens::Price;
 use solana_program::{
     pubkey::Pubkey,
     instruction::{Instruction, AccountMeta}, system_instruction, native_token::LAMPORTS_PER_SOL, program_option::COption,

@@ -944,7 +944,7 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use elusiv_computation::PartialComputation;
-    use pyth_sdk_solana::Price;
+    use elusiv_types::tokens::Price;
     use solana_program::native_token::LAMPORTS_PER_SOL;
     use solana_program::pubkey::Pubkey;
     use solana_program::system_program;

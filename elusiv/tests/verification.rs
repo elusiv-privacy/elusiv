@@ -6,7 +6,7 @@ use borsh::{BorshSerialize, BorshDeserialize};
 use common::*;
 use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
 use elusiv_computation::PartialComputation;
-use pyth_sdk_solana::Price;
+use elusiv_types::tokens::Price;
 use solana_program::program_pack::Pack;
 use solana_program::system_program;
 use elusiv::bytes::{ElusivOption, BorshSerDeSized};
