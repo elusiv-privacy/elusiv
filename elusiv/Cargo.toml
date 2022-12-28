@@ -6,9 +6,9 @@ publish = false
 
 [workspace]
 members = [
+    "elusiv-interpreter",
     "shared/elusiv-computation",
     "shared/elusiv-derive",
-    "shared/elusiv-interpreter",
     "shared/elusiv-proc-macros",
     "shared/elusiv-types",
     "shared/elusiv-utils",
@@ -42,7 +42,7 @@ test-unit = [
 [dependencies]
 elusiv-computation = { path = "shared/elusiv-computation" }
 elusiv-derive = { path = "shared/elusiv-derive" }
-elusiv-interpreter = { path = "shared/elusiv-interpreter" }
+elusiv-interpreter = { path = "elusiv-interpreter" }
 elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }
 elusiv-types = { path = "shared/elusiv-types", default-features = false, features = ["bytes", "accounts", "tokens"] }
 elusiv-utils = { path = "shared/elusiv-utils" }
