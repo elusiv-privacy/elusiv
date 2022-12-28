@@ -6,12 +6,15 @@ publish = false
 
 [workspace]
 members = [
-    "elusiv-interpreter",
     "shared/elusiv-computation",
     "shared/elusiv-derive",
+    "elusiv-interpreter",
     "shared/elusiv-proc-macros",
     "shared/elusiv-types",
     "shared/elusiv-utils",
+]
+exclude = [
+    "shared/elusiv-test"
 ]
 
 [features]
@@ -63,6 +66,7 @@ ark-ec = { version = "=0.3.0", default-features = false }
 serde_json = "1.0.87"
 elusiv = { path = ".", features = ["static_assertions", "elusiv-client", "test-elusiv", "logging", "serde"] }
 elusiv-utils = { path = "shared/elusiv-utils", features = ["sdk"] }
+elusiv-test = { path = "shared/elusiv-test" }
 
 solana-program-test = "1.10"
 solana-sdk = "1.10"

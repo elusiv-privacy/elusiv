@@ -25,7 +25,7 @@ use solana_program_test::*;
 
 #[tokio::test]
 async fn test_store_base_commitment_lamports_transfer() {
-    let mut test = ElusivProgramTest::start_with_setup().await;
+    let mut test = start_test_with_setup().await;
     let client = test.new_actor().await;
     let warden = test.new_actor().await;
 
@@ -41,7 +41,7 @@ async fn test_store_base_commitment_lamports_transfer() {
         0,
     );
 
-    let fee = test.genesis_fee().await;
+    let fee = genesis_fee(&mut test).await;
     let subvention = fee.base_commitment_subvention.0;
     let computation_fee = (
         fee.base_commitment_hash_computation_fee() + fee.commitment_hash_computation_fee(request.min_batching_rate)
@@ -97,8 +97,10 @@ async fn test_store_base_commitment_lamports_transfer() {
 
 #[tokio::test]
 async fn test_store_base_commitment_token_transfer() {
-    let mut test = ElusivProgramTest::start_with_setup().await;
-    test.create_spl_token(USDC_TOKEN_ID, true).await;
+    let mut test = start_test_with_setup().await;
+    test.create_spl_token(USDC_TOKEN_ID).await;
+    enable_program_token_account::<PoolAccount>(&mut test, USDC_TOKEN_ID, None).await;
+    enable_program_token_account::<FeeCollectorAccount>(&mut test, USDC_TOKEN_ID, None).await;
 
     let mut client = test.new_actor().await;
     client.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
@@ -126,7 +128,7 @@ async fn test_store_base_commitment_token_transfer() {
     );
 
     let price = TokenPrice::new_from_sol_price(sol_usd_price, usdc_usd_price, USDC_TOKEN_ID).unwrap();
-    let fee = test.genesis_fee().await;
+    let fee = genesis_fee(&mut test).await;
     let subvention = fee.base_commitment_subvention.into_token(&price, USDC_TOKEN_ID).unwrap();
     let computation_fee = (
         fee.base_commitment_hash_computation_fee() + fee.commitment_hash_computation_fee(request.min_batching_rate)
@@ -188,7 +190,7 @@ async fn test_store_base_commitment_token_transfer() {
 
 #[tokio::test]
 async fn test_base_commitment_lamports() {
-    let mut test = ElusivProgramTest::start_with_setup().await;
+    let mut test = start_test_with_setup().await;
     let client = test.new_actor().await;
     let warden_a = test.new_actor().await;
     let warden_b = test.new_actor().await;
@@ -222,14 +224,15 @@ async fn test_base_commitment_lamports() {
     );
     test.ix_should_fail(store_ix.clone(), &[&client.keypair, &warden_a.keypair]).await;
 
-    set_single_pda_account!(GovernorAccount, None, test, |account: &mut GovernorAccount| {
+    test.set_pda_account::<GovernorAccount, _>(&elusiv::id(), None, |data| {
+        let mut account = GovernorAccount::new(data).unwrap();
         account.set_commitment_batching_rate(&1);
-    });
+    }).await;
 
     // Store fails: client has not enough funds
     test.ix_should_fail(store_ix.clone(), &[&client.keypair, &warden_a.keypair]).await;
 
-    let fee = test.genesis_fee().await;
+    let fee = genesis_fee(&mut test).await;
     let hashing_account_rent = test.rent(BaseCommitmentHashingAccount::SIZE).await;
     let subvention = fee.base_commitment_subvention.0;
     let computation_fee = (
@@ -409,11 +412,14 @@ async fn test_base_commitment_lamports() {
 
 #[tokio::test]
 async fn test_base_commitment_token() {
-    let mut test = ElusivProgramTest::start_with_setup().await;
+    let mut test = start_test_with_setup().await;
     let mut client = test.new_actor().await;
     let mut warden = test.new_actor().await;
 
-    test.create_spl_token(USDC_TOKEN_ID, true).await;
+    test.create_spl_token(USDC_TOKEN_ID).await;
+    enable_program_token_account::<PoolAccount>(&mut test, USDC_TOKEN_ID, None).await;
+    enable_program_token_account::<FeeCollectorAccount>(&mut test, USDC_TOKEN_ID, None).await;
+
     client.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
 
@@ -438,7 +444,7 @@ async fn test_base_commitment_token() {
     );
 
     let price = TokenPrice::new_from_sol_price(sol_usd_price, usdc_usd_price, USDC_TOKEN_ID).unwrap();
-    let fee = test.genesis_fee().await;
+    let fee = genesis_fee(&mut test).await;
     let subvention = fee.base_commitment_subvention.into_token(&price, USDC_TOKEN_ID).unwrap();
     let computation_fee = (
         fee.base_commitment_hash_computation_fee() + fee.commitment_hash_computation_fee(request.min_batching_rate)
@@ -534,10 +540,10 @@ pub fn base_commitment_request(
 #[tokio::test]
 #[allow(clippy::needless_range_loop)]
 async fn test_single_commitment() {
-    let mut test = ElusivProgramTest::start_with_setup().await;
-    test.setup_storage_account().await;
+    let mut test = start_test_with_setup().await;
+    setup_storage_account(&mut test).await;
 
-    let storage_accounts = test.storage_accounts().await;
+    let storage_accounts = storage_accounts(&mut test).await;
     let warden = test.new_actor().await;
 
     let request = base_commitment_request(
@@ -549,11 +555,11 @@ async fn test_single_commitment() {
         0,
     );
 
-    let fee = test.genesis_fee().await;
+    let fee = genesis_fee(&mut test).await;
     let pool = PoolAccount::find(None).0;
 
     // Add requests to commitment queue
-    test.set_pda_account::<CommitmentQueueAccount, _>(None, |data| {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, |data| {
         commitment_queue!(mut queue, data);
 
         queue.enqueue(
@@ -691,12 +697,12 @@ async fn set_finished_base_commitment_hash(
         hashing_account.set_state(&BinarySpongeHashingState([u256_to_fr_skip_mr(commitment), Fr::zero(), Fr::zero()]));
         hashing_account.set_fee_payer(&original_fee_payer.to_bytes());
     }
-    test.set_program_account_rent_exempt(&BaseCommitmentHashingAccount::find(Some(hash_account_index)).0, &data).await;
+    test.set_program_account_rent_exempt(&elusiv::id(), &BaseCommitmentHashingAccount::find(Some(hash_account_index)).0, &data).await;
 }
 
 #[tokio::test]
 async fn test_commitment_full_queue() {
-    let mut test = ElusivProgramTest::start_with_setup().await;
+    let mut test = start_test_with_setup().await;
     let warden = test.new_actor().await;
 
     let request = CommitmentHashRequest {
@@ -706,7 +712,7 @@ async fn test_commitment_full_queue() {
     };
 
     // Enqueue all
-    test.set_pda_account::<CommitmentQueueAccount, _>(None, |data| {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, |data| {
         commitment_queue!(mut queue, data);
 
         for _ in 0..CommitmentQueue::CAPACITY {
@@ -738,15 +744,15 @@ async fn test_commitment_full_queue() {
 
 #[tokio::test]
 async fn test_commitment_correct_storage_account_insertion() {
-    let mut test = ElusivProgramTest::start_with_setup().await;
-    test.setup_storage_account().await;
-    let storage_accounts = test.storage_accounts().await;
+    let mut test = start_test_with_setup().await;
+    setup_storage_account(&mut test).await;
+    let storage_accounts = storage_accounts(&mut test).await;
 
     let len = commitment_hash_computation_instructions(0).len() as u32;
     let commitment_count = 33;
 
     for i in 0..commitment_count {
-        test.set_pda_account::<CommitmentHashingAccount, _>(None, |data| {
+        test.set_pda_account::<CommitmentHashingAccount, _>(&elusiv::id(), None, |data| {
             let mut account = CommitmentHashingAccount::new(data).unwrap();
             account.set_is_active(&true);
             account.set_instruction(&len);
@@ -775,10 +781,10 @@ async fn test_commitment_correct_storage_account_insertion() {
 #[tokio::test]
 #[allow(clippy::needless_range_loop)]
 async fn test_commitment_hash_multiple_commitments_zero_batch() {
-    let mut test = ElusivProgramTest::start_with_setup().await;
+    let mut test = start_test_with_setup().await;
     let warden = test.new_actor().await;
-    test.setup_storage_account().await;
-    let storage_accounts = test.storage_accounts().await;
+    setup_storage_account(&mut test).await;
+    let storage_accounts = storage_accounts(&mut test).await;
 
     let pool = PoolAccount::find(None).0;
     test.airdrop_lamports(&pool, LAMPORTS_PER_SOL * 100).await;
@@ -811,7 +817,7 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
         u256_from_str("21620303059720667189546524860541209640581655979702452251272504609177116384089"),
     ];
 
-    test.set_pda_account::<CommitmentQueueAccount, _>(None, |data| {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, |data| {
         commitment_queue!(mut queue, data);
 
         for request in &requests {
@@ -868,10 +874,10 @@ async fn test_commitment_hash_with_batching_rate(
 ) {
     assert_eq!(commitments.len(), commitments_per_batch(batching_rate));
 
-    let mut test = ElusivProgramTest::start_with_setup().await;
+    let mut test = start_test_with_setup().await;
     let warden = test.new_actor().await;
-    test.setup_storage_account().await;
-    let storage_accounts = test.storage_accounts().await;
+    setup_storage_account(&mut test).await;
+    let storage_accounts = storage_accounts(&mut test).await;
 
     let pool = PoolAccount::find(None).0;
     test.airdrop_lamports(&pool, LAMPORTS_PER_SOL * 100).await;
@@ -884,7 +890,7 @@ async fn test_commitment_hash_with_batching_rate(
         })
         .collect();
 
-    test.set_pda_account::<CommitmentQueueAccount, _>(None, |data| {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, |data| {
         commitment_queue!(mut queue, data);
         for request in &requests {
             queue.enqueue(*request).unwrap();
