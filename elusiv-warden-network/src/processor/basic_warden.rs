@@ -44,6 +44,8 @@ pub fn register_basic_warden<'a>(
     warden_id: ElusivWardenID,
     config: ElusivBasicWardenConfig,
 ) -> ProgramResult {
+    guard!(config.key == *warden.key, ProgramError::InvalidArgument);
+
     let current_timestamp = current_timestamp()?;
     let basic_warden = ElusivBasicWarden {
         warden_id,
@@ -69,7 +71,8 @@ pub fn update_basic_warden_state(
     let mut basic_warden = warden_account.get_warden();
     guard!(*warden.key == basic_warden.config.key, ProgramError::MissingRequiredSignature);
 
-    if is_active && !basic_warden.is_active {
+    // `activation_timestamp` is used to track all `is_active` changes
+    if is_active != basic_warden.is_active {
         basic_warden.activation_timestamp = current_timestamp()?;
     }
     basic_warden.is_active = is_active;
@@ -85,7 +88,7 @@ pub fn update_basic_warden_lut(
 
     _warden_id: ElusivWardenID,
 ) -> ProgramResult {
-    // TODO: verify lut_account to be a valid, frozen LUT
+    // TODO: verify lut_account to be a valid, frozen LUT (but not required ATM)
 
     let mut basic_warden = warden_account.get_warden();
     guard!(*warden.key == basic_warden.config.key, ProgramError::MissingRequiredSignature);
