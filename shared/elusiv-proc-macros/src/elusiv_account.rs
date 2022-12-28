@@ -456,7 +456,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         quote!()
     };
 
-    let program_id = Pubkey::from_str(&crate::program_id::read_program_id()).unwrap();
+    let program_id = Pubkey::from_str(&crate::program_id::read_program_id("")).unwrap();
     let (first_pubkey, _) = Pubkey::find_program_address(&[pda_seed], &program_id);
     let first_pubkey: TokenStream = format!("{:?}", first_pubkey.to_bytes()).parse().unwrap();
     let account_size_test: TokenStream = format!("test_{}_account_size", ident.to_string().to_lowercase()).parse().unwrap();

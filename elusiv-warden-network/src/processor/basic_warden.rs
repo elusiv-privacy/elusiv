@@ -130,6 +130,8 @@ pub fn open_basic_warden_stats_account<'a>(
     Ok(())
 }
 
+const ELUSIV_PROGRAM_ID: Pubkey = crate::macros::program_id!(elusiv);
+
 pub fn track_basic_warden_stats(
     warden_account: &BasicWardenAccount,
     stats_account: &mut BasicWardenStatsAccount,
@@ -156,14 +158,17 @@ pub fn track_basic_warden_stats(
     match ix_byte {
         2 => {  // `FinalizeBaseCommitmentHash`
             guard!(previous_ix.accounts[0].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
+            guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
             stats_account.set_store(stats_account.get_store().inc(day)?);
         }
         13 => { // `FinalizeVerificationTransferLamports`
             guard!(previous_ix.accounts[1].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
+            guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
             stats_account.set_send(stats_account.get_send().inc(day)?);
         }
         14 => { // `FinalizeVerificationTransferToken`
             guard!(previous_ix.accounts[3].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
+            guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
             stats_account.set_send(stats_account.get_send().inc(day)?);
         }
         _ => return Err(ElusivWardenNetworkError::StatsError.into())

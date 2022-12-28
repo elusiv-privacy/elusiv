@@ -11,17 +11,26 @@ members = [
     "shared/elusiv-types",
     "shared/elusiv-utils",
 ]
+exclude = [
+    "shared/elusiv-test"
+]
 
 [features]
-mainnet = ["elusiv-proc-macros/mainnet"]
-devnet = ["elusiv-proc-macros/devnet"]
+mainnet = [
+    "elusiv-proc-macros/mainnet",
+    "elusiv-types/mainnet",
+]
+devnet = [
+    "elusiv-proc-macros/devnet",
+    "elusiv-types/devnet",
+]
 
 elusiv-client = ["elusiv-types/elusiv-client"]
 no-entrypoint = []
 logging = []
 
 test-bpf = []
-test-elusiv = []
+test-elusiv = ["elusiv-types/test-elusiv"]
 test-unit = ["elusiv-utils/test-unit"]
 
 [dependencies]
@@ -33,7 +42,9 @@ elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }
 solana-program = "1.10"
 
 [dev-dependencies]
+elusiv-test = { path = "shared/elusiv-test" }
 elusiv-warden-network = { path = ".", features = ["elusiv-client", "test-elusiv", "logging"] }
+solana-program-test = "1.10"
 
 [profile.test]
 opt-level = 2

@@ -27,20 +27,13 @@ devnet = [
     "elusiv-types/devnet",
 ]
 
-elusiv-client = [
-    "elusiv-types/elusiv-client"
-]
+elusiv-client = ["elusiv-types/elusiv-client"]
 no-entrypoint = []
 logging = []
 
 test-bpf = []
-test-elusiv = [
-    "elusiv-types/test-elusiv",
-]
-test-unit = [
-    "elusiv-utils/test-unit",
-    "elusiv-types/test-unit",
-]
+test-elusiv = ["elusiv-types/test-elusiv"]
+test-unit = ["elusiv-utils/test-unit"]
 
 [dependencies]
 elusiv-computation = { path = "shared/elusiv-computation" }

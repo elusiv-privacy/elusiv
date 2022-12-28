@@ -7,7 +7,7 @@ use solana_program::{
 use crate::instruction;
 use crate::bytes::BorshSerDeSizedEnum;
 
-crate::macros::program_id!();
+crate::macros::declare_program_id!();
 solana_program::entrypoint!(process_instruction);
 
 #[cfg(not(tarpaulin_include))]
