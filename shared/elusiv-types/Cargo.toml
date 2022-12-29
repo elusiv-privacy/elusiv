@@ -5,12 +5,24 @@ edition = "2021"
 publish = false
 
 [features]
-bytes = []
+mainnet = ["elusiv-proc-macros/mainnet"]
+devnet = ["elusiv-proc-macros/devnet"]
+
 accounts = []
+bytes = []
+tokens = ["elusiv-proc-macros", "spl-token", "spl-associated-token-account", "pyth-sdk-solana"]
 
 elusiv-client = []
 
+test-elusiv = ["bytemuck"]
+test-unit = []
+
 [dependencies]
-elusiv-derive = { path = "./../elusiv-derive" }
-solana-program = "1.10"
 borsh = { version = "=0.9.3", features = ["const-generics"] }
+bytemuck = { version = "1.7.2", optional = true }
+elusiv-derive = { path = "./../elusiv-derive" }
+elusiv-proc-macros = { path = "../elusiv-proc-macros", optional = true }
+solana-program = "1.10"
+spl-token = { version = "3.5", features = ["no-entrypoint"], optional = true }
+spl-associated-token-account = { version = "1.1.1", features = ["no-entrypoint"], optional = true }
+pyth-sdk-solana = { version = "0.4.2", optional = true }

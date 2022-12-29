@@ -44,6 +44,8 @@ pub fn register_basic_warden<'a>(
     warden_id: ElusivWardenID,
     config: ElusivBasicWardenConfig,
 ) -> ProgramResult {
+    guard!(config.key == *warden.key, ProgramError::InvalidArgument);
+
     let current_timestamp = current_timestamp()?;
     let basic_warden = ElusivBasicWarden {
         warden_id,
@@ -69,7 +71,8 @@ pub fn update_basic_warden_state(
     let mut basic_warden = warden_account.get_warden();
     guard!(*warden.key == basic_warden.config.key, ProgramError::MissingRequiredSignature);
 
-    if is_active && !basic_warden.is_active {
+    // `activation_timestamp` is used to track all `is_active` changes
+    if is_active != basic_warden.is_active {
         basic_warden.activation_timestamp = current_timestamp()?;
     }
     basic_warden.is_active = is_active;
@@ -85,7 +88,7 @@ pub fn update_basic_warden_lut(
 
     _warden_id: ElusivWardenID,
 ) -> ProgramResult {
-    // TODO: verify lut_account to be a valid, frozen LUT
+    // TODO: verify lut_account to be a valid, frozen LUT (but not required ATM)
 
     let mut basic_warden = warden_account.get_warden();
     guard!(*warden.key == basic_warden.config.key, ProgramError::MissingRequiredSignature);
@@ -96,23 +99,13 @@ pub fn update_basic_warden_lut(
     Ok(())
 }
 
-pub fn close_basic_warden<'a>(
-    _warden: &AccountInfo<'a>,
-    _warden_account: &AccountInfo<'a>,
-
-    _warden_id: ElusivWardenID,
-) -> ProgramResult {
-    todo!()
-}
-
 pub fn open_basic_warden_stats_account<'a>(
     payer: &AccountInfo<'a>,
     stats_account: &AccountInfo<'a>,
 
     warden_id: ElusivWardenID,
-    _year: u16,
+    year: u16,
 ) -> ProgramResult {
-    let (_, year) = get_day_and_year()?;
     let offset = stats_account_pda_offset(warden_id, year);
 
     open_pda_account_with_offset::<BasicWardenStatsAccount>(
@@ -129,6 +122,33 @@ pub fn open_basic_warden_stats_account<'a>(
 
     Ok(())
 }
+
+const ELUSIV_PROGRAM_ID: Pubkey = crate::macros::program_id!(elusiv);
+
+pub struct TrackableElusivInstruction {
+    pub instruction_id: u8,
+    pub warden_index: u8,
+}
+
+pub const TRACKABLE_ELUSIV_INSTRUCTIONS: [TrackableElusivInstruction; 3] = [
+    // FinalizeBaseCommitmentHash
+    TrackableElusivInstruction {
+        instruction_id: 2,
+        warden_index: 0,
+    },
+
+    // FinalizeVerificationTransferLamports
+    TrackableElusivInstruction {
+        instruction_id: 13,
+        warden_index: 1,
+    },
+
+    // FinalizeVerificationTransferToken
+    TrackableElusivInstruction {
+        instruction_id: 14,
+        warden_index: 3,
+    }
+];
 
 pub fn track_basic_warden_stats(
     warden_account: &BasicWardenAccount,
@@ -153,21 +173,16 @@ pub fn track_basic_warden_stats(
     )?;
 
     let ix_byte = previous_ix.data[0];
-    match ix_byte {
-        2 => {  // `FinalizeBaseCommitmentHash`
-            guard!(previous_ix.accounts[0].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
-            stats_account.set_store(stats_account.get_store().inc(day)?);
-        }
-        13 => { // `FinalizeVerificationTransferLamports`
-            guard!(previous_ix.accounts[1].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
-            stats_account.set_send(stats_account.get_send().inc(day)?);
-        }
-        14 => { // `FinalizeVerificationTransferToken`
-            guard!(previous_ix.accounts[3].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
-            stats_account.set_send(stats_account.get_send().inc(day)?);
-        }
-        _ => return Err(ElusivWardenNetworkError::StatsError.into())
-    };
+    if let Some(ix) = TRACKABLE_ELUSIV_INSTRUCTIONS.iter().find(|i| {
+        i.instruction_id == ix_byte
+    }) {
+        guard!(previous_ix.accounts[ix.warden_index as usize].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
+        guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
+
+        stats_account.set_store(stats_account.get_store().inc(day)?);
+    } else {
+        return Err(ElusivWardenNetworkError::StatsError.into())
+    }
 
     Ok(())
 }

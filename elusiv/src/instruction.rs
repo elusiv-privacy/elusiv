@@ -27,6 +27,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(feature = "elusiv-client")]
 pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount, WritableSignerAccount};
 
+#[repr(u8)]
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
 #[allow(clippy::large_enum_variant)]
 pub enum ElusivInstruction {
@@ -420,5 +421,32 @@ mod tests {
     #[test]
     fn test_instruction_tag() {
         assert_eq!(1, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 0, }));
+    }
+
+    #[test]
+    fn test_elusiv_instruction_tag() {
+        // Tests used to ensure correctness of the Warden-Network stats tracking tags
+        // https://github.com/elusiv-privacy/elusiv/blob/basic-warden-network/elusiv-warden-network/src/processor/basic_warden.rs
+
+        assert_eq!(
+            2,
+            get_variant_tag!(
+                ElusivInstruction::FinalizeBaseCommitmentHash { hash_account_index: 0, fee_version: 0 }
+            )
+        );
+
+        assert_eq!(
+            13,
+            get_variant_tag!(
+                ElusivInstruction::FinalizeVerificationTransferLamports { verification_account_index: 0 }
+            )
+        );
+
+        assert_eq!(
+            14,
+            get_variant_tag!(
+                ElusivInstruction::FinalizeVerificationTransferToken { verification_account_index: 0 }
+            )
+        );
     }
 }

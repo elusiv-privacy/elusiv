@@ -1122,16 +1122,15 @@ dependencies = [
  "ark-groth16",
  "assert_matches",
  "borsh",
- "bytemuck",
  "elusiv",
  "elusiv-computation",
  "elusiv-derive",
  "elusiv-interpreter",
  "elusiv-proc-macros",
+ "elusiv-test",
  "elusiv-types",
  "elusiv-utils",
  "num 0.4.0",
- "pyth-sdk-solana",
  "rand 0.8.5",
  "regex",
  "serde",
@@ -1184,12 +1183,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "elusiv-test"
+version = "0.1.0"
+dependencies = [
+ "assert_matches",
+ "elusiv-types",
+ "rand 0.8.5",
+ "solana-program",
+ "solana-program-test",
+ "solana-sdk",
+ "spl-associated-token-account",
+ "spl-token",
+]
+
+[[package]]
 name = "elusiv-types"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "bytemuck",
  "elusiv-derive",
+ "elusiv-proc-macros",
+ "pyth-sdk-solana",
  "solana-program",
+ "spl-associated-token-account",
+ "spl-token",
 ]
 
 [[package]]

@@ -360,7 +360,7 @@ mod tests {
     use crate::token::{LAMPORTS_TOKEN_ID, lamports_token, USDC_TOKEN_ID, usdc_token};
     use ark_ff::Zero;
     use assert_matches::assert_matches;
-    use pyth_sdk_solana::Price;
+    use elusiv_types::tokens::Price;
     use solana_program::native_token::LAMPORTS_PER_SOL;
     use solana_program::pubkey::Pubkey;
     use solana_program::system_program;

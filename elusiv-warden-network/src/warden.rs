@@ -71,15 +71,36 @@ impl<'a> WardensAccount<'a> {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
 pub struct FixedLenString<const MAX_LEN: usize> {
-    len: u8,
+    len: u64,
     data: [u8; MAX_LEN],
+}
+
+#[cfg(feature = "elusiv-client")]
+impl<const MAX_LEN: usize> TryFrom<String> for FixedLenString<MAX_LEN> {
+    type Error = std::io::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.len() > MAX_LEN {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "String is too long"))
+        }
+
+        let mut data = [0; MAX_LEN];
+        data[..value.len()].copy_from_slice(value.as_bytes());
+
+        Ok(
+            Self {
+                len: value.len() as u64,
+                data,
+            }
+        )
+    }
 }
 
 pub type Identifier = FixedLenString<256>;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
 pub struct ElusivBasicWardenConfig {
     pub ident: Identifier,
     pub key: Pubkey,
@@ -89,8 +110,6 @@ pub struct ElusivBasicWardenConfig {
     pub port: u16,
 
     pub country: u16,
-    pub asn: u32,
-
     pub version: [u16; 3],
     pub platform: Identifier,
 }
@@ -104,6 +123,8 @@ pub struct ElusivBasicWarden {
     pub is_active: bool,
 
     pub join_timestamp: u64,
+
+    /// The timestamp of the last change of `is_active`
     pub activation_timestamp: u64,
 }
 
@@ -121,7 +142,7 @@ pub struct WardenStatistics {
 }
 
 const BASE_YEAR: u16 = 2022;
-const YEARS_COUNT: usize = 100;
+const YEARS_COUNT: usize = 50;
 const WARDENS_COUNT: u32 = u32::MAX / YEARS_COUNT as u32;
 
 impl WardenStatistics {
@@ -158,6 +179,7 @@ pub fn basic_warden_map_account_pda(pubkey: Pubkey) -> (Pubkey, u8) {
 
 pub fn stats_account_pda_offset(warden_id: ElusivWardenID, year: u16) -> u32 {
     assert!(year >= BASE_YEAR);
+    assert!(year as usize <= BASE_YEAR as usize + YEARS_COUNT);
     assert!(warden_id < WARDENS_COUNT);
 
     (year - BASE_YEAR) as u32 * WARDENS_COUNT + warden_id

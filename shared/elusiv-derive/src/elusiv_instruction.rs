@@ -285,7 +285,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
             functions.extend(quote!{
                 #docs
                 #other_attrs
-                pub fn #fn_name(program_id: &solana_program::pubkey::Pubkey, accounts: &[solana_program::account_info::AccountInfo], #fields_with_type) -> solana_program::entrypoint::ProgramResult {
+                fn #fn_name(program_id: &solana_program::pubkey::Pubkey, accounts: &[solana_program::account_info::AccountInfo], #fields_with_type) -> solana_program::entrypoint::ProgramResult {
                     let mut account_info_iter = &mut accounts.iter();
                     #accounts
                     processor::#fn_name(#signature #fields)

@@ -6,7 +6,7 @@ use borsh::{BorshSerialize, BorshDeserialize};
 use common::*;
 use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
 use elusiv_computation::PartialComputation;
-use pyth_sdk_solana::Price;
+use elusiv_types::tokens::Price;
 use solana_program::program_pack::Pack;
 use solana_program::system_program;
 use elusiv::bytes::{ElusivOption, BorshSerDeSized};
@@ -26,11 +26,11 @@ use solana_sdk::compute_budget::ComputeBudgetInstruction;
 use spl_associated_token_account::get_associated_token_address;
 
 async fn start_verification_test() -> ElusivProgramTest {
-    let mut test = ElusivProgramTest::start_with_setup().await;
+    let mut test = start_test_with_setup().await;
 
-    test.setup_storage_account().await;
-    test.create_merkle_tree(0).await;
-    test.create_merkle_tree(1).await;
+    setup_storage_account(&mut test).await;
+    create_merkle_tree(&mut test, 0).await;
+    create_merkle_tree(&mut test, 1).await;
 
     test
 }
@@ -233,21 +233,21 @@ impl ExtraData {
 }
 
 async fn skip_computation(verification_account_index: u32, success: bool, test: &mut ElusivProgramTest) {
-    test.set_pda_account::<VerificationAccount, _>(Some(verification_account_index), |data| {
+    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(verification_account_index), |data| {
         let mut verification_account = VerificationAccount::new(data).unwrap();
         verification_account.set_is_verified(&ElusivOption::Some(success));
     }).await;
 }
 
 async fn set_verification_state(verification_account_index: u32, state: VerificationState, test: &mut ElusivProgramTest) {
-    test.set_pda_account::<VerificationAccount, _>(Some(verification_account_index), |data| {
+    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(verification_account_index), |data| {
         let mut verification_account = VerificationAccount::new(data).unwrap();
         verification_account.set_state(&state);
     }).await;
 }
 
 async fn skip_finalize_verification_send(verification_account_index: u32, recipient: &Pubkey, test: &mut ElusivProgramTest) {
-    test.set_pda_account::<VerificationAccount, _>(Some(verification_account_index), |data| {
+    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(verification_account_index), |data| {
         let mut verification_account = VerificationAccount::new(data).unwrap();
         let mut other_data = verification_account.get_other_data();
         other_data.recipient_wallet = ElusivOption::Some(RawU256::new(recipient.to_bytes()));
@@ -272,7 +272,7 @@ async fn setup_vkey_account<VKey: VerifyingKeyInfo>(test: &mut ElusivProgramTest
         is_frozen: true,
         deploy_authority: ElusivOption::None,
     }.try_to_vec().unwrap();
-    test.set_program_account_rent_exempt(&pda, &data).await;
+    test.set_program_account_rent_exempt(&elusiv::id(), &pda, &data).await;
 
     (pda, sub_account_pubkey)
 }
@@ -282,10 +282,10 @@ async fn test_init_proof_signers() {
     let mut test = start_verification_test().await;
     let warden = test.new_actor().await;
     let warden2 = test.new_actor().await;
-    let nullifier_accounts = test.nullifier_accounts(0).await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
-    let fee = test.genesis_fee().await;
+    let fee = genesis_fee(&mut test).await;
     let mut request = send_request(0);
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &fee);
 
@@ -375,10 +375,10 @@ async fn test_init_proof_signers() {
 async fn test_init_proof_lamports() {
     let mut test = start_verification_test().await;
     let warden = test.new_actor().await;
-    let nullifier_accounts = test.nullifier_accounts(0).await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
-    let fee = test.genesis_fee().await;
+    let fee = genesis_fee(&mut test).await;
     let mut request = send_request(0);
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &fee);
 
@@ -466,7 +466,9 @@ async fn test_init_proof_lamports() {
 #[tokio::test]
 async fn test_init_proof_token() {
     let mut test = start_verification_test().await;
-    test.create_spl_token(USDC_TOKEN_ID, true).await;
+    test.create_spl_token(USDC_TOKEN_ID).await;
+    enable_program_token_account::<PoolAccount>(&mut test, USDC_TOKEN_ID, None).await;
+    enable_program_token_account::<FeeCollectorAccount>(&mut test, USDC_TOKEN_ID, None).await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut warden = test.new_actor().await;
@@ -484,11 +486,11 @@ async fn test_init_proof_token() {
     request.public_inputs.join_split.token_id = USDC_TOKEN_ID;
     request.public_inputs.join_split.amount = 1_000_000;
 
-    let fee = test.genesis_fee().await;
+    let fee = genesis_fee(&mut test).await;
     compute_fee_rec::<SendQuadraVKey, _>(&mut request.public_inputs, &fee, &price);
 
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
-    let nullifier_accounts = test.nullifier_accounts(0).await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
 
     let verification_account_rent = test.rent(VerificationAccount::SIZE).await;
     let nullifier_duplicate_account_rent = test.rent(PDAAccountData::SIZE).await;
@@ -568,8 +570,8 @@ async fn test_finalize_proof() {
 async fn test_finalize_proof_lamports() {
     let mut test = start_verification_test().await;
     let warden = test.new_actor().await;
-    let nullifier_accounts = test.nullifier_accounts(0).await;
-    let fee = test.genesis_fee().await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
+    let fee = genesis_fee(&mut test).await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut request = send_request(0);
@@ -718,7 +720,9 @@ async fn test_finalize_proof_lamports() {
 #[tokio::test]
 async fn test_finalize_proof_token() {
     let mut test = start_verification_test().await;
-    test.create_spl_token(USDC_TOKEN_ID, true).await;
+    test.create_spl_token(USDC_TOKEN_ID).await;
+    enable_program_token_account::<PoolAccount>(&mut test, USDC_TOKEN_ID, None).await;
+    enable_program_token_account::<FeeCollectorAccount>(&mut test, USDC_TOKEN_ID, None).await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut recipient = test.new_actor().await;
@@ -739,8 +743,8 @@ async fn test_finalize_proof_token() {
     request.public_inputs.join_split.token_id = USDC_TOKEN_ID;
     request.public_inputs.join_split.amount = 1_000_000;
 
-    let nullifier_accounts = test.nullifier_accounts(0).await;
-    let fee = test.genesis_fee().await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
+    let fee = genesis_fee(&mut test).await;
     compute_fee_rec::<SendQuadraVKey, _>(&mut request.public_inputs, &fee, &price);
 
     let recipient_token_account = recipient.get_token_account(USDC_TOKEN_ID);
@@ -901,7 +905,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
     let warden = test.new_actor().await;
     let recipient = test.new_actor().await;
-    let nullifier_accounts = test.nullifier_accounts(0).await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
     let pool = PoolAccount::find(None).0;
     let fee_collector = FeeCollectorAccount::find(None).0;
     let mut request = send_request(0);
@@ -910,7 +914,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
         ..Default::default()
     };
     request.public_inputs.hashed_inputs = extra_data.hash();
-    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &test.genesis_fee().await);
+    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &genesis_fee(&mut test).await);
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
 
@@ -1010,7 +1014,9 @@ async fn test_finalize_proof_skip_nullifier_pda() {
 #[tokio::test]
 async fn test_associated_token_account() {
     let mut test = start_verification_test().await;
-    test.create_spl_token(USDC_TOKEN_ID, true).await;
+    test.create_spl_token(USDC_TOKEN_ID).await;
+    enable_program_token_account::<PoolAccount>(&mut test, USDC_TOKEN_ID, None).await;
+    enable_program_token_account::<FeeCollectorAccount>(&mut test, USDC_TOKEN_ID, None).await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut warden = test.new_actor().await;
@@ -1033,13 +1039,13 @@ async fn test_associated_token_account() {
     request.public_inputs.join_split.token_id = USDC_TOKEN_ID;
     request.public_inputs.join_split.amount = 1_000_000;
 
-    let fee = test.genesis_fee().await;
+    let fee = genesis_fee(&mut test).await;
     compute_fee_rec::<SendQuadraVKey, _>(&mut request.public_inputs, &fee, &price);
     let subvention = fee.proof_subvention.into_token(&price, USDC_TOKEN_ID).unwrap();
     let commitment_hash_fee = fee.commitment_hash_computation_fee(0);
 
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
-    let nullifier_accounts = test.nullifier_accounts(0).await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
 
     let verification_account_rent = test.rent(VerificationAccount::SIZE).await;
     let nullifier_duplicate_account_rent = test.rent(PDAAccountData::SIZE).await;
@@ -1211,8 +1217,8 @@ async fn test_compute_proof_verifcation_invalid_proof() {
     let mut test = start_verification_test().await;
     let (_, vkey_sub_account) = setup_vkey_account::<SendQuadraVKey>(&mut test).await;
     let warden = test.new_actor().await;
-    let nullifier_accounts = test.nullifier_accounts(0).await;
-    let fee = test.genesis_fee().await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
+    let fee = genesis_fee(&mut test).await;
     let mut request = send_request(0);
     compute_fee_rec::<SendQuadraVKey, _>(&mut request.public_inputs, &fee, &TokenPrice::new_lamports());
 

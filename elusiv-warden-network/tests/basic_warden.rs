@@ -1,0 +1,333 @@
+mod common;
+
+use std::net::Ipv4Addr;
+use common::*;
+use elusiv_types::{WritableSignerAccount, WritableUserAccount, SignerAccount, UserAccount, ProgramAccount};
+use elusiv_warden_network::{
+    instruction::ElusivWardenNetworkInstruction,
+    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, basic_warden_map_account_pda, stats_account_pda_offset},
+    processor::{unix_timestamp_to_day_and_year, TRACKABLE_ELUSIV_INSTRUCTIONS},
+};
+use solana_program::{pubkey::Pubkey, instruction::{Instruction, AccountMeta}};
+use solana_program_test::*;
+
+#[tokio::test]
+async fn test_register() {
+    let mut test = start_test_with_setup().await;
+
+    let ident = String::from("Test Warden 1");
+    let platform = String::from("Linux, Ubuntu Server 22.0");
+    let basic_warden_map = basic_warden_map_account_pda(test.payer()).0;
+
+    let mut config = ElusivBasicWardenConfig {
+        ident: ident.try_into().unwrap(),
+        key: test.payer(),
+        owner: Pubkey::new_unique(),
+        addr: Ipv4Addr::new(0, 0, 0, 0),
+        port: 0,
+        country: 0,
+        version: [0, 0, 0],
+        platform: platform.try_into().unwrap(),
+    };
+
+    // Invalid warden_id
+    test.ix_should_fail_simple(
+        ElusivWardenNetworkInstruction::register_basic_warden_instruction(
+            1,
+            config.clone(),
+            WritableSignerAccount(test.payer()),
+            WritableUserAccount(basic_warden_map),
+        )
+    ).await;
+
+    // Invalid warden_map_account
+    test.ix_should_fail_simple(
+        ElusivWardenNetworkInstruction::register_basic_warden_instruction(
+            0,
+            config.clone(),
+            WritableSignerAccount(test.payer()),
+            WritableUserAccount(basic_warden_map_account_pda(Pubkey::new_unique()).0),
+        )
+    ).await;
+
+    // Invalid config.key
+    config.key = Pubkey::new_unique();
+    test.ix_should_fail_simple(
+        ElusivWardenNetworkInstruction::register_basic_warden_instruction(
+            0,
+            config.clone(),
+            WritableSignerAccount(test.payer()),
+            WritableUserAccount(basic_warden_map),
+        )
+    ).await;
+
+    config.key = test.payer();
+    test.ix_should_succeed_simple(
+        ElusivWardenNetworkInstruction::register_basic_warden_instruction(
+            0,
+            config.clone(),
+            WritableSignerAccount(test.payer()),
+            WritableUserAccount(basic_warden_map),
+        )
+    ).await;
+
+    // Duplicate registration fails
+    test.ix_should_fail_simple(
+        ElusivWardenNetworkInstruction::register_basic_warden_instruction(
+            0,
+            config.clone(),
+            WritableSignerAccount(test.payer()),
+            WritableUserAccount(basic_warden_map),
+        )
+    ).await;
+
+    assert_eq!(test.data(&basic_warden_map).await, vec![0; 4]);
+
+    let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(0)).await;
+    let basic_warden = basic_warden_account.warden;
+    assert_eq!(basic_warden.warden_id, 0);
+    assert_eq!(basic_warden.config, config);
+    assert_eq!(basic_warden.lut, Pubkey::new_from_array([0; 32]));
+    assert!(!basic_warden.is_active);
+
+    // TODO: Check join_timestamp and activation_timestamp
+}
+
+#[tokio::test]
+async fn test_register_warden_id() {
+    let mut test = start_test_with_setup().await;
+    let number_of_wardens = 100;
+
+    for n in 0..number_of_wardens {
+        let mut warden = Actor::new(&mut test).await;
+        register_warden(&mut test, &mut warden).await;
+
+        assert_eq!(
+            n,
+            u32::from_le_bytes(
+                test.data(&basic_warden_map_account_pda(warden.pubkey).0).await.try_into().unwrap()
+            )
+        );
+
+        let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(n)).await;
+        let basic_warden = basic_warden_account.warden;
+        assert_eq!(basic_warden.warden_id, n);
+    }
+}
+
+#[tokio::test]
+async fn test_update_state() {
+    let mut test = start_test_with_setup().await;
+
+    let mut warden = Actor::new(&mut test).await;
+    register_warden(&mut test, &mut warden).await;
+
+    let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(0)).await;
+    let timestamp = basic_warden_account.warden.activation_timestamp;
+
+    async fn set_timestamp(test: &mut ElusivProgramTest, timestamp: u64) {
+        test.set_pda_account::<BasicWardenAccount, _>(&elusiv_warden_network::id(), Some(0), |data| {
+            let mut account = BasicWardenAccount::new(data).unwrap();
+            let mut warden = account.get_warden();
+            warden.activation_timestamp = timestamp;
+            account.set_warden(&warden);
+        }).await;
+    }
+
+    // Invalid signer
+    test.ix_should_fail_simple(
+        ElusivWardenNetworkInstruction::update_basic_warden_state_instruction(
+            0,
+            true,
+            SignerAccount(warden.pubkey),
+        )
+    ).await;
+    test.ix_should_fail_simple(
+        ElusivWardenNetworkInstruction::update_basic_warden_state_instruction(
+            0,
+            true,
+            SignerAccount(test.payer()),
+        )
+    ).await;
+
+    async fn set_state(test: &mut ElusivProgramTest, is_active: bool, warden: &Actor) {
+        test.ix_should_succeed(
+            ElusivWardenNetworkInstruction::update_basic_warden_state_instruction(
+                0,
+                is_active,
+                SignerAccount(warden.pubkey),
+            ),
+            &[&warden.keypair],
+        ).await;
+    }
+
+    set_timestamp(&mut test, 0).await;
+    set_state(&mut test, true, &warden).await;
+
+    let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(0)).await;
+    assert!(basic_warden_account.warden.is_active);
+    assert_eq!(basic_warden_account.warden.activation_timestamp, timestamp);
+
+    set_timestamp(&mut test, 0).await;
+    set_state(&mut test, false, &warden).await;
+
+    let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(0)).await;
+    assert!(!basic_warden_account.warden.is_active);
+    assert_eq!(basic_warden_account.warden.activation_timestamp, timestamp);
+    let timestamp = basic_warden_account.warden.activation_timestamp;
+
+    // Same state can be set multiple times (but timestamp is unchanged)
+    set_state(&mut test, false, &warden).await;
+    set_state(&mut test, true, &warden).await;
+    set_state(&mut test, true, &warden).await;
+
+    let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(0)).await;
+    assert_eq!(basic_warden_account.warden.activation_timestamp, timestamp);
+}
+
+#[tokio::test]
+async fn test_update_lut() {
+    let mut test = start_test_with_setup().await;
+
+    let mut warden = Actor::new(&mut test).await;
+    register_warden(&mut test, &mut warden).await;
+
+    // Invalid signer
+    test.ix_should_fail_simple(
+        ElusivWardenNetworkInstruction::update_basic_warden_lut_instruction(
+            0,
+            SignerAccount(warden.pubkey),
+            UserAccount(Pubkey::new_unique()),
+        )
+    ).await;
+    test.ix_should_fail_simple(
+        ElusivWardenNetworkInstruction::update_basic_warden_lut_instruction(
+            0,
+            SignerAccount(test.payer()),
+            UserAccount(Pubkey::new_unique()),
+        )
+    ).await;
+
+    async fn set_lut(test: &mut ElusivProgramTest, lut: Pubkey, warden: &Actor) {
+        test.ix_should_succeed(
+            ElusivWardenNetworkInstruction::update_basic_warden_lut_instruction(
+                0,
+                SignerAccount(warden.pubkey),
+                UserAccount(lut),
+            ),
+            &[&warden.keypair],
+        ).await;
+    }
+
+    // LUT is updated correctly
+    let lut = Pubkey::new_unique();
+    set_lut(&mut test, lut, &warden).await;
+
+    let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(0)).await;
+    assert_eq!(basic_warden_account.warden.lut, lut);
+
+    // Multiple updates possible
+    let lut = Pubkey::new_unique();
+    set_lut(&mut test, lut, &warden).await;
+
+    let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(0)).await;
+    assert_eq!(basic_warden_account.warden.lut, lut);
+}
+
+#[tokio::test]
+async fn test_open_stats_account() {
+    let mut test = start_test_with_setup().await;
+
+    let mut warden = Actor::new(&mut test).await;
+    register_warden(&mut test, &mut warden).await;
+
+    async fn open_stats_account(test: &mut ElusivProgramTest, year: u16) {
+        test.ix_should_succeed_simple(
+            ElusivWardenNetworkInstruction::open_basic_warden_stats_account_instruction(
+                0,
+                year,
+                WritableSignerAccount(test.payer()),
+            )
+        ).await;
+    }
+
+    for year in 2022..2072 {
+        open_stats_account(&mut test, year).await;
+
+        let offset = stats_account_pda_offset(0, year);
+        let account = test.eager_account::<BasicWardenStatsAccount, _>(Some(offset)).await;
+        assert_eq!(account.year, year);
+    }
+}
+
+#[tokio::test]
+async fn test_track_stats() {
+    let mut test = start_test_with_setup().await;
+
+    let mut warden = Actor::new(&mut test).await;
+    register_warden(&mut test, &mut warden).await;
+
+    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let year = unix_timestamp_to_day_and_year(timestamp).unwrap().1;
+
+    test.ix_should_succeed_simple(
+        ElusivWardenNetworkInstruction::open_basic_warden_stats_account_instruction(
+            0,
+            year,
+            WritableSignerAccount(test.payer()),
+        )
+    ).await;
+
+    for ix in TRACKABLE_ELUSIV_INSTRUCTIONS {
+        let mut accounts = Vec::new();
+        for _ in 0..ix.warden_index {
+            accounts.push(AccountMeta::new(Pubkey::new_unique(), false));
+        }
+        accounts.push(AccountMeta::new(warden.pubkey, true));
+
+        // Invalid warden index
+        let mut accounts_1 = accounts.clone();
+        accounts_1.insert(0, AccountMeta::new(Pubkey::new_unique(), false));
+        test.tx_should_fail(
+            &[
+                Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts_1),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+            ],
+            &[&warden.keypair]
+        ).await;
+
+        // Invalid instruction id
+        test.tx_should_fail(
+            &[
+                Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id + 1], accounts.clone()),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+            ],
+            &[&warden.keypair]
+        ).await;
+
+        // Invalid program_id
+        test.tx_should_fail(
+            &[
+                Instruction::new_with_bytes(OTHER_PROGRAM_ID, &[ix.instruction_id], accounts.clone()),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+            ],
+            &[&warden.keypair]
+        ).await;
+
+        // Invalid signer
+        test.tx_should_fail_simple(
+            &[
+                Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id + 1], accounts.clone()),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+            ]
+        ).await;
+
+        test.tx_should_succeed(
+            &[
+                Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+            ],
+            &[&warden.keypair]
+        ).await;
+    }
+}
