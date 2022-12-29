@@ -56,13 +56,6 @@ pub enum ElusivWardenNetworkInstruction {
         warden_id: ElusivWardenID,
     },
 
-    #[acc(warden, { signer, writable })]
-    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable, account_info })]
-    #[sys(system_program, key = system_program::ID, { ignore })]
-    CloseBasicWarden {
-        warden_id: ElusivWardenID,
-    },
-
     // -------- Basic Warden statistics --------
 
     #[acc(payer, { signer, writable })]

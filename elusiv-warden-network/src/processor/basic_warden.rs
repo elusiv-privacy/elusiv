@@ -99,15 +99,6 @@ pub fn update_basic_warden_lut(
     Ok(())
 }
 
-pub fn close_basic_warden<'a>(
-    _warden: &AccountInfo<'a>,
-    _warden_account: &AccountInfo<'a>,
-
-    _warden_id: ElusivWardenID,
-) -> ProgramResult {
-    todo!()
-}
-
 pub fn open_basic_warden_stats_account<'a>(
     payer: &AccountInfo<'a>,
     stats_account: &AccountInfo<'a>,
