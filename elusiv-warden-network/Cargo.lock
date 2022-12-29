@@ -995,12 +995,14 @@ name = "elusiv-warden-network"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "chrono",
  "elusiv-derive",
  "elusiv-proc-macros",
  "elusiv-test",
  "elusiv-types",
  "elusiv-utils",
  "elusiv-warden-network",
+ "mock-program",
  "solana-program",
  "solana-program-test",
 ]
@@ -1820,6 +1822,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9f1c5b025cda876f66ef43a113f91ebc9f4ccef34843000e0adf6ebbab84e21"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "mock-program"
+version = "0.1.0"
+dependencies = [
+ "solana-program",
 ]
 
 [[package]]

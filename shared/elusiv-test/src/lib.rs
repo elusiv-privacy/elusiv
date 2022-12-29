@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 #![allow(unused_macros)]
 
-use elusiv_types::{PDAOffset, ParentAccount, SizedAccount, PDAAccount, UserAccount, WritableUserAccount};
+use elusiv_types::{PDAOffset, ParentAccount, SizedAccount, PDAAccount, UserAccount, WritableUserAccount, EagerAccount, EagerAccountRepr};
 use spl_associated_token_account::instruction::create_associated_token_account;
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, process::Command};
 use elusiv_types::tokens::{Price, TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token};
 use solana_program::{
     pubkey::Pubkey,
@@ -495,26 +495,14 @@ impl ElusivProgramTest {
         self.set_program_account(program_id, &address, &data, rent_exemption).await;
     }
 
-    /*pub async fn set_single_pda_account<'a, A: EagerAccount<'a> + PDAAccount, F>(
-        &mut self,
-        program_id: &Pubkey,
-        offset: PDAOffset,
-        f: F,
-    ) where F: FnOnce(&mut A::Repr) {
-        use elusiv_types::EagerAccountRepr;
-
-        let address = A::find(offset).0;
-        let data = self.data(&address).await;
-        let mut eager = A::Repr::new(data).unwrap();
-        f(&mut eager);
-
-        let lamports = self.lamports(&address).await;
-        self.set_program_account(program_id, &address, &eager.tov, lamports).await;
-    }*/
-
     pub async fn child_accounts<'a, P: ParentAccount<'a, 'a, 'a> + PDAAccount>(&mut self, data: &'a mut [u8]) -> Vec<Pubkey> {
         let parent = P::new(data).unwrap();
         (0..P::COUNT).map(|i| parent.get_child_pubkey(i).unwrap()).collect()
+    }
+
+    pub async fn eager_account<'a, A: EagerAccount<'a, Repr = B> + PDAAccount, B: EagerAccountRepr>(&mut self, offset: PDAOffset) -> B {
+        let data = self.data(&A::find(offset).0).await;
+        B::new(data).unwrap()
     }
 }
 
@@ -639,4 +627,17 @@ pub async fn enable_program_token_account<A: PDAAccount>(
         &spl_token::id(),
     );
     test.process_transaction(&[ix], &[]).await.unwrap();
+}
+
+pub fn compile_mock_program() {
+    if std::path::Path::new("../lib/mock_program.so").exists() {
+        return
+    }
+
+    Command::new("cargo")
+        .args(["build-bpf", "--manifest-path=./shared/elusiv-test/mock-program/Cargo.toml", "--bpf-out-dir=../lib"])
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
 }

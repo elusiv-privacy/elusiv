@@ -77,3 +77,5 @@ jobs:
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
           sh ./build.sh test --unit elusiv
           sh ./build.sh test --integration elusiv
+          sh ./build.sh test --unit elusiv-warden-network
+          sh ./build.sh test --integration elusiv-warden-network

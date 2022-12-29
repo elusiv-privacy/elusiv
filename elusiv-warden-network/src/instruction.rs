@@ -18,6 +18,7 @@ use crate::processor;
 #[cfg(feature = "elusiv-client")]
 pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount, WritableSignerAccount};
 
+#[repr(u8)]
 #[derive(BorshDeserialize, BorshSerialize, ElusivInstruction)]
 pub enum ElusivWardenNetworkInstruction {
     // -------- Program initialization --------
@@ -74,7 +75,7 @@ pub enum ElusivWardenNetworkInstruction {
 
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id))]
     #[pda(stats_account, BasicWardenStatsAccount, pda_offset = Some(stats_account_pda_offset(warden_id, year)), { writable })]
-    #[sys(system_program, key = instructions::ID)]
+    #[sys(instructions, key = instructions::ID)]
     TrackBasicWardenStats {
         warden_id: ElusivWardenID,
         year: u16,

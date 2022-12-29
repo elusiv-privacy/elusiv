@@ -113,9 +113,8 @@ pub fn open_basic_warden_stats_account<'a>(
     stats_account: &AccountInfo<'a>,
 
     warden_id: ElusivWardenID,
-    _year: u16,
+    year: u16,
 ) -> ProgramResult {
-    let (_, year) = get_day_and_year()?;
     let offset = stats_account_pda_offset(warden_id, year);
 
     open_pda_account_with_offset::<BasicWardenStatsAccount>(
@@ -134,6 +133,31 @@ pub fn open_basic_warden_stats_account<'a>(
 }
 
 const ELUSIV_PROGRAM_ID: Pubkey = crate::macros::program_id!(elusiv);
+
+pub struct TrackableElusivInstruction {
+    pub instruction_id: u8,
+    pub warden_index: u8,
+}
+
+pub const TRACKABLE_ELUSIV_INSTRUCTIONS: [TrackableElusivInstruction; 3] = [
+    // FinalizeBaseCommitmentHash
+    TrackableElusivInstruction {
+        instruction_id: 2,
+        warden_index: 0,
+    },
+
+    // FinalizeVerificationTransferLamports
+    TrackableElusivInstruction {
+        instruction_id: 13,
+        warden_index: 1,
+    },
+
+    // FinalizeVerificationTransferToken
+    TrackableElusivInstruction {
+        instruction_id: 14,
+        warden_index: 3,
+    }
+];
 
 pub fn track_basic_warden_stats(
     warden_account: &BasicWardenAccount,
@@ -158,24 +182,16 @@ pub fn track_basic_warden_stats(
     )?;
 
     let ix_byte = previous_ix.data[0];
-    match ix_byte {
-        2 => {  // `FinalizeBaseCommitmentHash`
-            guard!(previous_ix.accounts[0].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
-            guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
-            stats_account.set_store(stats_account.get_store().inc(day)?);
-        }
-        13 => { // `FinalizeVerificationTransferLamports`
-            guard!(previous_ix.accounts[1].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
-            guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
-            stats_account.set_send(stats_account.get_send().inc(day)?);
-        }
-        14 => { // `FinalizeVerificationTransferToken`
-            guard!(previous_ix.accounts[3].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
-            guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
-            stats_account.set_send(stats_account.get_send().inc(day)?);
-        }
-        _ => return Err(ElusivWardenNetworkError::StatsError.into())
-    };
+    if let Some(ix) = TRACKABLE_ELUSIV_INSTRUCTIONS.iter().find(|i| {
+        i.instruction_id == ix_byte
+    }) {
+        guard!(previous_ix.accounts[ix.warden_index as usize].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
+        guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
+
+        stats_account.set_store(stats_account.get_store().inc(day)?);
+    } else {
+        return Err(ElusivWardenNetworkError::StatsError.into())
+    }
 
     Ok(())
 }
