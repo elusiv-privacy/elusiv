@@ -4,6 +4,7 @@ use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 use elusiv_derive::BorshSerDeSized;
 use crate::bytes::{BorshSerDeSized, ElusivOption};
+use crate as elusiv_types;
 
 /// An account with a fixed size
 pub trait SizedAccount: Sized {
@@ -273,7 +274,25 @@ pub trait PDAAccount {
             ]
         }
     }
-} 
+}
+
+pub trait MapPDAAccount {
+    type T: BorshSerDeSized;
+    const PROGRAM_ID: Pubkey;
+    const SEED: &'static [u8];
+
+    fn find(pubkey: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::SEED, &pubkey.to_bytes()], &Self::PROGRAM_ID)
+    }
+
+    fn signers_seeds(pubkey: &Pubkey, bump: u8) -> Vec<Vec<u8>> {
+        vec![
+            Self::SEED.to_vec(),
+            pubkey.to_bytes().to_vec(),
+            vec![bump],
+        ]
+    }
+}
 
 pub trait ComputationAccount: PDAAccount {
     fn instruction(&self) -> u32;

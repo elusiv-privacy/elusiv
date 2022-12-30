@@ -4,7 +4,7 @@ use solana_program::{
     pubkey::Pubkey, system_instruction, entrypoint::ProgramResult, account_info::AccountInfo, rent::Rent, program::invoke_signed, sysvar::Sysvar,
     program_error::ProgramError::{self, InvalidInstructionData, InsufficientFunds}, 
 };
-use elusiv_types::accounts::{PDAAccount, SizedAccount, PDAAccountData};
+use elusiv_types::accounts::{PDAAccount, MapPDAAccount, SizedAccount, PDAAccountData};
 use elusiv_types::bytes::BorshSerDeSized;
 
 #[cfg(feature = "sdk")]
@@ -45,6 +45,21 @@ pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
     let account_size = T::SIZE;
     let (pk, bump) = T::find(None);
     let seeds = T::signers_seeds(None, bump);
+    let signers_seeds = signers_seeds!(seeds);
+    guard!(pk == *pda_account.key, InvalidInstructionData);
+
+    create_pda_account(program_id, payer, pda_account, account_size, bump, &signers_seeds)
+}
+
+pub fn open_map_pda_account<'a, A: MapPDAAccount<T>, T: BorshSerDeSized>(
+    program_id: &Pubkey,
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+    mapped_pubkey: &Pubkey,
+) -> ProgramResult {
+    let account_size = T::SIZE;
+    let (pk, bump) = T::find(mapped_pubkey);
+    let seeds = T::signers_seeds(mapped_pubkey, bump);
     let signers_seeds = signers_seeds!(seeds);
     guard!(pk == *pda_account.key, InvalidInstructionData);
 

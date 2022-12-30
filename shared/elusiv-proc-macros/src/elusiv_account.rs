@@ -86,8 +86,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         ident_str.clone()
     };
     let pda_seed = pda_seed_string.as_bytes();
-    if pda_seed.len() > 28 {
-        panic!("PDA-Seeds are only allowed to be <= 28 bytes in length (found {})", pda_seed.len());
+    if pda_seed.len() > 32 {
+        panic!("PDA-Seeds are only allowed to be <= 32 bytes in length (found {})", pda_seed.len());
     }
 
     let mut lifetimes = Lifetimes::new();
