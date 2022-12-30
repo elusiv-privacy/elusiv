@@ -29,7 +29,7 @@ pub struct ElusivToken {
 
 elusiv_proc_macros::elusiv_tokens!();
 
-pub fn elusiv_token(token_id: u16) -> Result<ElusivToken, TokenError> {
+pub fn elusiv_token(token_id: TokenID) -> Result<ElusivToken, TokenError> {
     let token_id = token_id as usize;
     if token_id > SPL_TOKEN_COUNT {
         Err(TokenError::InvalidTokenID)
@@ -37,6 +37,8 @@ pub fn elusiv_token(token_id: u16) -> Result<ElusivToken, TokenError> {
         Ok(TOKENS[token_id])
     }
 }
+
+pub type TokenID = u16;
 
 pub const SPL_TOKEN_COUNT: usize = TOKENS.len() - 1;
 
@@ -47,7 +49,7 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn new(token_id: u16, amount: u64) -> Self {
+    pub fn new(token_id: TokenID, amount: u64) -> Self {
         if token_id == 0 {
             Token::Lamports(Lamports(amount))
         } else {
@@ -55,7 +57,7 @@ impl Token {
         }
     }
 
-    pub fn new_checked(token_id: u16, amount: u64) -> Result<Self, TokenError> {
+    pub fn new_checked(token_id: TokenID, amount: u64) -> Result<Self, TokenError> {
         let id = token_id as usize;
 
         if id >= TOKENS.len() {
@@ -83,7 +85,7 @@ impl Token {
         }
     }
 
-    pub fn enforce_token_equality(&self, other: &Self) -> Result<u16, TokenError> {
+    pub fn enforce_token_equality(&self, other: &Self) -> Result<TokenID, TokenError> {
         let token_id = self.token_id();
 
         if token_id != other.token_id() {
@@ -93,7 +95,7 @@ impl Token {
         Ok(token_id)
     }
 
-    pub fn token_id(&self) -> u16 {
+    pub fn token_id(&self) -> TokenID {
         match self {
             Token::Lamports(_) => 0,
             Token::SPLToken(SPLToken { id, .. }) => id.get()
@@ -166,7 +168,7 @@ impl Lamports {
     pub fn into_token(
         &self,
         price: &TokenPrice,
-        token_id: u16,
+        token_id: TokenID,
     ) -> Result<Token, TokenError> {
         price.lamports_into_token(self, token_id)
     }
@@ -192,7 +194,7 @@ pub struct SPLToken {
 }
 
 impl SPLToken {
-    pub fn new(token_id: u16, amount: u64) -> Result<Self, TokenError> {
+    pub fn new(token_id: TokenID, amount: u64) -> Result<Self, TokenError> {
         Ok(
             SPLToken {
                 id: NonZeroU16::new(token_id).ok_or(TokenError::InvalidTokenID)?,
@@ -205,7 +207,7 @@ impl SPLToken {
 /// Ensures that a given account is able to receive the specified token
 pub fn verify_token_account(
     account: &AccountInfo,
-    token_id: u16,
+    token_id: TokenID,
 ) -> Result<bool, ProgramError> {
     if token_id == 0 {
         Ok(*account.owner != spl_token::ID)
@@ -225,7 +227,7 @@ pub fn verify_token_account(
 pub fn verify_associated_token_account(
     wallet_address: &Pubkey,
     token_account_address: &Pubkey,
-    token_id: u16,
+    token_id: TokenID,
 ) -> Result<bool, ProgramError> {
     if token_id == 0 {
         Ok(*wallet_address == *token_account_address)
@@ -242,14 +244,14 @@ pub fn verify_associated_token_account(
 pub struct TokenPrice {
     pub lamports_usd: Price,
     pub token_usd: Price,
-    pub token_id: u16,
+    pub token_id: TokenID,
 }
 
 impl TokenPrice {
     pub fn new(
         sol_usd_price_account: &AccountInfo,
         token_usd_price_account: &AccountInfo,
-        token_id: u16,
+        token_id: TokenID,
     ) -> Result<Self, ProgramError> {
         if token_id == 0 {
             Ok(Self::new_lamports()) 
@@ -274,7 +276,7 @@ impl TokenPrice {
 
     pub fn load_token_usd_price(
         token_usd_price_account: &AccountInfo,
-        token_id: u16,
+        token_id: TokenID,
     ) -> Result<Price, TokenError> {
         let price_feed = load_price_feed_from_account_info(token_usd_price_account)
             .or(Err(TokenError::PriceError))?;
@@ -290,7 +292,7 @@ impl TokenPrice {
     pub fn new_from_price(
         lamports_usd: Price,
         token_usd: Price,
-        token_id: u16,
+        token_id: TokenID,
     ) -> Self {
         if token_id == 0 {
             Self::new_lamports()
@@ -302,7 +304,7 @@ impl TokenPrice {
     pub fn new_from_sol_price(
         sol_usd: Price,
         token_usd: Price,
-        token_id: u16,
+        token_id: TokenID,
     ) -> Result<Self, TokenError> {
         if token_id == 0 {
             Ok(Self::new_lamports())
@@ -342,7 +344,7 @@ impl TokenPrice {
         Token::new_from_price(0, price, false)?.into_lamports()
     }
 
-    pub fn lamports_into_token(&self, lamports: &Lamports, token_id: u16) -> Result<Token, TokenError> {
+    pub fn lamports_into_token(&self, lamports: &Lamports, token_id: TokenID) -> Result<Token, TokenError> {
         if token_id != self.token_id {
             return Err(TokenError::InvalidTokenID)
         }
@@ -385,7 +387,7 @@ pub fn pyth_price_account_data(price: &Price) -> Result<Vec<u8>, TokenError> {
 }
 
 #[cfg(feature = "test-elusiv")]
-pub fn spl_token_account_data(token_id: u16) -> Vec<u8> {
+pub fn spl_token_account_data(token_id: TokenID) -> Vec<u8> {
     let account = spl_token::state::Account {
         mint: elusiv_token(token_id).unwrap().mint,
         state: spl_token::state::AccountState::Initialized,
