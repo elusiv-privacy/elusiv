@@ -6,7 +6,7 @@ use std::net::Ipv4Addr;
 use elusiv_types::{WritableSignerAccount, SignerAccount, UserAccount, ProgramAccount};
 use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
-    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, stats_account_pda_offset, BasicWardenMapAccount},
+    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, stats_account_pda_offset, BasicWardenMapAccount, ElusivBasicWardenFeatures},
     processor::{unix_timestamp_to_day_and_year, TRACKABLE_ELUSIV_INSTRUCTIONS},
 };
 use solana_program::{pubkey::Pubkey, instruction::{Instruction, AccountMeta}};
@@ -27,6 +27,7 @@ async fn test_register() {
         country: 0,
         version: [0, 0, 0],
         platform: platform.try_into().unwrap(),
+        features: ElusivBasicWardenFeatures::default(),
     };
 
     // Invalid warden_id
@@ -110,6 +111,7 @@ async fn test_register_warden_account_fuzzing() {
         country: 0,
         version: [0, 0, 0],
         platform: String::new().try_into().unwrap(),
+        features: ElusivBasicWardenFeatures::default(),
     };
 
     test.invalid_accounts_fuzzing(

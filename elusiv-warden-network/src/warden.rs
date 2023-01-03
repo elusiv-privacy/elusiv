@@ -46,6 +46,13 @@ impl<const MAX_LEN: usize> TryFrom<String> for FixedLenString<MAX_LEN> {
 
 pub type Identifier = FixedLenString<256>;
 
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Debug, Clone, PartialEq)]
+pub struct ElusivBasicWardenFeatures {
+    pub rpc: bool,
+    pub relay: bool,
+    pub apa: bool,
+}
+
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
 pub struct ElusivBasicWardenConfig {
     pub ident: Identifier,
@@ -58,6 +65,7 @@ pub struct ElusivBasicWardenConfig {
     pub country: u16,
     pub version: [u16; 3],
     pub platform: Identifier,
+    pub features: ElusivBasicWardenFeatures,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]

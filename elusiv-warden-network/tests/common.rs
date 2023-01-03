@@ -7,7 +7,7 @@ use std::net::Ipv4Addr;
 use elusiv_types::{WritableSignerAccount};
 use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
-    warden::{ElusivBasicWardenConfig, WardensAccount}
+    warden::{ElusivBasicWardenConfig, WardensAccount, ElusivBasicWardenFeatures}
 };
     
 pub const ELUSIV_PROGRAM_ID: Pubkey = elusiv_proc_macros::program_id!(elusiv);
@@ -62,6 +62,7 @@ pub async fn register_warden(test: &mut ElusivProgramTest, warden: &mut Actor) {
                 country: 0,
                 version: [0, 0, 0],
                 platform: String::new().try_into().unwrap(),
+                features: ElusivBasicWardenFeatures::default(),
             },
             WritableSignerAccount(warden.pubkey),
         ),
