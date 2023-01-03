@@ -1,6 +1,6 @@
 use crate::commitment::{BaseCommitmentHashComputation, commitment_hash_computation_instructions, commitments_per_batch, MAX_COMMITMENT_BATCHING_RATE};
 use crate::macros::elusiv_account;
-use crate::bytes::{BorshSerDeSized, u64_as_usize_safe, div_ceiling_u64};
+use crate::bytes::{u64_as_usize_safe, div_ceiling_u64};
 use crate::proof::{CombinedMillerLoop, FinalExponentiation};
 use crate::token::{Lamports, Token, TokenError, TokenPrice};
 use super::program_account::PDAAccountData;

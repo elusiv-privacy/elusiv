@@ -7,7 +7,7 @@ use solana_program::{
     program_pack::Pack, pubkey::Pubkey,
 };
 use spl_associated_token_account::get_associated_token_address;
-use crate::BorshSerDeSized;
+use crate as elusiv_types;
 
 pub use pyth_sdk_solana::{Price, load_price_feed_from_account_info};
 

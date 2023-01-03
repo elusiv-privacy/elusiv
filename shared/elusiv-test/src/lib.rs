@@ -504,6 +504,11 @@ impl ElusivProgramTest {
         let data = self.data(&A::find(offset).0).await;
         B::new(data).unwrap()
     }
+
+    pub async fn eager_account2<'a, A: EagerAccount<'a, Repr = B> + PDAAccount, B: EagerAccountRepr>(&mut self, pubkey: Pubkey, offset: PDAOffset) -> B {
+        let data = self.data(&A::find_with_pubkey(pubkey, offset).0).await;
+        B::new(data).unwrap()
+    }
 }
 
 pub fn user_accounts(pubkeys: &[Pubkey]) -> Vec<UserAccount> {

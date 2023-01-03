@@ -4,7 +4,6 @@ use solana_program::pubkey::Pubkey;
 use solana_program::{
     account_info::AccountInfo,
     entrypoint::ProgramResult,
-    system_program,
     program_error::ProgramError,
     rent::Rent,
     sysvar::Sysvar,
@@ -35,7 +34,7 @@ pub fn transfer_token<'a>(
                 source,
                 destination,
                 token_program,
-                lamports,
+                lamports.0,
             )
         }
         Token::SPLToken(SPLToken { amount, .. }) => {
@@ -57,6 +56,7 @@ pub fn transfer_token_from_pda<'a, T: PDAAccount>(
     destination: &AccountInfo<'a>,
     token_program: &AccountInfo<'a>,
     token: Token,
+    pda_pubkey: Option<Pubkey>,
     pda_offset: PDAOffset,
 ) -> ProgramResult {
     guard!(*source.owner == crate::ID, InvalidAccount);
@@ -71,7 +71,7 @@ pub fn transfer_token_from_pda<'a, T: PDAAccount>(
         }
         Token::SPLToken(SPLToken { amount, .. }) => {
             let bump = T::get_bump(source);
-            let seeds = T::signers_seeds(pda_offset, bump);
+            let seeds = T::signers_seeds(pda_pubkey, pda_offset, bump);
             let signers_seeds = signers_seeds!(seeds);
 
             transfer_with_token_program(
@@ -84,30 +84,6 @@ pub fn transfer_token_from_pda<'a, T: PDAAccount>(
             )
         }
     }
-}
-
-pub fn transfer_with_system_program<'a>(
-    source: &AccountInfo<'a>,
-    destination: &AccountInfo<'a>,
-    system_program: &AccountInfo<'a>,
-    lamports: Lamports,
-) -> ProgramResult {
-    guard!(*system_program.key == system_program::ID, InvalidAccount);
-
-    let instruction = solana_program::system_instruction::transfer(
-        source.key,
-        destination.key,
-        lamports.0,
-    );
-    
-    solana_program::program::invoke(
-        &instruction,
-        &[
-            source.clone(),
-            destination.clone(),
-            system_program.clone(),
-        ],
-    )    
 }
 
 fn transfer_with_token_program<'a>(
@@ -219,13 +195,7 @@ mod tests {
     use super::*;
     use crate::{macros::{test_account_info, account_info}, proof::VerificationAccount, state::governor::PoolAccount, token::TOKENS};
     use assert_matches::assert_matches;
-    use solana_program::pubkey::Pubkey;
-
-    #[test]
-    #[ignore]
-    fn test_transfer_token() {
-        panic!()
-    }
+    use solana_program::{pubkey::Pubkey, system_program};
 
     #[test]
     fn test_transfer_token_from_pda() {
@@ -236,12 +206,12 @@ mod tests {
         test_account_info!(dst, 0, spl_token::id());
 
         assert_matches!(
-            transfer_token_from_pda::<PoolAccount>(&non_pda, &src, &dst, &token_program, Token::new(1, 100), None),
+            transfer_token_from_pda::<PoolAccount>(&non_pda, &src, &dst, &token_program, Token::new(1, 100), None, None),
             Err(_)
         );
 
         assert_matches!(
-            transfer_token_from_pda::<PoolAccount>(&pda, &src, &dst, &token_program, Token::new(1, 100), None),
+            transfer_token_from_pda::<PoolAccount>(&pda, &src, &dst, &token_program, Token::new(1, 100), None, None),
             Ok(_)
         );
     }
@@ -255,12 +225,12 @@ mod tests {
         account_info!(invalid_system_program, Pubkey::new_unique(), vec![]);
 
         assert_matches!(
-            transfer_with_system_program(&source, &destination, &invalid_system_program, Lamports(100)),
+            transfer_with_system_program(&source, &destination, &invalid_system_program, 100),
             Err(_)
         );
 
         assert_matches!(
-            transfer_with_system_program(&source, &destination, &system_program, Lamports(100)),
+            transfer_with_system_program(&source, &destination, &system_program, 100),
             Ok(())
         );
     }
@@ -360,39 +330,6 @@ mod tests {
     }
 
     #[test]
-    fn test_open_pda_account() {
-        test_account_info!(payer, 0);
-        let seed = b"test";
-        let seeds = vec![&seed[..], &seed[..]];
-        let pda = Pubkey::find_program_address(&seeds, &crate::ID).0;
-        let wrong_pda = VerificationAccount::find(Some(0)).0;
-
-        account_info!(pda_account, wrong_pda, vec![]);
-        assert_matches!(open_pda_account(&crate::id(), &payer, &pda_account, 1, &seeds), Err(_));
-
-        account_info!(pda_account, pda, vec![]);
-        assert_matches!(open_pda_account(&crate::id(), &payer, &pda_account, 1, &seeds), Ok(_));
-    }
-
-    #[test]
-    #[ignore]
-    fn test_create_pda_account() {
-        panic!()
-    }
-
-    #[test]
-    #[ignore]
-    fn test_create_token_account_for_pda_authority() {
-        panic!()
-    }
-
-    #[test]
-    #[ignore]
-    fn test_create_token_account() {
-        panic!()
-    }
-
-    #[test]
     fn test_transfer_lamports_from_pda() {
         account_info!(pda, Pubkey::new_unique(), vec![]);
         account_info!(recipient, Pubkey::new_unique(), vec![]);
@@ -410,12 +347,6 @@ mod tests {
             assert_eq!(pda.lamports(), 0);
             assert_eq!(recipient.lamports(), balance * 2);
         }
-    }
-
-    #[test]
-    #[ignore]
-    fn test_transfer_lamports_from_pda_checked() {
-        panic!()
     }
 
     #[test]

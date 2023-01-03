@@ -1,8 +1,7 @@
-use syn::{Type, Data, Field, Fields};
+use elusiv_proc_macro_utils::enforce_field;
+use syn::{Type, Data, Field};
 use quote::{quote, ToTokens};
 use proc_macro2::{TokenStream, TokenTree};
-use solana_program::pubkey::Pubkey;
-use std::str::FromStr;
 
 struct ElusivAccountAttr {
     ident: String,
@@ -78,17 +77,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
     // The struct name is used as PDASeed
     // TODO: It would be ideal to use the whole module path to automatically prevent duplicates
-
-    let ident_str = ident.to_string();
-    let pda_seed_string = if ident_str.ends_with("Account") {
-        String::from(&ident_str[..ident_str.len() - "Account".len()])
-    } else {
-        ident_str.clone()
-    };
-    let pda_seed = pda_seed_string.as_bytes();
-    if pda_seed.len() > 32 {
-        panic!("PDA-Seeds are only allowed to be <= 32 bytes in length (found {})", pda_seed.len());
-    }
 
     let mut lifetimes = Lifetimes::new();
     let mut field_idents = quote!();
@@ -413,8 +401,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         }
     }
 
-    let pda_seed_tokens: TokenStream = format!("{:?}", pda_seed).parse().unwrap();
-    let ident_str = ident_str.as_str();
+    let account_size_test: TokenStream = format!("test_{}_account_size", ident.to_string().to_lowercase()).parse().unwrap();
     let account_size = sizes.iter()
         .fold(quote!(), |acc, x| {
             if acc.is_empty() {
@@ -456,13 +443,9 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         quote!()
     };
 
-    let program_id = Pubkey::from_str(&crate::program_id::read_program_id("")).unwrap();
-    let (first_pubkey, _) = Pubkey::find_program_address(&[pda_seed], &program_id);
-    let first_pubkey: TokenStream = format!("{:?}", first_pubkey.to_bytes()).parse().unwrap();
-    let account_size_test: TokenStream = format!("test_{}_account_size", ident.to_string().to_lowercase()).parse().unwrap();
-
     quote! {
         #struct_attrs
+        #[derive(elusiv_derive::PDAAccount)]
         #vis struct #ident < #lifetimes > {
             #field_defs
         }
@@ -500,34 +483,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             }
         }
 
-        impl < #lifetimes > elusiv_types::accounts::PDAAccount for #ident < #lifetimes > {
-            const PROGRAM_ID: solana_program::pubkey::Pubkey = crate::PROGRAM_ID;            
-            const SEED: &'static [u8] = &#pda_seed_tokens;
-            const FIRST_PUBKEY: solana_program::pubkey::Pubkey = solana_program::pubkey::Pubkey::new_from_array(#first_pubkey);
-
-            #[cfg(feature = "elusiv-client")]
-            const IDENT: &'static str = #ident_str;
-        }
-
         #eager_type
     }
-}
-
-/// Enforces that a field definition at a specific index matches the stream (visibility is ignored)
-fn enforce_field(stream: TokenStream, index: usize, fields: &Fields) {
-    let field = fields.iter().collect::<Vec<&Field>>()[index].clone();
-    let ident = field.ident;
-    let ty = field.ty;
-    let expected = quote!{ #ident : #ty }.to_string();
-
-    assert_eq!(
-        expected,
-        stream.to_string(),
-        "Invalid field at {}. Exptected '{}', got '{}'",
-        index,
-        expected,
-        stream
-    );
 }
 
 /// Matches attributes with the syntac `ident: value, ..` with value being a `TokenStream`

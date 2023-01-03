@@ -3,10 +3,15 @@ name = "elusiv-derive"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+mainnet = ["elusiv-proc-macro-utils/mainnet"]
+devnet = ["elusiv-proc-macro-utils/devnet"]
+
 [dependencies]
-syn = { version = "1.0.89", features = ["full", "fold"] }
-quote = "1.0.16"
+elusiv-proc-macro-utils = { path = "./../elusiv-proc-macro-utils" }
 proc-macro2 = "1.0.36"
+quote = "1.0.16"
+syn = { version = "1.0.89", features = ["full", "fold"] }
 
 [lib]
 proc-macro = true

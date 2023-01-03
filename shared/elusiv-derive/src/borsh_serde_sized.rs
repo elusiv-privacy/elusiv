@@ -52,17 +52,17 @@ pub fn impl_borsh_serde_sized(ast: &syn::DeriveInput) -> TokenStream {
             if !sizes.is_empty() {
                 size = sizes[0].clone();
                 for s in sizes {
-                    size = quote!{ crate::bytes::max(#s, #size) }
+                    size = quote!{ elusiv_types::bytes::max(#s, #size) }
                 }
                 size = quote!{ + #size };
             }
 
             quote! {
-                impl #impl_generics BorshSerDeSized for #ident #ty_generics #where_clause {
+                impl #impl_generics elusiv_types::bytes::BorshSerDeSized for #ident #ty_generics #where_clause {
                     const SIZE: usize = 1 #size;
                 }
 
-                impl #impl_generics BorshSerDeSizedEnum for #ident #ty_generics #where_clause {
+                impl #impl_generics elusiv_types::bytes::BorshSerDeSizedEnum for #ident #ty_generics #where_clause {
                     fn len(variant_index: u8) -> usize {
                         #len
                     }
@@ -74,7 +74,7 @@ pub fn impl_borsh_serde_sized(ast: &syn::DeriveInput) -> TokenStream {
             let size: TokenStream = sizes.iter().fold(quote!{}, |acc, x| quote!{ #acc #x });
 
             quote! {
-                impl #impl_generics BorshSerDeSized for #ident #ty_generics #where_clause {
+                impl #impl_generics elusiv_types::bytes::BorshSerDeSized for #ident #ty_generics #where_clause {
                     const SIZE: usize = #size;
                 }
             }

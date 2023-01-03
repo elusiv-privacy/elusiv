@@ -1151,6 +1151,7 @@ version = "0.1.0"
 name = "elusiv-derive"
 version = "0.1.0"
 dependencies = [
+ "elusiv-proc-macro-utils",
  "proc-macro2 1.0.43",
  "quote 1.0.21",
  "syn 1.0.100",
@@ -1170,14 +1171,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "elusiv-proc-macros"
+name = "elusiv-proc-macro-utils"
 version = "0.1.0"
 dependencies = [
- "elusiv-computation",
  "proc-macro2 1.0.43",
  "quote 1.0.21",
  "serde",
  "solana-program",
+ "syn 1.0.100",
+ "toml",
+]
+
+[[package]]
+name = "elusiv-proc-macros"
+version = "0.1.0"
+dependencies = [
+ "elusiv-computation",
+ "elusiv-proc-macro-utils",
+ "proc-macro2 1.0.43",
+ "quote 1.0.21",
+ "serde",
  "syn 1.0.100",
  "toml",
 ]

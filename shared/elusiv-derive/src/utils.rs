@@ -14,10 +14,3 @@ pub fn upper_camel_to_upper_snake(camel: &str) -> String {
 
     snake
 }
-
-/// Named sub attribute example: #[macro(named_sub_attr = value)] (returns value)
-pub fn named_sub_attribute<'a>(name: &str, attr: &'a str) -> &'a str {
-    let ident = String::from(name) + "=";
-    assert!(attr.starts_with(&ident), "Parameter ({}) does not start with: '{}' (whitespace sensitive!)", attr, ident);
-    attr.strip_prefix(&ident).unwrap()
-}
