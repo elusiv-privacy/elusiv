@@ -1,13 +1,8 @@
 use std::net::Ipv4Addr;
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_utils::{open_pda_account_with_offset, pda_account, guard, open_pda_account};
-use solana_program::{
-    pubkey::Pubkey,
-    account_info::AccountInfo,
-    entrypoint::ProgramResult,
-    program_error::ProgramError,
-};
-use elusiv_types::{accounts::PDAAccountData, BorshSerDeSized, ProgramAccount};
+use elusiv_utils::guard;
+use solana_program::{pubkey::Pubkey, program_error::ProgramError};
+use elusiv_types::accounts::PDAAccountData;
 use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError};
 
 /// A unique ID publicly identifying a single Warden
@@ -20,55 +15,6 @@ pub struct WardensAccount {
 
     pub next_warden_id: ElusivWardenID,
     pub full_network_configured: bool,
-}
-
-impl<'a> WardensAccount<'a> {
-    fn inc_next_warden_id(&mut self) -> ProgramResult {
-        let next_id = self.get_next_warden_id();
-
-        self.set_next_warden_id(
-            &next_id
-                .checked_add(1)
-                .ok_or_else(|| ProgramError::from(ElusivWardenNetworkError::WardenRegistrationError))?
-        );
-
-        Ok(())
-    }
-
-    pub fn add_basic_warden<'b>(
-        &mut self,
-        warden: &AccountInfo<'b>,
-        basic_warden: ElusivBasicWarden,
-        warden_account: &AccountInfo<'b>,
-        warden_map_account: &AccountInfo<'b>,
-    ) -> ProgramResult {
-        let warden_id = self.get_next_warden_id();
-        self.inc_next_warden_id()?;
-
-        open_pda_account_with_offset::<BasicWardenAccount>(
-            &crate::id(),
-            warden,
-            warden_account,
-            warden_id,
-        )?;
-
-        pda_account!(mut warden_account, BasicWardenAccount, warden_account);
-        warden_account.set_warden(&basic_warden);
-
-        // `warden_map_account` is used to store the `warden_id` and prevent duplicate registrations
-        open_pda_account(
-            &crate::id(),
-            warden,
-            warden_map_account,
-            ElusivWardenID::SIZE,
-            &[&warden.key.to_bytes()],
-        )?;
-
-        let data = &mut warden_map_account.data.borrow_mut()[..];
-        data.copy_from_slice(&warden_id.to_le_bytes());
-
-        Ok(())
-    }
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
@@ -116,23 +62,26 @@ pub struct ElusivBasicWardenConfig {
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
 pub struct ElusivBasicWarden {
-    pub warden_id: ElusivWardenID,
     pub config: ElusivBasicWardenConfig,
     pub lut: Pubkey,
-
     pub is_active: bool,
-
     pub join_timestamp: u64,
-
     /// The timestamp of the last change of `is_active`
     pub activation_timestamp: u64,
 }
 
-/// An account associated to a single [`ElusivBasicWarden`]
+/// An account associated with a single [`ElusivBasicWarden`]
 #[elusiv_account(eager_type: true)]
 pub struct BasicWardenAccount {
     pda_data: PDAAccountData,
     pub warden: ElusivBasicWarden,
+}
+
+/// An account associated with a single [`ElusivBasicWarden`]
+#[elusiv_account(eager_type: true)]
+pub struct BasicWardenMapAccount {
+    pda_data: PDAAccountData,
+    pub warden_id: ElusivWardenID,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
@@ -170,11 +119,6 @@ pub struct BasicWardenStatsAccount {
     pub store: WardenStatistics,
     pub send: WardenStatistics,
     pub migrate: WardenStatistics,
-}
-
-/// Returns the PDA and bump for an account mapping a warden pubkey to a [`ElusivWardenID`]
-pub fn basic_warden_map_account_pda(pubkey: Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[&pubkey.to_bytes()], &crate::PROGRAM_ID)
 }
 
 pub fn stats_account_pda_offset(warden_id: ElusivWardenID, year: u16) -> u32 {

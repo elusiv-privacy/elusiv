@@ -4,10 +4,10 @@
 pub use elusiv_test::*;
 use solana_program::pubkey::Pubkey;
 use std::net::Ipv4Addr;
-use elusiv_types::{WritableSignerAccount, WritableUserAccount};
+use elusiv_types::{WritableSignerAccount};
 use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
-    warden::{basic_warden_map_account_pda, ElusivBasicWardenConfig, WardensAccount}
+    warden::{ElusivBasicWardenConfig, WardensAccount}
 };
     
 pub const ELUSIV_PROGRAM_ID: Pubkey = elusiv_proc_macros::program_id!(elusiv);
@@ -64,7 +64,6 @@ pub async fn register_warden(test: &mut ElusivProgramTest, warden: &mut Actor) {
                 platform: String::new().try_into().unwrap(),
             },
             WritableSignerAccount(warden.pubkey),
-            WritableUserAccount(basic_warden_map_account_pda(warden.pubkey).0),
         ),
         &[&warden.keypair]
     ).await;

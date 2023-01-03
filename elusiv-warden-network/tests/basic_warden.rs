@@ -1,15 +1,15 @@
 mod common;
 
-use std::net::Ipv4Addr;
 use common::*;
-use elusiv_types::{WritableSignerAccount, WritableUserAccount, SignerAccount, UserAccount, ProgramAccount};
+use solana_program_test::*;
+use std::net::Ipv4Addr;
+use elusiv_types::{WritableSignerAccount, SignerAccount, UserAccount, ProgramAccount};
 use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
-    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, basic_warden_map_account_pda, stats_account_pda_offset},
+    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, stats_account_pda_offset, BasicWardenMapAccount},
     processor::{unix_timestamp_to_day_and_year, TRACKABLE_ELUSIV_INSTRUCTIONS},
 };
 use solana_program::{pubkey::Pubkey, instruction::{Instruction, AccountMeta}};
-use solana_program_test::*;
 
 #[tokio::test]
 async fn test_register() {
@@ -17,7 +17,6 @@ async fn test_register() {
 
     let ident = String::from("Test Warden 1");
     let platform = String::from("Linux, Ubuntu Server 22.0");
-    let basic_warden_map = basic_warden_map_account_pda(test.payer()).0;
 
     let mut config = ElusivBasicWardenConfig {
         ident: ident.try_into().unwrap(),
@@ -36,17 +35,6 @@ async fn test_register() {
             1,
             config.clone(),
             WritableSignerAccount(test.payer()),
-            WritableUserAccount(basic_warden_map),
-        )
-    ).await;
-
-    // Invalid warden_map_account
-    test.ix_should_fail_simple(
-        ElusivWardenNetworkInstruction::register_basic_warden_instruction(
-            0,
-            config.clone(),
-            WritableSignerAccount(test.payer()),
-            WritableUserAccount(basic_warden_map_account_pda(Pubkey::new_unique()).0),
         )
     ).await;
 
@@ -57,7 +45,6 @@ async fn test_register() {
             0,
             config.clone(),
             WritableSignerAccount(test.payer()),
-            WritableUserAccount(basic_warden_map),
         )
     ).await;
 
@@ -67,7 +54,6 @@ async fn test_register() {
             0,
             config.clone(),
             WritableSignerAccount(test.payer()),
-            WritableUserAccount(basic_warden_map),
         )
     ).await;
 
@@ -77,15 +63,14 @@ async fn test_register() {
             0,
             config.clone(),
             WritableSignerAccount(test.payer()),
-            WritableUserAccount(basic_warden_map),
         )
     ).await;
 
-    assert_eq!(test.data(&basic_warden_map).await, vec![0; 4]);
+    let map_account_data = test.eager_account2::<BasicWardenMapAccount, _>(test.payer(), None).await;
+    assert_eq!(0, map_account_data.warden_id);
 
     let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(0)).await;
     let basic_warden = basic_warden_account.warden;
-    assert_eq!(basic_warden.warden_id, 0);
     assert_eq!(basic_warden.config, config);
     assert_eq!(basic_warden.lut, Pubkey::new_from_array([0; 32]));
     assert!(!basic_warden.is_active);
@@ -102,17 +87,39 @@ async fn test_register_warden_id() {
         let mut warden = Actor::new(&mut test).await;
         register_warden(&mut test, &mut warden).await;
 
-        assert_eq!(
-            n,
-            u32::from_le_bytes(
-                test.data(&basic_warden_map_account_pda(warden.pubkey).0).await.try_into().unwrap()
-            )
-        );
+        let map_account_data = test.eager_account2::<BasicWardenMapAccount, _>(warden.pubkey, None).await;
+        assert_eq!(n, map_account_data.warden_id);
 
         let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(n)).await;
-        let basic_warden = basic_warden_account.warden;
-        assert_eq!(basic_warden.warden_id, n);
+        assert_eq!(basic_warden_account.warden.config.key, warden.pubkey);
     }
+}
+
+#[ignore]
+#[tokio::test]
+async fn test_register_warden_account_fuzzing() {
+    let mut test = start_test_with_setup().await;
+    let warden = Actor::new(&mut test).await;
+
+    let config = ElusivBasicWardenConfig {
+        ident: String::new().try_into().unwrap(),
+        key: test.payer(),
+        owner: Pubkey::new_unique(),
+        addr: Ipv4Addr::new(0, 0, 0, 0),
+        port: 0,
+        country: 0,
+        version: [0, 0, 0],
+        platform: String::new().try_into().unwrap(),
+    };
+
+    test.invalid_accounts_fuzzing(
+        &ElusivWardenNetworkInstruction::register_basic_warden_instruction(
+            0,
+            config.clone(),
+            WritableSignerAccount(test.payer()),
+        ),
+        &warden
+    ).await;
 }
 
 #[tokio::test]

@@ -1,5 +1,5 @@
 use elusiv_types::ProgramAccount;
-use elusiv_utils::{open_pda_account_without_offset, guard, open_pda_account_with_offset};
+use elusiv_utils::{guard, open_pda_account_with_offset, pda_account, open_pda_account_with_associated_pubkey};
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 use solana_program::account_info::AccountInfo;
@@ -7,32 +7,12 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::sysvar::instructions;
 use crate::error::ElusivWardenNetworkError;
 use crate::processor::current_timestamp;
-use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, stats_account_pda_offset};
+use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, stats_account_pda_offset, BasicWardenMapAccount};
 use crate::{
     warden::{WardensAccount, ElusivWardenID, ElusivBasicWardenConfig, ElusivBasicWarden},
     network::BasicWardenNetworkAccount,
 };
 use super::get_day_and_year;
-
-pub fn init<'a>(
-    payer: &AccountInfo<'a>,
-    wardens: &AccountInfo<'a>,
-    basic_network: &AccountInfo<'a>,
-) -> ProgramResult {
-    open_pda_account_without_offset::<WardensAccount>(
-        &crate::id(),
-        payer,
-        wardens,
-    )?;
-
-    open_pda_account_without_offset::<BasicWardenNetworkAccount>(
-        &crate::id(),
-        payer,
-        basic_network,
-    )?;
-
-    Ok(())
-}
 
 pub fn register_basic_warden<'a>(
     warden: &AccountInfo<'a>,
@@ -48,14 +28,41 @@ pub fn register_basic_warden<'a>(
 
     let current_timestamp = current_timestamp()?;
     let basic_warden = ElusivBasicWarden {
-        warden_id,
         config,
         lut: Pubkey::new_from_array([0; 32]),
         is_active: false,
         activation_timestamp: current_timestamp,
         join_timestamp: current_timestamp,
     };
-    wardens_account.add_basic_warden(warden, basic_warden, warden_account, warden_map_account)?;
+
+    guard!(warden_id == wardens_account.get_next_warden_id(), ProgramError::InvalidArgument);
+    wardens_account.set_next_warden_id(
+        &warden_id.checked_add(1)
+            .ok_or_else(|| ProgramError::from(ElusivWardenNetworkError::WardenRegistrationError))?
+    );
+
+    open_pda_account_with_offset::<BasicWardenAccount>(
+        &crate::id(),
+        warden,
+        warden_account,
+        warden_id,
+    )?;
+
+    pda_account!(mut warden_account, BasicWardenAccount, warden_account);
+    warden_account.set_warden(&basic_warden);
+
+    // `warden_map_account` is used to store the `warden_id` and prevent duplicate registrations
+    open_pda_account_with_associated_pubkey::<BasicWardenMapAccount>(
+        &crate::id(),
+        warden,
+        warden_map_account,
+        warden.key,
+        None,
+    )?;
+
+    pda_account!(mut warden_map_account, BasicWardenMapAccount, warden_map_account);
+    warden_map_account.set_warden_id(&warden_id);
+
     basic_network_account.try_add_member(warden_id)?;
     
     Ok(())
@@ -115,8 +122,7 @@ pub fn open_basic_warden_stats_account<'a>(
         offset,
     )?;
 
-    let data = &mut stats_account.data.borrow_mut()[..];
-    let mut stats_account = BasicWardenStatsAccount::new(data)?;
+    pda_account!(mut stats_account, BasicWardenStatsAccount, stats_account);
     stats_account.set_warden_id(&warden_id);
     stats_account.set_year(&year);
 
