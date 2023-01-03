@@ -40,7 +40,7 @@ use crate::commitment::{
 use elusiv_computation::PartialComputation;
 use crate::fields::fr_to_u256_le;
 use borsh::{BorshDeserialize, BorshSerialize};
-use crate::bytes::{BorshSerDeSized, usize_as_u32_safe};
+use crate::bytes::usize_as_u32_safe;
 use crate::macros::BorshSerDeSized;
 
 pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
@@ -158,7 +158,7 @@ pub fn store_base_commitment<'a>(
         fee_payer,
         pool,
         system_program,
-        computation_fee,
+        computation_fee.0,
     )?;
 
     // `sender` transfers `network_fee` to `fee_collector` (token)
@@ -194,6 +194,7 @@ pub fn store_base_commitment<'a>(
         fee_payer_account,
         token_program,
         subvention,
+        None,
         None,
     )?;
 

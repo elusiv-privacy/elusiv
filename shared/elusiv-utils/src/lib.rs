@@ -4,7 +4,7 @@ use solana_program::{
     pubkey::Pubkey, system_instruction, entrypoint::ProgramResult, account_info::AccountInfo, rent::Rent, program::invoke_signed, sysvar::Sysvar,
     program_error::ProgramError::{self, InvalidInstructionData, InsufficientFunds}, 
 };
-use elusiv_types::accounts::{PDAAccount, SizedAccount, PDAAccountData};
+use elusiv_types::{accounts::{PDAAccount, SizedAccount, PDAAccountData}, PDAOffset};
 use elusiv_types::bytes::BorshSerDeSized;
 
 #[cfg(feature = "sdk")]
@@ -28,13 +28,7 @@ pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
     pda_account: &AccountInfo<'a>,
     pda_offset: u32,
 ) -> ProgramResult {
-    let account_size = T::SIZE;
-    let (pk, bump) = T::find(Some(pda_offset));
-    let seeds = T::signers_seeds(Some(pda_offset), bump);
-    let signers_seeds = signers_seeds!(seeds);
-    guard!(pk == *pda_account.key, InvalidInstructionData);
-
-    create_pda_account(program_id, payer, pda_account, account_size, bump, &signers_seeds)
+    open_pda_account::<T>(program_id, payer, pda_account, None, Some(pda_offset), T::SIZE) 
 }
 
 pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
@@ -42,27 +36,34 @@ pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
 ) -> ProgramResult {
-    let account_size = T::SIZE;
-    let (pk, bump) = T::find(None);
-    let seeds = T::signers_seeds(None, bump);
-    let signers_seeds = signers_seeds!(seeds);
-    guard!(pk == *pda_account.key, InvalidInstructionData);
-
-    create_pda_account(program_id, payer, pda_account, account_size, bump, &signers_seeds)
+    open_pda_account::<T>(program_id, payer, pda_account, None, None, T::SIZE)
 }
 
-pub fn open_pda_account<'a>(
+pub fn open_pda_account_with_associated_pubkey<'a, T: PDAAccount + SizedAccount>(
     program_id: &Pubkey,
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
-    account_size: usize,
-    seeds: &[&[u8]],
+    pubkey: &Pubkey,
+    pda_offset: PDAOffset,
 ) -> ProgramResult {
-    let mut signers_seeds = seeds.to_owned();
-    let (pubkey, bump) = Pubkey::find_program_address(&signers_seeds[..], program_id);
-    let b = vec![bump];
-    signers_seeds.push(&b);
-    guard!(pubkey == *pda_account.key, InvalidInstructionData);
+    open_pda_account::<T>(program_id, payer, pda_account, Some(*pubkey), pda_offset, T::SIZE)
+}
+
+pub fn open_pda_account<'a, T: PDAAccount>(
+    program_id: &Pubkey,
+    payer: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+    pda_pubkey: Option<Pubkey>,
+    pda_offset: PDAOffset,
+    account_size: usize,
+) -> ProgramResult {
+    let (pk, bump) = match pda_pubkey {
+        Some(pubkey) => T::find_with_pubkey(pubkey, pda_offset),
+        None => T::find(pda_offset),
+    };
+    let seeds = T::signers_seeds(pda_pubkey, pda_offset, bump);
+    let signers_seeds = signers_seeds!(seeds);
+    guard!(pk == *pda_account.key, InvalidInstructionData);
 
     create_pda_account(program_id, payer, pda_account, account_size, bump, &signers_seeds)
 }
@@ -110,6 +111,30 @@ pub fn create_pda_account<'a>(
     )?;
 
     Ok(())
+}
+
+pub fn transfer_with_system_program<'a>(
+    source: &AccountInfo<'a>,
+    destination: &AccountInfo<'a>,
+    system_program: &AccountInfo<'a>,
+    lamports: u64,
+) -> ProgramResult {
+    guard!(*system_program.key == solana_program::system_program::ID, InvalidInstructionData);
+
+    let instruction = solana_program::system_instruction::transfer(
+        source.key,
+        destination.key,
+        lamports,
+    );
+    
+    solana_program::program::invoke(
+        &instruction,
+        &[
+            source.clone(),
+            destination.clone(),
+            system_program.clone(),
+        ],
+    )    
 }
 
 #[allow(clippy::missing_safety_doc)]

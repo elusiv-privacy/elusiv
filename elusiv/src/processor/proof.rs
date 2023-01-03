@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use elusiv_types::ParentAccount;
-use solana_program::pubkey::Pubkey;
+use elusiv_utils::open_pda_account_with_associated_pubkey;
 use solana_program::sysvar::instructions;
 use solana_program::{
     entrypoint::ProgramResult,
@@ -11,12 +11,11 @@ use solana_program::{
 use borsh::{BorshSerialize, BorshDeserialize};
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex, pda_account};
 use crate::processor::ZERO_COMMITMENT_RAW;
-use crate::processor::utils::{open_pda_account_with_offset, close_account, open_pda_account, transfer_token, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent, verify_program_token_account};
+use crate::processor::utils::{open_pda_account_with_offset, close_account, transfer_token, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent, verify_program_token_account};
 use crate::proof::vkey::{VKeyAccount, VerifyingKey, SendQuadraVKey, VerifyingKeyInfo, MigrateUnaryVKey};
-use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState};
+use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState, NullifierDuplicateAccount};
 use crate::state::MT_COMMITMENT_COUNT;
 use crate::state::governor::{FeeCollectorAccount, PoolAccount};
-use crate::state::program_account::PDAAccountData;
 use crate::state::queue::{CommitmentQueue, CommitmentQueueAccount, Queue, RingQueue};
 use crate::state::{
     NullifierAccount,
@@ -40,7 +39,7 @@ use crate::error::ElusivError::{
 use crate::proof::VerificationAccount;
 use crate::token::{Token, verify_token_account, TokenPrice, verify_associated_token_account, Lamports, elusiv_token};
 use crate::types::{Proof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, RawU256, generate_hashed_inputs};
-use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
+use crate::bytes::{BorshSerDeSized, ElusivOption, usize_as_u32_safe};
 use super::CommitmentHashRequest;
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized, EnumVariantIndex, PartialEq, Debug, Clone)]
@@ -85,13 +84,6 @@ impl ProofRequest {
 
 /// We only allow two distinct MTs in a join-split (merge can be used to reduce the amount of MTs)
 pub const MAX_MT_COUNT: usize = 2;
-
-macro_rules! nullifier_duplicate_account_pda_seed {
-    ($id: ident, $nullifier_hashes: expr) => {
-        let nullifier_hashes: Vec<U256> = $nullifier_hashes.iter().map(|n| n.skip_mr()).collect();
-        let $id = nullifier_hashes.iter().map(|n| &n[..]).collect::<Vec<&[u8]>>();
-    };
-}
 
 #[allow(clippy::too_many_arguments)]
 /// Initializes a new proof verification
@@ -165,21 +157,21 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         &tree_indices,
     )?;
 
-    // Open `nullifier_duplicate_account`
+    // Open [`NullifierDuplicateAccount`]
     // - this account is used to prevent two proof verifications (of the same nullifier-hashes) at the same time
     // - using `skip_nullifier_pda` a second verification can be initialized, for more details see OS-ELV-ADV-05
-    nullifier_duplicate_account_pda_seed!(nullifier_hashes, join_split.nullifier_hashes);
     if skip_nullifier_pda {
+        // TODO: add duplicate PDA verification
         if nullifier_duplicate_account.lamports() == 0 {
             return Err(InvalidInstructionData.into())
         }
     } else {
-        open_pda_account(
+        open_pda_account_with_associated_pubkey::<NullifierDuplicateAccount>(
             &crate::id(),
             fee_payer,
             nullifier_duplicate_account,
-            PDAAccountData::SIZE,
-            &nullifier_hashes,
+            &NullifierDuplicateAccount::associated_pubkey(&join_split.nullifier_hashes),
+            None,
         )?;
     }
 
@@ -294,6 +286,7 @@ pub fn init_verification_transfer_fee<'a>(
         pool_account,
         token_program,
         subvention,
+        None,
         None,
     )?;
 
@@ -448,8 +441,6 @@ pub fn finalize_verification_send(
         _ => return Err(FeatureNotAvailable.into())
     };
 
-    // TODO: add solana_pay_identifier
-
     // Verify `hashed_inputs`
     let hash = generate_hashed_inputs(
         recipient.key.to_bytes(),
@@ -545,8 +536,8 @@ pub fn finalize_verification_transfer_lamports<'a>(
     guard!(join_split.token_id == 0, InvalidAccountState);
 
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
-    nullifier_duplicate_account_pda_seed!(nullifier_hashes, join_split.nullifier_hashes);
-    guard!(*nullifier_duplicate_account.key == Pubkey::find_program_address(&nullifier_hashes, &crate::id()).0, InvalidAccount);
+    // TODO: switch to constant time PDA computation
+    guard!(*nullifier_duplicate_account.key == join_split.nullifier_duplicate_pda().0, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
 
     // Invalid proof
@@ -656,8 +647,8 @@ pub fn finalize_verification_transfer_token<'a>(
     guard!(token_id > 0, InvalidAccountState);
 
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
-    nullifier_duplicate_account_pda_seed!(nullifier_hashes, join_split.nullifier_hashes);
-    guard!(*nullifier_duplicate_account.key == Pubkey::find_program_address(&nullifier_hashes, &crate::id()).0, InvalidAccount);
+    // TODO: switch to constant time PDA computation
+    guard!(*nullifier_duplicate_account.key == join_split.nullifier_duplicate_pda().0, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
     guard!(original_fee_payer_account.key.to_bytes() == data.fee_payer_account.skip_mr(), InvalidAccount);
 
@@ -691,6 +682,7 @@ pub fn finalize_verification_transfer_token<'a>(
             fee_collector_account,
             token_program,
             Token::new(token_id, data.subvention),
+            None,
             None,
         )?;
 
@@ -750,6 +742,7 @@ pub fn finalize_verification_transfer_token<'a>(
                 public_inputs.join_split.amount - associated_token_account_rent_token.unwrap_or(0)
             ),
             None,
+            None,
         )?;
     }
 
@@ -770,6 +763,7 @@ pub fn finalize_verification_transfer_token<'a>(
             )
         )?,
         None,
+        None,
     )?;
 
     // `pool` transfers `network_fee` to `fee_collector` (token)
@@ -779,6 +773,7 @@ pub fn finalize_verification_transfer_token<'a>(
         fee_collector_account,
         token_program,
         Token::new(token_id, data.network_fee),
+        None,
         None,
     )?;
 
@@ -1071,6 +1066,8 @@ mod tests {
             init_verification(&fee_payer, &v_acc, &vkey, &invalid_n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
         );
+
+        // TODO: Invalid nullifier_duplicate_account with skip set to true
 
         // Migrate always fails 
         assert_matches!(
@@ -1426,8 +1423,7 @@ mod tests {
                 ..Default::default()
             });
 
-            nullifier_duplicate_account_pda_seed!(seeds, $public_inputs.join_split.nullifier_hashes);
-            let $nullifier_duplicate_pda = Pubkey::find_program_address(&seeds[..], &crate::id()).0;
+            let $nullifier_duplicate_pda = $public_inputs.join_split.nullifier_duplicate_pda().0;
 
             let $finalize_data = FinalizeSendData {
                 timestamp: $public_inputs.current_time,

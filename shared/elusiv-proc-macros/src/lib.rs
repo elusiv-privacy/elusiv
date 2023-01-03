@@ -15,9 +15,10 @@ use parse_tokens::impl_parse_tokens;
 use program_id::{impl_program_id, impl_declare_program_id};
 
 /// Just-in-time mutable-byte-slice-backed serialization account
-/// - every field is represented by a `&mut [u8]`
-/// - every field has a setter (serialization) and getter (deserialization) function
-/// - to prevent the getter-setter creation use the attribute: `pub_non_lazy`
+/// 
+/// # Notes
+/// 
+/// Automatically also derives [`elusiv_types::PDAAccount`]
 #[proc_macro_attribute]
 pub fn elusiv_account(args: proc_macro::TokenStream, input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);

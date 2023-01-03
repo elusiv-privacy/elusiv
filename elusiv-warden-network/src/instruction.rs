@@ -3,12 +3,14 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::system_program;
 use solana_program::sysvar::instructions;
+use crate::apa::{ApaProposal, ApaProposalAccount, ApaProposalsAccount, ApaTargetMapAccount};
 use crate::network::BasicWardenNetworkAccount;
 use crate::warden::{
     ElusivWardenID,
     ElusivBasicWardenConfig,
     WardensAccount,
     BasicWardenAccount,
+    BasicWardenMapAccount,
     BasicWardenStatsAccount,
     stats_account_pda_offset,
 };
@@ -26,6 +28,7 @@ pub enum ElusivWardenNetworkInstruction {
     #[acc(payer, { signer, writable })]
     #[pda(wardens, WardensAccount, { writable, find_pda, account_info })]
     #[pda(basic_network, BasicWardenNetworkAccount, { writable, find_pda, account_info })]
+    #[pda(proposals_account, ApaProposalsAccount, { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     Init,
 
@@ -33,7 +36,7 @@ pub enum ElusivWardenNetworkInstruction {
 
     #[acc(warden, { signer, writable })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable, find_pda, account_info })]
-    #[acc(warden_map_account, { writable })]
+    #[pda(warden_map_account, BasicWardenMapAccount, pda_pubkey = config.key, { writable, find_pda, account_info })]
     #[pda(wardens, WardensAccount, { writable })]
     #[pda(basic_network, BasicWardenNetworkAccount, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
@@ -72,6 +75,19 @@ pub enum ElusivWardenNetworkInstruction {
     TrackBasicWardenStats {
         warden_id: ElusivWardenID,
         year: u16,
+    },
+
+    // -------- APA --------
+
+    #[acc(proponent, { signer, writable })]
+    #[pda(proposal_account, ApaProposalAccount, pda_offset = Some(proposal_id), { writable, find_pda, account_info })]
+    #[pda(proposals_account, ApaProposalsAccount, { writable })]
+    #[pda(map_account, ApaTargetMapAccount, pda_pubkey = proposal.target, { writable, find_pda, account_info })]
+    #[acc(token_mint)]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    ProposeApaProposal {
+        proposal_id: u32,
+        proposal: ApaProposal,
     },
 
     // -------- Program state management --------

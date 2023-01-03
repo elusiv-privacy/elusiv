@@ -1,9 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::account_info::{AccountInfo, next_account_info};
+use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 use elusiv_derive::BorshSerDeSized;
 use crate::bytes::{BorshSerDeSized, ElusivOption};
+use crate as elusiv_types;
 
 /// An account with a fixed size
 pub trait SizedAccount: Sized {
@@ -205,75 +207,100 @@ pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
 
 pub type PDAOffset = Option<u32>;
 
-/// This trait is used by the [`elusiv_instruction`] and [`elusiv_accounts`] macros
-/// - a PDAAccount is simply a PDA with:
-///     1. the leading fields specified by [`PDAAccountFields`]
-///     2. a PDA that is derived using the following seed: `&[ &SEED, offset?, bump ]`
-/// - so there are two kinds of PDAAccounts:
-///     - single instance: the `pda_offset` is `None` -> `&[ &SEED, bump ]`
-///     - multi instance: the `pda_offset` is `Some(offset)` -> `&[ &SEED, offset, bump ]`
+/// A [`PDAAccount`] uses a seed, an (optional) [`Pubkey`] and a [`PDAOffset`] to derive PDAs
 pub trait PDAAccount {
     const PROGRAM_ID: Pubkey;
     const SEED: &'static [u8];
 
-    /// The [`Pubkey`] associated with the [`None`] [`PDAOffset`]
-    const FIRST_PUBKEY: Pubkey;
+    /// The PDA associated with no [`Pubkey`] and the [`None`] [`PDAOffset`]
+    const FIRST_PDA: (Pubkey, u8);
     
     #[cfg(feature = "elusiv-client")]
     const IDENT: &'static str;
 
     fn find(offset: PDAOffset) -> (Pubkey, u8) {
-        let seed = Self::offset_seed(Self::SEED, offset);
+        if offset.is_none() {
+            return Self::FIRST_PDA
+        }
+
+        let seed = Self::seeds(Self::SEED, None, offset);
         let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
 
         Pubkey::find_program_address(&seed, &Self::PROGRAM_ID)
     }
 
-    fn pubkey(offset: PDAOffset, bump: u8) -> Result<Pubkey, ProgramError> {
-        let mut seed = Self::offset_seed(Self::SEED, offset);
-        seed.push(vec![bump]);
+    fn find_with_pubkey(pubkey: Pubkey, offset: PDAOffset) -> (Pubkey, u8) {
+        let seed = Self::seeds(Self::SEED, Some(pubkey), offset);
         let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
 
-        match Pubkey::create_program_address(&seed, &Self::PROGRAM_ID) {
-            Ok(v) => Ok(v),
-            Err(_) => Err(ProgramError::InvalidSeeds)
-        }
+        Pubkey::find_program_address(&seed, &Self::PROGRAM_ID)
     }
 
-    fn offset_seed(seed: &[u8], offset: PDAOffset) -> Vec<Vec<u8>> {
-        match offset {
-            Some(offset) => vec![seed.to_vec(), offset.to_le_bytes().to_vec()],
-            None => vec![seed.to_vec()]
-        }
-    }
-
-    fn is_valid_pubkey(account: &AccountInfo, offset: PDAOffset, pubkey: &Pubkey) -> Result<bool, ProgramError> {
+    fn create(offset: PDAOffset, bump: u8) -> Result<Pubkey, ProgramError> {
         if offset.is_none() {
-            return Ok(Self::FIRST_PUBKEY == *pubkey)
+            return Ok(Self::FIRST_PDA.0)
         }
 
-        let bump = Self::get_bump(account);
-        Ok(Self::pubkey(offset, bump)? == *pubkey)
+        let seed = Self::signers_seeds(None, offset, bump);
+        let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
+
+        Pubkey::create_program_address(&seed, &Self::PROGRAM_ID)
+            .or(Err(ProgramError::InvalidSeeds))
     }
 
+    fn create_with_pubkey(pubkey: Pubkey, offset: PDAOffset, bump: u8) -> Result<Pubkey, ProgramError> {
+        let seed = Self::signers_seeds(Some(pubkey), offset, bump);
+        let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
+
+        Pubkey::create_program_address(&seed, &Self::PROGRAM_ID)
+            .or(Err(ProgramError::InvalidSeeds))
+    }
+
+    fn seeds(seed: &[u8], pubkey: Option<Pubkey>, offset: PDAOffset) -> Vec<Vec<u8>> {
+        let mut seed = vec![seed.to_vec()];
+
+        if let Some(pubkey) = pubkey {
+            seed.push(pubkey.to_bytes().to_vec());
+        }
+
+        if let Some(offset) = offset {
+            seed.push(offset.to_le_bytes().to_vec());
+        }
+
+        seed
+    }
+
+    fn signers_seeds(pubkey: Option<Pubkey>, offset: PDAOffset, bump: u8) -> Vec<Vec<u8>> {
+        let mut seed = Self::seeds(Self::SEED, pubkey, offset);
+        seed.push(vec![bump]);
+        seed
+    }
+
+    /// Extracts the bump from an [`AccountInfo`]
+    /// 
+    /// # Note
+    /// 
+    /// This requires the account to store [`PDAAccountData`] as the leading data
     fn get_bump(account: &AccountInfo) -> u8 {
         account.data.borrow()[0]
     }
 
-    fn signers_seeds(pda_offset: PDAOffset, bump: u8) -> Vec<Vec<u8>> {
-        match pda_offset {
-            Some(pda_offset) => vec![
-                Self::SEED.to_vec(),
-                u32::to_le_bytes(pda_offset).to_vec(),
-                vec![bump]
-            ],
-            None => vec![
-                Self::SEED.to_vec(),
-                vec![bump]
-            ]
+    fn verify_account(account: &AccountInfo, offset: PDAOffset) -> ProgramResult {
+        if Self::create(offset, Self::get_bump(account))? != *account.key {
+            return Err(ProgramError::InvalidArgument)
         }
+
+        Ok(())
     }
-} 
+
+    fn verify_account_with_pubkey(account: &AccountInfo, pubkey: Pubkey, offset: PDAOffset) -> ProgramResult {
+        if Self::create_with_pubkey(pubkey, offset, Self::get_bump(account))? != *account.key {
+            return Err(ProgramError::InvalidArgument)
+        }
+
+        Ok(())
+    }
+}
 
 pub trait ComputationAccount: PDAAccount {
     fn instruction(&self) -> u32;

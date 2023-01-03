@@ -6,6 +6,7 @@ use borsh::{BorshSerialize, BorshDeserialize};
 use elusiv_computation::RAM;
 use elusiv_derive::{BorshSerDeSized, EnumVariantIndex};
 use solana_program::entrypoint::ProgramResult;
+use solana_program::pubkey::Pubkey;
 pub use verifier::*;
 use ark_bn254::{Fq, Fq2, Fq6, Fq12};
 use crate::error::ElusivError;
@@ -275,12 +276,25 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
     }
 }
 
+#[elusiv_account]
+pub struct NullifierDuplicateAccount {
+    pda_data: PDAAccountData,
+}
+
+impl<'a> NullifierDuplicateAccount<'a> {
+    pub fn associated_pubkey(nullifier_hashes: &[RawU256]) -> Pubkey {
+        let hashes: Vec<U256> = nullifier_hashes.iter().map(|n| n.skip_mr()).collect();
+        let hash = solana_program::hash::hashv(&hashes.iter().map(|b| &b[..]).collect::<Vec<_>>());
+        Pubkey::new_from_array(hash.to_bytes())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use elusiv_types::SizedAccount;
-    use crate::{state::{program_account::ProgramAccount}, fields::{u256_from_str, u256_from_str_skip_mr}, types::{SendPublicInputs, PublicInputs, JoinSplitPublicInputs}};
+    use crate::{state::program_account::ProgramAccount, fields::{u256_from_str, u256_from_str_skip_mr}, types::{SendPublicInputs, PublicInputs, JoinSplitPublicInputs}};
 
     #[test]
     fn test_setup_verification_account() {

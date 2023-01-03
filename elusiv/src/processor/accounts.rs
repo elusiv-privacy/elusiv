@@ -26,7 +26,7 @@ use crate::error::ElusivError::{
     SubAccountAlreadyExists
 };
 use crate::macros::*;
-use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, is_zero};
+use crate::bytes::{BorshSerDeSized, ElusivOption, is_zero};
 use super::utils::*;
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]

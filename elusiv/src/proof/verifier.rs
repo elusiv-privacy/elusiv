@@ -17,7 +17,7 @@ use ark_ff::{Field, CubicExtParameters, One, Zero, biginteger::BigInteger256, fi
 use ark_ec::models::bn::BnParameters;
 use super::*;
 use super::vkey::VerifyingKey;
-use crate::bytes::{usize_as_u8_safe, BorshSerDeSizedEnum};
+use crate::bytes::usize_as_u8_safe;
 use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError, CouldNotProcessProof, InvalidAccountState};
 use crate::error::ElusivResult;
 use crate::fields::G2HomProjective;

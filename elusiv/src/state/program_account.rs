@@ -13,7 +13,10 @@ mod tests {
     impl PDAAccount for TestPDAAccount {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"ABC";
-        const FIRST_PUBKEY: Pubkey = Pubkey::new_from_array([68, 179, 231, 162, 105, 190, 164, 236, 219, 59, 110, 153, 250, 190, 228, 201, 206, 98, 34, 111, 200, 139, 69, 232, 47, 91, 47, 54, 136, 144, 12, 62]);
+        const FIRST_PDA: (Pubkey, u8) = (
+            Pubkey::new_from_array([68, 179, 231, 162, 105, 190, 164, 236, 219, 59, 110, 153, 250, 190, 228, 201, 206, 98, 34, 111, 200, 139, 69, 232, 47, 91, 47, 54, 136, 144, 12, 62]),
+            0
+        );
 
         #[cfg(feature = "elusiv-client")]
         const IDENT: &'static str = "TestPDAAccount";
@@ -24,7 +27,7 @@ mod tests {
         assert_ne!(TestPDAAccount::find(None), TestPDAAccount::find(Some(0)));
         assert_ne!(TestPDAAccount::find(Some(0)), TestPDAAccount::find(Some(1)));
 
-        assert_eq!(TestPDAAccount::find(None).0, TestPDAAccount::FIRST_PUBKEY);
+        assert_eq!(TestPDAAccount::find(None).0, TestPDAAccount::FIRST_PDA.0);
         assert_eq!(TestPDAAccount::find(None).0, Pubkey::find_program_address(&[TestPDAAccount::SEED], &crate::PROGRAM_ID).0);
     }
 
@@ -63,7 +66,10 @@ mod tests {
     impl<'a, 'b, 't> PDAAccount for TestParentAccount<'a, 'b, 't> {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"ABC";
-        const FIRST_PUBKEY: Pubkey = Pubkey::new_from_array([68, 179, 231, 162, 105, 190, 164, 236, 219, 59, 110, 153, 250, 190, 228, 201, 206, 98, 34, 111, 200, 139, 69, 232, 47, 91, 47, 54, 136, 144, 12, 62]);
+        const FIRST_PDA: (Pubkey, u8) = (
+            Pubkey::new_from_array([68, 179, 231, 162, 105, 190, 164, 236, 219, 59, 110, 153, 250, 190, 228, 201, 206, 98, 34, 111, 200, 139, 69, 232, 47, 91, 47, 54, 136, 144, 12, 62]),
+            0
+        );
 
         #[cfg(feature = "elusiv-client")]
         const IDENT: &'static str = "TestParentAccount";

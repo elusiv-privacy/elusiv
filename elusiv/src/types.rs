@@ -1,10 +1,13 @@
 use std::marker::PhantomData;
+use crate::proof::NullifierDuplicateAccount;
 use crate::proof::vkey::{SendQuadraVKey, MigrateUnaryVKey, VerifyingKeyInfo};
 use crate::u64_array;
 use crate::fields::{G1A, G2A, u64_to_u256_skip_mr, u256_to_big_uint, fr_to_u256_le};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use elusiv_types::SizedType;
+use elusiv_types::{SizedType, PDAAccount};
+use solana_program::account_info::AccountInfo;
+use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 use crate::bytes::BorshSerDeSized;
 use borsh::BorshDeserialize;
@@ -204,9 +207,18 @@ pub struct JoinSplitPublicInputs {
 
 impl JoinSplitPublicInputs {
     pub fn nullifier_duplicate_pda(&self) -> (Pubkey, u8) {
-        let nullifier_hashes: Vec<U256> = self.nullifier_hashes.iter().map(|n| n.skip_mr()).collect();
-        let nullifier_hashes: Vec<&[u8]> = nullifier_hashes.iter().map(|n| &n[..]).collect();
-        Pubkey::find_program_address(&nullifier_hashes[..], &crate::ID)
+        NullifierDuplicateAccount::find_with_pubkey(
+            NullifierDuplicateAccount::associated_pubkey(&self.nullifier_hashes),
+            None,
+        )
+    }
+
+    pub fn create_nullifier_duplicate_pda(&self, account: &AccountInfo) -> Result<Pubkey, ProgramError> {
+        NullifierDuplicateAccount::create_with_pubkey(
+            NullifierDuplicateAccount::associated_pubkey(&self.nullifier_hashes),
+            None,
+            NullifierDuplicateAccount::get_bump(account),
+        )
     }
 
     pub fn total_amount(&self) -> u64 {

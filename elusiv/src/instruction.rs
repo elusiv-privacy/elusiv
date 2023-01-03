@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::macros::*;
-use crate::bytes::{BorshSerDeSized, BorshSerDeSizedEnum};
+use crate::bytes::BorshSerDeSized;
 use crate::state::fee::ProgramFee;
 use crate::types::{Proof, U256};
 use super::processor;
@@ -31,7 +31,7 @@ pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
 #[allow(clippy::large_enum_variant)]
 pub enum ElusivInstruction {
-    // -------- Base Commitment Hashing --------
+    // -------- Base commitment hashing --------
 
     // Client sends `base_commitment` and `amount` to be stored in the Elusiv program
     #[acc(sender, { signer })]
@@ -69,7 +69,7 @@ pub enum ElusivInstruction {
         fee_version: u32,
     },
 
-    // -------- Commitment Hashing --------
+    // -------- Commitment hashing --------
 
     // Hashes commitments in a new MT-root
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]

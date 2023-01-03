@@ -8,6 +8,7 @@ publish = false
 members = [
     "shared/elusiv-derive",
     "shared/elusiv-proc-macros",
+    "shared/elusiv-proc-macro-utils",
     "shared/elusiv-types",
     "shared/elusiv-utils",
 ]
@@ -17,10 +18,12 @@ exclude = [
 
 [features]
 mainnet = [
+    "elusiv-derive/mainnet",
     "elusiv-proc-macros/mainnet",
     "elusiv-types/mainnet",
 ]
 devnet = [
+    "elusiv-derive/devnet",
     "elusiv-proc-macros/devnet",
     "elusiv-types/devnet",
 ]
@@ -35,11 +38,12 @@ test-unit = ["elusiv-utils/test-unit"]
 
 [dependencies]
 borsh = { version = "=0.9.3", features = ["const-generics"] }
-elusiv-types = { path = "shared/elusiv-types" }
+elusiv-types = { path = "shared/elusiv-types", default-features = false, features = ["accounts", "bytes", "tokens"] }
 elusiv-utils = { path = "shared/elusiv-utils" }
 elusiv-derive = { path = "shared/elusiv-derive" }
 elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }
 solana-program = "1.10"
+spl-token = { version = "3.5", features = ["no-entrypoint"] }
 
 [dev-dependencies]
 chrono = "0.4"

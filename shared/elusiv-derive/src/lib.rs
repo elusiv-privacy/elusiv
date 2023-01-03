@@ -1,16 +1,19 @@
 extern crate proc_macro;
 
-mod elusiv_instruction;
 mod borsh_serde_sized;
+mod elusiv_instruction;
 mod enum_variant;
 mod jit;
+mod pda_account;
 mod utils;
 
-use syn::{ parse_macro_input, DeriveInput };
-use elusiv_instruction::*;
+use syn::{parse_macro_input, DeriveInput};
+
 use borsh_serde_sized::*;
+use elusiv_instruction::*;
 use enum_variant::*;
 use jit::*;
+use pda_account::*;
 
 /// Instructions parsing
 /// 
@@ -52,7 +55,7 @@ use jit::*;
 ///     }
 /// }
 /// ```
-#[proc_macro_derive(ElusivInstruction, attributes(acc, sys, pda, prg))]
+#[proc_macro_derive(ElusivInstruction, attributes(acc, sys, pda, map))]
 pub fn elusiv_instruction(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     impl_elusiv_instruction(&ast).into()
@@ -74,6 +77,13 @@ pub fn borsh_placeholder(input: proc_macro::TokenStream) -> proc_macro::TokenStr
 pub fn enum_variant_index(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     impl_enum_variant_index(&ast).into()
+}
+
+/// Derives the [`PDAAccount`] trait
+#[proc_macro_derive(PDAAccount)]
+pub fn pda_account(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    impl_pda_account(&ast).into()
 }
 
 #[proc_macro_derive(ByteBackedJIT)]

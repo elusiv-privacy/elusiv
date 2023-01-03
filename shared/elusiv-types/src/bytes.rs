@@ -139,6 +139,7 @@ mod tests {
     use super::*;
     use crate::bytes::BorshSerDeSized;
     use elusiv_derive::BorshSerDeSized;
+    use crate as elusiv_types;
 
     #[test]
     fn test_max() {
