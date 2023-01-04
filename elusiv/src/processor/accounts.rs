@@ -241,15 +241,17 @@ pub fn init_new_fee_version<'a>(
 /// # Note
 /// 
 /// - `signer` needs to be the program's keypair
+/// - `recipient` receives the accounts Lamports
 #[cfg(not(feature = "mainnet"))]
 pub fn close_program_account<'a>(
-    signer: &AccountInfo<'a>,
-    account: &AccountInfo<'a>,
+    signer: &AccountInfo,
+    recipient: &AccountInfo<'a>,
+    program_account: &AccountInfo<'a>,
 ) -> ProgramResult {
     assert!(!cfg!(feature = "mainnet"));
     assert_eq!(*signer.key, crate::ID);
 
-    elusiv_utils::close_account(signer, account)
+    elusiv_utils::close_account(recipient, program_account)
 }
 
 /// Verifies a single user-supplied [`ChildAccount`] and then saves it's pubkey in the `parent_account`

@@ -297,8 +297,9 @@ pub enum ElusivInstruction {
     },
 
     #[cfg(not(feature = "mainnet"))]
-    #[acc(payer, { writable, signer })]
-    #[acc(account, { writable })]
+    #[acc(payer, { signer })]
+    #[acc(recipient, { writable })]
+    #[acc(program_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     CloseProgramAccount,
 
