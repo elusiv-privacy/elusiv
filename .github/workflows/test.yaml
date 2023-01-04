@@ -24,13 +24,13 @@ jobs:
             ~/.cargo/git/db/
           key: cargo-${{ runner.os }}-v0000-${{ hashFiles('**/Cargo.lock') }}
       
-      - uses: action/cache@v2
+      - uses: actions/cache@v2
         name: Cache elusiv target
         with:
           path: elusiv/target
           key: ${{ runner.os }}-elusiv-target-${{ hashFiles('elusiv/Cargo.lock') }}
 
-      - uses: action/cache@v2
+      - uses: actions/cache@v2
         name: Cache elusiv-warden-network target
         with:
           path: elusiv-warden-network/target
