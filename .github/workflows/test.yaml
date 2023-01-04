@@ -23,6 +23,18 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
           key: cargo-${{ runner.os }}-v0000-${{ hashFiles('**/Cargo.lock') }}
+      
+      - uses: action/cache@v2
+        name: Cache elusiv target
+        with:
+          path: elusiv/target
+          key: ${{ runner.os }}-elusiv-target-${{ hashFiles('elusiv/Cargo.lock') }}
+
+      - uses: action/cache@v2
+        name: Cache elusiv-warden-network target
+        with:
+          path: elusiv-warden-network/target
+          key: ${{ runner.os }}-elusiv-warden-network-target-${{ hashFiles('elusiv-warden-network/Cargo.lock') }}
 
       - uses: actions/cache@v2
         name: Cache Solana Tool Suite
@@ -32,14 +44,6 @@ jobs:
             ~/.cache/solana/
             ~/.local/share/solana/
           key: solana-${{ runner.os }}-v0000-${{ env.solana_version }}
-
-      - uses: actions/cache@v2
-        name: Cache target folder
-        id: cache-programs
-        with:
-          path: |
-            ./target
-          key: solana-${{ runner.os }}-v0000-${{ hashFiles('**/*.rs') }}-${{ hashFiles('*.toml') }}
 
       - uses: actions-rs/toolchain@v1
         with:

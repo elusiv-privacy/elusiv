@@ -8,6 +8,8 @@ use borsh::BorshDeserialize;
 use crate::instruction;
 
 crate::macros::declare_program_id!();
+
+#[cfg(not(feature = "no-entrypoint"))]
 solana_program::entrypoint!(process_instruction);
 
 #[cfg(not(tarpaulin_include))]
