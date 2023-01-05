@@ -347,18 +347,32 @@ pub trait EagerParentAccountRepr: EagerAccountRepr {
     fn child_pubkeys(&self) -> Vec<Option<Pubkey>>;
 }
 
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct UserAccount(pub Pubkey);
+pub trait AccountRepr {
+    fn pubkey(&self) -> Pubkey;
+}
 
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct WritableUserAccount(pub Pubkey);
+impl<'a> AccountRepr for AccountInfo<'a> {
+    fn pubkey(&self) -> Pubkey {
+        *self.key
+    }
+}
 
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct SignerAccount(pub Pubkey);
+macro_rules! impl_user_account {
+    ($ty: ident) => {
+        #[cfg(feature = "elusiv-client")]
+        #[derive(Debug)]
+        pub struct $ty (pub Pubkey);
 
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct WritableSignerAccount(pub Pubkey);
+        #[cfg(feature = "elusiv-client")]
+        impl AccountRepr for $ty {
+            fn pubkey(&self) -> Pubkey {
+                self.0
+            }
+        }
+    };
+}
+
+impl_user_account!(UserAccount);
+impl_user_account!(WritableUserAccount);
+impl_user_account!(SignerAccount);
+impl_user_account!(WritableSignerAccount);
