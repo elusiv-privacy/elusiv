@@ -224,7 +224,7 @@ async fn test_base_commitment_lamports() {
     );
     test.ix_should_fail(store_ix.clone(), &[&client.keypair, &warden_a.keypair]).await;
 
-    test.set_pda_account::<GovernorAccount, _>(&elusiv::id(), None, |data| {
+    test.set_pda_account::<GovernorAccount, _>(&elusiv::id(), None, None, |data| {
         let mut account = GovernorAccount::new(data).unwrap();
         account.set_commitment_batching_rate(&1);
     }).await;
@@ -283,7 +283,7 @@ async fn test_base_commitment_lamports() {
     // Correct batching rate and client has enough funds
     test.ix_should_succeed(store_ix.clone(), &[&client.keypair, &warden_a.keypair]).await;
 
-    pda_account!(hash_account, BaseCommitmentHashingAccount, Some(0), test);
+    pda_account!(hash_account, BaseCommitmentHashingAccount, None, Some(0), test);
     assert_eq!(hash_account.get_fee_version(), 0);
     assert_eq!(hash_account.get_fee_payer(), warden_a.pubkey.to_bytes());
     assert_eq!(hash_account.get_instruction(), 0);
@@ -321,7 +321,7 @@ async fn test_base_commitment_lamports() {
         &[&client.keypair, &warden_b.keypair]
     ).await;
 
-    pda_account!(hash_account, BaseCommitmentHashingAccount, Some(1), test);
+    pda_account!(hash_account, BaseCommitmentHashingAccount, None, Some(1), test);
     assert_eq!(hash_account.get_fee_version(), 0);
     assert_eq!(hash_account.get_fee_payer(), warden_b.pubkey.to_bytes());
     assert_eq!(hash_account.get_instruction(), 0);
@@ -559,7 +559,7 @@ async fn test_single_commitment() {
     let pool = PoolAccount::find(None).0;
 
     // Add requests to commitment queue
-    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, |data| {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
         commitment_queue!(mut queue, data);
 
         queue.enqueue(
@@ -578,7 +578,7 @@ async fn test_single_commitment() {
     commitment_queue!(queue, test);
     assert_eq!(queue.len(), 1);
 
-    pda_account!(hashing_account, CommitmentHashingAccount, None, test);
+    pda_account!(hashing_account, CommitmentHashingAccount, None, None, test);
     assert!(!hashing_account.get_is_active());
 
     // Init succeeds
@@ -589,7 +589,7 @@ async fn test_single_commitment() {
         ]
     ).await;
 
-    pda_account!(hashing_account, CommitmentHashingAccount, None, test);
+    pda_account!(hashing_account, CommitmentHashingAccount, None, None, test);
     assert!(hashing_account.get_is_active());
     assert_eq!(hashing_account.get_fee_version(), 0);
     assert_eq!(hashing_account.get_hash_tree(0), request.commitment.reduce());
@@ -659,7 +659,7 @@ async fn test_single_commitment() {
     test.ix_should_succeed_simple(finalize_ix.clone()).await;
 
     // Hashing account is now inactive
-    pda_account!(hashing_account, CommitmentHashingAccount, None, test);
+    pda_account!(hashing_account, CommitmentHashingAccount, None, None, test);
     assert!(!hashing_account.get_is_active());
 
     assert_eq!(request.amount, test.pda_lamports(&pool, PoolAccount::SIZE).await.0);
@@ -712,7 +712,7 @@ async fn test_commitment_full_queue() {
     };
 
     // Enqueue all
-    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, |data| {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
         commitment_queue!(mut queue, data);
 
         for _ in 0..CommitmentQueue::CAPACITY {
@@ -752,7 +752,7 @@ async fn test_commitment_correct_storage_account_insertion() {
     let commitment_count = 33;
 
     for i in 0..commitment_count {
-        test.set_pda_account::<CommitmentHashingAccount, _>(&elusiv::id(), None, |data| {
+        test.set_pda_account::<CommitmentHashingAccount, _>(&elusiv::id(), None, None, |data| {
             let mut account = CommitmentHashingAccount::new(data).unwrap();
             account.set_is_active(&true);
             account.set_instruction(&len);
@@ -817,7 +817,7 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
         u256_from_str("21620303059720667189546524860541209640581655979702452251272504609177116384089"),
     ];
 
-    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, |data| {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
         commitment_queue!(mut queue, data);
 
         for request in &requests {
@@ -890,7 +890,7 @@ async fn test_commitment_hash_with_batching_rate(
         })
         .collect();
 
-    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, |data| {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
         commitment_queue!(mut queue, data);
         for request in &requests {
             queue.enqueue(*request).unwrap();

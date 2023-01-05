@@ -97,10 +97,10 @@ async fn test_setup_fee_account() {
         ElusivInstruction::init_new_fee_version_instruction(0, genesis_fee.clone(), WritableSignerAccount(payer))
     ).await;
     
-    pda_account!(fee, FeeAccount, Some(0), test);
+    pda_account!(fee, FeeAccount, None, Some(0), test);
     assert_eq!(fee.get_program_fee(), genesis_fee);
 
-    pda_account!(governor, GovernorAccount, None, test);
+    pda_account!(governor, GovernorAccount, None, None, test);
     assert_eq!(governor.get_program_fee(), genesis_fee);
 
     // Attempting to set a version higher than genesis (0) will fail
@@ -109,7 +109,7 @@ async fn test_setup_fee_account() {
     ).await;
 
     // But after governor allows it, fee_version 1 can be set
-    test.set_pda_account::<GovernorAccount, _>(&elusiv::id(), None, |data| {
+    test.set_pda_account::<GovernorAccount, _>(&elusiv::id(), None, None, |data| {
         let mut account = GovernorAccount::new(data).unwrap();
         account.set_fee_version(&1);
     }).await;
@@ -217,7 +217,7 @@ async fn test_reset_active_mt() {
     ).await;
 
     // Set active MT as full
-    test.set_pda_account::<StorageAccount, _>(&elusiv::id(), None, |data| {
+    test.set_pda_account::<StorageAccount, _>(&elusiv::id(), None, None, |data| {
         let mut storage_account = StorageAccount::new(data).unwrap();
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
     }).await;
@@ -270,12 +270,12 @@ async fn test_reset_active_mt() {
     }).await;
 
     // Too big batch will also allow for closing of MT
-    test.set_pda_account::<StorageAccount, _>(&elusiv::id(), None, |data| {
+    test.set_pda_account::<StorageAccount, _>(&elusiv::id(), None, None, |data| {
         let mut storage_account = StorageAccount::new(data).unwrap();
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32 - 1));
     }).await;
 
-    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, |data| {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
         let mut account = CommitmentQueueAccount::new(data).unwrap();
         let mut queue = CommitmentQueue::new(&mut account);
         queue.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();

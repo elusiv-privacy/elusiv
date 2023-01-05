@@ -236,6 +236,14 @@ pub trait PDAAccount {
         Pubkey::find_program_address(&seed, &Self::PROGRAM_ID)
     }
 
+    #[cfg(feature = "elusiv-client")]
+    fn find_with_pubkey_optional(pubkey: Option<Pubkey>, offset: PDAOffset) -> (Pubkey, u8) {
+        match pubkey {
+            Some(pubkey) => Self::find_with_pubkey(pubkey, offset),
+            None => Self::find(offset),
+        }
+    }
+
     fn create(offset: PDAOffset, bump: u8) -> Result<Pubkey, ProgramError> {
         if offset.is_none() {
             return Ok(Self::FIRST_PDA.0)

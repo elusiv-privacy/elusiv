@@ -11,7 +11,7 @@ use solana_program::{
 use borsh::{BorshSerialize, BorshDeserialize};
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex, pda_account};
 use crate::processor::ZERO_COMMITMENT_RAW;
-use crate::processor::utils::{open_pda_account_with_offset, close_account, transfer_token, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent, verify_program_token_account};
+use crate::processor::utils::{close_account, transfer_token, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent, verify_program_token_account};
 use crate::proof::vkey::{VKeyAccount, VerifyingKey, SendQuadraVKey, VerifyingKeyInfo, MigrateUnaryVKey};
 use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState, NullifierDuplicateAccount};
 use crate::state::MT_COMMITMENT_COUNT;
@@ -85,10 +85,13 @@ impl ProofRequest {
 /// We only allow two distinct MTs in a join-split (merge can be used to reduce the amount of MTs)
 pub const MAX_MT_COUNT: usize = 2;
 
-#[allow(clippy::too_many_arguments)]
+/// The maximum number of [`VerificationAccount`]s allowed to be active at once per fee-payer
+pub const RESERVED_VACCS_PER_FEE_PAYER: u32 = 128;
+
 /// Initializes a new proof verification
-/// - subsequent calls of `init_verification_transfer_fee` and `init_verification_proof` required to start the computation
-/// - both need to be called by the same signer (-> the fee structure "enforces" `init_verification_transfer_fee` to be called in the same transaction)
+/// - subsequent calls of [`init_verification_transfer_fee`] and [`init_verification_proof`] required to start the computation
+/// - both need to be called by the same signer (-> the fee structure "enforces" [`init_verification_transfer_fee`] to be called in the same transaction)
+#[allow(clippy::too_many_arguments)]
 pub fn init_verification<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'a>,
     verification_account: &AccountInfo<'a>,
@@ -113,6 +116,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
 
     guard!(vkey_account.get_is_frozen(), InvalidAccount);
     guard!(vkey_id == request.vkey_id(), InvalidAccount);
+    guard!(verification_account_index < RESERVED_VACCS_PER_FEE_PAYER, InvalidAccount);
 
     let instructions = prepare_public_inputs_instructions(
         &proof_request!(
@@ -176,11 +180,12 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     }
 
     // Open `VerificationAccount`
-    open_pda_account_with_offset::<VerificationAccount>(
+    open_pda_account_with_associated_pubkey::<VerificationAccount>(
         &crate::id(),
         fee_payer,
         verification_account,
-        verification_account_index
+        fee_payer.key,
+        Some(verification_account_index),
     )?;
 
     pda_account!(mut verification_account, VerificationAccount, verification_account);
@@ -410,8 +415,8 @@ pub struct FinalizeSendData {
 }
 
 /// First finalize instruction
-/// - for valid proof finalization: `finalize_verification_send, `finalize_verification_send_nullifiers`, `finalize_verification_transfer`
-/// - for invalid proof: `finalize_verification_send`, `finalize_verification_transfer`
+/// - for valid proof finalization: [`finalize_verification_send`], [`finalize_verification_send_nullifiers`], [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`]
+/// - for invalid proof: [`finalize_verification_send`], [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`]
 #[allow(clippy::too_many_arguments)]
 pub fn finalize_verification_send(
     recipient: &AccountInfo,
@@ -975,7 +980,7 @@ mod tests {
         parent_account!(mut n, NullifierAccount);
         test_account_info!(fee_payer, 0);
         test_account_info!(identifier, 0);
-        account_info!(v_acc, VerificationAccount::find(Some(0)).0, vec![0; VerificationAccount::SIZE]);
+        account_info!(v_acc, VerificationAccount::find_with_pubkey(*fee_payer.key, Some(0)).0, vec![0; VerificationAccount::SIZE]);
 
         let mut inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
@@ -1005,6 +1010,12 @@ mod tests {
         // TODO: test skip nullifier pda
         // TODO: wrong vkey-id
         // TODO: vkey not checked
+
+        // vkey-id exceeds `RESERVED_VACCS_PER_FEE_PAYER`
+        assert_matches!(
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, RESERVED_VACCS_PER_FEE_PAYER, vkey_id, [0, 1], Send(inputs.clone()), false),
+            Err(_)
+        );
 
         // Commitment-count too low
         assert_matches!(
@@ -1061,7 +1072,7 @@ mod tests {
         
         // Invalid nullifier_duplicate_account
         parent_account!(n, NullifierAccount);
-        account_info!(invalid_n_duplicate_acc, VerificationAccount::find(Some(0)).0, vec![1]);
+        account_info!(invalid_n_duplicate_acc, VerificationAccount::find_with_pubkey(*fee_payer.key, Some(0)).0, vec![1]);
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &invalid_n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
@@ -1674,7 +1685,7 @@ mod tests {
         }
 
         // Invalid nullifier_duplicate_account
-        account_info!(invalid_n_pda, VerificationAccount::find(Some(0)).0, vec![1]);
+        account_info!(invalid_n_pda, VerificationAccount::find_with_pubkey(*f.key, Some(0)).0, vec![1]);
         assert_matches!(
             finalize_verification_transfer_lamports(&recipient, &f, &pool, &fee_c, &mut queue, &v_acc, &invalid_n_pda, 0),
             Err(_)

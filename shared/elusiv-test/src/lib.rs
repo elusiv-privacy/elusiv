@@ -482,11 +482,12 @@ impl ElusivProgramTest {
     pub async fn set_pda_account<A: SizedAccount + PDAAccount, F>(
         &mut self,
         program_id: &Pubkey,
-        offset: Option<u32>,
+        pda_pubkey: Option<Pubkey>,
+        pda_offset: PDAOffset,
         setup: F,
     ) where F: FnOnce(&mut [u8]) {
         let data_len = A::SIZE;
-        let address = A::find(offset).0;
+        let address = A::find_with_pubkey_optional(pda_pubkey, pda_offset).0;
         let mut data = self.data(&address).await;
     
         setup(&mut data);

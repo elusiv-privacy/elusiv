@@ -232,22 +232,22 @@ impl ExtraData {
     }
 }
 
-async fn skip_computation(verification_account_index: u32, success: bool, test: &mut ElusivProgramTest) {
-    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(verification_account_index), |data| {
+async fn skip_computation(warden_pubkey: Pubkey, verification_account_index: u32, success: bool, test: &mut ElusivProgramTest) {
+    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(warden_pubkey), Some(verification_account_index), |data| {
         let mut verification_account = VerificationAccount::new(data).unwrap();
         verification_account.set_is_verified(&ElusivOption::Some(success));
     }).await;
 }
 
-async fn set_verification_state(verification_account_index: u32, state: VerificationState, test: &mut ElusivProgramTest) {
-    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(verification_account_index), |data| {
+async fn set_verification_state(warden_pubkey: Pubkey, verification_account_index: u32, state: VerificationState, test: &mut ElusivProgramTest) {
+    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(warden_pubkey), Some(verification_account_index), |data| {
         let mut verification_account = VerificationAccount::new(data).unwrap();
         verification_account.set_state(&state);
     }).await;
 }
 
-async fn skip_finalize_verification_send(verification_account_index: u32, recipient: &Pubkey, test: &mut ElusivProgramTest) {
-    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(verification_account_index), |data| {
+async fn skip_finalize_verification_send(warden_pubkey: Pubkey, verification_account_index: u32, recipient: &Pubkey, test: &mut ElusivProgramTest) {
+    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(warden_pubkey), Some(verification_account_index), |data| {
         let mut verification_account = VerificationAccount::new(data).unwrap();
         let mut other_data = verification_account.get_other_data();
         other_data.recipient_wallet = ElusivOption::Some(RawU256::new(recipient.to_bytes()));
@@ -631,7 +631,7 @@ async fn test_finalize_proof_lamports() {
     assert_eq!(0, test.pda_lamports(&fee_collector, FeeCollectorAccount::SIZE).await.0);
 
     // Skip computation
-    skip_computation(0, true, &mut test).await;
+    skip_computation(warden.pubkey, 0, true, &mut test).await;
 
     let recipient = Pubkey::new_from_array(extra_data.recipient);
     let identifier = Pubkey::new_from_array(extra_data.identifier);
@@ -666,6 +666,7 @@ async fn test_finalize_proof_lamports() {
                 0,
                 UserAccount(recipient),
                 UserAccount(identifier),
+                UserAccount(warden.pubkey),
             )
         ]
     ).await;
@@ -675,6 +676,7 @@ async fn test_finalize_proof_lamports() {
             request_compute_units(1_400_000),
             ElusivInstruction::finalize_verification_send_nullifiers_instruction(
                 0,
+                UserAccount(warden.pubkey),
                 Some(0),
                 &writable_user_accounts(&[nullifier_accounts[0]]),
                 Some(1),
@@ -698,7 +700,7 @@ async fn test_finalize_proof_lamports() {
         )
     ).await;
 
-    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(0)).0).await);
+    assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(0)).0).await);
     assert!(test.account_does_not_exist(&nullifier_duplicate_account).await);
 
     assert_eq!(
@@ -815,7 +817,7 @@ async fn test_finalize_proof_token() {
     assert_eq!(commitment_hash_fee.0, test.pda_lamports(&PoolAccount::find(None).0, PoolAccount::SIZE).await.0);
     assert_eq!(subvention.amount(), test.spl_balance(&pool_account).await);
 
-    skip_computation(0, true, &mut test).await;
+    skip_computation(warden.pubkey, 0, true, &mut test).await;
 
     let identifier = Pubkey::new_from_array(extra_data.identifier);
 
@@ -834,12 +836,14 @@ async fn test_finalize_proof_token() {
             0,
             UserAccount(recipient_token_account),
             UserAccount(identifier),
+            UserAccount(warden.pubkey),
         )
     ).await;
 
     test.ix_should_succeed_simple(
         ElusivInstruction::finalize_verification_send_nullifiers_instruction(
             0,
+            UserAccount(warden.pubkey),
             Some(0),
             &writable_user_accounts(&[nullifier_accounts[0]]),
             Some(1),
@@ -872,7 +876,7 @@ async fn test_finalize_proof_token() {
         &[&warden.keypair],
     ).await;
 
-    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(0)).0).await);
+    assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(0)).0).await);
     assert!(test.account_does_not_exist(&nullifier_duplicate_account).await);
 
     assert_eq!(
@@ -955,7 +959,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
 
     // Skip computations
     for (i, is_valid) in (0..3).zip([true, true, false]) {
-        skip_computation(i, is_valid, &mut test).await;
+        skip_computation(warden.pubkey, i, is_valid, &mut test).await;
     }
 
     let finalize = |v_index: u32, is_valid: bool| {
@@ -973,9 +977,11 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                 v_index,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
+                UserAccount(warden.pubkey),
             ),
             ElusivInstruction::finalize_verification_send_nullifiers_instruction(
                 v_index,
+                UserAccount(warden.pubkey),
                 Some(0),
                 &writable_user_accounts(&[nullifier_accounts[0]]),
                 Some(1),
@@ -1005,9 +1011,9 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     // 1. verification is unable to complete
     test.tx_should_fail_simple(&finalize(0, true)).await;
 
-    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(1)).0).await);
-    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(2)).0).await);
-    assert!(test.account_does_exist(&VerificationAccount::find(Some(0)).0).await);
+    assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(1)).0).await);
+    assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(2)).0).await);
+    assert!(test.account_does_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(0)).0).await);
     assert!(test.account_does_exist(&nullifier_duplicate_account).await);
 }
 
@@ -1093,9 +1099,9 @@ async fn test_associated_token_account() {
         test.pda_lamports(&PoolAccount::find(None).0, PoolAccount::SIZE).await.0
     );
 
-    skip_computation(0, true, &mut test).await;
-    skip_finalize_verification_send(0, &recipient.pubkey, &mut test).await;
-    set_verification_state(0, VerificationState::Finalized, &mut test).await;
+    skip_computation(warden.pubkey, 0, true, &mut test).await;
+    skip_finalize_verification_send(warden.pubkey, 0, &recipient.pubkey, &mut test).await;
+    set_verification_state(warden.pubkey, 0, VerificationState::Finalized, &mut test).await;
 
     test.airdrop(&pool_account, Token::new(USDC_TOKEN_ID, 100_000_000)).await;
     test.airdrop_lamports(
@@ -1158,7 +1164,7 @@ async fn test_associated_token_account() {
     // Test failure case
     {
         let mut test = test_fork;
-        skip_computation(0, false, &mut test).await;
+        skip_computation(warden.pubkey, 0, false, &mut test).await;
 
         test.ix_should_succeed(
             transfer_ix(associated_token_account, recipient.pubkey),
@@ -1270,11 +1276,11 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         request_compute_units(1_400_000),
         ComputeBudgetInstruction::set_compute_unit_price(0),
 
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
     ];
 
     // Input preparation
@@ -1282,7 +1288,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         test.tx_should_succeed_simple(&instructions).await;
     }
 
-    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    pda_account!(v_acc, VerificationAccount, Some(warden.pubkey), Some(0), test);
     assert_eq!(v_acc.get_is_verified().option(), None);
     assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::CombinedMillerLoop);
 
@@ -1291,7 +1297,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         test.tx_should_succeed_simple(&instructions).await;
     }
 
-    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    pda_account!(v_acc, VerificationAccount, Some(warden.pubkey), Some(0), test);
     assert_eq!(v_acc.get_is_verified().option(), None);
     assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
 
@@ -1300,7 +1306,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         test.tx_should_succeed_simple(&instructions).await;
     }
 
-    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    pda_account!(v_acc, VerificationAccount, Some(warden.pubkey), Some(0), test);
     assert_eq!(v_acc.get_is_verified().option(), Some(false));
     assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
 }
