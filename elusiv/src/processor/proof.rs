@@ -165,6 +165,11 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     // - this account is used to prevent two proof verifications (of the same nullifier-hashes) at the same time
     // - using `skip_nullifier_pda` a second verification can be initialized, for more details see OS-ELV-ADV-05
     if skip_nullifier_pda {
+        guard!(
+            *nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?,
+            InvalidAccount
+        );
+
         // TODO: add duplicate PDA verification
         if nullifier_duplicate_account.lamports() == 0 {
             return Err(InvalidInstructionData.into())
@@ -540,8 +545,11 @@ pub fn finalize_verification_transfer_lamports<'a>(
     guard!(join_split.token_id == 0, InvalidAccountState);
 
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
-    guard!(*nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
+    guard!(
+        *nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?,
+        InvalidAccount
+    );
 
     // Invalid proof
     if let ElusivOption::Some(false) = verification_account.get_is_verified() {
@@ -650,9 +658,12 @@ pub fn finalize_verification_transfer_token<'a>(
     guard!(token_id > 0, InvalidAccountState);
 
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
-    guard!(*nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
     guard!(original_fee_payer_account.key.to_bytes() == data.fee_payer_account.skip_mr(), InvalidAccount);
+    guard!(
+        *nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?,
+        InvalidAccount
+    );
 
     verify_program_token_account(
         pool,
@@ -1072,6 +1083,10 @@ mod tests {
         );
 
         // TODO: Invalid nullifier_duplicate_account with skip set to true
+        assert_matches!(
+            init_verification(&fee_payer, &v_acc, &vkey, &invalid_n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), true),
+            Err(_)
+        );
 
         // Migrate always fails 
         assert_matches!(
