@@ -115,26 +115,26 @@ pub async fn nullifier_accounts(test: &mut ElusivProgramTest, mt_index: u32) -> 
     test.child_accounts::<NullifierAccount>(&mut data).await
 }
 
-/// mut? $id: ident, $ty: ty, $offset: expr, $test: ident
+/// mut? $id: ident, $ty: ty, $pubkey: expr, $offset: expr, $test: ident
 macro_rules! pda_account {
-    ($id: ident, $ty: ty, $offset: expr, $test: expr) => {
-        pda_account!(data data, $ty, $offset, $test);
+    ($id: ident, $ty: ty, $pubkey: expr, $offset: expr, $test: expr) => {
+        pda_account!(data data, $ty, $pubkey, $offset, $test);
         let $id = <$ty>::new(&mut data).unwrap();
     };
-    (mut $id: ident, $ty: ty, $offset: expr, $test: expr) => {
-        pda_account!(data data, $ty, $offset, $test);
+    (mut $id: ident, $ty: ty, $pubkey: expr, $offset: expr, $test: expr) => {
+        pda_account!(data data, $ty, $pubkey, $offset, $test);
         let mut $id = <$ty>::new(&mut data).unwrap();
     };
 
-    (data $data: ident, $ty: ty, $offset: expr, $test: expr) => {
-        let pk = <$ty>::find($offset).0;
+    (data $data: ident, $ty: ty, $pubkey: expr, $offset: expr, $test: expr) => {
+        let pk = <$ty>::find_with_pubkey_optional($pubkey, $offset).0;
         let mut $data = &mut $test.data(&pk).await[..];
     };
 }
 
 macro_rules! commitment_queue {
     ($id: ident, $test: expr) => {
-        pda_account!(mut q, CommitmentQueueAccount, None, $test);
+        pda_account!(mut q, CommitmentQueueAccount, None, None, $test);
         let $id = CommitmentQueue::new(&mut q);
     };
     (mut $id: ident, $data: expr) => {

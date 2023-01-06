@@ -89,6 +89,10 @@ macro_rules! test_pda_account_info {
         let (pk, bump) = <$ty as elusiv_types::PDAAccount>::find($offset);
         crate::macros::account_info!($id, pk, vec![bump]) 
     };
+    ($id: ident, $ty: ty, $pubkey: expr, $offset: expr) => {
+        let (pk, bump) = <$ty as elusiv_types::PDAAccount>::find_with_pubkey($pubkey, $offset);
+        crate::macros::account_info!($id, pk, vec![bump]) 
+    };
 }
 
 /// Creates a program-token-account for a specific [`elusiv_types::PDAAccount`] and a token-id

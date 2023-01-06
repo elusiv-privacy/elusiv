@@ -11,7 +11,7 @@ use solana_program::{
 use borsh::{BorshSerialize, BorshDeserialize};
 use crate::macros::{guard, BorshSerDeSized, EnumVariantIndex, pda_account};
 use crate::processor::ZERO_COMMITMENT_RAW;
-use crate::processor::utils::{open_pda_account_with_offset, close_account, transfer_token, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent, verify_program_token_account};
+use crate::processor::utils::{close_account, transfer_token, transfer_token_from_pda, transfer_lamports_from_pda_checked, create_associated_token_account, spl_token_account_rent, verify_program_token_account};
 use crate::proof::vkey::{VKeyAccount, VerifyingKey, SendQuadraVKey, VerifyingKeyInfo, MigrateUnaryVKey};
 use crate::proof::{prepare_public_inputs_instructions, verify_partial, VerificationAccountData, VerificationState, NullifierDuplicateAccount};
 use crate::state::MT_COMMITMENT_COUNT;
@@ -38,7 +38,7 @@ use crate::error::ElusivError::{
 };
 use crate::proof::VerificationAccount;
 use crate::token::{Token, verify_token_account, TokenPrice, verify_associated_token_account, Lamports, elusiv_token};
-use crate::types::{Proof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, RawU256, generate_hashed_inputs};
+use crate::types::{Proof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, RawU256, generate_hashed_inputs, InputCommitment, JOIN_SPLIT_MAX_N_ARITY};
 use crate::bytes::{BorshSerDeSized, ElusivOption, usize_as_u32_safe};
 use super::CommitmentHashRequest;
 
@@ -85,10 +85,13 @@ impl ProofRequest {
 /// We only allow two distinct MTs in a join-split (merge can be used to reduce the amount of MTs)
 pub const MAX_MT_COUNT: usize = 2;
 
-#[allow(clippy::too_many_arguments)]
+/// The maximum number of [`VerificationAccount`]s allowed to be active at once per fee-payer
+pub const RESERVED_VACCS_PER_FEE_PAYER: u32 = 128;
+
 /// Initializes a new proof verification
-/// - subsequent calls of `init_verification_transfer_fee` and `init_verification_proof` required to start the computation
-/// - both need to be called by the same signer (-> the fee structure "enforces" `init_verification_transfer_fee` to be called in the same transaction)
+/// - subsequent calls of [`init_verification_transfer_fee`] and [`init_verification_proof`] required to start the computation
+/// - both need to be called by the same signer (-> the fee structure "enforces" [`init_verification_transfer_fee`] to be called in the same transaction)
+#[allow(clippy::too_many_arguments)]
 pub fn init_verification<'a, 'b, 'c, 'd>(
     fee_payer: &AccountInfo<'a>,
     verification_account: &AccountInfo<'a>,
@@ -113,6 +116,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
 
     guard!(vkey_account.get_is_frozen(), InvalidAccount);
     guard!(vkey_id == request.vkey_id(), InvalidAccount);
+    guard!(verification_account_index < RESERVED_VACCS_PER_FEE_PAYER, InvalidAccount);
 
     let instructions = prepare_public_inputs_instructions(
         &proof_request!(
@@ -161,6 +165,11 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     // - this account is used to prevent two proof verifications (of the same nullifier-hashes) at the same time
     // - using `skip_nullifier_pda` a second verification can be initialized, for more details see OS-ELV-ADV-05
     if skip_nullifier_pda {
+        guard!(
+            *nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?,
+            InvalidAccount
+        );
+
         // TODO: add duplicate PDA verification
         if nullifier_duplicate_account.lamports() == 0 {
             return Err(InvalidInstructionData.into())
@@ -170,17 +179,18 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
             &crate::id(),
             fee_payer,
             nullifier_duplicate_account,
-            &NullifierDuplicateAccount::associated_pubkey(&join_split.nullifier_hashes),
+            &join_split.associated_nullifier_duplicate_pda_pubkey(),
             None,
         )?;
     }
 
     // Open `VerificationAccount`
-    open_pda_account_with_offset::<VerificationAccount>(
+    open_pda_account_with_associated_pubkey::<VerificationAccount>(
         &crate::id(),
         fee_payer,
         verification_account,
-        verification_account_index
+        fee_payer.key,
+        Some(verification_account_index),
     )?;
 
     pda_account!(mut verification_account, VerificationAccount, verification_account);
@@ -410,8 +420,8 @@ pub struct FinalizeSendData {
 }
 
 /// First finalize instruction
-/// - for valid proof finalization: `finalize_verification_send, `finalize_verification_send_nullifiers`, `finalize_verification_transfer`
-/// - for invalid proof: `finalize_verification_send`, `finalize_verification_transfer`
+/// - for valid proof finalization: [`finalize_verification_send`], [`finalize_verification_send_nullifiers`], [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`]
+/// - for invalid proof: [`finalize_verification_send`], [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`]
 #[allow(clippy::too_many_arguments)]
 pub fn finalize_verification_send(
     recipient: &AccountInfo,
@@ -497,8 +507,7 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
 
     let nullifier_accounts: [&mut NullifierAccount<'a, 'b, 'c>; MAX_MT_COUNT] = [nullifier_account0, nullifier_account1];
     let mut tree_index = 0;
-    for (i, root) in public_inputs.join_split.roots.iter().enumerate() {
-        let nullifier_hash = public_inputs.join_split.nullifier_hashes[i].reduce();
+    for InputCommitment { root, nullifier_hash } in public_inputs.join_split.input_commitments {
         let index = match root {
             Some(_) => {
                 let t = tree_index;
@@ -507,7 +516,7 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
             }
             None => 0,
         };
-        nullifier_accounts[index].try_insert_nullifier_hash(nullifier_hash)?;
+        nullifier_accounts[index].try_insert_nullifier_hash(nullifier_hash.reduce())?;
     }
 
     verification_account.set_state(&VerificationState::Finalized);
@@ -536,9 +545,11 @@ pub fn finalize_verification_transfer_lamports<'a>(
     guard!(join_split.token_id == 0, InvalidAccountState);
 
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
-    // TODO: switch to constant time PDA computation
-    guard!(*nullifier_duplicate_account.key == join_split.nullifier_duplicate_pda().0, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
+    guard!(
+        *nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?,
+        InvalidAccount
+    );
 
     // Invalid proof
     if let ElusivOption::Some(false) = verification_account.get_is_verified() {
@@ -606,7 +617,7 @@ pub fn finalize_verification_transfer_lamports<'a>(
     let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
     commitment_queue.enqueue(
         CommitmentHashRequest {
-            commitment: join_split.commitment.reduce(),
+            commitment: join_split.output_commitment.reduce(),
             fee_version: join_split.fee_version,
             min_batching_rate: data.min_batching_rate,
         }
@@ -647,10 +658,12 @@ pub fn finalize_verification_transfer_token<'a>(
     guard!(token_id > 0, InvalidAccountState);
 
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
-    // TODO: switch to constant time PDA computation
-    guard!(*nullifier_duplicate_account.key == join_split.nullifier_duplicate_pda().0, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
     guard!(original_fee_payer_account.key.to_bytes() == data.fee_payer_account.skip_mr(), InvalidAccount);
+    guard!(
+        *nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?,
+        InvalidAccount
+    );
 
     verify_program_token_account(
         pool,
@@ -797,7 +810,7 @@ pub fn finalize_verification_transfer_token<'a>(
     let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
     commitment_queue.enqueue(
         CommitmentHashRequest {
-            commitment: join_split.commitment.reduce(),
+            commitment: join_split.output_commitment.reduce(),
             fee_version: join_split.fee_version,
             min_batching_rate: data.min_batching_rate,
         }
@@ -850,24 +863,22 @@ fn check_join_split_public_inputs(
     tree_indices: &[u32; MAX_MT_COUNT],
 ) -> ProgramResult {
     // Check that the resulting commitment is not the zero-commitment
-    guard!(public_inputs.commitment.skip_mr() != ZERO_COMMITMENT_RAW, InvalidPublicInputs);
+    guard!(public_inputs.output_commitment.skip_mr() != ZERO_COMMITMENT_RAW, InvalidPublicInputs);
+    guard!(public_inputs.input_commitments[0].root.is_some(), InvalidPublicInputs);
+    guard!(public_inputs.input_commitments.len() <= JOIN_SPLIT_MAX_N_ARITY, InvalidPublicInputs);
 
     let active_tree_index = storage_account.get_trees_count();
 
-    guard!(public_inputs.roots[0].is_some(), InvalidPublicInputs);
-    guard!(public_inputs.nullifier_hashes.len() == public_inputs.commitment_count as usize, InvalidPublicInputs);
-    guard!(public_inputs.roots.len() == public_inputs.commitment_count as usize, InvalidPublicInputs);
-
     let mut roots = Vec::new();
-    let mut tree_index = vec![0; public_inputs.commitment_count as usize];
+    let mut tree_index = Vec::with_capacity(public_inputs.input_commitments.len());
     let mut nullifier_hashes = Vec::new();
-    for (i, root) in public_inputs.roots.iter().enumerate() {
+    for InputCommitment { root, nullifier_hash } in &public_inputs.input_commitments {
         match root {
             Some(root) => {
                 let index = roots.len();
-                tree_index[i] = index;
+                tree_index.push(index);
                 roots.push(root);
-                nullifier_hashes.push(vec![public_inputs.nullifier_hashes[i]]);
+                nullifier_hashes.push(vec![nullifier_hash]);
 
                 // Verify that root is valid
                 // - Note: roots are stored in mr-form
@@ -878,12 +889,12 @@ fn check_join_split_public_inputs(
                 }
             }
             None => {
-                nullifier_hashes[0].push(public_inputs.nullifier_hashes[i]);
+                tree_index.push(0);
+                nullifier_hashes[0].push(nullifier_hash);
             }
         }
     }
     guard!(!roots.is_empty() && roots.len() <= MAX_MT_COUNT, InvalidPublicInputs);
-    guard!(public_inputs.roots[0].is_some(), InvalidPublicInputs);
     guard!(tree_indices.len() >= roots.len(), InvalidPublicInputs);
 
     // All supplied MTs (storage/nullifier-accounts) are pairwise different
@@ -891,11 +902,14 @@ fn check_join_split_public_inputs(
         guard!(is_vec_duplicate_free(&tree_indices.to_vec()), InvalidInstructionData);
     }
 
-    for (i, &nullifier_hash) in public_inputs.nullifier_hashes.iter().enumerate() {
+    for (i, input_commitment) in public_inputs.input_commitments.iter().enumerate() {
         // No duplicate nullifier-hashes for the same MT
-        for j in 0..public_inputs.nullifier_hashes.len() {
-            if i == j { continue }
-            if nullifier_hash == public_inputs.nullifier_hashes[j] {
+        for j in 0..public_inputs.input_commitments.len() {
+            if i == j {
+                continue
+            }
+
+            if input_commitment.nullifier_hash == public_inputs.input_commitments[j].nullifier_hash {
                 guard!(tree_index[i] != tree_index[j], InvalidPublicInputs);
             }
         }
@@ -903,7 +917,7 @@ fn check_join_split_public_inputs(
         // Check that `nullifier_hash` is new
         // - Note: nullifier-hashes are stored in mr-form
         guard!(
-            nullifier_accounts[tree_index[i]].can_insert_nullifier_hash(public_inputs.nullifier_hashes[i].reduce())?,
+            nullifier_accounts[tree_index[i]].can_insert_nullifier_hash(input_commitment.nullifier_hash.reduce())?,
             CouldNotInsertNullifier
         );
     }
@@ -975,14 +989,17 @@ mod tests {
         parent_account!(mut n, NullifierAccount);
         test_account_info!(fee_payer, 0);
         test_account_info!(identifier, 0);
-        account_info!(v_acc, VerificationAccount::find(Some(0)).0, vec![0; VerificationAccount::SIZE]);
+        account_info!(v_acc, VerificationAccount::find_with_pubkey(*fee_payer.key, Some(0)).0, vec![0; VerificationAccount::SIZE]);
 
         let mut inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![Some(empty_root_raw())],
-                nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL,
                 fee: 0,
@@ -1006,18 +1023,16 @@ mod tests {
         // TODO: wrong vkey-id
         // TODO: vkey not checked
 
-        // Commitment-count too low
+        // vkey-id exceeds `RESERVED_VACCS_PER_FEE_PAYER`
         assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.commitment_count = 0;
-            })), false),
+            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, RESERVED_VACCS_PER_FEE_PAYER, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
         );
 
-        // Commitment-count too high
+        // Commitment-count too low
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.commitment_count = JOIN_SPLIT_MAX_N_ARITY + 1;
+                v.join_split.input_commitments.clear();
             })), false),
             Err(_)
         );
@@ -1025,7 +1040,7 @@ mod tests {
         // Invalid root
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.roots[0] = Some(RawU256::new(u256_from_str_skip_mr("1")));
+                v.join_split.input_commitments[0].root = Some(RawU256::new(u256_from_str_skip_mr("1")));
             })), false),
             Err(_)
         );
@@ -1033,7 +1048,7 @@ mod tests {
         // First root is None
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.roots[0] = None;
+                v.join_split.input_commitments[0].root = None;
             })), false),
             Err(_)
         );
@@ -1047,13 +1062,13 @@ mod tests {
         // Zero commitment
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.commitment = RawU256::new(ZERO_COMMITMENT_RAW);
+                v.join_split.output_commitment = RawU256::new(ZERO_COMMITMENT_RAW);
             })), false),
             Err(_)
         );
 
         // Nullifier already exists
-        n.try_insert_nullifier_hash(inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
+        n.try_insert_nullifier_hash(inputs.join_split.input_commitments[0].nullifier_hash.reduce()).unwrap();
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
@@ -1061,13 +1076,17 @@ mod tests {
         
         // Invalid nullifier_duplicate_account
         parent_account!(n, NullifierAccount);
-        account_info!(invalid_n_duplicate_acc, VerificationAccount::find(Some(0)).0, vec![1]);
+        account_info!(invalid_n_duplicate_acc, VerificationAccount::find_with_pubkey(*fee_payer.key, Some(0)).0, vec![1]);
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &invalid_n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
         );
 
         // TODO: Invalid nullifier_duplicate_account with skip set to true
+        assert_matches!(
+            init_verification(&fee_payer, &v_acc, &vkey, &invalid_n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), true),
+            Err(_)
+        );
 
         // Migrate always fails 
         assert_matches!(
@@ -1088,6 +1107,54 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_init_verification_commitment_count_too_high() {
+        parent_account!(s, StorageAccount);
+        parent_account!(n, NullifierAccount);
+        test_account_info!(fee_payer, 0);
+        test_account_info!(identifier, 0);
+        account_info!(v_acc, VerificationAccount::find_with_pubkey(*fee_payer.key, Some(0)).0, vec![0; VerificationAccount::SIZE]);
+
+        let mut inputs = SendPublicInputs {
+            join_split: JoinSplitPublicInputs {
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                fee_version: 0,
+                amount: LAMPORTS_PER_SOL,
+                fee: 0,
+                token_id: 0,
+            },
+            recipient_is_associated_token_account: true,
+            hashed_inputs: u256_from_str_skip_mr("1"),
+            current_time: 0,
+        };
+        compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut inputs, &fee());
+
+        account_info!(n_duplicate_acc, inputs.join_split.nullifier_duplicate_pda().0, vec![1]);
+
+        let mut data = vec![0; VKeyAccount::SIZE];
+        let mut vkey = VKeyAccount::new(&mut data).unwrap();
+        vkey.set_public_inputs_count(&SendQuadraVKey::PUBLIC_INPUTS_COUNT);
+        vkey.set_is_frozen(&true);
+
+        for i in inputs.join_split.input_commitments.len()..JOIN_SPLIT_MAX_N_ARITY + 1 {
+            inputs.join_split.input_commitments.push(
+                InputCommitment {
+                    root: None,
+                    nullifier_hash: RawU256::new(u256_from_str_skip_mr(&i.to_string())),
+                }
+            );
+        }
+
+        let _ = init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, 0, [0, 1],  ProofRequest::Send(inputs), false);
+    }
+
+    #[test]
     fn test_init_verification_transfer_fee_lamports() {
         test_account_info!(f, 0);   // fee_payer
         test_account_info!(pool, 0);
@@ -1100,10 +1167,13 @@ mod tests {
     
         let mut inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![Some(empty_root_raw())],
-                nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL,
                 fee: 0,
@@ -1207,10 +1277,13 @@ mod tests {
     
         let mut inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![Some(empty_root_raw())],
-                nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 0,
                 amount: 1_000_000,
                 fee: 0,
@@ -1377,7 +1450,6 @@ mod tests {
             $token_id: expr,
             $public_inputs: ident,
             $v_data: ident,
-            $nullifier_duplicate_pda: ident,
             $recipient: ident,
             $identifier: ident,
             $finalize_data: ident
@@ -1389,10 +1461,13 @@ mod tests {
 
             let $public_inputs = SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 1,
-                    roots: vec![Some(empty_root_raw())],
-                    nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                    commitment: RawU256::new(u256_from_str_skip_mr("987654321")),
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                        }
+                    ],
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("987654321")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL,
                     fee: 10000,
@@ -1423,8 +1498,6 @@ mod tests {
                 ..Default::default()
             });
 
-            let $nullifier_duplicate_pda = $public_inputs.join_split.nullifier_duplicate_pda().0;
-
             let $finalize_data = FinalizeSendData {
                 timestamp: $public_inputs.current_time,
                 total_amount: $public_inputs.join_split.total_amount(),
@@ -1450,7 +1523,6 @@ mod tests {
             USDC_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            _nullifier_duplicate_pda,
             recipient_bytes,
             identifier_bytes,
             finalize_data
@@ -1528,7 +1600,6 @@ mod tests {
             USDC_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            _nullifier_duplicate_pda,
             recipient_bytes,
             identifier_bytes,
             finalize_data
@@ -1555,10 +1626,13 @@ mod tests {
     fn test_finalize_verification_migrate() {
         let migrate_public_inputs = MigratePublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![Some(empty_root_raw())],
-                nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL,
                 fee: 10000,
@@ -1595,7 +1669,6 @@ mod tests {
             USDC_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            _nullifier_duplicate_pda,
             _recipient_bytes,
             _identifier_bytes,
             _finalize_data
@@ -1609,7 +1682,7 @@ mod tests {
         verification_acc.set_state(&VerificationState::InsertNullifiers);
 
         // Nullifier duplicate
-        n_acc_0.try_insert_nullifier_hash(public_inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
+        n_acc_0.try_insert_nullifier_hash(public_inputs.join_split.input_commitments[0].nullifier_hash.reduce()).unwrap();
         assert_matches!(
             finalize_verification_send_nullifiers(&mut verification_acc, &mut n_acc_0, &mut n_acc_1, 0),
             Err(_)
@@ -1623,7 +1696,7 @@ mod tests {
             Ok(())
         );
 
-        assert!(!n_acc_0.can_insert_nullifier_hash(public_inputs.join_split.nullifier_hashes[0].reduce()).unwrap());
+        assert!(!n_acc_0.can_insert_nullifier_hash(public_inputs.join_split.input_commitments[0].nullifier_hash.reduce()).unwrap());
         assert_matches!(verification_acc.get_state(), VerificationState::Finalized);
 
         // Called twice
@@ -1639,7 +1712,6 @@ mod tests {
             LAMPORTS_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            nullifier_duplicate_pda,
             recipient_bytes,
             _identifier_bytes,
             _finalize_data
@@ -1651,7 +1723,7 @@ mod tests {
         test_account_info!(pool, 0);
         test_account_info!(fee_c, 0);
         test_account_info!(any, 0);
-        account_info!(n_pda, nullifier_duplicate_pda);
+        test_pda_account_info!(n_pda, NullifierDuplicateAccount, public_inputs.join_split.associated_nullifier_duplicate_pda_pubkey(), None);
         account_info!(v_acc, Pubkey::new_unique(), verification_acc_data);
         let mut data = vec![0; CommitmentQueueAccount::SIZE];
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
@@ -1674,7 +1746,7 @@ mod tests {
         }
 
         // Invalid nullifier_duplicate_account
-        account_info!(invalid_n_pda, VerificationAccount::find(Some(0)).0, vec![1]);
+        account_info!(invalid_n_pda, VerificationAccount::find_with_pubkey(*f.key, Some(0)).0, vec![1]);
         assert_matches!(
             finalize_verification_transfer_lamports(&recipient, &f, &pool, &fee_c, &mut queue, &v_acc, &invalid_n_pda, 0),
             Err(_)
@@ -1726,7 +1798,6 @@ mod tests {
             USDC_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            nullifier_duplicate_pda,
             recipient_bytes,
             _identifier_bytes,
             _finalize_data
@@ -1744,7 +1815,7 @@ mod tests {
 
         test_account_info!(any, 0);
         account_info!(spl, spl_token::id(), vec![]);
-        account_info!(n_pda, nullifier_duplicate_pda, vec![]);
+        test_pda_account_info!(n_pda, NullifierDuplicateAccount, public_inputs.join_split.associated_nullifier_duplicate_pda_pubkey(), None);
         account_info!(v_acc, Pubkey::new_unique(), verification_acc_data);
         let mut data = vec![0; CommitmentQueueAccount::SIZE];
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
@@ -1836,14 +1907,13 @@ mod tests {
         parent_account!(n_account, NullifierAccount);
 
         let valid_inputs = JoinSplitPublicInputs {
-            commitment_count: 1,
-            roots: vec![
-                Some(empty_root_raw()),
+            input_commitments: vec![
+                InputCommitment {
+                    root: Some(empty_root_raw()),
+                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                }
             ],
-            nullifier_hashes: vec![
-                RawU256::new(u256_from_str_skip_mr("1")),
-            ],
-            commitment: RawU256::new(u256_from_str_skip_mr("1")),
+            output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
             fee_version: 0,
             amount: 0,
             fee: 123,
@@ -1853,42 +1923,45 @@ mod tests {
         let invalid_public_inputs = [
             // Zero-commitment
             mutate(&valid_inputs, |inputs| {
-                inputs.commitment = RawU256::new(ZERO_COMMITMENT_RAW);
+                inputs.output_commitment = RawU256::new(ZERO_COMMITMENT_RAW);
             }),
 
             // Invalid root for active MT
             mutate(&valid_inputs, |inputs| {
-                inputs.roots[0] = Some(RawU256::new([0; 32]));
+                inputs.input_commitments[0].root = Some(RawU256::new([0; 32]));
             }),
 
             // First root is None
             mutate(&valid_inputs, |inputs| {
-                inputs.roots[0] = None;
-            }),
-
-            // Mismatched nullifier_hashes amount
-            mutate(&valid_inputs, |inputs| {
-                inputs.commitment_count = 2;
+                inputs.input_commitments[0].root = None;
             }),
 
             // Same nullifier_hash supplied twice for same MT
             mutate(&valid_inputs, |inputs| {
-                inputs.commitment_count = 2;
-                inputs.nullifier_hashes = vec![
-                    RawU256::new(u256_from_str_skip_mr("0")),
-                    RawU256::new(u256_from_str_skip_mr("0")),
+                inputs.input_commitments = vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
+                    InputCommitment {
+                        root: None,
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
                 ];
-                inputs.roots.push(None);
             }),
 
             // Invalid root in closed MT
             mutate(&valid_inputs, |inputs| {
-                inputs.commitment_count = 2;
-                inputs.nullifier_hashes = vec![
-                    RawU256::new(u256_from_str_skip_mr("0")),
-                    RawU256::new(u256_from_str_skip_mr("0")),
+                inputs.input_commitments = vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    },
                 ];
-                inputs.roots.push(Some(empty_root_raw()));
             }),
         ];
 
@@ -1903,12 +1976,16 @@ mod tests {
         assert_matches!(
             check_join_split_public_inputs(
                 &mutate(&valid_inputs, |inputs| {
-                    inputs.commitment_count = 2;
-                    inputs.nullifier_hashes = vec![
-                        RawU256::new(u256_from_str_skip_mr("0")),
-                        RawU256::new(u256_from_str_skip_mr("0")),
+                    inputs.input_commitments = vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                        },
+                        InputCommitment {
+                            root: Some(RawU256::new(u256_from_str_skip_mr("0"))),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                        },
                     ];
-                    inputs.roots.push(Some(RawU256::new(u256_from_str_skip_mr("0"))));
                 }),
                 &storage, [&n_account, &n_account], &[0, 0]
             ),
@@ -1924,12 +2001,16 @@ mod tests {
         let valid_public_inputs = [
             // Same nullifier_hash supplied twice for different MT
             mutate(&valid_inputs, |inputs| {
-                inputs.commitment_count = 2;
-                inputs.nullifier_hashes = vec![
-                    RawU256::new(u256_from_str_skip_mr("0")),
-                    RawU256::new(u256_from_str_skip_mr("0")),
+                inputs.input_commitments = vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
+                    InputCommitment {
+                        root: Some(RawU256::new(u256_from_str_skip_mr("0"))),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
                 ];
-                inputs.roots.push(Some(RawU256::new(u256_from_str_skip_mr("0"))));
             }),
         ];
 
@@ -1956,9 +2037,7 @@ mod tests {
         assert_matches!(
             check_join_split_public_inputs(
                 &mutate(&valid_inputs, |inputs| {
-                    inputs.nullifier_hashes = vec![
-                        RawU256::new(u256_from_str_skip_mr("1")),
-                    ];
+                    inputs.input_commitments[0].nullifier_hash = RawU256::new(u256_from_str_skip_mr("1"));
                 }),
                 &storage, [&n_account, &n_account], &[0, 1]
             ),

@@ -16,7 +16,7 @@ use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, Ver
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
 use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
-use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, OrdU256, U256, generate_hashed_inputs};
+use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, OrdU256, U256, generate_hashed_inputs, InputCommitment};
 use elusiv::proof::verifier::proof_from_str;
 use elusiv::processor::{ProofRequest, FinalizeSendData, program_token_account_address};
 use solana_program::native_token::LAMPORTS_PER_SOL;
@@ -71,14 +71,13 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 1,
-                    roots: vec![
-                        Some(empty_root_raw()),
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        }
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
@@ -93,16 +92,17 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 2,
-                    roots: vec![
-                        Some(empty_root_raw()),
-                        None,
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("13921430393547588871192356721184227660578793579443975701453971046059378311483")),
+                        },
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                        RawU256::new(u256_from_str_skip_mr("13921430393547588871192356721184227660578793579443975701453971046059378311483")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
@@ -117,16 +117,17 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 2,
-                    roots: vec![
-                        Some(empty_root_raw()),
-                        Some(empty_root_raw()),
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        },
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                        },
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                        RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
@@ -141,18 +142,21 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 3,
-                    roots: vec![
-                        Some(empty_root_raw()),
-                        None,
-                        None,
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
+                        },
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                        RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                        RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
@@ -167,20 +171,25 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 4,
-                    roots: vec![
-                        Some(empty_root_raw()),
-                        None,
-                        None,
-                        None,
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("96859603105066347219121219513415986783258332305082407505599041968095646559")),
+                        },
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                        RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                        RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
-                        RawU256::new(u256_from_str_skip_mr("96859603105066347219121219513415986783258332305082407505599041968095646559")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
@@ -232,22 +241,22 @@ impl ExtraData {
     }
 }
 
-async fn skip_computation(verification_account_index: u32, success: bool, test: &mut ElusivProgramTest) {
-    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(verification_account_index), |data| {
+async fn skip_computation(warden_pubkey: Pubkey, verification_account_index: u32, success: bool, test: &mut ElusivProgramTest) {
+    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(warden_pubkey), Some(verification_account_index), |data| {
         let mut verification_account = VerificationAccount::new(data).unwrap();
         verification_account.set_is_verified(&ElusivOption::Some(success));
     }).await;
 }
 
-async fn set_verification_state(verification_account_index: u32, state: VerificationState, test: &mut ElusivProgramTest) {
-    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(verification_account_index), |data| {
+async fn set_verification_state(warden_pubkey: Pubkey, verification_account_index: u32, state: VerificationState, test: &mut ElusivProgramTest) {
+    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(warden_pubkey), Some(verification_account_index), |data| {
         let mut verification_account = VerificationAccount::new(data).unwrap();
         verification_account.set_state(&state);
     }).await;
 }
 
-async fn skip_finalize_verification_send(verification_account_index: u32, recipient: &Pubkey, test: &mut ElusivProgramTest) {
-    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(verification_account_index), |data| {
+async fn skip_finalize_verification_send(warden_pubkey: Pubkey, verification_account_index: u32, recipient: &Pubkey, test: &mut ElusivProgramTest) {
+    test.set_pda_account::<VerificationAccount, _>(&elusiv::id(), Some(warden_pubkey), Some(verification_account_index), |data| {
         let mut verification_account = VerificationAccount::new(data).unwrap();
         let mut other_data = verification_account.get_other_data();
         other_data.recipient_wallet = ElusivOption::Some(RawU256::new(recipient.to_bytes()));
@@ -631,7 +640,7 @@ async fn test_finalize_proof_lamports() {
     assert_eq!(0, test.pda_lamports(&fee_collector, FeeCollectorAccount::SIZE).await.0);
 
     // Skip computation
-    skip_computation(0, true, &mut test).await;
+    skip_computation(warden.pubkey, 0, true, &mut test).await;
 
     let recipient = Pubkey::new_from_array(extra_data.recipient);
     let identifier = Pubkey::new_from_array(extra_data.identifier);
@@ -666,6 +675,7 @@ async fn test_finalize_proof_lamports() {
                 0,
                 UserAccount(recipient),
                 UserAccount(identifier),
+                UserAccount(warden.pubkey),
             )
         ]
     ).await;
@@ -675,6 +685,7 @@ async fn test_finalize_proof_lamports() {
             request_compute_units(1_400_000),
             ElusivInstruction::finalize_verification_send_nullifiers_instruction(
                 0,
+                UserAccount(warden.pubkey),
                 Some(0),
                 &writable_user_accounts(&[nullifier_accounts[0]]),
                 Some(1),
@@ -698,7 +709,7 @@ async fn test_finalize_proof_lamports() {
         )
     ).await;
 
-    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(0)).0).await);
+    assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(0)).0).await);
     assert!(test.account_does_not_exist(&nullifier_duplicate_account).await);
 
     assert_eq!(
@@ -815,7 +826,7 @@ async fn test_finalize_proof_token() {
     assert_eq!(commitment_hash_fee.0, test.pda_lamports(&PoolAccount::find(None).0, PoolAccount::SIZE).await.0);
     assert_eq!(subvention.amount(), test.spl_balance(&pool_account).await);
 
-    skip_computation(0, true, &mut test).await;
+    skip_computation(warden.pubkey, 0, true, &mut test).await;
 
     let identifier = Pubkey::new_from_array(extra_data.identifier);
 
@@ -834,12 +845,14 @@ async fn test_finalize_proof_token() {
             0,
             UserAccount(recipient_token_account),
             UserAccount(identifier),
+            UserAccount(warden.pubkey),
         )
     ).await;
 
     test.ix_should_succeed_simple(
         ElusivInstruction::finalize_verification_send_nullifiers_instruction(
             0,
+            UserAccount(warden.pubkey),
             Some(0),
             &writable_user_accounts(&[nullifier_accounts[0]]),
             Some(1),
@@ -872,7 +885,7 @@ async fn test_finalize_proof_token() {
         &[&warden.keypair],
     ).await;
 
-    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(0)).0).await);
+    assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(0)).0).await);
     assert!(test.account_does_not_exist(&nullifier_duplicate_account).await);
 
     assert_eq!(
@@ -955,7 +968,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
 
     // Skip computations
     for (i, is_valid) in (0..3).zip([true, true, false]) {
-        skip_computation(i, is_valid, &mut test).await;
+        skip_computation(warden.pubkey, i, is_valid, &mut test).await;
     }
 
     let finalize = |v_index: u32, is_valid: bool| {
@@ -973,9 +986,11 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                 v_index,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
+                UserAccount(warden.pubkey),
             ),
             ElusivInstruction::finalize_verification_send_nullifiers_instruction(
                 v_index,
+                UserAccount(warden.pubkey),
                 Some(0),
                 &writable_user_accounts(&[nullifier_accounts[0]]),
                 Some(1),
@@ -1005,9 +1020,9 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     // 1. verification is unable to complete
     test.tx_should_fail_simple(&finalize(0, true)).await;
 
-    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(1)).0).await);
-    assert!(test.account_does_not_exist(&VerificationAccount::find(Some(2)).0).await);
-    assert!(test.account_does_exist(&VerificationAccount::find(Some(0)).0).await);
+    assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(1)).0).await);
+    assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(2)).0).await);
+    assert!(test.account_does_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(0)).0).await);
     assert!(test.account_does_exist(&nullifier_duplicate_account).await);
 }
 
@@ -1093,9 +1108,9 @@ async fn test_associated_token_account() {
         test.pda_lamports(&PoolAccount::find(None).0, PoolAccount::SIZE).await.0
     );
 
-    skip_computation(0, true, &mut test).await;
-    skip_finalize_verification_send(0, &recipient.pubkey, &mut test).await;
-    set_verification_state(0, VerificationState::Finalized, &mut test).await;
+    skip_computation(warden.pubkey, 0, true, &mut test).await;
+    skip_finalize_verification_send(warden.pubkey, 0, &recipient.pubkey, &mut test).await;
+    set_verification_state(warden.pubkey, 0, VerificationState::Finalized, &mut test).await;
 
     test.airdrop(&pool_account, Token::new(USDC_TOKEN_ID, 100_000_000)).await;
     test.airdrop_lamports(
@@ -1158,7 +1173,7 @@ async fn test_associated_token_account() {
     // Test failure case
     {
         let mut test = test_fork;
-        skip_computation(0, false, &mut test).await;
+        skip_computation(warden.pubkey, 0, false, &mut test).await;
 
         test.ix_should_succeed(
             transfer_ix(associated_token_account, recipient.pubkey),
@@ -1270,11 +1285,11 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         request_compute_units(1_400_000),
         ComputeBudgetInstruction::set_compute_unit_price(0),
 
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
-        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
+        ElusivInstruction::compute_verification_instruction(0, SendQuadraVKey::VKEY_ID, UserAccount(warden.pubkey), &[UserAccount(vkey_sub_account)]),
     ];
 
     // Input preparation
@@ -1282,7 +1297,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         test.tx_should_succeed_simple(&instructions).await;
     }
 
-    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    pda_account!(v_acc, VerificationAccount, Some(warden.pubkey), Some(0), test);
     assert_eq!(v_acc.get_is_verified().option(), None);
     assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::CombinedMillerLoop);
 
@@ -1291,7 +1306,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         test.tx_should_succeed_simple(&instructions).await;
     }
 
-    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    pda_account!(v_acc, VerificationAccount, Some(warden.pubkey), Some(0), test);
     assert_eq!(v_acc.get_is_verified().option(), None);
     assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
 
@@ -1300,7 +1315,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         test.tx_should_succeed_simple(&instructions).await;
     }
 
-    pda_account!(v_acc, VerificationAccount, Some(0), test);
+    pda_account!(v_acc, VerificationAccount, Some(warden.pubkey), Some(0), test);
     assert_eq!(v_acc.get_is_verified().option(), Some(false));
     assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
 }

@@ -236,6 +236,14 @@ pub trait PDAAccount {
         Pubkey::find_program_address(&seed, &Self::PROGRAM_ID)
     }
 
+    #[cfg(feature = "elusiv-client")]
+    fn find_with_pubkey_optional(pubkey: Option<Pubkey>, offset: PDAOffset) -> (Pubkey, u8) {
+        match pubkey {
+            Some(pubkey) => Self::find_with_pubkey(pubkey, offset),
+            None => Self::find(offset),
+        }
+    }
+
     fn create(offset: PDAOffset, bump: u8) -> Result<Pubkey, ProgramError> {
         if offset.is_none() {
             return Ok(Self::FIRST_PDA.0)
@@ -347,18 +355,32 @@ pub trait EagerParentAccountRepr: EagerAccountRepr {
     fn child_pubkeys(&self) -> Vec<Option<Pubkey>>;
 }
 
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct UserAccount(pub Pubkey);
+pub trait AccountRepr {
+    fn pubkey(&self) -> Pubkey;
+}
 
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct WritableUserAccount(pub Pubkey);
+impl<'a> AccountRepr for AccountInfo<'a> {
+    fn pubkey(&self) -> Pubkey {
+        *self.key
+    }
+}
 
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct SignerAccount(pub Pubkey);
+macro_rules! impl_user_account {
+    ($ty: ident) => {
+        #[cfg(feature = "elusiv-client")]
+        #[derive(Debug)]
+        pub struct $ty (pub Pubkey);
 
-#[cfg(feature = "elusiv-client")]
-#[derive(Debug)]
-pub struct WritableSignerAccount(pub Pubkey);
+        #[cfg(feature = "elusiv-client")]
+        impl AccountRepr for $ty {
+            fn pubkey(&self) -> Pubkey {
+                self.0
+            }
+        }
+    };
+}
+
+impl_user_account!(UserAccount);
+impl_user_account!(WritableUserAccount);
+impl_user_account!(SignerAccount);
+impl_user_account!(WritableSignerAccount);
