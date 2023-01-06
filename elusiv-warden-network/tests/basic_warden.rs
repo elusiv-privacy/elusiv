@@ -135,7 +135,7 @@ async fn test_update_state() {
     let timestamp = basic_warden_account.warden.activation_timestamp;
 
     async fn set_timestamp(test: &mut ElusivProgramTest, timestamp: u64) {
-        test.set_pda_account::<BasicWardenAccount, _>(&elusiv_warden_network::id(), Some(0), |data| {
+        test.set_pda_account::<BasicWardenAccount, _>(&elusiv_warden_network::id(), None, Some(0), |data| {
             let mut account = BasicWardenAccount::new(data).unwrap();
             let mut warden = account.get_warden();
             warden.activation_timestamp = timestamp;

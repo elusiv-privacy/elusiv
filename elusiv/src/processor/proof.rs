@@ -540,8 +540,7 @@ pub fn finalize_verification_transfer_lamports<'a>(
     guard!(join_split.token_id == 0, InvalidAccountState);
 
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
-    // TODO: switch to constant time PDA computation
-    guard!(*nullifier_duplicate_account.key == join_split.nullifier_duplicate_pda().0, InvalidAccount);
+    guard!(*nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
 
     // Invalid proof
@@ -651,8 +650,7 @@ pub fn finalize_verification_transfer_token<'a>(
     guard!(token_id > 0, InvalidAccountState);
 
     guard!(matches!(verification_account.get_state(), VerificationState::Finalized), InvalidAccountState);
-    // TODO: switch to constant time PDA computation
-    guard!(*nullifier_duplicate_account.key == join_split.nullifier_duplicate_pda().0, InvalidAccount);
+    guard!(*nullifier_duplicate_account.key == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?, InvalidAccount);
     guard!(original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(), InvalidAccount);
     guard!(original_fee_payer_account.key.to_bytes() == data.fee_payer_account.skip_mr(), InvalidAccount);
 
@@ -1437,7 +1435,6 @@ mod tests {
             $token_id: expr,
             $public_inputs: ident,
             $v_data: ident,
-            $nullifier_duplicate_pda: ident,
             $recipient: ident,
             $identifier: ident,
             $finalize_data: ident
@@ -1486,8 +1483,6 @@ mod tests {
                 ..Default::default()
             });
 
-            let $nullifier_duplicate_pda = $public_inputs.join_split.nullifier_duplicate_pda().0;
-
             let $finalize_data = FinalizeSendData {
                 timestamp: $public_inputs.current_time,
                 total_amount: $public_inputs.join_split.total_amount(),
@@ -1513,7 +1508,6 @@ mod tests {
             USDC_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            _nullifier_duplicate_pda,
             recipient_bytes,
             identifier_bytes,
             finalize_data
@@ -1591,7 +1585,6 @@ mod tests {
             USDC_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            _nullifier_duplicate_pda,
             recipient_bytes,
             identifier_bytes,
             finalize_data
@@ -1661,7 +1654,6 @@ mod tests {
             USDC_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            _nullifier_duplicate_pda,
             _recipient_bytes,
             _identifier_bytes,
             _finalize_data
@@ -1705,7 +1697,6 @@ mod tests {
             LAMPORTS_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            nullifier_duplicate_pda,
             recipient_bytes,
             _identifier_bytes,
             _finalize_data
@@ -1717,7 +1708,7 @@ mod tests {
         test_account_info!(pool, 0);
         test_account_info!(fee_c, 0);
         test_account_info!(any, 0);
-        account_info!(n_pda, nullifier_duplicate_pda);
+        test_pda_account_info!(n_pda, NullifierDuplicateAccount, public_inputs.join_split.associated_nullifier_duplicate_pda_pubkey(), None);
         account_info!(v_acc, Pubkey::new_unique(), verification_acc_data);
         let mut data = vec![0; CommitmentQueueAccount::SIZE];
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
@@ -1792,7 +1783,6 @@ mod tests {
             USDC_TOKEN_ID,
             public_inputs,
             verification_acc_data,
-            nullifier_duplicate_pda,
             recipient_bytes,
             _identifier_bytes,
             _finalize_data
@@ -1810,7 +1800,7 @@ mod tests {
 
         test_account_info!(any, 0);
         account_info!(spl, spl_token::id(), vec![]);
-        account_info!(n_pda, nullifier_duplicate_pda, vec![]);
+        test_pda_account_info!(n_pda, NullifierDuplicateAccount, public_inputs.join_split.associated_nullifier_duplicate_pda_pubkey(), None);
         account_info!(v_acc, Pubkey::new_unique(), verification_acc_data);
         let mut data = vec![0; CommitmentQueueAccount::SIZE];
         let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
