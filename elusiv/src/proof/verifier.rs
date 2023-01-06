@@ -928,7 +928,7 @@ mod tests {
     use crate::proof::test_proofs::{valid_proofs, invalid_proofs};
     use crate::proof::vkey::{TestVKey, VerifyingKeyInfo};
     use crate::state::empty_root_raw;
-    use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs};
+    use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs, InputCommitment};
 
     fn setup_storage_account<VKey: VerifyingKeyInfo>(
         storage: &mut VerificationAccount,
@@ -1299,16 +1299,17 @@ mod tests {
     fn test_public_inputs_preparation_costs() {
         let abc = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![
-                    Some(empty_root_raw()),
-                    None,
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                    },
+                    InputCommitment {
+                        root: None,
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("13921430393547588871192356721184227660578793579443975701453971046059378311483")),
+                    },
                 ],
-                nullifier_hashes: vec![
-                    RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                    RawU256::new(u256_from_str_skip_mr("13921430393547588871192356721184227660578793579443975701453971046059378311483")),
-                ],
-                commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL * 123,
                 fee: 0,

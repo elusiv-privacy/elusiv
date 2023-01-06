@@ -38,7 +38,7 @@ use crate::error::ElusivError::{
 };
 use crate::proof::VerificationAccount;
 use crate::token::{Token, verify_token_account, TokenPrice, verify_associated_token_account, Lamports, elusiv_token};
-use crate::types::{Proof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, RawU256, generate_hashed_inputs};
+use crate::types::{Proof, SendPublicInputs, MigratePublicInputs, PublicInputs, JoinSplitPublicInputs, U256, RawU256, generate_hashed_inputs, InputCommitment, JOIN_SPLIT_MAX_N_ARITY};
 use crate::bytes::{BorshSerDeSized, ElusivOption, usize_as_u32_safe};
 use super::CommitmentHashRequest;
 
@@ -174,7 +174,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
             &crate::id(),
             fee_payer,
             nullifier_duplicate_account,
-            &NullifierDuplicateAccount::associated_pubkey(&join_split.nullifier_hashes),
+            &join_split.associated_nullifier_duplicate_pda_pubkey(),
             None,
         )?;
     }
@@ -502,8 +502,7 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
 
     let nullifier_accounts: [&mut NullifierAccount<'a, 'b, 'c>; MAX_MT_COUNT] = [nullifier_account0, nullifier_account1];
     let mut tree_index = 0;
-    for (i, root) in public_inputs.join_split.roots.iter().enumerate() {
-        let nullifier_hash = public_inputs.join_split.nullifier_hashes[i].reduce();
+    for InputCommitment { root, nullifier_hash } in public_inputs.join_split.input_commitments {
         let index = match root {
             Some(_) => {
                 let t = tree_index;
@@ -512,7 +511,7 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
             }
             None => 0,
         };
-        nullifier_accounts[index].try_insert_nullifier_hash(nullifier_hash)?;
+        nullifier_accounts[index].try_insert_nullifier_hash(nullifier_hash.reduce())?;
     }
 
     verification_account.set_state(&VerificationState::Finalized);
@@ -611,7 +610,7 @@ pub fn finalize_verification_transfer_lamports<'a>(
     let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
     commitment_queue.enqueue(
         CommitmentHashRequest {
-            commitment: join_split.commitment.reduce(),
+            commitment: join_split.output_commitment.reduce(),
             fee_version: join_split.fee_version,
             min_batching_rate: data.min_batching_rate,
         }
@@ -802,7 +801,7 @@ pub fn finalize_verification_transfer_token<'a>(
     let mut commitment_queue = CommitmentQueue::new(commitment_hash_queue);
     commitment_queue.enqueue(
         CommitmentHashRequest {
-            commitment: join_split.commitment.reduce(),
+            commitment: join_split.output_commitment.reduce(),
             fee_version: join_split.fee_version,
             min_batching_rate: data.min_batching_rate,
         }
@@ -855,24 +854,22 @@ fn check_join_split_public_inputs(
     tree_indices: &[u32; MAX_MT_COUNT],
 ) -> ProgramResult {
     // Check that the resulting commitment is not the zero-commitment
-    guard!(public_inputs.commitment.skip_mr() != ZERO_COMMITMENT_RAW, InvalidPublicInputs);
+    guard!(public_inputs.output_commitment.skip_mr() != ZERO_COMMITMENT_RAW, InvalidPublicInputs);
+    guard!(public_inputs.input_commitments[0].root.is_some(), InvalidPublicInputs);
+    guard!(public_inputs.input_commitments.len() <= JOIN_SPLIT_MAX_N_ARITY, InvalidPublicInputs);
 
     let active_tree_index = storage_account.get_trees_count();
 
-    guard!(public_inputs.roots[0].is_some(), InvalidPublicInputs);
-    guard!(public_inputs.nullifier_hashes.len() == public_inputs.commitment_count as usize, InvalidPublicInputs);
-    guard!(public_inputs.roots.len() == public_inputs.commitment_count as usize, InvalidPublicInputs);
-
     let mut roots = Vec::new();
-    let mut tree_index = vec![0; public_inputs.commitment_count as usize];
+    let mut tree_index = Vec::with_capacity(public_inputs.input_commitments.len());
     let mut nullifier_hashes = Vec::new();
-    for (i, root) in public_inputs.roots.iter().enumerate() {
+    for InputCommitment { root, nullifier_hash } in &public_inputs.input_commitments {
         match root {
             Some(root) => {
                 let index = roots.len();
-                tree_index[i] = index;
+                tree_index.push(index);
                 roots.push(root);
-                nullifier_hashes.push(vec![public_inputs.nullifier_hashes[i]]);
+                nullifier_hashes.push(vec![nullifier_hash]);
 
                 // Verify that root is valid
                 // - Note: roots are stored in mr-form
@@ -883,12 +880,12 @@ fn check_join_split_public_inputs(
                 }
             }
             None => {
-                nullifier_hashes[0].push(public_inputs.nullifier_hashes[i]);
+                tree_index.push(0);
+                nullifier_hashes[0].push(nullifier_hash);
             }
         }
     }
     guard!(!roots.is_empty() && roots.len() <= MAX_MT_COUNT, InvalidPublicInputs);
-    guard!(public_inputs.roots[0].is_some(), InvalidPublicInputs);
     guard!(tree_indices.len() >= roots.len(), InvalidPublicInputs);
 
     // All supplied MTs (storage/nullifier-accounts) are pairwise different
@@ -896,11 +893,14 @@ fn check_join_split_public_inputs(
         guard!(is_vec_duplicate_free(&tree_indices.to_vec()), InvalidInstructionData);
     }
 
-    for (i, &nullifier_hash) in public_inputs.nullifier_hashes.iter().enumerate() {
+    for (i, input_commitment) in public_inputs.input_commitments.iter().enumerate() {
         // No duplicate nullifier-hashes for the same MT
-        for j in 0..public_inputs.nullifier_hashes.len() {
-            if i == j { continue }
-            if nullifier_hash == public_inputs.nullifier_hashes[j] {
+        for j in 0..public_inputs.input_commitments.len() {
+            if i == j {
+                continue
+            }
+
+            if input_commitment.nullifier_hash == public_inputs.input_commitments[j].nullifier_hash {
                 guard!(tree_index[i] != tree_index[j], InvalidPublicInputs);
             }
         }
@@ -908,7 +908,7 @@ fn check_join_split_public_inputs(
         // Check that `nullifier_hash` is new
         // - Note: nullifier-hashes are stored in mr-form
         guard!(
-            nullifier_accounts[tree_index[i]].can_insert_nullifier_hash(public_inputs.nullifier_hashes[i].reduce())?,
+            nullifier_accounts[tree_index[i]].can_insert_nullifier_hash(input_commitment.nullifier_hash.reduce())?,
             CouldNotInsertNullifier
         );
     }
@@ -984,10 +984,13 @@ mod tests {
 
         let mut inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![Some(empty_root_raw())],
-                nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL,
                 fee: 0,
@@ -1020,15 +1023,7 @@ mod tests {
         // Commitment-count too low
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.commitment_count = 0;
-            })), false),
-            Err(_)
-        );
-
-        // Commitment-count too high
-        assert_matches!(
-            init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.commitment_count = JOIN_SPLIT_MAX_N_ARITY + 1;
+                v.join_split.input_commitments.clear();
             })), false),
             Err(_)
         );
@@ -1036,7 +1031,7 @@ mod tests {
         // Invalid root
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.roots[0] = Some(RawU256::new(u256_from_str_skip_mr("1")));
+                v.join_split.input_commitments[0].root = Some(RawU256::new(u256_from_str_skip_mr("1")));
             })), false),
             Err(_)
         );
@@ -1044,7 +1039,7 @@ mod tests {
         // First root is None
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.roots[0] = None;
+                v.join_split.input_commitments[0].root = None;
             })), false),
             Err(_)
         );
@@ -1058,13 +1053,13 @@ mod tests {
         // Zero commitment
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(mutate(&inputs, |v| {
-                v.join_split.commitment = RawU256::new(ZERO_COMMITMENT_RAW);
+                v.join_split.output_commitment = RawU256::new(ZERO_COMMITMENT_RAW);
             })), false),
             Err(_)
         );
 
         // Nullifier already exists
-        n.try_insert_nullifier_hash(inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
+        n.try_insert_nullifier_hash(inputs.join_split.input_commitments[0].nullifier_hash.reduce()).unwrap();
         assert_matches!(
             init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, vkey_id, [0, 1], Send(inputs.clone()), false),
             Err(_)
@@ -1099,6 +1094,54 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_init_verification_commitment_count_too_high() {
+        parent_account!(s, StorageAccount);
+        parent_account!(n, NullifierAccount);
+        test_account_info!(fee_payer, 0);
+        test_account_info!(identifier, 0);
+        account_info!(v_acc, VerificationAccount::find_with_pubkey(*fee_payer.key, Some(0)).0, vec![0; VerificationAccount::SIZE]);
+
+        let mut inputs = SendPublicInputs {
+            join_split: JoinSplitPublicInputs {
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                fee_version: 0,
+                amount: LAMPORTS_PER_SOL,
+                fee: 0,
+                token_id: 0,
+            },
+            recipient_is_associated_token_account: true,
+            hashed_inputs: u256_from_str_skip_mr("1"),
+            current_time: 0,
+        };
+        compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut inputs, &fee());
+
+        account_info!(n_duplicate_acc, inputs.join_split.nullifier_duplicate_pda().0, vec![1]);
+
+        let mut data = vec![0; VKeyAccount::SIZE];
+        let mut vkey = VKeyAccount::new(&mut data).unwrap();
+        vkey.set_public_inputs_count(&SendQuadraVKey::PUBLIC_INPUTS_COUNT);
+        vkey.set_is_frozen(&true);
+
+        for i in inputs.join_split.input_commitments.len()..JOIN_SPLIT_MAX_N_ARITY + 1 {
+            inputs.join_split.input_commitments.push(
+                InputCommitment {
+                    root: None,
+                    nullifier_hash: RawU256::new(u256_from_str_skip_mr(&i.to_string())),
+                }
+            );
+        }
+
+        let _ = init_verification(&fee_payer, &v_acc, &vkey, &n_duplicate_acc, &identifier, &s, &n, &n, 0, 0, [0, 1],  ProofRequest::Send(inputs), false);
+    }
+
+    #[test]
     fn test_init_verification_transfer_fee_lamports() {
         test_account_info!(f, 0);   // fee_payer
         test_account_info!(pool, 0);
@@ -1111,10 +1154,13 @@ mod tests {
     
         let mut inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![Some(empty_root_raw())],
-                nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL,
                 fee: 0,
@@ -1218,10 +1264,13 @@ mod tests {
     
         let mut inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![Some(empty_root_raw())],
-                nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 0,
                 amount: 1_000_000,
                 fee: 0,
@@ -1400,10 +1449,13 @@ mod tests {
 
             let $public_inputs = SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 1,
-                    roots: vec![Some(empty_root_raw())],
-                    nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                    commitment: RawU256::new(u256_from_str_skip_mr("987654321")),
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                        }
+                    ],
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("987654321")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL,
                     fee: 10000,
@@ -1566,10 +1618,13 @@ mod tests {
     fn test_finalize_verification_migrate() {
         let migrate_public_inputs = MigratePublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![Some(empty_root_raw())],
-                nullifier_hashes: vec![RawU256::new(u256_from_str_skip_mr("1"))],
-                commitment: RawU256::new(u256_from_str_skip_mr("1")),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    }
+                ],
+                output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL,
                 fee: 10000,
@@ -1620,7 +1675,7 @@ mod tests {
         verification_acc.set_state(&VerificationState::InsertNullifiers);
 
         // Nullifier duplicate
-        n_acc_0.try_insert_nullifier_hash(public_inputs.join_split.nullifier_hashes[0].reduce()).unwrap();
+        n_acc_0.try_insert_nullifier_hash(public_inputs.join_split.input_commitments[0].nullifier_hash.reduce()).unwrap();
         assert_matches!(
             finalize_verification_send_nullifiers(&mut verification_acc, &mut n_acc_0, &mut n_acc_1, 0),
             Err(_)
@@ -1634,7 +1689,7 @@ mod tests {
             Ok(())
         );
 
-        assert!(!n_acc_0.can_insert_nullifier_hash(public_inputs.join_split.nullifier_hashes[0].reduce()).unwrap());
+        assert!(!n_acc_0.can_insert_nullifier_hash(public_inputs.join_split.input_commitments[0].nullifier_hash.reduce()).unwrap());
         assert_matches!(verification_acc.get_state(), VerificationState::Finalized);
 
         // Called twice
@@ -1847,14 +1902,13 @@ mod tests {
         parent_account!(n_account, NullifierAccount);
 
         let valid_inputs = JoinSplitPublicInputs {
-            commitment_count: 1,
-            roots: vec![
-                Some(empty_root_raw()),
+            input_commitments: vec![
+                InputCommitment {
+                    root: Some(empty_root_raw()),
+                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                }
             ],
-            nullifier_hashes: vec![
-                RawU256::new(u256_from_str_skip_mr("1")),
-            ],
-            commitment: RawU256::new(u256_from_str_skip_mr("1")),
+            output_commitment: RawU256::new(u256_from_str_skip_mr("1")),
             fee_version: 0,
             amount: 0,
             fee: 123,
@@ -1864,42 +1918,45 @@ mod tests {
         let invalid_public_inputs = [
             // Zero-commitment
             mutate(&valid_inputs, |inputs| {
-                inputs.commitment = RawU256::new(ZERO_COMMITMENT_RAW);
+                inputs.output_commitment = RawU256::new(ZERO_COMMITMENT_RAW);
             }),
 
             // Invalid root for active MT
             mutate(&valid_inputs, |inputs| {
-                inputs.roots[0] = Some(RawU256::new([0; 32]));
+                inputs.input_commitments[0].root = Some(RawU256::new([0; 32]));
             }),
 
             // First root is None
             mutate(&valid_inputs, |inputs| {
-                inputs.roots[0] = None;
-            }),
-
-            // Mismatched nullifier_hashes amount
-            mutate(&valid_inputs, |inputs| {
-                inputs.commitment_count = 2;
+                inputs.input_commitments[0].root = None;
             }),
 
             // Same nullifier_hash supplied twice for same MT
             mutate(&valid_inputs, |inputs| {
-                inputs.commitment_count = 2;
-                inputs.nullifier_hashes = vec![
-                    RawU256::new(u256_from_str_skip_mr("0")),
-                    RawU256::new(u256_from_str_skip_mr("0")),
+                inputs.input_commitments = vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
+                    InputCommitment {
+                        root: None,
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
                 ];
-                inputs.roots.push(None);
             }),
 
             // Invalid root in closed MT
             mutate(&valid_inputs, |inputs| {
-                inputs.commitment_count = 2;
-                inputs.nullifier_hashes = vec![
-                    RawU256::new(u256_from_str_skip_mr("0")),
-                    RawU256::new(u256_from_str_skip_mr("0")),
+                inputs.input_commitments = vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                    },
                 ];
-                inputs.roots.push(Some(empty_root_raw()));
             }),
         ];
 
@@ -1914,12 +1971,16 @@ mod tests {
         assert_matches!(
             check_join_split_public_inputs(
                 &mutate(&valid_inputs, |inputs| {
-                    inputs.commitment_count = 2;
-                    inputs.nullifier_hashes = vec![
-                        RawU256::new(u256_from_str_skip_mr("0")),
-                        RawU256::new(u256_from_str_skip_mr("0")),
+                    inputs.input_commitments = vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                        },
+                        InputCommitment {
+                            root: Some(RawU256::new(u256_from_str_skip_mr("0"))),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("1")),
+                        },
                     ];
-                    inputs.roots.push(Some(RawU256::new(u256_from_str_skip_mr("0"))));
                 }),
                 &storage, [&n_account, &n_account], &[0, 0]
             ),
@@ -1935,12 +1996,16 @@ mod tests {
         let valid_public_inputs = [
             // Same nullifier_hash supplied twice for different MT
             mutate(&valid_inputs, |inputs| {
-                inputs.commitment_count = 2;
-                inputs.nullifier_hashes = vec![
-                    RawU256::new(u256_from_str_skip_mr("0")),
-                    RawU256::new(u256_from_str_skip_mr("0")),
+                inputs.input_commitments = vec![
+                    InputCommitment {
+                        root: Some(empty_root_raw()),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
+                    InputCommitment {
+                        root: Some(RawU256::new(u256_from_str_skip_mr("0"))),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("0")),
+                    },
                 ];
-                inputs.roots.push(Some(RawU256::new(u256_from_str_skip_mr("0"))));
             }),
         ];
 
@@ -1967,9 +2032,7 @@ mod tests {
         assert_matches!(
             check_join_split_public_inputs(
                 &mutate(&valid_inputs, |inputs| {
-                    inputs.nullifier_hashes = vec![
-                        RawU256::new(u256_from_str_skip_mr("1")),
-                    ];
+                    inputs.input_commitments[0].nullifier_hash = RawU256::new(u256_from_str_skip_mr("1"));
                 }),
                 &storage, [&n_account, &n_account], &[0, 1]
             ),

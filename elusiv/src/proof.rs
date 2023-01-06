@@ -282,7 +282,7 @@ pub struct NullifierDuplicateAccount {
 }
 
 impl<'a> NullifierDuplicateAccount<'a> {
-    pub fn associated_pubkey(nullifier_hashes: &[RawU256]) -> Pubkey {
+    pub fn associated_pubkey(nullifier_hashes: &[&RawU256]) -> Pubkey {
         let hashes: Vec<U256> = nullifier_hashes.iter().map(|n| n.skip_mr()).collect();
         let hash = solana_program::hash::hashv(&hashes.iter().map(|b| &b[..]).collect::<Vec<_>>());
         Pubkey::new_from_array(hash.to_bytes())
@@ -294,7 +294,7 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use elusiv_types::SizedAccount;
-    use crate::{state::program_account::ProgramAccount, fields::{u256_from_str, u256_from_str_skip_mr}, types::{SendPublicInputs, PublicInputs, JoinSplitPublicInputs}};
+    use crate::{state::program_account::ProgramAccount, fields::{u256_from_str, u256_from_str_skip_mr}, types::{SendPublicInputs, PublicInputs, JoinSplitPublicInputs, InputCommitment}};
 
     #[test]
     fn test_setup_verification_account() {
@@ -303,14 +303,13 @@ mod tests {
 
         let public_inputs = SendPublicInputs{
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![
-                    Some(RawU256::new(u256_from_str("22"))),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(RawU256::new(u256_from_str("22"))),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("333")),
+                    }
                 ],
-                nullifier_hashes: vec![
-                    RawU256::new(u256_from_str_skip_mr("333")),
-                ],
-                commitment: RawU256::new(u256_from_str_skip_mr("44444")),
+                output_commitment: RawU256::new(u256_from_str_skip_mr("44444")),
                 fee_version: 55555,
                 amount: 666666,
                 fee: 123,

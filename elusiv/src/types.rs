@@ -191,14 +191,18 @@ impl TryFrom<RawProof> for Proof {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct InputCommitment {
+    pub root: Option<RawU256>,
+    pub nullifier_hash: RawU256,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct JoinSplitPublicInputs {
-    pub commitment_count: u8,
-
-    pub roots: Vec<Option<RawU256>>,
-    pub nullifier_hashes: Vec<RawU256>,
-    pub commitment: RawU256,
+    pub input_commitments: Vec<InputCommitment>,
+    pub output_commitment: RawU256,
     pub fee_version: u32,
     pub amount: u64,
     pub fee: u64,
@@ -206,16 +210,36 @@ pub struct JoinSplitPublicInputs {
 }
 
 impl JoinSplitPublicInputs {
+    pub fn roots(&self) -> Vec<Option<RawU256>> {
+        self.input_commitments.iter()
+            .map(|c| c.root)
+            .collect()
+    }
+
+    pub fn nullifier_hashes(&self) -> Vec<RawU256> {
+        self.input_commitments.iter()
+            .map(|c| c.nullifier_hash)
+            .collect()
+    }
+
+    pub fn associated_nullifier_duplicate_pda_pubkey(&self) -> Pubkey {
+        let nullifier_hashes: Vec<&RawU256> = self.input_commitments.iter()
+            .map(|c| &c.nullifier_hash)
+            .collect();
+
+        NullifierDuplicateAccount::associated_pubkey(&nullifier_hashes)
+    }
+
     pub fn nullifier_duplicate_pda(&self) -> (Pubkey, u8) {
         NullifierDuplicateAccount::find_with_pubkey(
-            NullifierDuplicateAccount::associated_pubkey(&self.nullifier_hashes),
+            self.associated_nullifier_duplicate_pda_pubkey(),
             None,
         )
     }
 
     pub fn create_nullifier_duplicate_pda(&self, account: &AccountInfo) -> Result<Pubkey, ProgramError> {
         NullifierDuplicateAccount::create_with_pubkey(
-            NullifierDuplicateAccount::associated_pubkey(&self.nullifier_hashes),
+            self.associated_nullifier_duplicate_pda_pubkey(),
             None,
             NullifierDuplicateAccount::get_bump(account),
         )
@@ -226,95 +250,11 @@ impl JoinSplitPublicInputs {
     }
 }
 
-pub const JOIN_SPLIT_MAX_N_ARITY: u8 = 4;
-
-fn deserialze_vec<N: BorshDeserialize>(buf: &mut &[u8], len: usize) -> std::io::Result<Vec<N>> {
-    let mut v = Vec::new();
-    for _ in 0..len {
-        v.push(N::deserialize(buf)?);
-    }
-
-    Ok(v)
-}
-
-fn serialize_vec<N: BorshSerialize, W: std::io::Write>(v: &Vec<N>, len: usize, writer: &mut W) -> std::io::Result<()> {
-    if v.len() != len {
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, ""))
-    }
-
-    for e in v {
-        e.serialize(writer)?;
-    }
-
-    Ok(())
-}
-
-impl BorshDeserialize for JoinSplitPublicInputs {
-    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
-        assert!(buf.len() >= Self::SIZE);
-
-        let commitment_count = u8::deserialize(buf)?;
-        assert!(commitment_count <= JOIN_SPLIT_MAX_N_ARITY);
-
-        // limited atm to a single MT
-        let roots: Vec<RawU256> = deserialze_vec(buf, 1)?;
-        let roots = roots.iter()
-            .map(|&r| if r.0 == [0; 32] { None } else { Some(r) })
-            .collect();
-        let nullifier_hashes = deserialze_vec(buf, commitment_count as usize)?;
-
-        let commitment = RawU256::deserialize(buf)?;
-        let fee_version = u32::deserialize(buf)?;
-        let amount = u64::deserialize(buf)?;
-        let fee = u64::deserialize(buf)?;
-        let token_id = u16::deserialize(buf)?;
-
-        let remaining = (JOIN_SPLIT_MAX_N_ARITY - commitment_count) as usize * 32;
-        *buf = &buf[remaining..];
-
-        Ok(
-            JoinSplitPublicInputs {
-                commitment_count,
-                roots,
-                nullifier_hashes,
-                commitment,
-                fee_version,
-                amount,
-                fee,
-                token_id,
-            }
-        )
-    }
-}
-
-impl BorshSerialize for JoinSplitPublicInputs {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        assert!(self.commitment_count <= JOIN_SPLIT_MAX_N_ARITY);
-        self.commitment_count.serialize(writer)?;
-
-        let roots: Vec<RawU256> = self.roots.iter()
-            .map(|&r| r.unwrap_or(RawU256::ZERO))
-            .collect();
-
-        // limited atm to a single MT
-        serialize_vec(&roots, 1, writer)?;
-        serialize_vec(&self.nullifier_hashes, self.commitment_count as usize, writer)?;
-
-        self.commitment.serialize(writer)?;
-        self.fee_version.serialize(writer)?;
-        self.amount.serialize(writer)?;
-        self.fee.serialize(writer)?;
-        self.token_id.serialize(writer)?;
-
-        let remaining = (JOIN_SPLIT_MAX_N_ARITY - self.commitment_count) as usize * 32;
-        writer.write_all(&vec![0; remaining])?;
-
-        Ok(())
-    }
-}
+pub const JOIN_SPLIT_MAX_N_ARITY: usize = 4;
 
 impl BorshSerDeSized for JoinSplitPublicInputs {
-    const SIZE: usize = 1 + 32 + JOIN_SPLIT_MAX_N_ARITY as usize * 32 + 32 + 4 + 8 + 8 + 2;
+    // only used as maximum size in this context
+    const SIZE: usize = 4 + (JOIN_SPLIT_MAX_N_ARITY * 32 * 2) + 32 + 4 + 8 + 8 + 2;
 }
 
 pub trait PublicInputs {
@@ -381,16 +321,16 @@ impl PublicInputs for SendPublicInputs {
     const PUBLIC_INPUTS_COUNT: usize = SendQuadraVKey::PUBLIC_INPUTS_COUNT as usize;
     
     fn verify_additional_constraints(&self) -> bool {
-        // Maximum `commitment_count` is 4
+        // Maximum commitment-count is 4
         // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
-        if self.join_split.commitment_count > JOIN_SPLIT_MAX_N_ARITY { return false }
+        if self.join_split.input_commitments.len() > JOIN_SPLIT_MAX_N_ARITY { return false }
 
-        // Minimum `commitment_count` is 1
-        if self.join_split.commitment_count == 0 { return false }
+        // Minimum commitment-count is 1
+        if self.join_split.input_commitments.is_empty() { return false }
 
         // The first root has to be != `None`
         // https://github.com/elusiv-privacy/circuits/blob/dc1785ae0bf172892930548f4e1f9f1d48df6c97/circuits/send.circom#L7
-        if self.join_split.roots[0].is_none() { return false }
+        if self.join_split.input_commitments[0].root.is_none() { return false }
 
         true
     }
@@ -400,35 +340,37 @@ impl PublicInputs for SendPublicInputs {
     // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
     // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/send.circom
     fn public_signals(&self) -> Vec<RawU256> {
-        let mut public_signals = Vec::new();
+        let mut public_signals = Vec::with_capacity(Self::PUBLIC_INPUTS_COUNT);
 
         // nullifierHash[nArity]
-        for n_hash in &self.join_split.nullifier_hashes {
-            public_signals.push(*n_hash);
+        for input_commitment in &self.join_split.input_commitments {
+            public_signals.push(input_commitment.nullifier_hash)
         }
-        for _ in self.join_split.nullifier_hashes.len()..JOIN_SPLIT_MAX_N_ARITY as usize {
+        for _ in self.join_split.input_commitments.len()..JOIN_SPLIT_MAX_N_ARITY {
             public_signals.push(RawU256::ZERO);
         }
 
         // root[nArity]
-        for root in &self.join_split.roots {
-            match root {
-                Some(root) => public_signals.push(*root),
+        for input_commitment in &self.join_split.input_commitments {
+            match input_commitment.root {
+                Some(root) => public_signals.push(root),
                 None => public_signals.push(RawU256::ZERO),
             }
         }
-        for _ in self.join_split.roots.len()..JOIN_SPLIT_MAX_N_ARITY as usize {
+        for _ in self.join_split.input_commitments.len()..JOIN_SPLIT_MAX_N_ARITY {
             public_signals.push(RawU256::ZERO);
         }
 
         public_signals.extend(vec![
             RawU256(u64_to_u256_skip_mr(self.join_split.total_amount())),
             RawU256(u64_to_u256_skip_mr(self.current_time)),
-            self.join_split.commitment,
+            self.join_split.output_commitment,
             RawU256(u64_to_u256_skip_mr(self.join_split.fee_version as u64)),
             RawU256(u64_to_u256_skip_mr(self.join_split.token_id as u64)),
             RawU256(self.hashed_inputs),
         ]);
+
+        assert_eq!(public_signals.len(), Self::PUBLIC_INPUTS_COUNT);
 
         public_signals
     }
@@ -442,12 +384,12 @@ impl PublicInputs for MigratePublicInputs {
     const PUBLIC_INPUTS_COUNT: usize = MigrateUnaryVKey::PUBLIC_INPUTS_COUNT as usize;
     
     fn verify_additional_constraints(&self) -> bool {
-        // `commitment_count` is 1
+        // commitment-count is 1
         // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
-        if self.join_split.commitment_count != 1 { return false }
+        if self.join_split.input_commitments.len() != 1 { return false }
 
         // The first root has to be != `None`
-        if self.join_split.roots[0].is_none() { return false }
+        if self.join_split.input_commitments[0].root.is_none() { return false }
 
         true
     }
@@ -458,9 +400,9 @@ impl PublicInputs for MigratePublicInputs {
     // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/migrate.circom
     fn public_signals(&self) -> Vec<RawU256> {
         vec![
-            self.join_split.nullifier_hashes[0],
-            self.join_split.roots[0].unwrap(),
-            self.join_split.commitment,
+            self.join_split.input_commitments[0].nullifier_hash,
+            self.join_split.input_commitments[0].root.unwrap(),
+            self.join_split.output_commitment,
             self.current_nsmt_root,
             self.next_nsmt_root,
             RawU256(u64_to_u256_skip_mr(self.join_split.fee_version as u64)),
@@ -610,14 +552,13 @@ mod test {
     #[test]
     fn test_join_split_public_inputs_ser_de() {
         let inputs = JoinSplitPublicInputs {
-            commitment_count: 1,
-            commitment: RawU256([1; 32]),
-            roots: vec![
-                Some(RawU256([2; 32])),
+            input_commitments: vec![
+                InputCommitment {
+                    root: Some(RawU256::new(u256_from_str_skip_mr("22"))),
+                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("333")),
+                }
             ],
-            nullifier_hashes: vec![
-                RawU256([5; 32]),
-            ],
+            output_commitment: RawU256::new(u256_from_str_skip_mr("44444")),
             fee_version: 999,
             amount: 666,
             fee: 777,
@@ -625,7 +566,6 @@ mod test {
         };
 
         let serialized = inputs.try_to_vec().unwrap();
-        assert_eq!(serialized.len(), JoinSplitPublicInputs::SIZE);
         assert_eq!(inputs, JoinSplitPublicInputs::try_from_slice(&serialized[..]).unwrap());
     }
 
@@ -633,16 +573,17 @@ mod test {
     fn test_send_public_inputs_verify() {
         let valid_inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 2,
-                roots: vec![
-                    Some(RawU256([0; 32])),
-                    None,
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(RawU256(u256_from_str_skip_mr("6191230350958560078367981107768184097462838361805930166881673322342311903752"))),
+                        nullifier_hash: RawU256([0; 32]),
+                    },
+                    InputCommitment {
+                        root: None,
+                        nullifier_hash: RawU256([0; 32])
+                    },
                 ],
-                nullifier_hashes: vec![
-                    RawU256([0; 32]),
-                    RawU256([0; 32]),
-                ],
-                commitment: RawU256([0; 32]),
+                output_commitment: RawU256([0; 32]),
                 fee_version: 0,
                 amount: 0,
                 fee: 0,
@@ -654,18 +595,25 @@ mod test {
         };
         assert!(valid_inputs.verify_additional_constraints());
 
-        // Maximum `commitment_count` is 10
+        // Maximum commitment-count
         let mut inputs = valid_inputs.clone();
-        inputs.join_split.commitment_count = 11;
+        for i in inputs.join_split.input_commitments.len()..JOIN_SPLIT_MAX_N_ARITY + 1 {
+            inputs.join_split.input_commitments.push(
+                InputCommitment {
+                    root: None,
+                    nullifier_hash: RawU256::new(u256_from_str_skip_mr(&i.to_string())),
+                }
+            );
+        }
         assert!(!inputs.verify_additional_constraints());
 
-        // Minimum `commitment_count` is 1
-        inputs.join_split.commitment_count = 0;
+        // Minimum commitment-count is 1
+        inputs.join_split.input_commitments.clear();
         assert!(!inputs.verify_additional_constraints());
 
         // The first root has to be != `None`
         let mut inputs = valid_inputs;
-        inputs.join_split.roots[0] = None;
+        inputs.join_split.input_commitments[0].root = None;
         assert!(!inputs.verify_additional_constraints());
     }
 
@@ -673,14 +621,13 @@ mod test {
     fn test_send_public_inputs_public_signals() {
         let inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![
-                    Some(RawU256(u256_from_str_skip_mr("6191230350958560078367981107768184097462838361805930166881673322342311903752"))),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(RawU256(u256_from_str_skip_mr("6191230350958560078367981107768184097462838361805930166881673322342311903752"))),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("7889586699914970744657798935358222218486353295005298675075639741334684257960")),
+                    }
                 ],
-                nullifier_hashes: vec![
-                    RawU256(u256_from_str_skip_mr("7889586699914970744657798935358222218486353295005298675075639741334684257960")),
-                ],
-                commitment: RawU256(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
+                output_commitment: RawU256::new(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
                 fee_version: 0,
                 amount: 50000,
                 fee: 1,
@@ -715,13 +662,16 @@ mod test {
     #[test]
     fn test_send_public_inputs_serde() {
         let str = "
-        {\"
-            join_split\":
-            {\"
-                commitment_count\":1,
-                \"roots\":[[220,109,75,166,42,21,212,57,27,45,247,16,115,107,121,228,172,110,162,119,166,173,100,50,196,104,230,12,112,119,15,30]],
-                \"nullifier_hashes\":[[145,228,92,60,193,80,150,255,145,29,156,152,238,64,230,149,19,80,161,103,119,135,38,139,142,67,18,163,159,54,11,22]],
-                \"commitment\":[146,94,46,51,211,4,49,85,42,229,99,188,226,49,115,65,108,37,190,116,123,32,2,181,59,231,108,209,18,13,235,45],
+        {
+            \"join_split\":
+            {
+                \"input_commitments\":[
+                    {
+                        \"root\": [220,109,75,166,42,21,212,57,27,45,247,16,115,107,121,228,172,110,162,119,166,173,100,50,196,104,230,12,112,119,15,30],
+                        \"nullifier_hash\": [145,228,92,60,193,80,150,255,145,29,156,152,238,64,230,149,19,80,161,103,119,135,38,139,142,67,18,163,159,54,11,22]
+                    }
+                ],
+                \"output_commitment\":[146,94,46,51,211,4,49,85,42,229,99,188,226,49,115,65,108,37,190,116,123,32,2,181,59,231,108,209,18,13,235,45],
                 \"fee_version\":0,
                 \"amount\":100000000,
                 \"fee\":120000,
@@ -737,16 +687,20 @@ mod test {
 
         let result: SendPublicInputs = serde_json::from_str(&str).unwrap();
         serde_json::to_string(&result).unwrap();
+        result.try_to_vec().unwrap();
     }
 
     #[test]
     fn test_migrate_public_inputs_verify() {
         let valid_inputs = MigratePublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![Some(RawU256([0; 32]))],
-                nullifier_hashes: vec![RawU256([0; 32])],
-                commitment: RawU256([0; 32]),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(RawU256::new([0; 32])),
+                        nullifier_hash: RawU256::new([0; 32]),
+                    }
+                ],
+                output_commitment: RawU256::new([0; 32]),
                 fee_version: 0,
                 amount: 0,
                 fee: 0,
@@ -757,14 +711,14 @@ mod test {
         };
         assert!(valid_inputs.verify_additional_constraints());
 
-        // `commitment_count` is 1
+        // commitment-count is 1
         let mut inputs = valid_inputs.clone();
-        inputs.join_split.commitment_count = 2;
+        inputs.join_split.input_commitments.push(inputs.join_split.input_commitments[0].clone());
         assert!(!inputs.verify_additional_constraints());
 
         // The first root has to be != `None`
         let mut inputs = valid_inputs;
-        inputs.join_split.roots[0] = None;
+        inputs.join_split.input_commitments[0].root = None;
         assert!(!inputs.verify_additional_constraints());
     }
 
@@ -772,14 +726,13 @@ mod test {
     fn test_migrate_public_inputs_public_signals() {
         let inputs = MigratePublicInputs {
             join_split: JoinSplitPublicInputs {
-                commitment_count: 1,
-                roots: vec![
-                    Some(RawU256(u256_from_str_skip_mr("6191230350958560078367981107768184097462838361805930166881673322342311903752"))),
+                input_commitments: vec![
+                    InputCommitment {
+                        root: Some(RawU256(u256_from_str_skip_mr("6191230350958560078367981107768184097462838361805930166881673322342311903752"))),
+                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("7889586699914970744657798935358222218486353295005298675075639741334684257960")),
+                    }
                 ],
-                nullifier_hashes: vec![
-                    RawU256(u256_from_str_skip_mr("7889586699914970744657798935358222218486353295005298675075639741334684257960")),
-                ],
-                commitment: RawU256(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
+                output_commitment: RawU256::new(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
                 fee_version: 0,
                 amount: 50000,
                 fee: 1,

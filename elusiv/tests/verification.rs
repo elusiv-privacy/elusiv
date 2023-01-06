@@ -16,7 +16,7 @@ use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, Ver
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
 use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
-use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, OrdU256, U256, generate_hashed_inputs};
+use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, OrdU256, U256, generate_hashed_inputs, InputCommitment};
 use elusiv::proof::verifier::proof_from_str;
 use elusiv::processor::{ProofRequest, FinalizeSendData, program_token_account_address};
 use solana_program::native_token::LAMPORTS_PER_SOL;
@@ -71,14 +71,13 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 1,
-                    roots: vec![
-                        Some(empty_root_raw()),
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        }
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
@@ -93,16 +92,17 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 2,
-                    roots: vec![
-                        Some(empty_root_raw()),
-                        None,
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("13921430393547588871192356721184227660578793579443975701453971046059378311483")),
+                        },
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                        RawU256::new(u256_from_str_skip_mr("13921430393547588871192356721184227660578793579443975701453971046059378311483")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
@@ -117,16 +117,17 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 2,
-                    roots: vec![
-                        Some(empty_root_raw()),
-                        Some(empty_root_raw()),
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        },
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                        },
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                        RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
@@ -141,18 +142,21 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 3,
-                    roots: vec![
-                        Some(empty_root_raw()),
-                        None,
-                        None,
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
+                        },
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                        RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                        RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
@@ -167,20 +171,25 @@ fn send_request(index: usize) -> FullSendRequest {
             proof,
             public_inputs: SendPublicInputs {
                 join_split: JoinSplitPublicInputs {
-                    commitment_count: 4,
-                    roots: vec![
-                        Some(empty_root_raw()),
-                        None,
-                        None,
-                        None,
+                    input_commitments: vec![
+                        InputCommitment {
+                            root: Some(empty_root_raw()),
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
+                        },
+                        InputCommitment {
+                            root: None,
+                            nullifier_hash: RawU256::new(u256_from_str_skip_mr("96859603105066347219121219513415986783258332305082407505599041968095646559")),
+                        },
                     ],
-                    nullifier_hashes: vec![
-                        RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                        RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                        RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
-                        RawU256::new(u256_from_str_skip_mr("96859603105066347219121219513415986783258332305082407505599041968095646559")),
-                    ],
-                    commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
