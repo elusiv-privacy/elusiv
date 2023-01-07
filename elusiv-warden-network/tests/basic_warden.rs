@@ -6,7 +6,7 @@ use std::net::Ipv4Addr;
 use elusiv_types::{WritableSignerAccount, SignerAccount, UserAccount, ProgramAccount};
 use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
-    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, stats_account_pda_offset, BasicWardenMapAccount, ElusivBasicWardenFeatures},
+    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, ElusivBasicWardenFeatures},
     processor::{unix_timestamp_to_day_and_year, TRACKABLE_ELUSIV_INSTRUCTIONS},
 };
 use solana_program::{pubkey::Pubkey, instruction::{Instruction, AccountMeta}};
@@ -250,21 +250,20 @@ async fn test_open_stats_account() {
     let mut warden = Actor::new(&mut test).await;
     register_warden(&mut test, &mut warden).await;
 
-    async fn open_stats_account(test: &mut ElusivProgramTest, year: u16) {
+    async fn open_stats_account(test: &mut ElusivProgramTest, warden: Pubkey, year: u16) {
         test.ix_should_succeed_simple(
             ElusivWardenNetworkInstruction::open_basic_warden_stats_account_instruction(
-                0,
                 year,
+                UserAccount(warden),
                 WritableSignerAccount(test.payer()),
             )
         ).await;
     }
 
     for year in 2022..2072 {
-        open_stats_account(&mut test, year).await;
+        open_stats_account(&mut test, warden.pubkey, year).await;
 
-        let offset = stats_account_pda_offset(0, year);
-        let account = test.eager_account::<BasicWardenStatsAccount, _>(Some(offset)).await;
+        let account = test.eager_account2::<BasicWardenStatsAccount, _>(warden.pubkey, Some(year as u32)).await;
         assert_eq!(account.year, year);
     }
 }
@@ -281,8 +280,8 @@ async fn test_track_stats() {
 
     test.ix_should_succeed_simple(
         ElusivWardenNetworkInstruction::open_basic_warden_stats_account_instruction(
-            0,
             year,
+            UserAccount(warden.pubkey),
             WritableSignerAccount(test.payer()),
         )
     ).await;
@@ -300,7 +299,7 @@ async fn test_track_stats() {
         test.tx_should_fail(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts_1),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
             ],
             &[&warden.keypair]
         ).await;
@@ -309,7 +308,7 @@ async fn test_track_stats() {
         test.tx_should_fail(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id + 1], accounts.clone()),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
             ],
             &[&warden.keypair]
         ).await;
@@ -318,7 +317,7 @@ async fn test_track_stats() {
         test.tx_should_fail(
             &[
                 Instruction::new_with_bytes(OTHER_PROGRAM_ID, &[ix.instruction_id], accounts.clone()),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
             ],
             &[&warden.keypair]
         ).await;
@@ -327,14 +326,14 @@ async fn test_track_stats() {
         test.tx_should_fail_simple(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id + 1], accounts.clone()),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
             ]
         ).await;
 
         test.tx_should_succeed(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(0, year),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
             ],
             &[&warden.keypair]
         ).await;

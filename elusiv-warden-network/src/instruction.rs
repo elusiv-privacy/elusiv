@@ -3,6 +3,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::system_program;
 use solana_program::sysvar::instructions;
+use elusiv_types::AccountRepr;
 use crate::apa::{ApaProposal, ApaProposalAccount, ApaProposalsAccount, ApaTargetMapAccount};
 use crate::network::BasicWardenNetworkAccount;
 use crate::warden::{
@@ -12,7 +13,6 @@ use crate::warden::{
     BasicWardenAccount,
     BasicWardenMapAccount,
     BasicWardenStatsAccount,
-    stats_account_pda_offset,
 };
 use crate::macros::ElusivInstruction;
 use crate::processor;
@@ -61,19 +61,18 @@ pub enum ElusivWardenNetworkInstruction {
 
     // -------- Basic Warden statistics --------
 
+    #[acc(warden)]
     #[acc(payer, { signer, writable })]
-    #[pda(stats_account, BasicWardenStatsAccount, pda_offset = Some(stats_account_pda_offset(warden_id, year)), { writable, find_pda, account_info })]
+    #[pda(stats_account, BasicWardenStatsAccount, pda_pubkey = warden.pubkey(), pda_offset = Some(year.into()), { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     OpenBasicWardenStatsAccount {
-        warden_id: ElusivWardenID,
         year: u16,
     },
 
-    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id))]
-    #[pda(stats_account, BasicWardenStatsAccount, pda_offset = Some(stats_account_pda_offset(warden_id, year)), { writable })]
+    #[acc(warden)]
+    #[pda(stats_account, BasicWardenStatsAccount, pda_pubkey = warden.pubkey(), pda_offset = Some(year.into()), { writable })]
     #[sys(instructions, key = instructions::ID)]
     TrackBasicWardenStats {
-        warden_id: ElusivWardenID,
         year: u16,
     },
 

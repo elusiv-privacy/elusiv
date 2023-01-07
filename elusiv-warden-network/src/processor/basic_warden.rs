@@ -7,7 +7,7 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::sysvar::instructions;
 use crate::error::ElusivWardenNetworkError;
 use crate::processor::current_timestamp;
-use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, stats_account_pda_offset, BasicWardenMapAccount};
+use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount};
 use crate::{
     warden::{WardensAccount, ElusivWardenID, ElusivBasicWardenConfig, ElusivBasicWarden},
     network::BasicWardenNetworkAccount,
@@ -107,23 +107,21 @@ pub fn update_basic_warden_lut(
 }
 
 pub fn open_basic_warden_stats_account<'a>(
+    warden: &AccountInfo,
     payer: &AccountInfo<'a>,
     stats_account: &AccountInfo<'a>,
 
-    warden_id: ElusivWardenID,
     year: u16,
 ) -> ProgramResult {
-    let offset = stats_account_pda_offset(warden_id, year);
-
-    open_pda_account_with_offset::<BasicWardenStatsAccount>(
+    open_pda_account_with_associated_pubkey::<BasicWardenStatsAccount>(
         &crate::id(),
         payer,
         stats_account,
-        offset,
+        warden.key,
+        Some(year as u32),
     )?;
 
     pda_account!(mut stats_account, BasicWardenStatsAccount, stats_account);
-    stats_account.set_warden_id(&warden_id);
     stats_account.set_year(&year);
 
     Ok(())
@@ -157,19 +155,15 @@ pub const TRACKABLE_ELUSIV_INSTRUCTIONS: [TrackableElusivInstruction; 3] = [
 ];
 
 pub fn track_basic_warden_stats(
-    warden_account: &BasicWardenAccount,
+    warden: &AccountInfo,
     stats_account: &mut BasicWardenStatsAccount,
     instructions_account: &AccountInfo,
 
-    warden_id: ElusivWardenID,
     year: u16,
 ) -> ProgramResult {
     let (day, y) = get_day_and_year()?;
     guard!(y == year, ElusivWardenNetworkError::StatsError);
 
-    let warden_key = warden_account.get_warden().config.key;
-
-    guard!(stats_account.get_warden_id() == warden_id, ElusivWardenNetworkError::StatsError);
     guard!(stats_account.get_year() == year, ElusivWardenNetworkError::StatsError);
 
     let index = instructions::load_current_index_checked(instructions_account)?;
@@ -182,7 +176,7 @@ pub fn track_basic_warden_stats(
     if let Some(ix) = TRACKABLE_ELUSIV_INSTRUCTIONS.iter().find(|i| {
         i.instruction_id == ix_byte
     }) {
-        guard!(previous_ix.accounts[ix.warden_index as usize].pubkey == warden_key, ElusivWardenNetworkError::StatsError);
+        guard!(previous_ix.accounts[ix.warden_index as usize].pubkey == *warden.key, ElusivWardenNetworkError::StatsError);
         guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
 
         stats_account.set_store(stats_account.get_store().inc(day)?);

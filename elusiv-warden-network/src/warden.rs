@@ -98,10 +98,6 @@ pub struct WardenStatistics {
     pub total: u32,
 }
 
-const BASE_YEAR: u16 = 2022;
-const YEARS_COUNT: usize = 50;
-const WARDENS_COUNT: u32 = u32::MAX / YEARS_COUNT as u32;
-
 impl WardenStatistics {
     pub fn inc(&self, day: u32) -> Result<&Self, ProgramError> {
         guard!(day < 366, ElusivWardenNetworkError::StatsError);
@@ -121,18 +117,9 @@ impl WardenStatistics {
 pub struct BasicWardenStatsAccount {
     pda_data: PDAAccountData,
 
-    pub warden_id: ElusivWardenID,
     pub year: u16,
 
     pub store: WardenStatistics,
     pub send: WardenStatistics,
     pub migrate: WardenStatistics,
-}
-
-pub fn stats_account_pda_offset(warden_id: ElusivWardenID, year: u16) -> u32 {
-    assert!(year >= BASE_YEAR);
-    assert!(year as usize <= BASE_YEAR as usize + YEARS_COUNT);
-    assert!(warden_id < WARDENS_COUNT);
-
-    (year - BASE_YEAR) as u32 * WARDENS_COUNT + warden_id
 }
