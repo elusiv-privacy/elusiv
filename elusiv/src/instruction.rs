@@ -153,6 +153,7 @@ pub enum ElusivInstruction {
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
     #[pda(storage_account, StorageAccount)]
+    #[sys(instructions_account, key = instructions::ID)]
     FinalizeVerificationSend {
         data: FinalizeSendData,
         verification_account_index: u32,
@@ -162,6 +163,7 @@ pub enum ElusivInstruction {
     #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
     #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, include_child_accounts, skip_abi })]
     #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, include_child_accounts, skip_abi  })]
+    #[sys(instructions_account, key = instructions::ID)]
     FinalizeVerificationSendNullifiers {
         verification_account_index: u32,
     },
@@ -174,6 +176,7 @@ pub enum ElusivInstruction {
     #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable, account_info })]
     #[acc(nullifier_duplicate_account, { writable, owned })]
     #[sys(system_program, key = system_program::ID, { ignore })]
+    #[sys(instructions_account, key = instructions::ID)]
     FinalizeVerificationTransferLamports {
         verification_account_index: u32,
     },
@@ -194,6 +197,7 @@ pub enum ElusivInstruction {
     #[sys(token_program, key = spl_token::ID)]
     #[sys(system_program, key = system_program::ID, { ignore })]
     #[acc(mint_account)]
+    #[sys(instructions_account, key = instructions::ID)]
     FinalizeVerificationTransferToken {
         verification_account_index: u32,
     },
@@ -432,25 +436,8 @@ mod tests {
         // Tests used to ensure correctness of the Warden-Network stats tracking tags
         // https://github.com/elusiv-privacy/elusiv/blob/basic-warden-network/elusiv-warden-network/src/processor/basic_warden.rs
 
-        assert_eq!(
-            2,
-            get_variant_tag!(
-                ElusivInstruction::FinalizeBaseCommitmentHash { hash_account_index: 0, fee_version: 0 }
-            )
-        );
-
-        assert_eq!(
-            13,
-            get_variant_tag!(
-                ElusivInstruction::FinalizeVerificationTransferLamports { verification_account_index: 0 }
-            )
-        );
-
-        assert_eq!(
-            14,
-            get_variant_tag!(
-                ElusivInstruction::FinalizeVerificationTransferToken { verification_account_index: 0 }
-            )
-        );
+        assert_eq!(2, ElusivInstruction::FINALIZE_BASE_COMMITMENT_HASH_INDEX);
+        assert_eq!(13, ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_LAMPORTS_INDEX);
+        assert_eq!(14, ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_TOKEN_INDEX);
     }
 }

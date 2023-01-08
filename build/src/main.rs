@@ -86,6 +86,7 @@ fn main() {
                 command = "test-bpf";
                 build_args = vec!["--test", "*"];
                 use_bpf = true;
+                features.push("test-bpf");
             } else {
                 panic!("Please specify a test-kind (unit, integration, tarpaulin)");
             }

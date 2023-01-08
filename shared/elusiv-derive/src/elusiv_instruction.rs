@@ -25,16 +25,23 @@ enum AttrType {
 pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
     let ast_ident = &ast.ident;
 
-    let mut matches = quote!{};
-    let mut functions = quote!{};
-    let mut abi_functions = quote!{};
+    let mut matches = quote!();
+    let mut functions = quote!();
+    let mut abi_functions = quote!();
+    let mut variant_indices = quote!();
 
     if let syn::Data::Enum(e) = &ast.data {
-        for var in e.variants.clone().iter() {
+        for (var_index, var) in e.variants.clone().iter().enumerate() {
             let ident = &var.ident;
             let name = upper_camel_to_upper_snake(&ident.to_string()).to_lowercase();
-            let fn_name_abi: TokenStream = format!("{}_instruction", name).parse().unwrap();
+            let fn_name_abi: TokenStream = format!("{name}_instruction").parse().unwrap();
             let fn_name: TokenStream = name.parse().unwrap();
+
+            let var_index_name: TokenStream = format!("{}_INDEX", name.to_uppercase()).parse().unwrap();
+            let var_index = var_index as u8;
+            variant_indices.extend(quote!{
+                pub const #var_index_name: u8 = #var_index;
+            });
 
             // Processor calls
             let mut accounts = quote!();
@@ -391,6 +398,8 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 }
 
                 #functions
+
+                #variant_indices
             }
     
             #[cfg(feature = "elusiv-client")]
