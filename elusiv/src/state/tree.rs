@@ -33,7 +33,7 @@ pub struct NullifierAccount {
     pubkeys: [ElusivOption<Pubkey>; ACCOUNTS_COUNT],
 
     pub root: U256, // this value is only valid, after the active tree has been closed
-    nullifier_hash_count: u32,
+    pub nullifier_hash_count: u32,
 }
 
 /// Tree account after archiving (only a single collapsed N-SMT root)
