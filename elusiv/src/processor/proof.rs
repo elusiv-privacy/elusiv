@@ -27,7 +27,6 @@ use crate::state::{
     governor::GovernorAccount,
 };
 use crate::error::ElusivError::{
-    InvalidAmount,
     InvalidAccount,
     InvalidAccountState,
     InvalidMerkleRoot,
@@ -50,7 +49,6 @@ use super::CommitmentHashRequest;
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProofRequest {
     Send(SendPublicInputs),
-    Merge(SendPublicInputs),
     Migrate(MigratePublicInputs),
 }
 
@@ -58,7 +56,6 @@ macro_rules! proof_request {
     ($request: expr, $public_inputs: ident, $e: expr) => {
         match $request {
             ProofRequest::Send($public_inputs) => { $e },
-            ProofRequest::Merge($public_inputs) => { $e },
             ProofRequest::Migrate($public_inputs) => { $e },
         }
     };
@@ -80,13 +77,12 @@ impl ProofRequest {
     pub fn vkey_id(&self) -> u32 {
         match self {
             ProofRequest::Send(_) => SendQuadraVKey::VKEY_ID,
-            ProofRequest::Merge(_) => SendQuadraVKey::VKEY_ID,
             ProofRequest::Migrate(_) => MigrateUnaryVKey::VKEY_ID,
         }
     }
 }
 
-/// We only allow two distinct MTs in a join-split (merge can be used to reduce the amount of MTs)
+/// We only allow two distinct MTs in a join-split (merges can be used to reduce the amount of MTs)
 pub const MAX_MT_COUNT: usize = 2;
 
 /// The maximum number of [`VerificationAccount`]s allowed to be active at once per fee-payer
@@ -145,11 +141,6 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
                 guard!(is_timestamp_valid(public_inputs.current_time, current_timestamp), InvalidInstructionData);
             }
 
-            &public_inputs.join_split
-        }
-        ProofRequest::Merge(public_inputs) => {
-            guard!(public_inputs.join_split.amount == 0, InvalidAmount);
-            guard!(public_inputs.verify_additional_constraints(), InvalidPublicInputs);
             &public_inputs.join_split
         }
         ProofRequest::Migrate(_) => {
@@ -452,7 +443,6 @@ pub fn finalize_verification_send<'a>(
     let request = verification_account.get_request();
     let public_inputs = match request {
         ProofRequest::Send(public_inputs) => public_inputs,
-        ProofRequest::Merge(public_inputs) => public_inputs,
         _ => return Err(FeatureNotAvailable.into())
     };
 
@@ -509,7 +499,6 @@ pub fn finalize_verification_send_nullifiers<'a, 'b, 'c>(
     let request = verification_account.get_request();
     let public_inputs = match request {
         ProofRequest::Send(public_inputs) => public_inputs,
-        ProofRequest::Merge(public_inputs) => public_inputs,
         _ => return Err(FeatureNotAvailable.into())
     };
 
