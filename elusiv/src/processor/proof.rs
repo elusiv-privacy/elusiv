@@ -838,7 +838,7 @@ fn close_verification_pdas<'a>(
 }
 
 const TIMESTAMP_BITS_PRUNING: usize = 5;
-fn is_timestamp_valid(asserted_time: u64, timestamp: u64) -> bool {
+pub fn is_timestamp_valid(asserted_time: u64, timestamp: u64) -> bool {
     (asserted_time >> TIMESTAMP_BITS_PRUNING) <= (timestamp >> TIMESTAMP_BITS_PRUNING)
 }
 
