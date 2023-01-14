@@ -14,7 +14,7 @@ use elusiv::instruction::{ElusivInstruction, WritableUserAccount, SignerAccount,
 use elusiv::proof::vkey::{SendQuadraVKey, VerifyingKeyInfo, VKeyAccount, VKeyAccountEager};
 use elusiv::proof::{VerificationAccount, prepare_public_inputs_instructions, VerificationState, CombinedMillerLoop, FinalExponentiation, VerificationStep};
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
-use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT};
+use elusiv::state::{empty_root_raw, NullifierMap, NULLIFIERS_PER_ACCOUNT, StorageAccount};
 use elusiv::state::program_account::{PDAAccount, ProgramAccount, SizedAccount, PDAAccountData};
 use elusiv::types::{RawU256, Proof, SendPublicInputs, JoinSplitPublicInputs, PublicInputs, compute_fee_rec_lamports, compute_fee_rec, RawProof, OrdU256, U256, generate_hashed_inputs, InputCommitment};
 use elusiv::proof::verifier::proof_from_str;
@@ -1024,6 +1024,110 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(2)).0).await);
     assert!(test.account_does_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(0)).0).await);
     assert!(test.account_does_exist(&nullifier_duplicate_account).await);
+}
+
+#[tokio::test]
+async fn test_finalize_proof_commitment_index() {
+    let mut test = start_verification_test().await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
+    let warden = test.new_actor().await;
+    let recipient = test.new_actor().await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
+    let pool = PoolAccount::find(None).0;
+    let fee_collector = FeeCollectorAccount::find(None).0;
+    let mut request = send_request(0);
+    let extra_data = ExtraData {
+        recipient: recipient.pubkey.to_bytes(),
+        ..Default::default()
+    };
+    request.public_inputs.hashed_inputs = extra_data.hash();
+    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &genesis_fee(&mut test).await);
+    let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
+    let identifier = Pubkey::new_from_array(extra_data.identifier);
+
+    warden.airdrop(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL, &mut test).await;
+    test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
+    test.airdrop_lamports(&pool, LAMPORTS_PER_SOL * 1000).await;
+
+    let init_instructions = [
+        ElusivInstruction::init_verification_instruction(
+            0,
+            SendQuadraVKey::VKEY_ID,
+            [0, 1],
+            ProofRequest::Send(request.public_inputs.clone()),
+            false,
+            WritableSignerAccount(warden.pubkey),
+            WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(Pubkey::new_from_array(extra_data.identifier)),
+            &user_accounts(&[nullifier_accounts[0]]),
+            &[],
+        ),
+        ElusivInstruction::init_verification_transfer_fee_sol_instruction(
+            0,
+            warden.pubkey,
+        ),
+        ElusivInstruction::init_verification_proof_instruction(
+            0,
+            request.proof,
+            SignerAccount(warden.pubkey),
+        ),
+    ];
+
+    test.tx_should_succeed(&init_instructions, &[&warden.keypair]).await;
+    skip_computation(warden.pubkey, 0, true, &mut test).await;
+
+    let finalize = |commitment_index: u32| {
+        [
+            ElusivInstruction::finalize_verification_send_instruction(
+                FinalizeSendData {
+                    timestamp: 0,
+                    total_amount: request.public_inputs.join_split.total_amount(),
+                    token_id: 0,
+                    mt_index: 0,
+                    commitment_index,
+                    encrypted_owner: extra_data.encrypted_owner,
+                    iv: extra_data.iv,
+                },
+                0,
+                UserAccount(recipient.pubkey),
+                UserAccount(identifier),
+                UserAccount(warden.pubkey),
+            ),
+            ElusivInstruction::finalize_verification_send_nullifiers_instruction(
+                0,
+                UserAccount(warden.pubkey),
+                Some(0),
+                &writable_user_accounts(&[nullifier_accounts[0]]),
+                Some(1),
+                &[],
+            ),
+            ElusivInstruction::finalize_verification_transfer_lamports_instruction(
+                0,
+                WritableUserAccount(recipient.pubkey),
+                WritableUserAccount(warden.pubkey),
+                WritableUserAccount(nullifier_duplicate_account),
+            ),
+        ]
+    };
+
+    test.set_pda_account::<StorageAccount, _>(&elusiv::id(), None, None, |data| {
+        let mut account = StorageAccount::new(data).unwrap();
+        account.set_next_commitment_ptr(&2);
+    }).await;
+
+    // commitment_index too large
+    let ixs = finalize(3);
+    test.tx_should_fail_simple(&ixs).await;
+
+    let mut fork = test.fork_for_instructions(&ixs).await;
+    let mut fork1 = test.fork_for_instructions(&ixs).await;
+
+    // commitment_index less
+    test.tx_should_succeed_simple(&finalize(1)).await;
+    fork.tx_should_succeed_simple(&finalize(0)).await;
+
+    // commitment_index equal
+    fork1.tx_should_succeed_simple(&finalize(2)).await;
 }
 
 #[tokio::test]
