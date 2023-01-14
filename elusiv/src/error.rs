@@ -6,6 +6,7 @@ pub type ElusivResult = Result<(), ElusivError>;
 #[derive(Copy, Clone, Debug)]
 pub enum ElusivError {
     InvalidInstructionData,
+    InputsMismatch,
     InvalidSiblingInstruction,
     InvalidAmount,
     InsufficientFunds,

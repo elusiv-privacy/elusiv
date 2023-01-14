@@ -32,6 +32,7 @@ use crate::error::ElusivError::{
     InvalidMerkleRoot,
     InvalidPublicInputs,
     InvalidInstructionData,
+    InputsMismatch,
     InvalidSiblingInstruction,
     ComputationIsAlreadyFinished,
     ComputationIsNotYetFinished,
@@ -455,7 +456,7 @@ pub fn finalize_verification_send<'a>(
         [0; 32],
         public_inputs.recipient_is_associated_token_account,
     );
-    guard!(hash == public_inputs.hashed_inputs, InvalidInstructionData);
+    guard!(hash == public_inputs.hashed_inputs, InputsMismatch);
 
     enforce_finalize_send_instructions(instructions_account, public_inputs.join_split.token_id == 0)?;
 
@@ -474,11 +475,11 @@ pub fn finalize_verification_send<'a>(
         storage_account.get_next_commitment_ptr(),
         CommitmentQueue::new(commitment_hash_queue).len()
     );
-    guard!(data.timestamp == public_inputs.current_time, InvalidInstructionData);
-    guard!(data.total_amount == public_inputs.join_split.total_amount(), InvalidInstructionData);
-    guard!(data.token_id == public_inputs.join_split.token_id, InvalidInstructionData);
-    guard!(data.commitment_index == commitment_index, InvalidInstructionData);
-    guard!(data.mt_index == mt_index, InvalidInstructionData);
+    guard!(data.timestamp == public_inputs.current_time, InputsMismatch);
+    guard!(data.total_amount == public_inputs.join_split.total_amount(), InputsMismatch);
+    guard!(data.token_id == public_inputs.join_split.token_id, InputsMismatch);
+    guard!(data.commitment_index <= commitment_index, InputsMismatch);
+    guard!(data.mt_index == mt_index, InputsMismatch);
 
     verification_account.set_state(&VerificationState::InsertNullifiers);
 
