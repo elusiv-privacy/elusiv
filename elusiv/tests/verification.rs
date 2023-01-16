@@ -86,6 +86,7 @@ fn send_request(index: usize) -> FullSendRequest {
                 recipient_is_associated_token_account: false,
                 current_time: 0,
                 hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
+                solana_pay_transfer: false,
             }
         },
         FullSendRequest {
@@ -111,6 +112,7 @@ fn send_request(index: usize) -> FullSendRequest {
                 recipient_is_associated_token_account: false,
                 current_time: 0,
                 hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
+                solana_pay_transfer: false,
             }
         },
         FullSendRequest {
@@ -136,6 +138,7 @@ fn send_request(index: usize) -> FullSendRequest {
                 recipient_is_associated_token_account: false,
                 current_time: 0,
                 hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
+                solana_pay_transfer: false,
             }
         },
         FullSendRequest {
@@ -165,6 +168,7 @@ fn send_request(index: usize) -> FullSendRequest {
                 recipient_is_associated_token_account: false,
                 current_time: 0,
                 hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
+                solana_pay_transfer: false,
             }
         },
     ];
@@ -685,8 +689,8 @@ async fn test_finalize_proof_lamports() {
     );
     let finalize_verification_transfer_lamports_instruction = ElusivInstruction::finalize_verification_transfer_lamports_instruction(
         0,
+        WritableSignerAccount(warden.pubkey),
         WritableUserAccount(recipient),
-        WritableUserAccount(warden.pubkey),
         WritableUserAccount(nullifier_duplicate_account),
     );
 
@@ -697,20 +701,22 @@ async fn test_finalize_proof_lamports() {
     ).await;
 
     // Individual instruction should fail
-    test.tx_should_fail_simple(
+    test.tx_should_fail(
         &[
             request_compute_units(1_400_000),
             finalize_verification_send_instruction.clone(),
-        ]
+        ],
+        &[&warden.keypair],
     ).await;
 
-    test.tx_should_succeed_simple(
+    test.tx_should_succeed(
         &[
             request_compute_units(1_400_000),
             finalize_verification_send_instruction,
             finalize_verification_send_nullifier_instruction,
             finalize_verification_transfer_lamports_instruction,
-        ]
+        ],
+        &[&warden.keypair],
     ).await;
 
     assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(0)).0).await);
@@ -862,10 +868,9 @@ async fn test_finalize_proof_token() {
     let finalize_verification_transfer_token_instruction = ElusivInstruction::finalize_verification_transfer_token_instruction(
         0,
         WritableSignerAccount(warden.pubkey),
+        WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
         WritableUserAccount(recipient_token_account),
         UserAccount(recipient_token_account),
-        WritableUserAccount(warden.pubkey),
-        WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
         WritableUserAccount(pool_account),
         WritableUserAccount(fee_collector_account),
         WritableUserAccount(nullifier_duplicate_account),
@@ -1019,8 +1024,8 @@ async fn test_finalize_proof_skip_nullifier_pda() {
             ),
             ElusivInstruction::finalize_verification_transfer_lamports_instruction(
                 v_index,
+                WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(recipient.pubkey),
-                WritableUserAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
             ),
         ];
@@ -1033,13 +1038,13 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     };
 
     // Invalid verification (will not close nullifier_duplicate_pda)
-    test.tx_should_succeed_simple(&finalize(2, false)).await;
+    test.tx_should_succeed(&finalize(2, false), &[&warden.keypair]).await;
 
     // 2. verification is faster than 1. (will not close nullifier_duplicate_pda)
-    test.tx_should_succeed_simple(&finalize(1, true)).await;
+    test.tx_should_succeed(&finalize(1, true), &[&warden.keypair]).await;
 
     // 1. verification is unable to complete
-    test.tx_should_fail_simple(&finalize(0, true)).await;
+    test.tx_should_fail(&finalize(0, true), &[&warden.keypair]).await;
 
     assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(1)).0).await);
     assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(2)).0).await);
@@ -1125,8 +1130,8 @@ async fn test_finalize_proof_commitment_index() {
             ),
             ElusivInstruction::finalize_verification_transfer_lamports_instruction(
                 0,
+                WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(recipient.pubkey),
-                WritableUserAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
             ),
         ]
@@ -1139,17 +1144,17 @@ async fn test_finalize_proof_commitment_index() {
 
     // commitment_index too large
     let ixs = finalize(3);
-    test.tx_should_fail_simple(&ixs).await;
+    test.tx_should_fail(&ixs, &[&warden.keypair]).await;
 
     let mut fork = test.fork_for_instructions(&ixs).await;
     let mut fork1 = test.fork_for_instructions(&ixs).await;
 
     // commitment_index less
-    test.tx_should_succeed_simple(&finalize(1)).await;
-    fork.tx_should_succeed_simple(&finalize(0)).await;
+    test.tx_should_succeed(&finalize(1), &[&warden.keypair]).await;
+    fork.tx_should_succeed(&finalize(0), &[&warden.keypair]).await;
 
     // commitment_index equal
-    fork1.tx_should_succeed_simple(&finalize(2)).await;
+    fork1.tx_should_succeed(&finalize(2), &[&warden.keypair]).await;
 }
 
 #[tokio::test]
@@ -1248,7 +1253,6 @@ async fn test_associated_token_account() {
     let associated_token_account = get_associated_token_address(&recipient.pubkey, &mint);
     let associated_token_account_invalid = get_associated_token_address(&recipient.pubkey, &TOKENS[USDT_TOKEN_ID as usize].mint);
 
-    let signer = test.new_actor().await;
     let instructions = |recipient: Pubkey, recipient_wallet: Pubkey| {
         vec![
             ElusivInstruction::finalize_verification_send_instruction(
@@ -1276,11 +1280,10 @@ async fn test_associated_token_account() {
             ),
             ElusivInstruction::finalize_verification_transfer_token_instruction(
                 0,
-                WritableSignerAccount(signer.pubkey),
+                WritableSignerAccount(warden.pubkey),
+                WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
                 WritableUserAccount(recipient),
                 UserAccount(recipient_wallet),
-                WritableUserAccount(warden.pubkey),
-                WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
                 WritableUserAccount(pool_account),
                 WritableUserAccount(fee_collector_account),
                 WritableUserAccount(nullifier_duplicate_account),
@@ -1293,29 +1296,30 @@ async fn test_associated_token_account() {
     let test_fork = test.fork_for_instructions(&valid_ixs).await;
     let test_fork2 = test.fork_for_instructions(&valid_ixs).await;
 
-    // Failure: missing signature
+    // Failure: invalid signature (only original-fee-payer can finalize the verification)
+    let signer = test.new_actor().await;
     test.tx_should_fail_simple(&valid_ixs).await;
+    test.tx_should_fail(&valid_ixs, &[&signer.keypair]).await;
 
     // Failure: Invalid recipient wallet
     test.tx_should_fail(
         &instructions(associated_token_account, warden.pubkey),
-        &[&signer.keypair],
+        &[&warden.keypair],
     ).await;
 
     // Failure: Invalid recipient associated token account
     test.tx_should_fail(
         &instructions(associated_token_account_invalid, recipient.pubkey),
-        &[&signer.keypair],
+        &[&warden.keypair],
     ).await;
 
-    test.tx_should_succeed(&valid_ixs, &[&signer.keypair]).await;
+    test.tx_should_succeed(&valid_ixs, &[&warden.keypair]).await;
 
     // Check funds
     assert_eq!(
         request.public_inputs.join_split.amount - token_account_rent_token.amount(),
         test.spl_balance(&associated_token_account).await
     );
-    assert_eq!(0, signer.lamports(&mut test).await);
     assert_eq!(
         verification_account_rent.0 + nullifier_duplicate_account_rent.0,
         warden.lamports(&mut test).await
@@ -1332,7 +1336,7 @@ async fn test_associated_token_account() {
                 instructions[0].clone(),
                 instructions[2].clone(),
             ],
-            &[&signer.keypair],
+            &[&warden.keypair],
         ).await;
 
         // All funds should flow to fee_collector
@@ -1344,7 +1348,6 @@ async fn test_associated_token_account() {
             token_account_rent.0 + commitment_hash_fee.0 + verification_account_rent.0 + nullifier_duplicate_account_rent.0,
             test.pda_lamports(&FeeCollectorAccount::find(None).0, FeeCollectorAccount::SIZE).await.0
         );
-        assert_eq!(0, signer.lamports(&mut test).await);
     }
 
     // Associated token account already exists
@@ -1355,10 +1358,9 @@ async fn test_associated_token_account() {
 
         test.tx_should_succeed(
             &instructions(associated_token_account, recipient.pubkey),
-            &[&signer.keypair],
+            &[&warden.keypair],
         ).await;
 
-        assert_eq!(0, signer.lamports(&mut test).await);
         assert_eq!(
             request.public_inputs.join_split.amount,
             test.spl_balance(&associated_token_account).await
@@ -1522,8 +1524,8 @@ async fn test_enforced_finalization_order() {
     );
     let finalize_verification_transfer_lamports_instruction = ElusivInstruction::finalize_verification_transfer_lamports_instruction(
         0,
+        WritableSignerAccount(test.payer()),
         WritableUserAccount(recipient),
-        WritableUserAccount(test.payer()),
         WritableUserAccount(nullifier_duplicate_account),
     );
 
@@ -1587,6 +1589,7 @@ async fn test_finalization_nullifier_insertions() {
         recipient_is_associated_token_account: false,
         current_time: 0,
         hashed_inputs: extra_data.hash(),
+        solana_pay_transfer: false,
     };
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut public_inputs, &genesis_fee(&mut test).await);
     let nullifier_duplicate_account = public_inputs.join_split.nullifier_duplicate_pda().0;
@@ -1641,10 +1644,22 @@ async fn test_finalization_nullifier_insertions() {
             finalize_verification_send_nullifier_instruction(3),
             ElusivInstruction::finalize_verification_transfer_lamports_instruction(
                 0,
+                WritableSignerAccount(test.payer()),
                 WritableUserAccount(recipient),
-                WritableUserAccount(test.payer()),
                 WritableUserAccount(nullifier_duplicate_account),
             ),
         ]
     ).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_solana_pay_lamports() {
+    panic!()
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_solana_pay_tokens() {
+    panic!()
 }

@@ -283,6 +283,7 @@ pub struct SendPublicInputs {
     pub join_split: JoinSplitPublicInputs,
     pub current_time: u64,
     pub recipient_is_associated_token_account: bool,
+    pub solana_pay_transfer: bool,
     pub hashed_inputs: U256,
 }
 
@@ -592,6 +593,7 @@ mod test {
             current_time: 0,
             hashed_inputs: [0; 32],
             recipient_is_associated_token_account: true,
+            solana_pay_transfer: false,
         };
         assert!(valid_inputs.verify_additional_constraints());
 
@@ -636,6 +638,7 @@ mod test {
             current_time: 1657927306,
             hashed_inputs: u256_from_str_skip_mr("306186522190603117929438292402982536627"),
             recipient_is_associated_token_account: true,
+            solana_pay_transfer: false,
         };
 
         let expected = [
@@ -679,7 +682,8 @@ mod test {
             },
             \"current_time\":1669971,
             \"hashed_inputs\":[239,6,63,227,53,18,117,85,172,69,192,148,3,201,244,219,177,39,64,179,204,41,240,146,189,20,177,226,231,33,176,0],
-            \"recipient_is_associated_token_account\":true
+            \"recipient_is_associated_token_account\":true,
+            \"solana_pay_transfer\":true
         }
         ";
         let mut str = String::from(str);

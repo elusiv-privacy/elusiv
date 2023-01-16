@@ -149,7 +149,7 @@ pub enum ElusivInstruction {
     // Finalizing proofs that finished 
     #[acc(recipient)]
     #[acc(identifier_account)]
-    #[acc(transaction_reference)]
+    #[acc(transaction_reference_account)]
     #[acc(original_fee_payer, { ignore })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
@@ -169,8 +169,8 @@ pub enum ElusivInstruction {
         input_commitment_index: u8,
     },
 
+    #[acc(original_fee_payer, { signer, writable })]
     #[acc(recipient, { writable })]
-    #[acc(original_fee_payer, { writable })]
     #[pda(pool, PoolAccount, { account_info, writable })]
     #[pda(fee_collector, FeeCollectorAccount, { account_info, writable })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
@@ -182,11 +182,10 @@ pub enum ElusivInstruction {
         verification_account_index: u32,
     },
 
-    #[acc(signer, { writable, signer })]
+    #[acc(original_fee_payer, { signer, writable })]
+    #[acc(original_fee_payer_account, { writable })]
     #[acc(recipient, { writable })]
     #[acc(recipient_wallet)]
-    #[acc(original_fee_payer, { writable })]
-    #[acc(original_fee_payer_account, { writable })]
     #[pda(pool, PoolAccount, { account_info, writable })]
     #[acc(pool_account, { writable })]
     #[pda(fee_collector, FeeCollectorAccount, { account_info, writable })]

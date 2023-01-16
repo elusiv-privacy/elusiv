@@ -1,6 +1,8 @@
+use solana_program::instruction::Instruction;
 use solana_program::program::invoke;
 use solana_program::program_pack::Pack;
 use solana_program::pubkey::Pubkey;
+use solana_program::sysvar::instructions;
 use solana_program::{
     account_info::AccountInfo,
     entrypoint::ProgramResult,
@@ -19,6 +21,31 @@ pub use elusiv_utils::*;
 /// No-operation instruction
 pub fn nop() -> solana_program::entrypoint::ProgramResult {
     Ok(())
+}
+
+pub trait InstructionsSysvar {
+    fn current_index(&self) -> Result<u16, ProgramError>;
+    fn instruction_at_index(&self, index: usize) -> Result<Instruction, ProgramError>;
+
+    fn find_instruction_count(&self) -> Result<usize, ProgramError> {
+        let mut index = self.current_index()? as usize;
+        while self.instruction_at_index(index).is_ok() {
+            index += 1;
+        }
+        Ok(index)
+    }
+}
+
+pub struct DefaultInstructionsSysvar<'a, 'b>(pub &'a AccountInfo<'b>);
+
+impl<'a, 'b> InstructionsSysvar for DefaultInstructionsSysvar<'a, 'b> {
+    fn current_index(&self) -> Result<u16, ProgramError> {
+        instructions::load_current_index_checked(self.0)
+    }
+
+    fn instruction_at_index(&self, index: usize) -> Result<Instruction, ProgramError> {
+        instructions::load_instruction_at_checked(index, self.0)
+    }
 }
 
 pub fn transfer_token<'a>(
