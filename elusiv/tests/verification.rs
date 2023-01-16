@@ -182,6 +182,7 @@ struct ExtraData {
     encrypted_owner: U256,
     reference: U256,
     is_associated_token_account: bool,
+    memo: Option<Vec<u8>>,
 }
 
 const DEFAULT_HASHED_INPUTS: &str = "241513166508321350627618709707967777063380694253583200648944705250489865558";
@@ -195,6 +196,7 @@ impl Default for ExtraData {
             encrypted_owner: u256_from_str_skip_mr("5789489458548458945478235642378"),
             reference: [0; 32],
             is_associated_token_account: false,
+            memo: None,
         }
     }
 }
@@ -208,6 +210,7 @@ impl ExtraData {
             self.encrypted_owner,
             self.reference,
             self.is_associated_token_account,
+            &self.memo,
         )
     }
 }
@@ -673,6 +676,7 @@ async fn test_finalize_proof_lamports() {
             commitment_index: 0,
             encrypted_owner: extra_data.encrypted_owner,
             iv: extra_data.iv,
+            memo: None,
         },
         0,
         UserAccount(recipient),
@@ -851,6 +855,7 @@ async fn test_finalize_proof_token() {
             commitment_index: 0,
             encrypted_owner: extra_data.encrypted_owner,
             iv: extra_data.iv,
+            memo: None,
         },
         0,
         UserAccount(recipient_token_account),
@@ -1008,6 +1013,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                     commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
+                    memo: None,
                 },
                 v_index,
                 UserAccount(recipient.pubkey),
@@ -1114,6 +1120,7 @@ async fn test_finalize_proof_commitment_index() {
                     commitment_index,
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
+                    memo: None,
                 },
                 0,
                 UserAccount(recipient.pubkey),
@@ -1264,6 +1271,7 @@ async fn test_associated_token_account() {
                     commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
+                    memo: None,
                 },
                 0,
                 UserAccount(recipient_wallet),
@@ -1508,6 +1516,7 @@ async fn test_enforced_finalization_order() {
             commitment_index: 0,
             encrypted_owner: extra_data.encrypted_owner,
             iv: extra_data.iv,
+            memo: None,
         },
         0,
         UserAccount(recipient),
@@ -1631,6 +1640,7 @@ async fn test_finalization_nullifier_insertions() {
                     commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
+                    memo: None,
                 },
                 0,
                 UserAccount(recipient),
@@ -1653,13 +1663,11 @@ async fn test_finalization_nullifier_insertions() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_solana_pay_lamports() {
     panic!()
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_solana_pay_tokens() {
     panic!()
 }

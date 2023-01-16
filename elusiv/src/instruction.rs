@@ -1,7 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::macros::*;
-use crate::bytes::BorshSerDeSized;
 use crate::state::fee::ProgramFee;
 use crate::types::{Proof, U256};
 use super::processor;
@@ -28,7 +27,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount, WritableSignerAccount};
 
 #[repr(u8)]
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, ElusivInstruction)]
+#[derive(BorshDeserialize, BorshSerialize, ElusivInstruction)]
 #[allow(clippy::large_enum_variant)]
 pub enum ElusivInstruction {
     // -------- Base commitment hashing --------

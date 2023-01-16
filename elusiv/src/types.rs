@@ -294,6 +294,7 @@ pub fn generate_hashed_inputs(
     encrypted_owner: U256,
     transaction_reference: U256,
     is_associated_token_account: bool,
+    memo: &Option<Vec<u8>>,
 ) -> U256 {
     let mut data = recipient.to_vec();
     data.extend(identifier);
@@ -301,6 +302,10 @@ pub fn generate_hashed_inputs(
     data.extend(encrypted_owner);
     data.extend(transaction_reference);
     data.extend([u8::from(is_associated_token_account)]);
+
+    if let Some(memo) = memo {
+        data.extend(memo);
+    }
 
     let mut hash = solana_program::hash::hash(&data).to_bytes();
 
@@ -811,7 +816,7 @@ mod test {
         let expected = u256_from_str_skip_mr("13377023609243152888087996289546074665572546267939720535001129695597521747191");
 
         assert_eq!(
-            generate_hashed_inputs(recipient, identifier, iv, encrypted_owner, solana_pay_id, is_associated_token_account),
+            generate_hashed_inputs(recipient, identifier, iv, encrypted_owner, solana_pay_id, is_associated_token_account, &None),
             expected
         );
     }

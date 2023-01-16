@@ -3,6 +3,7 @@ use elusiv_types::ParentAccount;
 use elusiv_utils::open_pda_account_with_associated_pubkey;
 use solana_program::instruction::Instruction;
 use solana_program::program_error::ProgramError;
+use solana_program::pubkey::Pubkey;
 use solana_program::system_instruction;
 use solana_program::sysvar::instructions;
 use solana_program::{
@@ -400,7 +401,7 @@ pub fn compute_verification(
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone, Copy)]
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
 #[cfg_attr(test, derive(Default))]
 pub struct FinalizeSendData {
     pub timestamp: u64,
@@ -415,7 +416,12 @@ pub struct FinalizeSendData {
 
     pub iv: U256,
     pub encrypted_owner: U256,
+    pub memo: Option<Vec<u8>>,
 }
+
+const SPL_MEMO_PROGRAM_ID: Pubkey = Pubkey::new_from_array(
+    [5, 74, 83, 90, 153, 41, 33, 6, 77, 36, 232, 113, 96, 218, 56, 124, 124, 53, 181, 221, 188, 146, 187, 129, 228, 31, 168, 64, 65, 5, 68, 141]
+);
 
 /// First finalize instruction
 /// - for valid proof finalization: [`finalize_verification_send`], [`finalize_verification_send_nullifiers`], [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`]
@@ -453,6 +459,7 @@ pub fn finalize_verification_send<'a>(
             [0; 32]
         },
         public_inputs.recipient_is_associated_token_account,
+        &data.memo,
     );
     guard!(hash == public_inputs.hashed_inputs, InputsMismatch);
 
@@ -481,6 +488,22 @@ pub fn finalize_verification_send<'a>(
         public_inputs.join_split.input_commitments.len(),
         public_inputs.join_split.token_id == 0,
     )?;
+
+    // Check spl-memo-instruction
+    if let Some(memo) = data.memo {
+        let instructions_sysvar = DefaultInstructionsSysvar(instructions_account);
+        let instruction_count = instructions_sysvar.find_instruction_count()?;
+        let memo_index = if public_inputs.solana_pay_transfer {
+            instruction_count - 2
+        } else {
+            instruction_count - 1
+        };
+        enforce_instruction(
+            &instructions_sysvar,
+            memo_index,
+            &memo_instruction(&memo),
+        )?;
+    }
 
     let (commitment_index, mt_index) = minimum_commitment_mt_index(
         storage_account.get_trees_count(),
@@ -626,10 +649,9 @@ pub fn finalize_verification_transfer_lamports<'a>(
 
             // Last instruction: `original_fee_payer` transfers `amount` to `recipient`
             let instructions_sysvar = DefaultInstructionsSysvar(instructions_account);
-            let instructions_count = instructions_sysvar.find_instruction_count()?;
             enforce_instruction(
                 &instructions_sysvar,
-                instructions_count - 1,
+                instructions_sysvar.find_instruction_count()? - 1,
                 &system_instruction::transfer(
                     original_fee_payer.key,
                     recipient.key,
@@ -826,10 +848,9 @@ pub fn finalize_verification_transfer_token<'a>(
 
             // Last instruction: `original_fee_payer_account` transfers `amount` to `recipient` (token)
             let instructions_sysvar = DefaultInstructionsSysvar(instructions_account);
-            let instructions_count = instructions_sysvar.find_instruction_count()?;
             enforce_instruction(
                 &instructions_sysvar,
-                instructions_count - 1,
+                instructions_sysvar.find_instruction_count()? - 1,
                 &spl_token::instruction::transfer(
                     &token_program.key,
                     &original_fee_payer_account.key,
@@ -1110,6 +1131,14 @@ fn enforce_instruction<I: InstructionsSysvar>(
     let instruction = instruction_sysvar.instruction_at_index(index)?;
     guard!(instruction == *expected, InvalidSiblingInstruction);
     Ok(())
+}
+
+fn memo_instruction(memo: &[u8]) -> Instruction {
+    Instruction {
+        program_id: SPL_MEMO_PROGRAM_ID,
+        accounts: Vec::new(),
+        data: memo.to_vec(),
+    }
 }
 
 fn mutate<T: Clone, F>(v: &T, f: F) -> T where F: Fn(&mut T) {
@@ -1673,6 +1702,7 @@ mod tests {
                     encrypted_owner,
                     $reference,
                     false,
+                    &None,
                 ),
                 current_time: 1234567,
                 solana_pay_transfer: false,
@@ -1699,6 +1729,7 @@ mod tests {
                 commitment_index: 0,
                 encrypted_owner,
                 iv,
+                memo: None,
             };
         };
     }
@@ -1735,7 +1766,7 @@ mod tests {
         // Verification is not finished
         verification_acc.set_is_verified(&ElusivOption::None);
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
             Err(_)
         );
 
@@ -1745,7 +1776,7 @@ mod tests {
         {
             account_info!(recipient, Pubkey::new_from_array(identifier_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
                 Err(_)
             );
         }
@@ -1754,7 +1785,7 @@ mod tests {
         {
             account_info!(identifier, Pubkey::new_from_array(recipient_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
                 Err(_)
             );
         }
@@ -1763,7 +1794,7 @@ mod tests {
         {
             account_info!(reference, Pubkey::new_from_array(recipient_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
                 Err(_)
             );
         }
@@ -1786,7 +1817,7 @@ mod tests {
 
         // Success
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
             Ok(())
         );
 
@@ -1794,7 +1825,7 @@ mod tests {
 
         // Called twice
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
             Err(_)
         );
     }
@@ -2540,6 +2571,17 @@ mod tests {
             ),
             Ok(())
         );
+    }
+
+    #[test]
+    fn test_memo_program_id() {
+        assert_eq!(SPL_MEMO_PROGRAM_ID, spl_memo::ID);
+    }
+
+    #[test]
+    fn test_memo_instruction() {
+        let memo = String::from("Thanks%20for%20all%20the%20fish");
+        assert_eq!(memo_instruction(memo.as_bytes()), spl_memo::build_memo(memo.as_bytes(), &[]));
     }
 
     fn test_proof() -> Proof {

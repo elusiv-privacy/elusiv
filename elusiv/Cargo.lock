@@ -1139,6 +1139,7 @@ dependencies = [
  "solana-program-test",
  "solana-sdk",
  "spl-associated-token-account",
+ "spl-memo",
  "spl-token",
  "static_assertions",
 ]
