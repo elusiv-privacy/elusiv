@@ -291,14 +291,14 @@ pub fn generate_hashed_inputs(
     identifier: U256,
     iv: U256,
     encrypted_owner: U256,
-    solana_pay_id: U256,
+    transaction_reference: U256,
     is_associated_token_account: bool,
 ) -> U256 {
     let mut data = recipient.to_vec();
     data.extend(identifier);
     data.extend(iv);
     data.extend(encrypted_owner);
-    data.extend(solana_pay_id);
+    data.extend(transaction_reference);
     data.extend([u8::from(is_associated_token_account)]);
 
     let mut hash = solana_program::hash::hash(&data).to_bytes();

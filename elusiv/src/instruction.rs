@@ -149,6 +149,7 @@ pub enum ElusivInstruction {
     // Finalizing proofs that finished 
     #[acc(recipient)]
     #[acc(identifier_account)]
+    #[acc(transaction_reference)]
     #[acc(original_fee_payer, { ignore })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]

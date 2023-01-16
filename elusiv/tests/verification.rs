@@ -176,7 +176,7 @@ struct ExtraData {
     identifier: U256,
     iv: U256,
     encrypted_owner: U256,
-    solana_pay_id: U256,
+    reference: U256,
     is_associated_token_account: bool,
 }
 
@@ -189,7 +189,7 @@ impl Default for ExtraData {
             identifier: u256_from_str_skip_mr("1"),
             iv: u256_from_str_skip_mr("5683487854789"),
             encrypted_owner: u256_from_str_skip_mr("5789489458548458945478235642378"),
-            solana_pay_id: [0; 32],
+            reference: [0; 32],
             is_associated_token_account: false,
         }
     }
@@ -202,7 +202,7 @@ impl ExtraData {
             self.identifier,
             self.iv,
             self.encrypted_owner,
-            self.solana_pay_id,
+            self.reference,
             self.is_associated_token_account,
         )
     }
@@ -651,6 +651,7 @@ async fn test_finalize_proof_lamports() {
 
     let recipient = Pubkey::new_from_array(extra_data.recipient);
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
 
     // Fill in nullifiers to test heap/compute unit limits
     insert_nullifier_hashes(
@@ -672,6 +673,7 @@ async fn test_finalize_proof_lamports() {
         0,
         UserAccount(recipient),
         UserAccount(identifier),
+        UserAccount(reference),
         UserAccount(warden.pubkey),
     );
     let finalize_verification_send_nullifier_instruction = ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -831,6 +833,7 @@ async fn test_finalize_proof_token() {
     skip_computation(warden.pubkey, 0, true, &mut test).await;
 
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
 
     // Finalize
     let finalize_verification_send_instruction = ElusivInstruction::finalize_verification_send_instruction(
@@ -846,6 +849,7 @@ async fn test_finalize_proof_token() {
         0,
         UserAccount(recipient_token_account),
         UserAccount(identifier),
+        UserAccount(reference),
         UserAccount(warden.pubkey),
     );
     let finalize_verification_send_nullifier_instruction = ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -946,6 +950,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &genesis_fee(&mut test).await);
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
 
     warden.airdrop(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL, &mut test).await;
     test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
@@ -1002,6 +1007,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                 v_index,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
+                UserAccount(reference),
                 UserAccount(warden.pubkey),
             ),
             ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -1059,6 +1065,7 @@ async fn test_finalize_proof_commitment_index() {
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &genesis_fee(&mut test).await);
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
 
     warden.airdrop(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL, &mut test).await;
     test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
@@ -1106,6 +1113,7 @@ async fn test_finalize_proof_commitment_index() {
                 0,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
+                UserAccount(reference),
                 UserAccount(warden.pubkey),
             ),
             ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -1256,6 +1264,7 @@ async fn test_associated_token_account() {
                 0,
                 UserAccount(recipient_wallet),
                 UserAccount(Pubkey::new_from_array(extra_data.identifier)),
+                UserAccount(Pubkey::new_from_array(extra_data.reference)),
                 UserAccount(warden.pubkey),
             ),
             ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -1479,6 +1488,7 @@ async fn test_enforced_finalization_order() {
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &genesis_fee(&mut test).await);
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
     let recipient = Pubkey::new_from_array(extra_data.recipient);
 
     test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
@@ -1500,6 +1510,7 @@ async fn test_enforced_finalization_order() {
         0,
         UserAccount(recipient),
         UserAccount(identifier),
+        UserAccount(reference),
         UserAccount(test.payer()),
     );
     let finalize_verification_send_nullifier_instruction = ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -1580,6 +1591,7 @@ async fn test_finalization_nullifier_insertions() {
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut public_inputs, &genesis_fee(&mut test).await);
     let nullifier_duplicate_account = public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
     let recipient = Pubkey::new_from_array(extra_data.recipient);
 
     test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
@@ -1620,6 +1632,7 @@ async fn test_finalization_nullifier_insertions() {
                 0,
                 UserAccount(recipient),
                 UserAccount(identifier),
+                UserAccount(reference),
                 UserAccount(test.payer()),
             ),
             finalize_verification_send_nullifier_instruction(0),

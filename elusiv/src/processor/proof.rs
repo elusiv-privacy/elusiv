@@ -422,6 +422,7 @@ pub struct FinalizeSendData {
 pub fn finalize_verification_send<'a>(
     recipient: &AccountInfo,
     identifier_account: &AccountInfo,
+    transaction_reference: &AccountInfo, // if no reference is used, set this account to the same as `instructions_account`
     commitment_hash_queue: &mut CommitmentQueueAccount,
     verification_account: &mut VerificationAccount,
     storage_account: &StorageAccount,
@@ -444,7 +445,11 @@ pub fn finalize_verification_send<'a>(
         identifier_account.key.to_bytes(),
         data.iv,
         data.encrypted_owner,
-        [0; 32],
+        if transaction_reference.key != instructions_account.key {
+            transaction_reference.key.to_bytes()
+        } else {
+            [0; 32]
+        },
         public_inputs.recipient_is_associated_token_account,
     );
     guard!(hash == public_inputs.hashed_inputs, InputsMismatch);
@@ -1589,10 +1594,12 @@ mod tests {
             $v_data: ident,
             $recipient: ident,
             $identifier: ident,
+            $reference: ident,
             $finalize_data: ident
         ) => {
             let $recipient = Pubkey::new_unique().to_bytes();
             let $identifier = Pubkey::new_unique().to_bytes();
+            let $reference = Pubkey::new_unique().to_bytes();
             let iv = Pubkey::new_unique().to_bytes();
             let encrypted_owner = Pubkey::new_unique().to_bytes();
 
@@ -1616,7 +1623,7 @@ mod tests {
                     $identifier.clone(),
                     iv.clone(),
                     encrypted_owner,
-                    [0; 32],
+                    $reference,
                     false,
                 ),
                 current_time: 1234567,
@@ -1662,6 +1669,7 @@ mod tests {
             verification_acc_data,
             recipient_bytes,
             identifier_bytes,
+            reference_bytes,
             finalize_data
         );
 
@@ -1672,12 +1680,13 @@ mod tests {
 
         account_info!(recipient, Pubkey::new_from_array(recipient_bytes));
         account_info!(identifier, Pubkey::new_from_array(identifier_bytes));
+        account_info!(reference, Pubkey::new_from_array(reference_bytes));
         test_account_info!(any, 0);
 
         // Verification is not finished
         verification_acc.set_is_verified(&ElusivOption::None);
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
             Err(_)
         );
 
@@ -1687,7 +1696,7 @@ mod tests {
         {
             account_info!(recipient, Pubkey::new_from_array(identifier_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
                 Err(_)
             );
         }
@@ -1696,7 +1705,16 @@ mod tests {
         {
             account_info!(identifier, Pubkey::new_from_array(recipient_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+                Err(_)
+            );
+        }
+
+        // Invalid reference
+        {
+            account_info!(reference, Pubkey::new_from_array(recipient_bytes));
+            assert_matches!(
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
                 Err(_)
             );
         }
@@ -1712,14 +1730,14 @@ mod tests {
             mutate(&finalize_data, |d| { d.iv = d.encrypted_owner }),
         ] {
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, &any, invalid_data, 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, invalid_data, 0),
                 Err(_)
             );
         }
 
         // Success
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
             Ok(())
         );
 
@@ -1727,7 +1745,7 @@ mod tests {
 
         // Called twice
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
             Err(_)
         );
     }
@@ -1740,6 +1758,7 @@ mod tests {
             verification_acc_data,
             recipient_bytes,
             identifier_bytes,
+            reference_bytes,
             finalize_data
         );
 
@@ -1751,11 +1770,12 @@ mod tests {
 
         account_info!(recipient, Pubkey::new_from_array(recipient_bytes));
         account_info!(identifier, Pubkey::new_from_array(identifier_bytes));
+        account_info!(reference, Pubkey::new_from_array(reference_bytes));
 
         verification_acc.set_is_verified(&ElusivOption::Some(false));
 
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
             Ok(())
         );        
         assert_matches!(verification_acc.get_state(), VerificationState::Finalized);
@@ -1798,7 +1818,7 @@ mod tests {
         test_account_info!(any, 0);
 
         assert_matches!(
-            finalize_verification_send(&acc, &acc, &mut queue, &mut v_account, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&acc, &acc, &acc, &mut queue, &mut v_account, &storage, &any, finalize_data, 0),
             Err(_)
         );
     }
@@ -1811,6 +1831,7 @@ mod tests {
             verification_acc_data,
             _recipient_bytes,
             _identifier_bytes,
+            _reference_bytes,
             _finalize_data
         );
 
@@ -1854,6 +1875,7 @@ mod tests {
             verification_acc_data,
             recipient_bytes,
             _identifier_bytes,
+            _reference_bytes,
             _finalize_data
         );
 
@@ -1940,6 +1962,7 @@ mod tests {
             verification_acc_data,
             recipient_bytes,
             _identifier_bytes,
+            _reference_bytes,
             _finalize_data
         );
 
