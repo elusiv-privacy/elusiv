@@ -161,11 +161,11 @@ pub enum ElusivInstruction {
 
     #[acc(original_fee_payer, { ignore })]
     #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
-    #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, include_child_accounts, skip_abi })]
-    #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(1)), { writable, include_child_accounts, skip_abi  })]
+    #[pda(nullifier_account, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, include_child_accounts, skip_abi })]
     #[sys(instructions_account, key = instructions::ID)]
-    FinalizeVerificationSendNullifiers {
+    FinalizeVerificationSendNullifier {
         verification_account_index: u32,
+        input_commitment_index: u8,
     },
 
     #[acc(recipient, { writable })]
