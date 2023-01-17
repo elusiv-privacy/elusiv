@@ -94,10 +94,8 @@ impl ElusivProgramTest {
         instructions: &[Instruction],
         signing_keypairs: &[&Keypair],
     ) -> Result<(), BanksClientError> {
-        let instructions: Vec<Instruction> = instructions.iter()
-            .map(|ix| nonce_instruction(ix.clone()))
-            .collect();
-
+        let mut instructions = instructions.to_vec();
+        instructions[0] = nonce_instruction(instructions[0].clone());
         self.process_transaction(&instructions, signing_keypairs).await
     }
 

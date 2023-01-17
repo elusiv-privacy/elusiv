@@ -35,7 +35,7 @@ use crate::error::ElusivError::{
     InvalidPublicInputs,
     InvalidInstructionData,
     InputsMismatch,
-    InvalidSiblingInstruction,
+    InvalidOtherInstruction,
     ComputationIsAlreadyFinished,
     ComputationIsNotYetFinished,
     CouldNotInsertNullifier,
@@ -401,8 +401,7 @@ pub fn compute_verification(
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Clone)]
-#[cfg_attr(test, derive(Default))]
+#[derive(BorshDeserialize, BorshSerialize, Clone, Default)]
 pub struct FinalizeSendData {
     pub timestamp: u64,
     pub total_amount: u64,
@@ -1045,7 +1044,7 @@ fn enforce_instruction_siblings<I: InstructionsSysvar>(
     current_sibling_index: usize,
     instructions: &[u8],
 ) -> Result<(), ProgramError> {
-    guard!(current_sibling_index < instructions.len(), InvalidSiblingInstruction);
+    guard!(current_sibling_index < instructions.len(), InvalidOtherInstruction);
 
     fn get_elusiv_ix_index<I: InstructionsSysvar>(ix_index: usize, instruction_sysvar: &I) -> Result<u8, ProgramError> {
         let ix = instruction_sysvar.instruction_at_index(ix_index)?;
@@ -1056,20 +1055,20 @@ fn enforce_instruction_siblings<I: InstructionsSysvar>(
     let ix_index = instruction_sysvar.current_index()? as usize;
     guard!(
         instructions[current_sibling_index] == get_elusiv_ix_index(ix_index, instruction_sysvar)?,
-        InvalidSiblingInstruction
+        InvalidOtherInstruction
     );
     let zero_ix_index = ix_index.checked_sub(current_sibling_index).ok_or(MATH_ERR)?;
 
     for (i, instruction) in instructions.iter().enumerate().take(current_sibling_index) {
         guard!(
             *instruction == get_elusiv_ix_index(zero_ix_index + i, instruction_sysvar)?,
-            InvalidSiblingInstruction
+            InvalidOtherInstruction
         );
     }
     for (i, instruction) in instructions.iter().skip(current_sibling_index).enumerate() {
         guard!(
             *instruction == get_elusiv_ix_index(ix_index + i, instruction_sysvar)?,
-            InvalidSiblingInstruction
+            InvalidOtherInstruction
         );
     }
 
@@ -1129,7 +1128,22 @@ fn enforce_instruction<I: InstructionsSysvar>(
     expected: &Instruction,
 ) -> Result<(), ProgramError> {
     let instruction = instruction_sysvar.instruction_at_index(index)?;
-    guard!(instruction == *expected, InvalidSiblingInstruction);
+
+    guard!(instruction.program_id == expected.program_id, InvalidOtherInstruction);
+    guard!(instruction.data == expected.data, InvalidOtherInstruction);
+
+    for (i, account) in expected.accounts.iter().enumerate() {
+        guard!(instruction.accounts[i].pubkey == account.pubkey, InvalidOtherInstruction);
+
+        if account.is_signer {
+            guard!(instruction.accounts[i].is_signer, InvalidOtherInstruction);
+        }
+
+        if account.is_writable {
+            guard!(instruction.accounts[i].is_writable, InvalidOtherInstruction);
+        }
+    }
+
     Ok(())
 }
 
@@ -2562,12 +2576,91 @@ mod tests {
 
         assert_matches!(
             enforce_instruction(
-                &TestInstructionsSysvar {
-                    current_index: Some(0),
-                    instructions,
-                },
+                &TestInstructionsSysvar { current_index: Some(0), instructions },
                 1,
                 &instruction
+            ),
+            Ok(())
+        );
+
+        // Invalid program id
+        assert_matches!(
+            enforce_instruction(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![mutate(&instruction, |ix| { ix.program_id = Pubkey::new_unique() })],
+                },
+                0,
+                &instruction
+            ),
+            Err(_)
+        );
+
+        // Invalid pubkey
+        assert_matches!(
+            enforce_instruction(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![mutate(&instruction, |ix| { ix.accounts[0].pubkey = Pubkey::new_unique() })],
+                },
+                0,
+                &instruction
+            ),
+            Err(_)
+        );
+
+        // Account is not signer
+        let instruction = mutate(&instruction, |ix| {
+            ix.accounts[0].is_signer = true;
+            ix.accounts[0].is_writable = true;
+        });
+        assert_matches!(
+            enforce_instruction(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![mutate(&instruction, |ix| { ix.accounts[0].is_signer = false })],
+                },
+                0,
+                &instruction
+            ),
+            Err(_)
+        );
+
+        // Account is not writable
+        assert_matches!(
+            enforce_instruction(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![mutate(&instruction, |ix| { ix.accounts[0].is_writable = false })],
+                },
+                0,
+                &instruction
+            ),
+            Err(_)
+        );
+
+        // Signer check if unidirectional
+        assert_matches!(
+            enforce_instruction(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![instruction.clone()],
+                },
+                0,
+                &mutate(&instruction, |ix| { ix.accounts[0].is_signer = false }),
+            ),
+            Ok(())
+        );
+
+        // Writability check is unidirectional
+        assert_matches!(
+            enforce_instruction(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![instruction.clone()],
+                },
+                0,
+                &mutate(&instruction, |ix| { ix.accounts[0].is_writable = false }),
             ),
             Ok(())
         );
