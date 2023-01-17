@@ -7,7 +7,7 @@ pub type ElusivResult = Result<(), ElusivError>;
 pub enum ElusivError {
     InvalidInstructionData,
     InputsMismatch,
-    InvalidSiblingInstruction,
+    InvalidOtherInstruction,
     InvalidAmount,
     InsufficientFunds,
     InvalidAccount,

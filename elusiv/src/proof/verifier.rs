@@ -1318,6 +1318,7 @@ mod tests {
             hashed_inputs: u256_from_str_skip_mr("230508240750559904196809564625"),
             current_time: 0,
             recipient_is_associated_token_account: true,
+            solana_pay_transfer: false,
         };
         let p = abc.public_signals_skip_mr();
         let v = prepare_public_inputs_instructions(&p, TestVKey::public_inputs_count());

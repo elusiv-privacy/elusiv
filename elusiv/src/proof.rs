@@ -318,6 +318,7 @@ mod tests {
             hashed_inputs: u256_from_str_skip_mr("7777777"),
             current_time: 0,
             recipient_is_associated_token_account: true,
+            solana_pay_transfer: false,
         };
         let request = ProofRequest::Send(public_inputs.clone());
         let data = VerificationAccountData {

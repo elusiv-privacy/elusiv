@@ -283,6 +283,7 @@ pub struct SendPublicInputs {
     pub join_split: JoinSplitPublicInputs,
     pub current_time: u64,
     pub recipient_is_associated_token_account: bool,
+    pub solana_pay_transfer: bool,
     pub hashed_inputs: U256,
 }
 
@@ -291,15 +292,20 @@ pub fn generate_hashed_inputs(
     identifier: U256,
     iv: U256,
     encrypted_owner: U256,
-    solana_pay_id: U256,
+    transaction_reference: U256,
     is_associated_token_account: bool,
+    memo: &Option<Vec<u8>>,
 ) -> U256 {
     let mut data = recipient.to_vec();
     data.extend(identifier);
     data.extend(iv);
     data.extend(encrypted_owner);
-    data.extend(solana_pay_id);
+    data.extend(transaction_reference);
     data.extend([u8::from(is_associated_token_account)]);
+
+    if let Some(memo) = memo {
+        data.extend(memo);
+    }
 
     let mut hash = solana_program::hash::hash(&data).to_bytes();
 
@@ -592,6 +598,7 @@ mod test {
             current_time: 0,
             hashed_inputs: [0; 32],
             recipient_is_associated_token_account: true,
+            solana_pay_transfer: false,
         };
         assert!(valid_inputs.verify_additional_constraints());
 
@@ -636,6 +643,7 @@ mod test {
             current_time: 1657927306,
             hashed_inputs: u256_from_str_skip_mr("306186522190603117929438292402982536627"),
             recipient_is_associated_token_account: true,
+            solana_pay_transfer: false,
         };
 
         let expected = [
@@ -679,7 +687,8 @@ mod test {
             },
             \"current_time\":1669971,
             \"hashed_inputs\":[239,6,63,227,53,18,117,85,172,69,192,148,3,201,244,219,177,39,64,179,204,41,240,146,189,20,177,226,231,33,176,0],
-            \"recipient_is_associated_token_account\":true
+            \"recipient_is_associated_token_account\":true,
+            \"solana_pay_transfer\":true
         }
         ";
         let mut str = String::from(str);
@@ -807,7 +816,7 @@ mod test {
         let expected = u256_from_str_skip_mr("13377023609243152888087996289546074665572546267939720535001129695597521747191");
 
         assert_eq!(
-            generate_hashed_inputs(recipient, identifier, iv, encrypted_owner, solana_pay_id, is_associated_token_account),
+            generate_hashed_inputs(recipient, identifier, iv, encrypted_owner, solana_pay_id, is_associated_token_account, &None),
             expected
         );
     }

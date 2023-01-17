@@ -4,11 +4,13 @@ mod common;
 
 use borsh::{BorshSerialize, BorshDeserialize};
 use common::*;
+use elusiv::state::fee::ProgramFee;
 use elusiv::token::{LAMPORTS_TOKEN_ID, Lamports, USDC_TOKEN_ID, TokenPrice, Token, TOKENS, USDT_TOKEN_ID, spl_token_account_data};
 use elusiv_computation::PartialComputation;
 use elusiv_types::tokens::Price;
+use solana_program::instruction::Instruction;
 use solana_program::program_pack::Pack;
-use solana_program::system_program;
+use solana_program::{system_program, system_instruction};
 use elusiv::bytes::{ElusivOption, BorshSerDeSized};
 use elusiv::instruction::{ElusivInstruction, WritableUserAccount, SignerAccount, WritableSignerAccount, UserAccount};
 use elusiv::proof::vkey::{SendQuadraVKey, VerifyingKeyInfo, VKeyAccount, VKeyAccountEager};
@@ -41,6 +43,16 @@ struct FullSendRequest {
     public_inputs: SendPublicInputs,
 }
 
+impl FullSendRequest {
+    fn update_fee_lamports(&mut self, fee: &ProgramFee) {
+        compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut self.public_inputs, &fee);
+    }
+
+    fn update_fee_token(&mut self, fee: &ProgramFee, price: &TokenPrice) {
+        compute_fee_rec::<SendQuadraVKey, _>(&mut self.public_inputs, fee, price)
+    }
+}
+
 fn send_request(index: usize) -> FullSendRequest {
     let proof = proof_from_str(
         (
@@ -66,6 +78,8 @@ fn send_request(index: usize) -> FullSendRequest {
         ),
     );
 
+    let default_hashed_inputs = ExtraData::default().hash();
+
     let requests = vec![
         FullSendRequest {
             proof,
@@ -85,7 +99,8 @@ fn send_request(index: usize) -> FullSendRequest {
                 },
                 recipient_is_associated_token_account: false,
                 current_time: 0,
-                hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
+                hashed_inputs: default_hashed_inputs,
+                solana_pay_transfer: false,
             }
         },
         FullSendRequest {
@@ -110,7 +125,8 @@ fn send_request(index: usize) -> FullSendRequest {
                 },
                 recipient_is_associated_token_account: false,
                 current_time: 0,
-                hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
+                hashed_inputs: default_hashed_inputs,
+                solana_pay_transfer: false,
             }
         },
         FullSendRequest {
@@ -135,7 +151,8 @@ fn send_request(index: usize) -> FullSendRequest {
                 },
                 recipient_is_associated_token_account: false,
                 current_time: 0,
-                hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
+                hashed_inputs: default_hashed_inputs,
+                solana_pay_transfer: false,
             }
         },
         FullSendRequest {
@@ -164,7 +181,8 @@ fn send_request(index: usize) -> FullSendRequest {
                 },
                 recipient_is_associated_token_account: false,
                 current_time: 0,
-                hashed_inputs: u256_from_str_skip_mr(DEFAULT_HASHED_INPUTS),
+                hashed_inputs: default_hashed_inputs,
+                solana_pay_transfer: false,
             }
         },
     ];
@@ -176,11 +194,10 @@ struct ExtraData {
     identifier: U256,
     iv: U256,
     encrypted_owner: U256,
-    solana_pay_id: U256,
+    reference: U256,
     is_associated_token_account: bool,
+    memo: Option<Vec<u8>>,
 }
-
-const DEFAULT_HASHED_INPUTS: &str = "241513166508321350627618709707967777063380694253583200648944705250489865558";
 
 impl Default for ExtraData {
     fn default() -> Self {
@@ -189,8 +206,9 @@ impl Default for ExtraData {
             identifier: u256_from_str_skip_mr("1"),
             iv: u256_from_str_skip_mr("5683487854789"),
             encrypted_owner: u256_from_str_skip_mr("5789489458548458945478235642378"),
-            solana_pay_id: [0; 32],
+            reference: [0; 32],
             is_associated_token_account: false,
+            memo: None,
         }
     }
 }
@@ -202,9 +220,22 @@ impl ExtraData {
             self.identifier,
             self.iv,
             self.encrypted_owner,
-            self.solana_pay_id,
+            self.reference,
             self.is_associated_token_account,
+            &self.memo,
         )
+    }
+
+    fn recipient(&self) -> Pubkey {
+        Pubkey::new_from_array(self.recipient)
+    }
+
+    fn identifier(&self) -> Pubkey {
+        Pubkey::new_from_array(self.identifier)
+    }
+
+    fn reference(&self) -> Pubkey {
+        Pubkey::new_from_array(self.reference)
     }
 }
 
@@ -293,6 +324,12 @@ async fn insert_nullifier_hashes(test: &mut ElusivProgramTest, nullifier_hashes:
     test.set_account_rent_exempt(&nullifier_accounts[0], &data, &elusiv::id()).await;
 }
 
+fn merge(a: &[Instruction], b: &[&Instruction]) -> Vec<Instruction> {
+    let mut a = a.to_vec();
+    a.extend(b.iter().map(|&ix| ix.clone()).collect::<Vec<Instruction>>());
+    a
+}
+
 #[tokio::test]
 async fn test_init_proof_signers() {
     let mut test = start_verification_test().await;
@@ -303,7 +340,7 @@ async fn test_init_proof_signers() {
 
     let fee = genesis_fee(&mut test).await;
     let mut request = send_request(0);
-    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &fee);
+    request.update_fee_lamports(&fee);
 
     let pool = PoolAccount::find(None).0;
     let fee_collector = FeeCollectorAccount::find(None).0;
@@ -396,7 +433,7 @@ async fn test_init_proof_lamports() {
 
     let fee = genesis_fee(&mut test).await;
     let mut request = send_request(0);
-    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &fee);
+    request.update_fee_lamports(&fee);
 
     let pool = PoolAccount::find(None).0;
     let fee_collector = FeeCollectorAccount::find(None).0;
@@ -490,6 +527,7 @@ async fn test_init_proof_token() {
     let mut warden = test.new_actor().await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
 
+    let fee = genesis_fee(&mut test).await;
     let sol_usd_price = Price { price: 41, conf: 0, expo: 0};
     let usdc_usd_price = Price { price: 1, conf: 0, expo: 0 };
     let price = TokenPrice::new_from_sol_price(sol_usd_price, usdc_usd_price, USDC_TOKEN_ID).unwrap();
@@ -501,9 +539,7 @@ async fn test_init_proof_token() {
     let mut request = send_request(0);
     request.public_inputs.join_split.token_id = USDC_TOKEN_ID;
     request.public_inputs.join_split.amount = 1_000_000;
-
-    let fee = genesis_fee(&mut test).await;
-    compute_fee_rec::<SendQuadraVKey, _>(&mut request.public_inputs, &fee, &price);
+    request.update_fee_token(&fee, &price);
 
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
@@ -593,7 +629,7 @@ async fn test_finalize_proof_lamports() {
     let mut request = send_request(0);
     let extra_data = ExtraData::default();
     request.public_inputs.hashed_inputs = extra_data.hash();
-    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &fee);
+    request.update_fee_lamports(&fee);
 
     let pool = PoolAccount::find(None).0;
     let fee_collector = FeeCollectorAccount::find(None).0;
@@ -651,6 +687,7 @@ async fn test_finalize_proof_lamports() {
 
     let recipient = Pubkey::new_from_array(extra_data.recipient);
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
 
     // Fill in nullifiers to test heap/compute unit limits
     insert_nullifier_hashes(
@@ -661,17 +698,15 @@ async fn test_finalize_proof_lamports() {
     // Finalize
     let finalize_verification_send_instruction = ElusivInstruction::finalize_verification_send_instruction(
         FinalizeSendData {
-            timestamp: 0,
             total_amount: request.public_inputs.join_split.total_amount(),
-            token_id: 0,
-            mt_index: 0,
-            commitment_index: 0,
             encrypted_owner: extra_data.encrypted_owner,
             iv: extra_data.iv,
+            ..Default::default()
         },
         0,
         UserAccount(recipient),
         UserAccount(identifier),
+        UserAccount(reference),
         UserAccount(warden.pubkey),
     );
     let finalize_verification_send_nullifier_instruction = ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -683,8 +718,8 @@ async fn test_finalize_proof_lamports() {
     );
     let finalize_verification_transfer_lamports_instruction = ElusivInstruction::finalize_verification_transfer_lamports_instruction(
         0,
+        WritableSignerAccount(warden.pubkey),
         WritableUserAccount(recipient),
-        WritableUserAccount(warden.pubkey),
         WritableUserAccount(nullifier_duplicate_account),
     );
 
@@ -695,20 +730,22 @@ async fn test_finalize_proof_lamports() {
     ).await;
 
     // Individual instruction should fail
-    test.tx_should_fail_simple(
+    test.tx_should_fail(
         &[
             request_compute_units(1_400_000),
             finalize_verification_send_instruction.clone(),
-        ]
+        ],
+        &[&warden.keypair],
     ).await;
 
-    test.tx_should_succeed_simple(
+    test.tx_should_succeed(
         &[
             request_compute_units(1_400_000),
             finalize_verification_send_instruction,
             finalize_verification_send_nullifier_instruction,
             finalize_verification_transfer_lamports_instruction,
-        ]
+        ],
+        &[&warden.keypair],
     ).await;
 
     assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(0)).0).await);
@@ -737,6 +774,8 @@ async fn test_finalize_proof_token() {
     enable_program_token_account::<PoolAccount>(&mut test, USDC_TOKEN_ID, None).await;
     enable_program_token_account::<FeeCollectorAccount>(&mut test, USDC_TOKEN_ID, None).await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
+    let fee = genesis_fee(&mut test).await;
 
     let mut recipient = test.new_actor().await;
     recipient.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
@@ -744,7 +783,7 @@ async fn test_finalize_proof_token() {
     let mut warden = test.new_actor().await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
 
-    let sol_usd_price = Price { price: 41, conf: 0, expo: 0};
+    let sol_usd_price = Price { price: 41, conf: 0, expo: 0 };
     let usdc_usd_price = Price { price: 1, conf: 0, expo: 0 };
     let price = TokenPrice::new_from_sol_price(sol_usd_price, usdc_usd_price, USDC_TOKEN_ID).unwrap();
     let sol_price_account = test.token_to_usd_price_pyth_account(0);
@@ -755,10 +794,7 @@ async fn test_finalize_proof_token() {
     let mut request = send_request(0);
     request.public_inputs.join_split.token_id = USDC_TOKEN_ID;
     request.public_inputs.join_split.amount = 1_000_000;
-
-    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
-    let fee = genesis_fee(&mut test).await;
-    compute_fee_rec::<SendQuadraVKey, _>(&mut request.public_inputs, &fee, &price);
+    request.update_fee_token(&fee, &price);
 
     let recipient_token_account = recipient.get_token_account(USDC_TOKEN_ID);
     let extra_data = ExtraData {
@@ -831,21 +867,21 @@ async fn test_finalize_proof_token() {
     skip_computation(warden.pubkey, 0, true, &mut test).await;
 
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
 
     // Finalize
     let finalize_verification_send_instruction = ElusivInstruction::finalize_verification_send_instruction(
         FinalizeSendData {
-            timestamp: 0,
             total_amount: request.public_inputs.join_split.total_amount(),
             token_id: USDC_TOKEN_ID,
-            mt_index: 0,
-            commitment_index: 0,
             encrypted_owner: extra_data.encrypted_owner,
             iv: extra_data.iv,
+            ..Default::default()
         },
         0,
         UserAccount(recipient_token_account),
         UserAccount(identifier),
+        UserAccount(reference),
         UserAccount(warden.pubkey),
     );
     let finalize_verification_send_nullifier_instruction = ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -858,10 +894,9 @@ async fn test_finalize_proof_token() {
     let finalize_verification_transfer_token_instruction = ElusivInstruction::finalize_verification_transfer_token_instruction(
         0,
         WritableSignerAccount(warden.pubkey),
+        WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
         WritableUserAccount(recipient_token_account),
         UserAccount(recipient_token_account),
-        WritableUserAccount(warden.pubkey),
-        WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
         WritableUserAccount(pool_account),
         WritableUserAccount(fee_collector_account),
         WritableUserAccount(nullifier_duplicate_account),
@@ -935,21 +970,22 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     let warden = test.new_actor().await;
     let recipient = test.new_actor().await;
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
-    let pool = PoolAccount::find(None).0;
-    let fee_collector = FeeCollectorAccount::find(None).0;
+
     let mut request = send_request(0);
     let extra_data = ExtraData {
         recipient: recipient.pubkey.to_bytes(),
         ..Default::default()
     };
     request.public_inputs.hashed_inputs = extra_data.hash();
-    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &genesis_fee(&mut test).await);
+    request.update_fee_lamports(&genesis_fee(&mut test).await);
+
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
 
     warden.airdrop(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL, &mut test).await;
-    test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
-    test.airdrop_lamports(&pool, LAMPORTS_PER_SOL * 1000).await;
+    test.airdrop_lamports(&FeeCollectorAccount::find(None).0, LAMPORTS_PER_SOL).await;
+    test.airdrop_lamports(&PoolAccount::find(None).0, LAMPORTS_PER_SOL * 1000).await;
 
     let init_instructions = |v_index: u32, skip_nullifier_pda: bool| {
         [
@@ -991,17 +1027,15 @@ async fn test_finalize_proof_skip_nullifier_pda() {
         let ixs = [
             ElusivInstruction::finalize_verification_send_instruction(
                 FinalizeSendData {
-                    timestamp: 0,
                     total_amount: request.public_inputs.join_split.total_amount(),
-                    token_id: 0,
-                    mt_index: 0,
-                    commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
+                    ..Default::default()
                 },
                 v_index,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
+                UserAccount(reference),
                 UserAccount(warden.pubkey),
             ),
             ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -1013,8 +1047,8 @@ async fn test_finalize_proof_skip_nullifier_pda() {
             ),
             ElusivInstruction::finalize_verification_transfer_lamports_instruction(
                 v_index,
+                WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(recipient.pubkey),
-                WritableUserAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
             ),
         ];
@@ -1027,13 +1061,13 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     };
 
     // Invalid verification (will not close nullifier_duplicate_pda)
-    test.tx_should_succeed_simple(&finalize(2, false)).await;
+    test.tx_should_succeed(&finalize(2, false), &[&warden.keypair]).await;
 
     // 2. verification is faster than 1. (will not close nullifier_duplicate_pda)
-    test.tx_should_succeed_simple(&finalize(1, true)).await;
+    test.tx_should_succeed(&finalize(1, true), &[&warden.keypair]).await;
 
     // 1. verification is unable to complete
-    test.tx_should_fail_simple(&finalize(0, true)).await;
+    test.tx_should_fail(&finalize(0, true), &[&warden.keypair]).await;
 
     assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(1)).0).await);
     assert!(test.account_does_not_exist(&VerificationAccount::find_with_pubkey(warden.pubkey, Some(2)).0).await);
@@ -1050,15 +1084,18 @@ async fn test_finalize_proof_commitment_index() {
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
     let pool = PoolAccount::find(None).0;
     let fee_collector = FeeCollectorAccount::find(None).0;
+
     let mut request = send_request(0);
     let extra_data = ExtraData {
         recipient: recipient.pubkey.to_bytes(),
         ..Default::default()
     };
     request.public_inputs.hashed_inputs = extra_data.hash();
-    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &genesis_fee(&mut test).await);
+    request.update_fee_lamports(&genesis_fee(&mut test).await);
+
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
 
     warden.airdrop(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL, &mut test).await;
     test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
@@ -1102,10 +1139,12 @@ async fn test_finalize_proof_commitment_index() {
                     commitment_index,
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
+                    memo: None,
                 },
                 0,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
+                UserAccount(reference),
                 UserAccount(warden.pubkey),
             ),
             ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -1117,8 +1156,8 @@ async fn test_finalize_proof_commitment_index() {
             ),
             ElusivInstruction::finalize_verification_transfer_lamports_instruction(
                 0,
+                WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(recipient.pubkey),
-                WritableUserAccount(warden.pubkey),
                 WritableUserAccount(nullifier_duplicate_account),
             ),
         ]
@@ -1131,17 +1170,17 @@ async fn test_finalize_proof_commitment_index() {
 
     // commitment_index too large
     let ixs = finalize(3);
-    test.tx_should_fail_simple(&ixs).await;
+    test.tx_should_fail(&ixs, &[&warden.keypair]).await;
 
     let mut fork = test.fork_for_instructions(&ixs).await;
     let mut fork1 = test.fork_for_instructions(&ixs).await;
 
     // commitment_index less
-    test.tx_should_succeed_simple(&finalize(1)).await;
-    fork.tx_should_succeed_simple(&finalize(0)).await;
+    test.tx_should_succeed(&finalize(1), &[&warden.keypair]).await;
+    fork.tx_should_succeed(&finalize(0), &[&warden.keypair]).await;
 
     // commitment_index equal
-    fork1.tx_should_succeed_simple(&finalize(2)).await;
+    fork1.tx_should_succeed(&finalize(2), &[&warden.keypair]).await;
 }
 
 #[tokio::test]
@@ -1155,9 +1194,12 @@ async fn test_associated_token_account() {
     let mut warden = test.new_actor().await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
 
+    let fee = genesis_fee(&mut test).await;
     let sol_usd_price = Price { price: 41, conf: 0, expo: 0};
     let usdc_usd_price = Price { price: 1, conf: 0, expo: 0 };
     let price = TokenPrice::new_from_sol_price(sol_usd_price, usdc_usd_price, USDC_TOKEN_ID).unwrap();
+    let subvention = fee.proof_subvention.into_token(&price, USDC_TOKEN_ID).unwrap();
+    let commitment_hash_fee = fee.commitment_hash_computation_fee(0);
     test.set_token_to_usd_price_pyth(0, sol_usd_price).await;
     test.set_token_to_usd_price_pyth(USDC_TOKEN_ID, usdc_usd_price).await;
 
@@ -1172,11 +1214,7 @@ async fn test_associated_token_account() {
     request.public_inputs.hashed_inputs = extra_data.hash();
     request.public_inputs.join_split.token_id = USDC_TOKEN_ID;
     request.public_inputs.join_split.amount = 1_000_000;
-
-    let fee = genesis_fee(&mut test).await;
-    compute_fee_rec::<SendQuadraVKey, _>(&mut request.public_inputs, &fee, &price);
-    let subvention = fee.proof_subvention.into_token(&price, USDC_TOKEN_ID).unwrap();
-    let commitment_hash_fee = fee.commitment_hash_computation_fee(0);
+    request.update_fee_token(&fee, &price);
 
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
@@ -1240,7 +1278,6 @@ async fn test_associated_token_account() {
     let associated_token_account = get_associated_token_address(&recipient.pubkey, &mint);
     let associated_token_account_invalid = get_associated_token_address(&recipient.pubkey, &TOKENS[USDT_TOKEN_ID as usize].mint);
 
-    let signer = test.new_actor().await;
     let instructions = |recipient: Pubkey, recipient_wallet: Pubkey| {
         vec![
             ElusivInstruction::finalize_verification_send_instruction(
@@ -1248,14 +1285,14 @@ async fn test_associated_token_account() {
                     timestamp: request.public_inputs.current_time,
                     total_amount: request.public_inputs.join_split.total_amount(),
                     token_id: USDC_TOKEN_ID,
-                    mt_index: 0,
-                    commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
+                    ..Default::default()
                 },
                 0,
                 UserAccount(recipient_wallet),
                 UserAccount(Pubkey::new_from_array(extra_data.identifier)),
+                UserAccount(Pubkey::new_from_array(extra_data.reference)),
                 UserAccount(warden.pubkey),
             ),
             ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -1267,11 +1304,10 @@ async fn test_associated_token_account() {
             ),
             ElusivInstruction::finalize_verification_transfer_token_instruction(
                 0,
-                WritableSignerAccount(signer.pubkey),
+                WritableSignerAccount(warden.pubkey),
+                WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
                 WritableUserAccount(recipient),
                 UserAccount(recipient_wallet),
-                WritableUserAccount(warden.pubkey),
-                WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
                 WritableUserAccount(pool_account),
                 WritableUserAccount(fee_collector_account),
                 WritableUserAccount(nullifier_duplicate_account),
@@ -1284,29 +1320,30 @@ async fn test_associated_token_account() {
     let test_fork = test.fork_for_instructions(&valid_ixs).await;
     let test_fork2 = test.fork_for_instructions(&valid_ixs).await;
 
-    // Failure: missing signature
+    // Failure: invalid signature (only original-fee-payer can finalize the verification)
+    let signer = test.new_actor().await;
     test.tx_should_fail_simple(&valid_ixs).await;
+    test.tx_should_fail(&valid_ixs, &[&signer.keypair]).await;
 
     // Failure: Invalid recipient wallet
     test.tx_should_fail(
         &instructions(associated_token_account, warden.pubkey),
-        &[&signer.keypair],
+        &[&warden.keypair],
     ).await;
 
     // Failure: Invalid recipient associated token account
     test.tx_should_fail(
         &instructions(associated_token_account_invalid, recipient.pubkey),
-        &[&signer.keypair],
+        &[&warden.keypair],
     ).await;
 
-    test.tx_should_succeed(&valid_ixs, &[&signer.keypair]).await;
+    test.tx_should_succeed(&valid_ixs, &[&warden.keypair]).await;
 
     // Check funds
     assert_eq!(
         request.public_inputs.join_split.amount - token_account_rent_token.amount(),
         test.spl_balance(&associated_token_account).await
     );
-    assert_eq!(0, signer.lamports(&mut test).await);
     assert_eq!(
         verification_account_rent.0 + nullifier_duplicate_account_rent.0,
         warden.lamports(&mut test).await
@@ -1323,7 +1360,7 @@ async fn test_associated_token_account() {
                 instructions[0].clone(),
                 instructions[2].clone(),
             ],
-            &[&signer.keypair],
+            &[&warden.keypair],
         ).await;
 
         // All funds should flow to fee_collector
@@ -1335,7 +1372,6 @@ async fn test_associated_token_account() {
             token_account_rent.0 + commitment_hash_fee.0 + verification_account_rent.0 + nullifier_duplicate_account_rent.0,
             test.pda_lamports(&FeeCollectorAccount::find(None).0, FeeCollectorAccount::SIZE).await.0
         );
-        assert_eq!(0, signer.lamports(&mut test).await);
     }
 
     // Associated token account already exists
@@ -1346,10 +1382,9 @@ async fn test_associated_token_account() {
 
         test.tx_should_succeed(
             &instructions(associated_token_account, recipient.pubkey),
-            &[&signer.keypair],
+            &[&warden.keypair],
         ).await;
 
-        assert_eq!(0, signer.lamports(&mut test).await);
         assert_eq!(
             request.public_inputs.join_split.amount,
             test.spl_balance(&associated_token_account).await
@@ -1381,7 +1416,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
     let fee = genesis_fee(&mut test).await;
     let mut request = send_request(0);
-    compute_fee_rec::<SendQuadraVKey, _>(&mut request.public_inputs, &fee, &TokenPrice::new_lamports());
+    request.update_fee_token(&fee, &TokenPrice::new_lamports());
 
     let fee_collector = FeeCollectorAccount::find(None).0;
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
@@ -1471,35 +1506,31 @@ async fn test_enforced_finalization_order() {
     let mut test = start_verification_test().await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
-    let pool = PoolAccount::find(None).0;
-    let fee_collector = FeeCollectorAccount::find(None).0;
+
     let mut request = send_request(0);
     let extra_data = ExtraData::default();
     request.public_inputs.hashed_inputs = extra_data.hash();
-    compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut request.public_inputs, &genesis_fee(&mut test).await);
-    let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
-    let identifier = Pubkey::new_from_array(extra_data.identifier);
-    let recipient = Pubkey::new_from_array(extra_data.recipient);
+    request.update_fee_lamports(&genesis_fee(&mut test).await);
 
-    test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
-    test.airdrop_lamports(&pool, LAMPORTS_PER_SOL * 1000).await;
+    let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
+
+    test.airdrop_lamports(&FeeCollectorAccount::find(None).0, LAMPORTS_PER_SOL).await;
+    test.airdrop_lamports(&PoolAccount::find(None).0, LAMPORTS_PER_SOL * 1000).await;
 
     init_verification_simple(&request.proof, &request.public_inputs, extra_data.identifier, &mut test).await;
     skip_computation(test.payer(), 0, true, &mut test).await;
 
     let finalize_verification_send_instruction = ElusivInstruction::finalize_verification_send_instruction(
         FinalizeSendData {
-            timestamp: 0,
             total_amount: request.public_inputs.join_split.total_amount(),
-            token_id: 0,
-            mt_index: 0,
-            commitment_index: 0,
             encrypted_owner: extra_data.encrypted_owner,
             iv: extra_data.iv,
+            ..Default::default()
         },
         0,
-        UserAccount(recipient),
-        UserAccount(identifier),
+        UserAccount(extra_data.recipient()),
+        UserAccount(extra_data.identifier()),
+        UserAccount(extra_data.reference()),
         UserAccount(test.payer()),
     );
     let finalize_verification_send_nullifier_instruction = ElusivInstruction::finalize_verification_send_nullifier_instruction(
@@ -1511,8 +1542,8 @@ async fn test_enforced_finalization_order() {
     );
     let finalize_verification_transfer_lamports_instruction = ElusivInstruction::finalize_verification_transfer_lamports_instruction(
         0,
-        WritableUserAccount(recipient),
-        WritableUserAccount(test.payer()),
+        WritableSignerAccount(test.payer()),
+        WritableUserAccount(extra_data.recipient()),
         WritableUserAccount(nullifier_duplicate_account),
     );
 
@@ -1576,10 +1607,12 @@ async fn test_finalization_nullifier_insertions() {
         recipient_is_associated_token_account: false,
         current_time: 0,
         hashed_inputs: extra_data.hash(),
+        solana_pay_transfer: false,
     };
     compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut public_inputs, &genesis_fee(&mut test).await);
     let nullifier_duplicate_account = public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
+    let reference = Pubkey::new_from_array(extra_data.reference);
     let recipient = Pubkey::new_from_array(extra_data.recipient);
 
     test.airdrop_lamports(&fee_collector, LAMPORTS_PER_SOL).await;
@@ -1609,17 +1642,16 @@ async fn test_finalization_nullifier_insertions() {
             request_compute_units(1_400_000),
             ElusivInstruction::finalize_verification_send_instruction(
                 FinalizeSendData {
-                    timestamp: 0,
                     total_amount: public_inputs.join_split.total_amount(),
-                    token_id: 0,
-                    mt_index: 0,
-                    commitment_index: 0,
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
+                    memo: None,
+                    ..Default::default()
                 },
                 0,
                 UserAccount(recipient),
                 UserAccount(identifier),
+                UserAccount(reference),
                 UserAccount(test.payer()),
             ),
             finalize_verification_send_nullifier_instruction(0),
@@ -1628,10 +1660,443 @@ async fn test_finalization_nullifier_insertions() {
             finalize_verification_send_nullifier_instruction(3),
             ElusivInstruction::finalize_verification_transfer_lamports_instruction(
                 0,
+                WritableSignerAccount(test.payer()),
                 WritableUserAccount(recipient),
-                WritableUserAccount(test.payer()),
                 WritableUserAccount(nullifier_duplicate_account),
             ),
         ]
+    ).await;
+}
+
+async fn finalize_instructions(
+    test: &mut ElusivProgramTest,
+    request: &FullSendRequest,
+    extra_data: &ExtraData,
+    reference: &Pubkey,
+    signer: &Pubkey,
+    memo: Option<Vec<u8>>,
+) -> Vec<Instruction> {
+    let nullifier_accounts = nullifier_accounts(test, 0).await;
+
+    vec![
+        ElusivInstruction::finalize_verification_send_instruction(
+            FinalizeSendData {
+                total_amount: request.public_inputs.join_split.total_amount(),
+                encrypted_owner: extra_data.encrypted_owner,
+                iv: extra_data.iv,
+                memo,
+                ..Default::default()
+            },
+            0,
+            UserAccount(extra_data.recipient()),
+            UserAccount(extra_data.identifier()),
+            UserAccount(*reference),
+            UserAccount(*signer),
+        ),
+        ElusivInstruction::finalize_verification_send_nullifier_instruction(
+            0,
+            0,
+            UserAccount(*signer),
+            Some(0),
+            &writable_user_accounts(&[nullifier_accounts[0]]),
+        ),
+        ElusivInstruction::finalize_verification_transfer_lamports_instruction(
+            0,
+            WritableSignerAccount(*signer),
+            WritableUserAccount(extra_data.recipient()),
+            WritableUserAccount(request.public_inputs.join_split.nullifier_duplicate_pda().0),
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn test_isolated_memo() {
+    let mut test = start_verification_test().await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
+
+    let memo = String::from("Hello World:)");
+    let invalid_memo = String::from("Hello World");
+    let mut request = send_request(0);
+    let mut extra_data = ExtraData::default();
+    extra_data.memo = Some(memo.as_bytes().to_vec());
+    request.public_inputs.hashed_inputs = extra_data.hash();
+    request.update_fee_lamports(&genesis_fee(&mut test).await);
+
+    test.airdrop_lamports(&FeeCollectorAccount::find(None).0, LAMPORTS_PER_SOL).await;
+    test.airdrop_lamports(&PoolAccount::find(None).0, LAMPORTS_PER_SOL * 1000).await;
+
+    init_verification_simple(&request.proof, &request.public_inputs, extra_data.identifier, &mut test).await;
+    skip_computation(test.payer(), 0, true, &mut test).await;
+    set_verification_state(test.payer(), 0, VerificationState::ProofSetup, &mut test).await;
+
+    let payer = test.payer();
+    let valid_finalize_ixs = finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, extra_data.memo.clone()).await;
+    let valid_memo_ix = spl_memo::build_memo(memo.as_bytes(), &[]);
+
+    // Invalid memo
+    let invalid_ixs = &finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, Some(invalid_memo.as_bytes().to_vec())).await;
+    test.tx_should_fail_simple(&merge(&invalid_ixs, &[&valid_memo_ix])).await;
+
+    // Memo instruction missing
+    test.tx_should_fail_simple(&valid_finalize_ixs).await;
+
+    // Memo at wrong location
+    test.tx_should_fail_simple(
+        &merge(&valid_finalize_ixs, &[&valid_memo_ix, &ElusivInstruction::nop_instruction()])
+    ).await;
+
+    // Invalid memo instruction
+    test.tx_should_fail_simple(
+        &merge(&valid_finalize_ixs, &[&spl_memo::build_memo(invalid_memo.as_bytes(), &[])])
+    ).await;
+
+    // Success (+ allows instructions before transfer)
+    test.tx_should_succeed_simple(&merge(
+        &valid_finalize_ixs,
+        &[&ElusivInstruction::nop_instruction(), &valid_memo_ix],
+    )).await;
+}
+
+#[tokio::test]
+async fn test_solana_pay_lamports() {
+    let mut test = start_verification_test().await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
+
+    let mut request = send_request(0);
+    let extra_data = ExtraData::default();
+    request.public_inputs.solana_pay_transfer = true;
+    request.public_inputs.hashed_inputs = extra_data.hash();
+    request.update_fee_lamports(&genesis_fee(&mut test).await);
+
+    test.airdrop_lamports(&FeeCollectorAccount::find(None).0, LAMPORTS_PER_SOL).await;
+    test.airdrop_lamports(&PoolAccount::find(None).0, LAMPORTS_PER_SOL * 1000).await;
+
+    init_verification_simple(&request.proof, &request.public_inputs, extra_data.identifier, &mut test).await;
+    skip_computation(test.payer(), 0, true, &mut test).await;
+    set_verification_state(test.payer(), 0, VerificationState::ProofSetup, &mut test).await;
+
+    let payer = test.payer();
+    let valid_finalize_ixs = finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, None).await;
+    let valid_transfer_ix = system_instruction::transfer(
+        &test.payer(),
+        &extra_data.recipient(),
+        request.public_inputs.join_split.amount,
+    );
+
+    // Transfer instruction missing
+    test.tx_should_fail_simple(&valid_finalize_ixs).await;
+
+    // Transfer at wrong location
+    test.tx_should_fail_simple(&merge(
+        &valid_finalize_ixs,
+        &[&valid_transfer_ix, &ElusivInstruction::nop_instruction()],
+    )).await;
+
+    // Invalid transfer
+    test.tx_should_fail_simple(&merge(&valid_finalize_ixs, &[
+        &system_instruction::transfer(
+            &payer,
+            &payer,
+            request.public_inputs.join_split.amount,
+        )
+    ])).await;
+
+    // Success (+ allows instructions before transfer)
+    test.tx_should_succeed_simple(&merge(
+        &valid_finalize_ixs,
+        &[&ElusivInstruction::nop_instruction(), &valid_transfer_ix],
+    )).await;
+}
+
+#[tokio::test]
+async fn test_solana_pay_lamports_with_memo() {
+    let mut test = start_verification_test().await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
+
+    let memo = String::from("Hello World:)");
+    let invalid_memo = String::from("Hello World");
+    let mut request = send_request(0);
+    let mut extra_data = ExtraData::default();
+    extra_data.memo = Some(memo.as_bytes().to_vec());
+    request.public_inputs.solana_pay_transfer = true;
+    request.public_inputs.hashed_inputs = extra_data.hash();
+    request.update_fee_lamports(&genesis_fee(&mut test).await);
+
+    test.airdrop_lamports(&FeeCollectorAccount::find(None).0, LAMPORTS_PER_SOL).await;
+    test.airdrop_lamports(&PoolAccount::find(None).0, LAMPORTS_PER_SOL * 1000).await;
+
+    init_verification_simple(&request.proof, &request.public_inputs, extra_data.identifier, &mut test).await;
+    skip_computation(test.payer(), 0, true, &mut test).await;
+    set_verification_state(test.payer(), 0, VerificationState::ProofSetup, &mut test).await;
+
+    let payer = test.payer();
+    let valid_finalize_ixs = finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, extra_data.memo.clone()).await;
+    let valid_memo_ix = spl_memo::build_memo(memo.as_bytes(), &[]);
+    let valid_transfer_ix = system_instruction::transfer(
+        &test.payer(),
+        &extra_data.recipient(),
+        request.public_inputs.join_split.amount,
+    );
+
+    // Missing memo
+    let invalid_ixs = &finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, Some(invalid_memo.as_bytes().to_vec())).await;
+    test.tx_should_fail_simple(&merge(&invalid_ixs, &[&valid_memo_ix, &valid_transfer_ix])).await;
+
+    // Invalid reference account
+    let invalid_ixs = finalize_instructions(&mut test, &request, &extra_data, &Pubkey::new_unique(), &payer, extra_data.memo.clone()).await;
+    test.tx_should_fail_simple(&merge(&invalid_ixs, &[&valid_memo_ix, &valid_transfer_ix])).await;
+
+    // Missing transfer instruction
+    test.tx_should_fail_simple(&merge(&valid_finalize_ixs, &[&valid_memo_ix])).await;
+
+    // Invalid sender
+    let signer2 = Actor::new(&mut test).await;
+    test.tx_should_fail(
+        &merge(
+            &valid_finalize_ixs,
+            &[
+                &valid_memo_ix,
+                &system_instruction::transfer(
+                    &signer2.pubkey,
+                    &extra_data.recipient(),
+                    request.public_inputs.join_split.amount,
+                ),
+            ]
+        ),
+        &[&signer2.keypair]
+    ).await;
+
+    // Invalid recipient
+    test.tx_should_fail_simple(&merge(
+        &valid_finalize_ixs,
+        &[
+            &valid_memo_ix,
+            &system_instruction::transfer(
+                &test.payer(),
+                &Pubkey::new_unique(),
+                request.public_inputs.join_split.amount,
+            ),
+        ]
+    )).await;
+
+    // Invalid amount
+    test.tx_should_fail_simple(&merge(
+        &valid_finalize_ixs,
+        &[
+            &valid_memo_ix,
+            &system_instruction::transfer(
+                &test.payer(),
+                &extra_data.recipient(),
+                request.public_inputs.join_split.amount - 1,
+            ),
+        ]
+    )).await;
+
+    // Missing memo instruction
+    test.tx_should_fail_simple(
+        &merge(&valid_finalize_ixs, &[&valid_transfer_ix])
+    ).await;
+
+    // Invalid memo
+    test.tx_should_fail_simple(&merge(
+        &valid_finalize_ixs,
+        &[
+            &spl_memo::build_memo(invalid_memo.as_bytes(), &[]),
+            &valid_transfer_ix
+        ]
+    )).await;
+
+    // Invalid memo/transfer order
+    test.tx_should_fail_simple(
+        &merge(&valid_finalize_ixs, &[&valid_transfer_ix, &valid_memo_ix])
+    ).await;
+
+    // Invalid trailing instruction
+    test.tx_should_fail_simple(
+        &merge(&valid_finalize_ixs, &[&valid_memo_ix, &valid_transfer_ix, &valid_memo_ix])
+    ).await;
+
+    // Success
+    test.tx_should_succeed_simple(&merge(
+        &valid_finalize_ixs,
+        &[&valid_memo_ix, &valid_transfer_ix],
+    )).await;
+}
+
+#[tokio::test]
+async fn test_solana_pay_tokens() {
+    let mut test = start_verification_test().await;
+    test.create_spl_token(USDC_TOKEN_ID).await;
+    enable_program_token_account::<PoolAccount>(&mut test, USDC_TOKEN_ID, None).await;
+    enable_program_token_account::<FeeCollectorAccount>(&mut test, USDC_TOKEN_ID, None).await;
+    setup_vkey_account::<SendQuadraVKey>(&mut test).await;
+    let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
+    let fee = genesis_fee(&mut test).await;
+
+    let mut recipient = test.new_actor().await;
+    recipient.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
+    let recipient_token_account = recipient.get_token_account(USDC_TOKEN_ID);
+
+    let mut warden = test.new_actor().await;
+    warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
+
+    let sol_usd_price = Price { price: 41, conf: 0, expo: 0 };
+    let usdc_usd_price = Price { price: 1, conf: 0, expo: 0 };
+    let price = TokenPrice::new_from_sol_price(sol_usd_price, usdc_usd_price, USDC_TOKEN_ID).unwrap();
+    let sol_price_account = test.token_to_usd_price_pyth_account(0);
+    let token_price_account = test.token_to_usd_price_pyth_account(USDC_TOKEN_ID);
+    test.set_token_to_usd_price_pyth(0, sol_usd_price).await;
+    test.set_token_to_usd_price_pyth(USDC_TOKEN_ID, usdc_usd_price).await;
+
+    let mut request = send_request(0);
+    let extra_data = ExtraData {
+        recipient: recipient_token_account.to_bytes(),
+        ..Default::default()
+    };
+    request.public_inputs.hashed_inputs = extra_data.hash();
+    request.public_inputs.join_split.token_id = USDC_TOKEN_ID;
+    request.public_inputs.join_split.amount = 1_000_000;
+    request.public_inputs.solana_pay_transfer = true;
+    request.update_fee_token(&fee, &price);
+
+    let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
+    let pool_account = program_token_account_address::<PoolAccount>(USDC_TOKEN_ID, None).unwrap();
+    let fee_collector_account = program_token_account_address::<FeeCollectorAccount>(USDC_TOKEN_ID, None).unwrap();
+
+    warden.airdrop(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL * 100, &mut test).await;
+    test.airdrop(&pool_account, Token::new(USDC_TOKEN_ID, 1_000_000_000)).await;
+    test.airdrop(&fee_collector_account,  Token::new(USDC_TOKEN_ID, 1_000_000)).await;
+
+    // Init
+    test.tx_should_succeed(
+        &[
+            ElusivInstruction::init_verification_instruction(
+                0,
+                SendQuadraVKey::VKEY_ID,
+                [0, 1],
+                ProofRequest::Send(request.public_inputs.clone()),
+                false,
+                WritableSignerAccount(warden.pubkey),
+                WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_from_array(extra_data.identifier)),
+                &user_accounts(&[nullifier_accounts[0]]),
+                &[],
+            ),
+            ElusivInstruction::init_verification_transfer_fee_instruction(
+                0,
+                WritableSignerAccount(warden.pubkey),
+                WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
+                WritableUserAccount(pool_account),
+                WritableUserAccount(fee_collector_account),
+                UserAccount(sol_price_account),
+                UserAccount(token_price_account),
+                UserAccount(spl_token::id()),
+            ),
+            ElusivInstruction::init_verification_proof_instruction(
+                0,
+                request.proof,
+                SignerAccount(warden.pubkey),
+            ),
+        ],
+        &[&warden.keypair],
+    ).await;
+
+    skip_computation(warden.pubkey, 0, true, &mut test).await;
+
+    let valid_finalize_ixs = vec![
+        ElusivInstruction::finalize_verification_send_instruction(
+            FinalizeSendData {
+                total_amount: request.public_inputs.join_split.total_amount(),
+                token_id: USDC_TOKEN_ID,
+                encrypted_owner: extra_data.encrypted_owner,
+                iv: extra_data.iv,
+                ..Default::default()
+            },
+            0,
+            UserAccount(recipient_token_account),
+            UserAccount(extra_data.identifier()),
+            UserAccount(extra_data.reference()),
+            UserAccount(warden.pubkey),
+        ),
+        ElusivInstruction::finalize_verification_send_nullifier_instruction(
+            0,
+            0,
+            UserAccount(warden.pubkey),
+            Some(0),
+            &writable_user_accounts(&[nullifier_accounts[0]]),
+        ),
+        ElusivInstruction::finalize_verification_transfer_token_instruction(
+            0,
+            WritableSignerAccount(warden.pubkey),
+            WritableUserAccount(warden.get_token_account(USDC_TOKEN_ID)),
+            WritableUserAccount(recipient_token_account),
+            UserAccount(recipient_token_account),
+            WritableUserAccount(pool_account),
+            WritableUserAccount(fee_collector_account),
+            WritableUserAccount(nullifier_duplicate_account),
+            UserAccount(spl_token::id()),
+        ),
+    ];
+
+    let transfer_ix = spl_token::instruction::transfer(
+        &spl_token::id(),
+        &warden.get_token_account(USDC_TOKEN_ID),
+        &recipient_token_account,
+        &warden.pubkey,
+        &[&warden.pubkey],
+        request.public_inputs.join_split.amount,
+    ).unwrap();
+
+    // Transfer instruction missing
+    test.tx_should_fail(&valid_finalize_ixs, &[&warden.keypair]).await;
+
+    // Invalid amount
+    test.tx_should_fail(
+        &merge(
+            &valid_finalize_ixs,
+            &[
+                &spl_token::instruction::transfer(
+                    &spl_token::id(),
+                    &warden.get_token_account(USDC_TOKEN_ID),
+                    &recipient_token_account,
+                    &warden.pubkey,
+                    &[&warden.pubkey],
+                    request.public_inputs.join_split.amount - 1,
+                ).unwrap()
+            ],
+        ),
+        &[&warden.keypair],
+    ).await;
+    
+    // Invalid recipient
+    test.tx_should_fail(
+        &merge(
+            &valid_finalize_ixs,
+            &[
+                &spl_token::instruction::transfer(
+                    &spl_token::id(),
+                    &warden.get_token_account(USDC_TOKEN_ID),
+                    &warden.get_token_account(USDC_TOKEN_ID),
+                    &warden.pubkey,
+                    &[&warden.pubkey],
+                    request.public_inputs.join_split.amount,
+                ).unwrap()
+            ],
+        ),
+        &[&warden.keypair],
+    ).await;
+
+    // Invalid token-program
+    let mut ix = transfer_ix.clone();
+    ix.program_id = system_program::id();
+    test.tx_should_fail(
+        &merge(&valid_finalize_ixs, &[&ix]),
+        &[&warden.keypair],
+    ).await;
+
+    // Success
+    test.tx_should_succeed(
+        &merge(&valid_finalize_ixs, &[&transfer_ix]),
+        &[&warden.keypair],
     ).await;
 }
