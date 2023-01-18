@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_utils::guard;
 use solana_program::{pubkey::Pubkey, program_error::ProgramError};
-use elusiv_types::accounts::PDAAccountData;
+use elusiv_types::{accounts::PDAAccountData, TOKENS};
 use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError};
 
 /// A unique ID publicly identifying a single Warden
@@ -48,9 +48,17 @@ pub type Identifier = FixedLenString<256>;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Debug, Clone, PartialEq)]
 pub struct ElusivBasicWardenFeatures {
+    pub apa: bool,
     pub rpc: bool,
     pub relay: bool,
-    pub apa: bool,
+    pub instant_relay: bool,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
+pub enum TlsMode {
+    NoTls,
+    Optional,
+    Required,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
@@ -61,11 +69,16 @@ pub struct ElusivBasicWardenConfig {
 
     pub addr: Ipv4Addr,
     pub port: u16,
+    pub tls_mode: TlsMode,
 
-    pub country: u16,
+    pub jurisdiction: u16,
+    pub timezone: u16,
+
     pub version: [u16; 3],
     pub platform: Identifier,
+
     pub features: ElusivBasicWardenFeatures,
+    pub tokens: [bool; TOKENS.len()],
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
