@@ -77,7 +77,9 @@ pub enum ElusivInstruction {
 
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
-    InitCommitmentHash,
+    InitCommitmentHash {
+        insertion_can_fail: bool,
+    },
 
     #[acc(fee_payer, { writable, signer })]
     #[pda(fee, FeeAccount, pda_offset = Some(fee_version))]

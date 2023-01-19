@@ -585,7 +585,7 @@ async fn test_single_commitment() {
     test.tx_should_succeed_simple(
         &[
             ElusivInstruction::init_commitment_hash_setup_instruction(&[]),
-            ElusivInstruction::init_commitment_hash_instruction(),
+            ElusivInstruction::init_commitment_hash_instruction(false),
         ]
     ).await;
 
@@ -606,7 +606,7 @@ async fn test_single_commitment() {
     test.tx_should_fail_simple(
         &[
             ElusivInstruction::init_commitment_hash_setup_instruction(&[]),
-            ElusivInstruction::init_commitment_hash_instruction(),
+            ElusivInstruction::init_commitment_hash_instruction(false),
         ]
     ).await;
 
@@ -830,7 +830,7 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
         test.tx_should_succeed_simple(
             &[
                 ElusivInstruction::init_commitment_hash_setup_instruction(&user_accounts(&storage_accounts)),
-                ElusivInstruction::init_commitment_hash_instruction(),
+                ElusivInstruction::init_commitment_hash_instruction(false),
             ]
         ).await;
 
@@ -901,7 +901,7 @@ async fn test_commitment_hash_with_batching_rate(
     test.tx_should_succeed_simple(
         &[
             ElusivInstruction::init_commitment_hash_setup_instruction(&user_accounts(&storage_accounts)),
-            ElusivInstruction::init_commitment_hash_instruction(),
+            ElusivInstruction::init_commitment_hash_instruction(false),
         ]
     ).await;
 

@@ -273,6 +273,25 @@ pub fn init_commitment_hash_setup(
 pub fn init_commitment_hash(
     queue: &mut CommitmentQueueAccount,
     hashing_account: &mut CommitmentHashingAccount,
+
+    insertion_can_fail: bool,
+) -> ProgramResult {
+    match init_commitment_hash_inner(queue, hashing_account) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            if insertion_can_fail {
+                solana_program::msg!("Commitment insertion failed: {:?}", e);
+                Ok(())
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+fn init_commitment_hash_inner(
+    queue: &mut CommitmentQueueAccount,
+    hashing_account: &mut CommitmentHashingAccount,
 ) -> ProgramResult {
     guard!(!hashing_account.get_is_active(), ComputationIsNotYetFinished);
     guard!(hashing_account.get_setup(), ComputationIsNotYetFinished);
@@ -653,7 +672,7 @@ mod tests {
         zero_program_account!(mut hashing_account, CommitmentHashingAccount);
 
         init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, false), Err(_));
     }
 
     #[test]
@@ -666,7 +685,7 @@ mod tests {
 
         hashing_account.set_is_active(&true);
         hashing_account.set_setup(&true);
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, false), Err(_));
     }
 
     #[test]
@@ -680,7 +699,7 @@ mod tests {
 
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32));
         init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, false), Err(_));
     }
 
     #[test]
@@ -693,7 +712,7 @@ mod tests {
         q.enqueue(CommitmentHashRequest { commitment: [0; 32], min_batching_rate: 1, fee_version: 0 }).unwrap();
 
         init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, false), Err(_));
     }
 
     #[test]
@@ -707,7 +726,7 @@ mod tests {
 
         storage_account.set_next_commitment_ptr(&(MT_COMMITMENT_COUNT as u32 - 1));
         init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
-        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account), Err(_));
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, false), Err(_));
     }
 
     #[test]
@@ -724,7 +743,7 @@ mod tests {
         q.enqueue(CommitmentHashRequest { commitment: [4; 32], min_batching_rate: 0, fee_version: 0 }).unwrap();
 
         init_commitment_hash_setup(&mut hashing_account, &storage_account).unwrap();
-        init_commitment_hash(&mut queue, &mut hashing_account).unwrap();
+        init_commitment_hash(&mut queue, &mut hashing_account, false).unwrap();
 
         assert_eq!(hashing_account.get_batching_rate(), 2);
 
@@ -737,6 +756,14 @@ mod tests {
         for i in 0..4 {
             assert_eq!(hashing_account.get_hash_tree(i), [i as u8 + 1; 32]);
         }
+    }
+
+    #[test]
+    fn test_init_commitment_hash_insertion_can_fail() {
+        zero_program_account!(mut queue, CommitmentQueueAccount);
+        zero_program_account!(mut hashing_account, CommitmentHashingAccount);
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, false), Err(_));
+        assert_matches!(init_commitment_hash(&mut queue, &mut hashing_account, true), Ok(()));
     }
 
     #[test]
