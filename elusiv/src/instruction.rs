@@ -73,7 +73,9 @@ pub enum ElusivInstruction {
     // Hashes commitments in a new MT-root
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
     #[pda(storage_account, StorageAccount, { include_child_accounts })]
-    InitCommitmentHashSetup,
+    InitCommitmentHashSetup {
+        insertion_can_fail: bool,
+    },
 
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
     #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable })]
