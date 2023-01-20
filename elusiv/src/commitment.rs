@@ -20,9 +20,9 @@ use elusiv_computation::PartialComputation;
 use self::poseidon_hash::BinarySpongeHashingState;
 
 /// Partial computation resulting in `commitment = h(base_commitment, amount)`
-pub struct BaseCommitmentHashComputation {}
+pub struct BaseCommitmentHashComputation;
 
-elusiv_hash_compute_units!(BaseCommitmentHashComputation, 1);
+elusiv_hash_compute_units!(BaseCommitmentHashComputation, 1, 100_000);
 #[cfg(feature = "static_assertions")] const_assert_eq!(BaseCommitmentHashComputation::TX_COUNT, 2);
 
 /// Account used for computing `commitment = h(base_commitment, amount)`
@@ -102,7 +102,7 @@ pub const MAX_COMMITMENT_BATCHING_RATE: usize = 4;
 /// - all commitments in a batch are hashed together in order to reduce hashing costs
 /// - 2ˆbatching_rate is the amount of commitments per batch
 /// - batch sizes range: `[0; MAX_COMMITMENT_BATCHING_RATE]`
-struct CommitmentHashComputation<const BATCHING_RATE: usize> {}
+struct CommitmentHashComputation<const BATCHING_RATE: usize>;
 
 /// Generates a `CommitmentHashComputation` with a specific `BATCHING_RATE`
 /// - the macro also verifies that `$hash_count$ is valid

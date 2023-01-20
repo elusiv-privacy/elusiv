@@ -1,8 +1,10 @@
+use elusiv_proc_macro_utils::try_parse_usize;
 use proc_macro2::TokenStream;
 use quote::quote;
 use super::utils::*;
 use elusiv_computation::{compute_unit_optimization, MAX_COMPUTE_UNIT_LIMIT};
 
+const COMPUTE_UNIT_PADDING: u32 = 20_000;
 const FULL_ROUNDS_CUS: u32 = 15411 + 17740 + 600;
 const PARTIAL_ROUNDS_CUS: u32 = 5200 + 17740 + 600;
 
@@ -15,6 +17,16 @@ pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
 
     // Number of hashes
     let hashes: usize = attrs[1].parse().unwrap();
+    
+    // Optional compute units reduction
+    let reduction: Option<u32> = if let Some(attr) = attrs.get(2) {
+        match try_parse_usize(*attr) {
+            Some(v) => Some(v as u32),
+            None => None,
+        }
+    } else {
+        None
+    };
 
     // Stub representation of our binary input Poseidon hash
     let mut rounds = Vec::new();
@@ -31,7 +43,8 @@ pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
         );
     }
 
-    let result = compute_unit_optimization(rounds, MAX_COMPUTE_UNIT_LIMIT);
+    let max_compute_budget = MAX_COMPUTE_UNIT_LIMIT - COMPUTE_UNIT_PADDING - reduction.unwrap_or(0);
+    let result = compute_unit_optimization(rounds, max_compute_budget);
 
     let total_rounds = (hashes * 65) as u32;
     let total_compute_units = result.total_compute_units;
