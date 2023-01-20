@@ -12,18 +12,21 @@ pub fn init<'a>(
         &crate::id(),
         payer,
         wardens_account,
+        None,
     )?;
 
     open_pda_account_without_offset::<BasicWardenNetworkAccount>(
         &crate::id(),
         payer,
         basic_network_account,
+        None,
     )?;
 
     open_pda_account_without_offset::<ApaProposalsAccount>(
         &crate::id(),
         payer,
         apa_proposals_account,
+        None,
     )?;
 
     Ok(())

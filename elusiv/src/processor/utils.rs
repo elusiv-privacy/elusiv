@@ -326,15 +326,32 @@ mod tests {
     #[test]
     fn test_open_pda_account_with_offset() {
         test_account_info!(payer, 0);
-        account_info!(pda_account, VerificationAccount::find(Some(3)).0, vec![]);
+        let (pubkey, bump) = VerificationAccount::find(Some(3));
+        account_info!(pda_account, pubkey, vec![]);
 
         assert_matches!(
-            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 2),
+            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 2, None),
             Err(_)
         );
 
         assert_matches!(
-            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 3),
+            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 3, None),
+            Ok(())
+        );
+
+        // Using bump:
+        assert_matches!(
+            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 2, Some(bump)),
+            Err(_)
+        );
+
+        assert_matches!(
+            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 3, Some(0)),
+            Err(_)
+        );
+
+        assert_matches!(
+            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 3, Some(bump)),
             Ok(())
         );
     }
@@ -342,16 +359,42 @@ mod tests {
     #[test]
     fn test_open_pda_account_without_offset() {
         test_account_info!(payer, 0);
-        account_info!(pda_account, VerificationAccount::find(None).0, vec![]);
-        account_info!(invalid_pda_account, VerificationAccount::find(Some(0)).0, vec![]);
+
+        let (pubkey, bump) = VerificationAccount::find(None);
+        account_info!(pda_account, pubkey, vec![]);
+
+        let (invalid_pubkey, invalid_bump) = VerificationAccount::find(Some(0));
+        account_info!(invalid_pda_account, invalid_pubkey, vec![]);
 
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &invalid_pda_account),
+            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &invalid_pda_account, None),
             Err(_)
         );
 
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account),
+            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, None),
+            Ok(())
+        );
+
+        // Using bump:
+        assert_matches!(
+            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &invalid_pda_account, Some(bump)),
+            Err(_)
+        );
+
+        assert_matches!(
+            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &invalid_pda_account, Some(invalid_bump)),
+            Err(_)
+        );
+
+        // Invalid bump can be supplied for None due to FIRST_PDA
+        assert_matches!(
+            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, Some(123)),
+            Ok(())
+        );
+
+        assert_matches!(
+            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, Some(bump)),
             Ok(())
         );
     }

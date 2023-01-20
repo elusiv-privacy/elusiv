@@ -180,6 +180,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
             nullifier_duplicate_account,
             &join_split.associated_nullifier_duplicate_pda_pubkey(),
             None,
+            None,
         )?;
     }
 
@@ -190,6 +191,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         verification_account,
         fee_payer.key,
         Some(verification_account_index),
+        None,
     )?;
 
     pda_account!(mut verification_account, VerificationAccount, verification_account);

@@ -46,6 +46,7 @@ pub fn register_basic_warden<'a>(
         warden,
         warden_account,
         warden_id,
+        None,
     )?;
 
     pda_account!(mut warden_account, BasicWardenAccount, warden_account);
@@ -57,6 +58,7 @@ pub fn register_basic_warden<'a>(
         warden,
         warden_map_account,
         warden.key,
+        None,
         None,
     )?;
 
@@ -119,6 +121,7 @@ pub fn open_basic_warden_stats_account<'a>(
         stats_account,
         warden.key,
         Some(year as u32),
+        None,
     )?;
 
     pda_account!(mut stats_account, BasicWardenStatsAccount, stats_account);

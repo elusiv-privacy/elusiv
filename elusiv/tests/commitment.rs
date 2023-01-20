@@ -64,10 +64,12 @@ async fn test_store_base_commitment_lamports_transfer() {
         Lamports(subvention).into_token_strict(),
     ).await;
 
+    let (hashing_account_pubkey, hashing_account_bump) = BaseCommitmentHashingAccount::find(Some(0));
     let sol_price_account = test.token_to_usd_price_pyth_account(0);
     test.ix_should_succeed(
         ElusivInstruction::store_base_commitment_instruction(
             0,
+            hashing_account_bump,
             request.clone(),
             SignerAccount(client.pubkey),
             WritableUserAccount(client.pubkey),
@@ -77,6 +79,7 @@ async fn test_store_base_commitment_lamports_transfer() {
             WritableUserAccount(fee_collector),
             UserAccount(sol_price_account),
             UserAccount(sol_price_account),
+            WritableUserAccount(hashing_account_pubkey),
             UserAccount(system_program::id()),
         ),
         &[&client.keypair, &warden.keypair]
@@ -152,9 +155,11 @@ async fn test_store_base_commitment_token_transfer() {
         subvention,
     ).await;
 
+    let (hashing_account_pubkey, hashing_account_bump) = BaseCommitmentHashingAccount::find(Some(0));
     test.ix_should_succeed(
         ElusivInstruction::store_base_commitment_instruction(
             0,
+            hashing_account_bump,
             request.clone(),
             SignerAccount(client.pubkey),
             WritableUserAccount(client.get_token_account(USDC_TOKEN_ID)),
@@ -164,6 +169,7 @@ async fn test_store_base_commitment_token_transfer() {
             WritableUserAccount(fee_collector_account),
             UserAccount(sol_price_account),
             UserAccount(token_price_account),
+            WritableUserAccount(hashing_account_pubkey),
             UserAccount(spl_token::id()),
         ),
         &[&client.keypair, &warden.keypair]
@@ -244,10 +250,13 @@ async fn test_base_commitment_lamports() {
     test.airdrop(&fee_collector, fee.base_commitment_subvention.into_token_strict()).await;
     warden_a.airdrop(LAMPORTS_TOKEN_ID, hashing_account_rent.0, &mut test).await;
 
+    let (hashing_account_pubkey, hashing_account_bump) = BaseCommitmentHashingAccount::find(Some(0));
+
     // Store fails: Invalid pool_account
     test.ix_should_fail(
         ElusivInstruction::store_base_commitment_instruction(
             0,
+            hashing_account_bump,
             request0.clone(),
             SignerAccount(client.pubkey),
             WritableUserAccount(client.pubkey),
@@ -257,6 +266,7 @@ async fn test_base_commitment_lamports() {
             WritableUserAccount(fee_collector),
             UserAccount(system_program::id()),
             UserAccount(system_program::id()),
+            WritableUserAccount(hashing_account_pubkey),
             UserAccount(system_program::id()),
         ),
         &[&client.keypair, &warden_a.keypair]
@@ -266,6 +276,7 @@ async fn test_base_commitment_lamports() {
     test.ix_should_fail(
         ElusivInstruction::store_base_commitment_instruction(
             0,
+            hashing_account_bump,
             request0.clone(),
             SignerAccount(client.pubkey),
             WritableUserAccount(client.pubkey),
@@ -275,6 +286,7 @@ async fn test_base_commitment_lamports() {
             WritableUserAccount(pool),
             UserAccount(system_program::id()),
             UserAccount(system_program::id()),
+            WritableUserAccount(hashing_account_pubkey),
             UserAccount(system_program::id()),
         ),
         &[&client.keypair, &warden_a.keypair]
@@ -468,9 +480,11 @@ async fn test_base_commitment_token() {
         subvention,
     ).await;
 
+    let (hashing_account_pubkey, hashing_account_bump) = BaseCommitmentHashingAccount::find(Some(0));
     test.ix_should_succeed(
         ElusivInstruction::store_base_commitment_instruction(
             0,
+            hashing_account_bump,
             request.clone(),
             SignerAccount(client.pubkey),
             WritableUserAccount(client.get_token_account(USDC_TOKEN_ID)),
@@ -480,6 +494,7 @@ async fn test_base_commitment_token() {
             WritableUserAccount(fee_collector_account),
             UserAccount(sol_price_account),
             UserAccount(token_price_account),
+            WritableUserAccount(hashing_account_pubkey),
             UserAccount(spl_token::id()),
         ),
         &[&client.keypair, &warden.keypair]

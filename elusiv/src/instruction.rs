@@ -44,11 +44,12 @@ pub enum ElusivInstruction {
     #[acc(sol_price_account)]
     #[acc(token_price_account)]
     #[pda(governor, GovernorAccount)]
-    #[pda(hashing_account, BaseCommitmentHashingAccount, pda_offset = Some(hash_account_index), { writable, account_info, find_pda })]
+    #[acc(hashing_account, { writable })]
     #[acc(token_program)]   // if `token_id = 0` { `system_program` } else { `token_program` }
     #[sys(system_program, key = system_program::ID)]
     StoreBaseCommitment {
         hash_account_index: u32,
+        hash_account_bump: u8,
         request: BaseCommitmentHashRequest,
     },
 
@@ -365,8 +366,11 @@ impl ElusivInstruction {
         client: Pubkey,
         warden: Pubkey,
     ) -> solana_program::instruction::Instruction {
+        let (hash_account_pubkey, hash_account_bump) = BaseCommitmentHashingAccount::find(Some(hash_account_index));
+
         ElusivInstruction::store_base_commitment_instruction(
             hash_account_index,
+            hash_account_bump,
             request,
             SignerAccount(client),
             WritableUserAccount(client),
@@ -376,6 +380,7 @@ impl ElusivInstruction {
             WritableUserAccount(FeeCollectorAccount::find(None).0),
             UserAccount(system_program::id()),
             UserAccount(system_program::id()),
+            WritableUserAccount(hash_account_pubkey),
             UserAccount(system_program::id()),
         )
     }

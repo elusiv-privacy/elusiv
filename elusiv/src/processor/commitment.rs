@@ -110,6 +110,7 @@ pub fn store_base_commitment<'a>(
     system_program: &AccountInfo<'a>,
 
     hash_account_index: u32,
+    hash_account_bump: u8,
     request: BaseCommitmentHashRequest,
 ) -> ProgramResult {
     let token_id = request.token_id;
@@ -185,6 +186,7 @@ pub fn store_base_commitment<'a>(
         fee_payer,
         hashing_account,
         hash_account_index,
+        Some(hash_account_bump),
     )?;
 
     // `fee_collector` transfers `subvention` to `fee_payer` (token)
@@ -437,7 +439,8 @@ mod tests {
         test_account_info!(any, 0);
         account_info!(sys, system_program::id(), vec![]);
         account_info!(spl, spl_token::id(), vec![]);
-        account_info!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
+        let (hasing_account_pubkey, bump) = BaseCommitmentHashingAccount::find(Some(0));
+        account_info!(hashing_acc, hasing_account_pubkey, vec![0; BaseCommitmentHashingAccount::SIZE]);
 
         g.set_commitment_batching_rate(&4);
         g.set_fee_version(&1);
@@ -481,37 +484,43 @@ mod tests {
 
         for request in requests {
             assert_matches!(
-                store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, request),
+                store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, bump, request),
                 Err(_)
             );
         }
 
         // Invalid pool_account
         assert_matches!(
-            store_base_commitment(&s, &s, &f, &f, &pool, &any, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s, &f, &f, &pool, &any, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         // Invalid fee_collector_account
         assert_matches!(
-            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &any, &any, &any, &g, &hashing_acc, &sys, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &any, &any, &any, &g, &hashing_acc, &sys, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         // Invalid token_program
         assert_matches!(
-            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &pool, &any, &any, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &pool, &any, &any, &g, &hashing_acc, &spl, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         // Mismatch between PDA and offset
         assert_matches!(
-            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &pool, &any, &any, &g, &hashing_acc, &sys, &sys, 1, request.clone()),
+            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &pool, &any, &any, &g, &hashing_acc, &sys, &sys, 1, bump, request.clone()),
+            Err(_)
+        );
+
+        // Invalid bump
+        assert_matches!(
+            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, 0, request.clone()),
             Err(_)
         );
 
         assert_matches!(
-            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, request),
+            store_base_commitment(&s, &s, &f, &f, &pool, &pool, &fee_c, &fee_c, &any, &any, &g, &hashing_acc, &sys, &sys, 0, bump, request),
             Ok(())
         );
     }
@@ -529,7 +538,8 @@ mod tests {
         program_token_account_info!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
         account_info!(sys, system_program::id(), vec![]);
         account_info!(spl, spl_token::id(), vec![]);
-        account_info!(hashing_acc, BaseCommitmentHashingAccount::find(Some(0)).0, vec![0; BaseCommitmentHashingAccount::SIZE]);
+        let (hasing_account_pubkey, bump) = BaseCommitmentHashingAccount::find(Some(0));
+        account_info!(hashing_acc, hasing_account_pubkey, vec![0; BaseCommitmentHashingAccount::SIZE]);
 
         let sol_usd = Price { price: 39, conf: 1, expo: 0 };
         let usdc_usd = Price { price: 1, conf: 1, expo: 0 };
@@ -555,61 +565,61 @@ mod tests {
 
         for request in requests {
             assert_matches!(
-                store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request),
+                store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, bump, request),
                 Err(_)
             );
         }
 
         // Invalid pool_account
         assert_matches!(
-            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &fee_c_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &fee_c_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         // Invalid fee_collector_account
         assert_matches!(
-            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &pool_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &pool_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         // Invalid token_program
         assert_matches!(
-            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &sys, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &sys, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         // Mismatch between PDA and offset
         assert_matches!(
-            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 1, request.clone()),
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 1, bump, request.clone()),
             Err(_)
         );
 
         // Invalid sender_account
         assert_matches!(
-            store_base_commitment(&s, &s, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         // Invalid fee_collector_account
         assert_matches!(
-            store_base_commitment(&s, &s_token, &f, &f, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s_token, &f, &f, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         // Invalid sol_usd_price_account
         assert_matches!(
-            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &usdc, &usdc, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &usdc, &usdc, &g, &hashing_acc, &spl, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         // Invalid token_usd_price_account
         assert_matches!(
-            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &sol, &g, &hashing_acc, &spl, &sys, 0, request.clone()),
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &sol, &g, &hashing_acc, &spl, &sys, 0, bump, request.clone()),
             Err(_)
         );
 
         assert_matches!(
-            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, request),
+            store_base_commitment(&s, &s_token, &f, &f_token, &pool, &pool_token, &fee_c, &fee_c_token, &sol, &usdc, &g, &hashing_acc, &spl, &sys, 0, bump, request),
             Ok(())
         );
     }

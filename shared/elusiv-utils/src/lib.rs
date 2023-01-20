@@ -27,16 +27,18 @@ pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
     pda_offset: u32,
+    bump: Option<u8>,
 ) -> ProgramResult {
-    open_pda_account::<T>(program_id, payer, pda_account, None, Some(pda_offset), T::SIZE) 
+    open_pda_account::<T>(program_id, payer, pda_account, None, Some(pda_offset), bump, T::SIZE) 
 }
 
 pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
     program_id: &Pubkey,
     payer: &AccountInfo<'a>,
     pda_account: &AccountInfo<'a>,
+    bump: Option<u8>,
 ) -> ProgramResult {
-    open_pda_account::<T>(program_id, payer, pda_account, None, None, T::SIZE)
+    open_pda_account::<T>(program_id, payer, pda_account, None, None, bump, T::SIZE)
 }
 
 pub fn open_pda_account_with_associated_pubkey<'a, T: PDAAccount + SizedAccount>(
@@ -45,8 +47,9 @@ pub fn open_pda_account_with_associated_pubkey<'a, T: PDAAccount + SizedAccount>
     pda_account: &AccountInfo<'a>,
     pubkey: &Pubkey,
     pda_offset: PDAOffset,
+    bump: Option<u8>,
 ) -> ProgramResult {
-    open_pda_account::<T>(program_id, payer, pda_account, Some(*pubkey), pda_offset, T::SIZE)
+    open_pda_account::<T>(program_id, payer, pda_account, Some(*pubkey), pda_offset, bump, T::SIZE)
 }
 
 pub fn open_pda_account<'a, T: PDAAccount>(
@@ -55,15 +58,26 @@ pub fn open_pda_account<'a, T: PDAAccount>(
     pda_account: &AccountInfo<'a>,
     pda_pubkey: Option<Pubkey>,
     pda_offset: PDAOffset,
+    bump: Option<u8>,
     account_size: usize,
 ) -> ProgramResult {
-    let (pk, bump) = match pda_pubkey {
-        Some(pubkey) => T::find_with_pubkey(pubkey, pda_offset),
-        None => T::find(pda_offset),
+    let (pk, bump) = if let Some(bump) = bump {
+        let pk = match pda_pubkey {
+            Some(pubkey) => T::create_with_pubkey(pubkey, pda_offset, bump)?,
+            None => T::create(pda_offset, bump)?,
+        };
+
+        (pk, bump)
+    } else {
+        match pda_pubkey {
+            Some(pubkey) => T::find_with_pubkey(pubkey, pda_offset),
+            None => T::find(pda_offset),
+        }
     };
+
+    guard!(pk == *pda_account.key, InvalidInstructionData);
     let seeds = T::signers_seeds(pda_pubkey, pda_offset, bump);
     let signers_seeds = signers_seeds!(seeds);
-    guard!(pk == *pda_account.key, InvalidInstructionData);
 
     create_pda_account(program_id, payer, pda_account, account_size, bump, &signers_seeds)
 }

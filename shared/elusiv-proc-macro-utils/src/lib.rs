@@ -76,3 +76,13 @@ pub fn enforce_field(stream: TokenStream, index: usize, fields: &Fields) {
         stream
     );
 }
+
+/// Attempts to parse a String into a usize, ignoring any '_' character
+pub fn try_parse_usize(source: &str) -> Option<usize> {
+    let mut source = String::from(source);
+    source.retain(|x| x != '_');
+    match source.parse::<usize>() {
+        Ok(u) => Some(u),
+        Err(_) => None
+    }
+}

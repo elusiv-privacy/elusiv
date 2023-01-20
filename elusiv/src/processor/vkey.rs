@@ -36,6 +36,7 @@ pub fn create_vkey_account<'a>(
         signer,
         vkey_account,
         vkey_id,
+        None,
     )?;
 
     let data = &mut vkey_account.data.borrow_mut()[..];

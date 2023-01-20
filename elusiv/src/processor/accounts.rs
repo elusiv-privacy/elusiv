@@ -48,22 +48,22 @@ pub fn open_single_instance_account<'a>(
 ) -> ProgramResult {
     match kind {
         SingleInstancePDAAccountKind::CommitmentHashingAccount => {
-            open_pda_account_without_offset::<CommitmentHashingAccount>(&crate::id(), payer, pda_account)
+            open_pda_account_without_offset::<CommitmentHashingAccount>(&crate::id(), payer, pda_account, None)
         }
         SingleInstancePDAAccountKind::CommitmentQueueAccount => {
-            open_pda_account_without_offset::<CommitmentQueueAccount>(&crate::id(), payer, pda_account)
+            open_pda_account_without_offset::<CommitmentQueueAccount>(&crate::id(), payer, pda_account, None)
         }
         SingleInstancePDAAccountKind::PoolAccount => {
-            open_pda_account_without_offset::<PoolAccount>(&crate::id(), payer, pda_account)
+            open_pda_account_without_offset::<PoolAccount>(&crate::id(), payer, pda_account, None)
         }
         SingleInstancePDAAccountKind::FeeCollectorAccount => {
-            open_pda_account_without_offset::<FeeCollectorAccount>(&crate::id(), payer, pda_account)
+            open_pda_account_without_offset::<FeeCollectorAccount>(&crate::id(), payer, pda_account, None)
         }
         SingleInstancePDAAccountKind::StorageAccount => {
-            open_pda_account_without_offset::<StorageAccount>(&crate::id(), payer, pda_account)
+            open_pda_account_without_offset::<StorageAccount>(&crate::id(), payer, pda_account, None)
         }
         SingleInstancePDAAccountKind::VKeyAccountManangerAccount => {
-            open_pda_account_without_offset::<VKeyAccountManangerAccount>(&crate::id(), payer, pda_account)
+            open_pda_account_without_offset::<VKeyAccountManangerAccount>(&crate::id(), payer, pda_account, None)
         }
     }
 }
@@ -83,7 +83,13 @@ pub fn open_multi_instance_account<'a>(
 ) -> ProgramResult {
     match kind {
         MultiInstancePDAAccountKind::NullifierAccount => {
-            open_pda_account_with_offset::<NullifierAccount>(&crate::id(), payer, pda_account, pda_offset)
+            open_pda_account_with_offset::<NullifierAccount>(
+                &crate::id(),
+                payer,
+                pda_account,
+                pda_offset,
+                None,
+            )
         }
     }
 }
@@ -189,7 +195,12 @@ pub fn setup_governor_account<'a>(
     payer: &AccountInfo<'a>,
     governor_account: &AccountInfo<'a>,
 ) -> ProgramResult {
-    open_pda_account_without_offset::<GovernorAccount>(&crate::id(), payer, governor_account)?;
+    open_pda_account_without_offset::<GovernorAccount>(
+        &crate::id(),
+        payer,
+        governor_account,
+        None,
+    )?;
 
     let data = &mut governor_account.data.borrow_mut()[..];
     let mut governor = GovernorAccount::new(data)?;
@@ -226,7 +237,13 @@ pub fn init_new_fee_version<'a>(
     // Note: we have no upgrade-authroity check here since with the current setup it's impossible to have a fee version higher than zero, so will be added once that changes
     guard!(fee_version == governor.get_fee_version(), InvalidFeeVersion);
     guard!(program_fee.is_valid(), InvalidInstructionData);
-    open_pda_account_with_offset::<FeeAccount>(&crate::id(), payer, new_fee, fee_version)?;
+    open_pda_account_with_offset::<FeeAccount>(
+        &crate::id(),
+        payer,
+        new_fee,
+        fee_version,
+        None,
+    )?;
 
     let mut data = new_fee.data.borrow_mut();
     let mut fee = FeeAccount::new(&mut data[..])?;

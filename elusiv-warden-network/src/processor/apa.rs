@@ -57,6 +57,7 @@ pub fn propose_apa_proposal<'a>(
         proponent,
         proposal_account,
         proposal_id,
+        None,
     )?;
 
     if target_map_account.lamports() == 0 {
@@ -65,6 +66,7 @@ pub fn propose_apa_proposal<'a>(
             proponent,
             target_map_account,
             &proposal.target,
+            None,
             None,
         )?;
     }
