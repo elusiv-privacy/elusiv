@@ -377,6 +377,20 @@ macro_rules! impl_user_account {
                 self.0
             }
         }
+
+        #[cfg(feature = "elusiv-client")]
+        impl From<Pubkey> for $ty {
+            fn from(pk: Pubkey) -> Self {
+                Self(pk)
+            }
+        }
+
+        #[cfg(feature = "elusiv-client")]
+        impl From<&Pubkey> for $ty {
+            fn from(pk: &Pubkey) -> Self {
+                Self(*pk)
+            }
+        }
     };
 }
 
