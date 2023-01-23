@@ -210,7 +210,6 @@ pub fn compute_base_commitment_hash(
     hashing_account: &mut BaseCommitmentHashingAccount,
 
     _hash_account_index: u32,
-    _nonce: u32,
 ) -> ProgramResult {
     guard!(hashing_account.get_is_active(), ComputationIsNotYetStarted);
     compute_base_commitment_hash_partial(hashing_account)
@@ -629,16 +628,16 @@ mod tests {
         zero_program_account!(mut hashing_account, BaseCommitmentHashingAccount);
 
         // Inactive
-        assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0, 0), Err(_));
+        assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0), Err(_));
 
         hashing_account.set_is_active(&true);
 
         for _ in 0..BaseCommitmentHashComputation::IX_COUNT {
-            assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0, 0), Ok(()));
+            assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0), Ok(()));
         }
 
         // Additional computations will fail
-        assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0, 0), Err(_));
+        assert_matches!(compute_base_commitment_hash(&mut hashing_account, 0), Err(_));
         assert_eq!(hashing_account.get_state().result(), Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap());
     }
 

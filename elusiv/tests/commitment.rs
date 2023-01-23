@@ -343,10 +343,7 @@ async fn test_base_commitment_lamports() {
     assert_eq!(request0.amount + request1.amount + computation_fee * 2, test.pda_lamports(&pool, PoolAccount::SIZE).await.0);
     assert_eq!(0, warden_b.lamports(&mut test).await);
 
-    let compute_ix = ElusivInstruction::compute_base_commitment_hash_instruction(
-        0,
-        0,
-    );
+    let compute_ix = ElusivInstruction::compute_base_commitment_hash_instruction(0);
     let finalize_ix = ElusivInstruction::finalize_base_commitment_hash_instruction(
         0,
         0,
@@ -503,7 +500,7 @@ async fn test_base_commitment_token() {
     for _ in 0..BaseCommitmentHashComputation::IX_COUNT {
         test.tx_should_succeed_simple(&[
             request_max_compute_units(),
-            ElusivInstruction::compute_base_commitment_hash_instruction(0, 0)
+            ElusivInstruction::compute_base_commitment_hash_instruction(0),
         ]).await;
     }
 

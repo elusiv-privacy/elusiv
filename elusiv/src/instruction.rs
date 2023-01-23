@@ -56,7 +56,6 @@ pub enum ElusivInstruction {
     #[pda(hashing_account, BaseCommitmentHashingAccount, pda_offset = Some(hash_account_index), { writable })]
     ComputeBaseCommitmentHash {
         hash_account_index: u32,
-        nonce: u32,
     },
 
     #[acc(original_fee_payer, { writable })]
@@ -436,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_instruction_tag() {
-        assert_eq!(1, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, nonce: 0, }));
+        assert_eq!(1, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, }));
     }
 
     #[test]
