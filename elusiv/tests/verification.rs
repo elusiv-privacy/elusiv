@@ -45,7 +45,7 @@ struct FullSendRequest {
 
 impl FullSendRequest {
     fn update_fee_lamports(&mut self, fee: &ProgramFee) {
-        compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut self.public_inputs, &fee);
+        compute_fee_rec_lamports::<SendQuadraVKey, _>(&mut self.public_inputs, fee);
     }
 
     fn update_fee_token(&mut self, fee: &ProgramFee, price: &TokenPrice) {
@@ -1717,8 +1717,10 @@ async fn test_isolated_memo() {
     let memo = String::from("Hello World:)");
     let invalid_memo = String::from("Hello World");
     let mut request = send_request(0);
-    let mut extra_data = ExtraData::default();
-    extra_data.memo = Some(memo.as_bytes().to_vec());
+    let extra_data = ExtraData {
+        memo: Some(memo.as_bytes().to_vec()),
+        ..Default::default()
+    };
     request.public_inputs.hashed_inputs = extra_data.hash();
     request.update_fee_lamports(&genesis_fee(&mut test).await);
 
@@ -1735,7 +1737,7 @@ async fn test_isolated_memo() {
 
     // Invalid memo
     let invalid_ixs = &finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, Some(invalid_memo.as_bytes().to_vec())).await;
-    test.tx_should_fail_simple(&merge(&invalid_ixs, &[&valid_memo_ix])).await;
+    test.tx_should_fail_simple(&merge(invalid_ixs, &[&valid_memo_ix])).await;
 
     // Memo instruction missing
     test.tx_should_fail_simple(&valid_finalize_ixs).await;
@@ -1816,8 +1818,10 @@ async fn test_solana_pay_lamports_with_memo() {
     let memo = String::from("Hello World:)");
     let invalid_memo = String::from("Hello World");
     let mut request = send_request(0);
-    let mut extra_data = ExtraData::default();
-    extra_data.memo = Some(memo.as_bytes().to_vec());
+    let extra_data = ExtraData {
+        memo: Some(memo.as_bytes().to_vec()),
+        ..Default::default()
+    };
     request.public_inputs.solana_pay_transfer = true;
     request.public_inputs.hashed_inputs = extra_data.hash();
     request.update_fee_lamports(&genesis_fee(&mut test).await);
@@ -1840,7 +1844,7 @@ async fn test_solana_pay_lamports_with_memo() {
 
     // Missing memo
     let invalid_ixs = &finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, Some(invalid_memo.as_bytes().to_vec())).await;
-    test.tx_should_fail_simple(&merge(&invalid_ixs, &[&valid_memo_ix, &valid_transfer_ix])).await;
+    test.tx_should_fail_simple(&merge(invalid_ixs, &[&valid_memo_ix, &valid_transfer_ix])).await;
 
     // Invalid reference account
     let invalid_ixs = finalize_instructions(&mut test, &request, &extra_data, &Pubkey::new_unique(), &payer, extra_data.memo.clone()).await;

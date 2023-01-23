@@ -853,10 +853,10 @@ pub fn finalize_verification_transfer_token<'a>(
                 &instructions_sysvar,
                 instructions_sysvar.find_instruction_count()? - 1,
                 &spl_token::instruction::transfer(
-                    &token_program.key,
-                    &original_fee_payer_account.key,
-                    &actual_recipient.key,
-                    &original_fee_payer.key,
+                    token_program.key,
+                    original_fee_payer_account.key,
+                    actual_recipient.key,
+                    original_fee_payer.key,
                     &[original_fee_payer.key],
                     token.amount(),
                 )?,
@@ -1841,7 +1841,7 @@ mod tests {
 
         // Called twice
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
             Err(_)
         );
     }

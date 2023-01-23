@@ -20,10 +20,7 @@ pub fn impl_elusiv_hash_compute_units(attrs: TokenStream) -> TokenStream {
     
     // Optional compute units reduction
     let reduction: Option<u32> = if let Some(attr) = attrs.get(2) {
-        match try_parse_usize(*attr) {
-            Some(v) => Some(v as u32),
-            None => None,
-        }
+        try_parse_usize(attr).map(|v| v as u32)
     } else {
         None
     };

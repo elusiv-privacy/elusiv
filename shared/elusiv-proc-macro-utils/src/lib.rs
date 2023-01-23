@@ -16,7 +16,7 @@ struct ProgramId {
     name: String,
     mainnet: String,
     devnet: String,
-    local: String,
+    testnet: String,
 }
 
 pub fn read_program_id(program_name: &str) -> String {
@@ -43,7 +43,7 @@ pub fn read_program_ids() -> HashMap<String, String> {
         } else if cfg!(feature = "devnet") {
             program_id.devnet
         } else {
-            program_id.local
+            program_id.testnet
         };
 
         map.insert(program_id.name, pubkey);
