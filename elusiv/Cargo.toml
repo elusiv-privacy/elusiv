@@ -45,8 +45,8 @@ elusiv-types = { path = "shared/elusiv-types", default-features = false, feature
 elusiv-utils = { path = "shared/elusiv-utils" }
 
 solana-program = "1.10"
-spl-token = { version = "3.2", features = ["no-entrypoint"] }
-spl-associated-token-account = { version = "1.0.5", features = ["no-entrypoint"] }
+spl-token = { version = "3.5", features = ["no-entrypoint"] }
+spl-associated-token-account = { version = "1.1.1", features = ["no-entrypoint"] }
 
 static_assertions = { version = "1.1.0", optional = true }
 borsh = { version = "=0.9.3", features = ["const-generics"] }

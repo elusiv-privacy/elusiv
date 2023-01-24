@@ -23,6 +23,6 @@ bytemuck = { version = "1.7.2", optional = true }
 elusiv-derive = { path = "./../elusiv-derive" }
 elusiv-proc-macros = { path = "../elusiv-proc-macros", optional = true }
 solana-program = "1.10"
-spl-token = { version = "3.2", features = ["no-entrypoint"], optional = true }
-spl-associated-token-account = { version = "1.0.5", features = ["no-entrypoint"], optional = true }
+spl-token = { version = "3.5", features = ["no-entrypoint"], optional = true }
+spl-associated-token-account = { version = "1.1.1", features = ["no-entrypoint"], optional = true }
 pyth-sdk-solana = { version = "0.4.2", optional = true }
