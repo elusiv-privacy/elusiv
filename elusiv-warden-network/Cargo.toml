@@ -43,7 +43,7 @@ elusiv-utils = { path = "shared/elusiv-utils" }
 elusiv-derive = { path = "shared/elusiv-derive" }
 elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }
 solana-program = "1.10"
-spl-token = { version = "3.5", features = ["no-entrypoint"] }
+spl-token = { version = "3.2", features = ["no-entrypoint"] }
 
 [dev-dependencies]
 chrono = "0.4"
