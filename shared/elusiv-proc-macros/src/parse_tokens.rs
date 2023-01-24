@@ -36,6 +36,7 @@ pub fn impl_parse_tokens() -> TokenStream {
     let mut symbols = quote!{};
 
     for (i, token) in tokens.token.iter().enumerate() {
+        let ident = token.symbol.as_str();
         let sym: TokenStream = format!("{}_TOKEN_ID", token.symbol).parse().unwrap();
         let sym_fn: TokenStream = format!("{}_token", token.symbol.to_lowercase()).parse().unwrap();
         let id = i as u16;
@@ -53,11 +54,13 @@ pub fn impl_parse_tokens() -> TokenStream {
         let price_base_exp = token.price_base_exp.unwrap_or_default();
         let min = token.min;
         let max = token.max;
+
         let mint = if cfg!(feature = "devnet") {
             pubkey_bytes(&token.mint_devnet)
         } else {
             pubkey_bytes(&token.mint)
         };
+
         let pyth_usd_price_key = if cfg!(feature = "devnet") {
             pubkey_bytes(&token.pyth_usd_price_devnet)
         } else {
@@ -66,6 +69,9 @@ pub fn impl_parse_tokens() -> TokenStream {
 
         content.extend(quote!{
             ElusivToken {
+                #[cfg(feature = "elusiv-client")]
+                ident: #ident,
+
                 mint: solana_program::pubkey::Pubkey::new_from_array(#mint),
                 decimals: #decimals,
                 price_base_exp: #price_base_exp,

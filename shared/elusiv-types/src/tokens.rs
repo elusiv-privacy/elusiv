@@ -13,6 +13,9 @@ pub use pyth_sdk_solana::{Price, load_price_feed_from_account_info};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct ElusivToken {
+    #[cfg(feature = "elusiv-client")]
+    pub ident: &'static str,
+
     pub mint: Pubkey,
     pub decimals: u8,
     pub price_base_exp: u8,
