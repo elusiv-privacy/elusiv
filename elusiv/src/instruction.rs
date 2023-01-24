@@ -161,6 +161,7 @@ pub enum ElusivInstruction {
     FinalizeVerificationSend {
         data: FinalizeSendData,
         verification_account_index: u32,
+        uses_memo: bool,
     },
 
     #[acc(original_fee_payer, { ignore })]

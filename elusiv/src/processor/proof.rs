@@ -417,7 +417,6 @@ pub struct FinalizeSendData {
 
     pub iv: U256,
     pub encrypted_owner: U256,
-    pub memo: Option<Vec<u8>>,
 }
 
 const SPL_MEMO_PROGRAM_ID: Pubkey = Pubkey::new_from_array(
@@ -439,6 +438,7 @@ pub fn finalize_verification_send<'a>(
 
     data: FinalizeSendData,
     _verification_account_index: u32,
+    uses_memo: bool,
 ) -> ProgramResult {
     guard!(matches!(verification_account.get_state(), VerificationState::ProofSetup), InvalidAccountState);
 
@@ -446,6 +446,18 @@ pub fn finalize_verification_send<'a>(
     let public_inputs = match request {
         ProofRequest::Send(public_inputs) => public_inputs,
         _ => return Err(FeatureNotAvailable.into())
+    };
+
+    // Check spl-memo-instruction
+    let memo = if uses_memo {
+        Some(
+            get_memo_from_instructions(
+                &DefaultInstructionsSysvar(instructions_account),
+                public_inputs.solana_pay_transfer,
+            )?
+        )
+    } else {
+        None
     };
 
     // Verify `hashed_inputs`
@@ -460,7 +472,7 @@ pub fn finalize_verification_send<'a>(
             [0; 32]
         },
         public_inputs.recipient_is_associated_token_account,
-        &data.memo,
+        &memo,
     );
     guard!(hash == public_inputs.hashed_inputs, InputsMismatch);
 
@@ -489,22 +501,6 @@ pub fn finalize_verification_send<'a>(
         public_inputs.join_split.input_commitments.len(),
         public_inputs.join_split.token_id == 0,
     )?;
-
-    // Check spl-memo-instruction
-    if let Some(memo) = data.memo {
-        let instructions_sysvar = DefaultInstructionsSysvar(instructions_account);
-        let instruction_count = instructions_sysvar.find_instruction_count()?;
-        let memo_index = if public_inputs.solana_pay_transfer {
-            instruction_count - 2
-        } else {
-            instruction_count - 1
-        };
-        enforce_instruction(
-            &instructions_sysvar,
-            memo_index,
-            &memo_instruction(&memo),
-        )?;
-    }
 
     let (commitment_index, mt_index) = minimum_commitment_mt_index(
         storage_account.get_trees_count(),
@@ -657,7 +653,8 @@ pub fn finalize_verification_transfer_lamports<'a>(
                     original_fee_payer.key,
                     recipient.key,
                     public_inputs.join_split.amount,
-                )
+                ),
+                false,
             )?;
         } else {
             // `pool` transfers `amount` to `recipient` (lamports)
@@ -860,6 +857,7 @@ pub fn finalize_verification_transfer_token<'a>(
                     &[original_fee_payer.key],
                     token.amount(),
                 )?,
+                false,
             )?;
         } else {
             // `pool` transfers `amount` to `recipient` (token)
@@ -1128,11 +1126,15 @@ fn enforce_instruction<I: InstructionsSysvar>(
     instruction_sysvar: &I,
     index: usize,
     expected: &Instruction,
-) -> Result<(), ProgramError> {
+    ignore_data: bool,
+) -> Result<Instruction, ProgramError> {
     let instruction = instruction_sysvar.instruction_at_index(index)?;
 
     guard!(instruction.program_id == expected.program_id, InvalidOtherInstruction);
-    guard!(instruction.data == expected.data, InvalidOtherInstruction);
+
+    if !ignore_data {
+        guard!(instruction.data == expected.data, InvalidOtherInstruction);
+    }
 
     for (i, account) in expected.accounts.iter().enumerate() {
         guard!(instruction.accounts[i].pubkey == account.pubkey, InvalidOtherInstruction);
@@ -1146,7 +1148,7 @@ fn enforce_instruction<I: InstructionsSysvar>(
         }
     }
 
-    Ok(())
+    Ok(instruction)
 }
 
 fn memo_instruction(memo: &[u8]) -> Instruction {
@@ -1155,6 +1157,27 @@ fn memo_instruction(memo: &[u8]) -> Instruction {
         accounts: Vec::new(),
         data: memo.to_vec(),
     }
+}
+
+fn get_memo_from_instructions<I: InstructionsSysvar>(
+    instruction_sysvar: &I,
+    solana_pay_transfer: bool,
+) -> Result<Vec<u8>, ProgramError> {
+    let instruction_count = instruction_sysvar.find_instruction_count()?;
+    let memo_index = if solana_pay_transfer {
+        instruction_count - 2
+    } else {
+        instruction_count - 1
+    };
+
+    let instruction = enforce_instruction(
+        instruction_sysvar,
+        memo_index,
+        &memo_instruction(&[]),
+        true,
+    )?;
+
+    Ok(instruction.data)
 }
 
 fn mutate<T: Clone, F>(v: &T, f: F) -> T where F: Fn(&mut T) {
@@ -1745,7 +1768,6 @@ mod tests {
                 commitment_index: 0,
                 encrypted_owner,
                 iv,
-                memo: None,
             };
         };
     }
@@ -1782,7 +1804,7 @@ mod tests {
         // Verification is not finished
         verification_acc.set_is_verified(&ElusivOption::None);
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0, false),
             Err(_)
         );
 
@@ -1792,7 +1814,7 @@ mod tests {
         {
             account_info!(recipient, Pubkey::new_from_array(identifier_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0, false),
                 Err(_)
             );
         }
@@ -1801,7 +1823,7 @@ mod tests {
         {
             account_info!(identifier, Pubkey::new_from_array(recipient_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0, false),
                 Err(_)
             );
         }
@@ -1810,7 +1832,7 @@ mod tests {
         {
             account_info!(reference, Pubkey::new_from_array(recipient_bytes));
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0, false),
                 Err(_)
             );
         }
@@ -1826,14 +1848,14 @@ mod tests {
             mutate(&finalize_data, |d| { d.iv = d.encrypted_owner }),
         ] {
             assert_matches!(
-                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, invalid_data, 0),
+                finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, invalid_data, 0, false),
                 Err(_)
             );
         }
 
         // Success
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data.clone(), 0, false),
             Ok(())
         );
 
@@ -1841,7 +1863,7 @@ mod tests {
 
         // Called twice
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0, false),
             Err(_)
         );
     }
@@ -1871,7 +1893,7 @@ mod tests {
         verification_acc.set_is_verified(&ElusivOption::Some(false));
 
         assert_matches!(
-            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&recipient, &identifier, &reference, &mut queue, &mut verification_acc, &storage, &any, finalize_data, 0, false),
             Ok(())
         );        
         assert_matches!(verification_acc.get_state(), VerificationState::Finalized);
@@ -1914,7 +1936,7 @@ mod tests {
         test_account_info!(any, 0);
 
         assert_matches!(
-            finalize_verification_send(&acc, &acc, &acc, &mut queue, &mut v_account, &storage, &any, finalize_data, 0),
+            finalize_verification_send(&acc, &acc, &acc, &mut queue, &mut v_account, &storage, &any, finalize_data, 0, false),
             Err(_)
         );
     }
@@ -2571,18 +2593,20 @@ mod tests {
                     instructions: instructions.clone(),
                 },
                 0,
-                &instruction
+                &instruction,
+                false,
             ),
             Err(_)
         );
 
-        assert_matches!(
+        assert_eq!(
             enforce_instruction(
                 &TestInstructionsSysvar { current_index: Some(0), instructions },
                 1,
-                &instruction
-            ),
-            Ok(())
+                &instruction,
+                false,
+            ).unwrap(),
+            instruction
         );
 
         // Invalid program id
@@ -2593,7 +2617,8 @@ mod tests {
                     instructions: vec![mutate(&instruction, |ix| { ix.program_id = Pubkey::new_unique() })],
                 },
                 0,
-                &instruction
+                &instruction,
+                false,
             ),
             Err(_)
         );
@@ -2606,7 +2631,8 @@ mod tests {
                     instructions: vec![mutate(&instruction, |ix| { ix.accounts[0].pubkey = Pubkey::new_unique() })],
                 },
                 0,
-                &instruction
+                &instruction,
+                false,
             ),
             Err(_)
         );
@@ -2623,7 +2649,8 @@ mod tests {
                     instructions: vec![mutate(&instruction, |ix| { ix.accounts[0].is_signer = false })],
                 },
                 0,
-                &instruction
+                &instruction,
+                false,
             ),
             Err(_)
         );
@@ -2636,13 +2663,14 @@ mod tests {
                     instructions: vec![mutate(&instruction, |ix| { ix.accounts[0].is_writable = false })],
                 },
                 0,
-                &instruction
+                &instruction,
+                false,
             ),
             Err(_)
         );
 
         // Signer check if unidirectional
-        assert_matches!(
+        assert_eq!(
             enforce_instruction(
                 &TestInstructionsSysvar {
                     current_index: Some(0),
@@ -2650,12 +2678,13 @@ mod tests {
                 },
                 0,
                 &mutate(&instruction, |ix| { ix.accounts[0].is_signer = false }),
-            ),
-            Ok(())
+                false,
+            ).unwrap(),
+            instruction
         );
 
         // Writability check is unidirectional
-        assert_matches!(
+        assert_eq!(
             enforce_instruction(
                 &TestInstructionsSysvar {
                     current_index: Some(0),
@@ -2663,8 +2692,23 @@ mod tests {
                 },
                 0,
                 &mutate(&instruction, |ix| { ix.accounts[0].is_writable = false }),
-            ),
-            Ok(())
+                false,
+            ).unwrap(),
+            instruction
+        );
+
+        // Ignore data check
+        assert_eq!(
+            enforce_instruction(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![instruction.clone()],
+                },
+                0,
+                &mutate(&instruction, |ix| ix.data.clear()),
+                true,
+            ).unwrap(),
+            instruction
         );
     }
 
@@ -2677,6 +2721,64 @@ mod tests {
     fn test_memo_instruction() {
         let memo = String::from("Thanks%20for%20all%20the%20fish");
         assert_eq!(memo_instruction(memo.as_bytes()), spl_memo::build_memo(memo.as_bytes(), &[]));
+    }
+
+    #[test]
+    fn test_get_memo_from_instructions() {
+        let instruction = system_instruction::transfer(
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            123,
+        );
+
+        let memo = b"Hello".to_vec();
+        let memo_instruction = memo_instruction(&memo);
+
+        // Without solana-pay transfer
+        assert_matches!(
+            get_memo_from_instructions(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![
+                        memo_instruction.clone(),
+                        instruction.clone(),
+                    ],
+                },
+                false,
+            ),
+            Err(_)
+        );
+
+        // With solana-pay transfer
+        assert_eq!(
+            get_memo_from_instructions(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![
+                        instruction.clone(),
+                        memo_instruction.clone(),
+                        instruction.clone(),
+                    ],
+                },
+                true,
+            ).unwrap(),
+            memo
+        );
+
+        // Last instruction
+        assert_eq!(
+            get_memo_from_instructions(
+                &TestInstructionsSysvar {
+                    current_index: Some(0),
+                    instructions: vec![
+                        instruction,
+                        memo_instruction,
+                    ],
+                },
+                false,
+            ).unwrap(),
+            memo
+        );
     }
 
     fn test_proof() -> Proof {

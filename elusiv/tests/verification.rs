@@ -704,6 +704,7 @@ async fn test_finalize_proof_lamports() {
             ..Default::default()
         },
         0,
+        false,
         UserAccount(recipient),
         UserAccount(identifier),
         UserAccount(reference),
@@ -879,6 +880,7 @@ async fn test_finalize_proof_token() {
             ..Default::default()
         },
         0,
+        false,
         UserAccount(recipient_token_account),
         UserAccount(identifier),
         UserAccount(reference),
@@ -1033,6 +1035,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                     ..Default::default()
                 },
                 v_index,
+                false,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
                 UserAccount(reference),
@@ -1139,9 +1142,9 @@ async fn test_finalize_proof_commitment_index() {
                     commitment_index,
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
-                    memo: None,
                 },
                 0,
+                false,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
                 UserAccount(reference),
@@ -1290,6 +1293,7 @@ async fn test_associated_token_account() {
                     ..Default::default()
                 },
                 0,
+                false,
                 UserAccount(recipient_wallet),
                 UserAccount(Pubkey::new_from_array(extra_data.identifier)),
                 UserAccount(Pubkey::new_from_array(extra_data.reference)),
@@ -1528,6 +1532,7 @@ async fn test_enforced_finalization_order() {
             ..Default::default()
         },
         0,
+        false,
         UserAccount(extra_data.recipient()),
         UserAccount(extra_data.identifier()),
         UserAccount(extra_data.reference()),
@@ -1645,10 +1650,10 @@ async fn test_finalization_nullifier_insertions() {
                     total_amount: public_inputs.join_split.total_amount(),
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
-                    memo: None,
                     ..Default::default()
                 },
                 0,
+                false,
                 UserAccount(recipient),
                 UserAccount(identifier),
                 UserAccount(reference),
@@ -1684,10 +1689,10 @@ async fn finalize_instructions(
                 total_amount: request.public_inputs.join_split.total_amount(),
                 encrypted_owner: extra_data.encrypted_owner,
                 iv: extra_data.iv,
-                memo,
                 ..Default::default()
             },
             0,
+            memo.is_some(),
             UserAccount(extra_data.recipient()),
             UserAccount(extra_data.identifier()),
             UserAccount(*reference),
@@ -1734,10 +1739,14 @@ async fn test_isolated_memo() {
     let payer = test.payer();
     let valid_finalize_ixs = finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, extra_data.memo.clone()).await;
     let valid_memo_ix = spl_memo::build_memo(memo.as_bytes(), &[]);
+    let invalid_memo_ix = spl_memo::build_memo(invalid_memo.as_bytes(), &[]);
 
     // Invalid memo
-    let invalid_ixs = &finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, Some(invalid_memo.as_bytes().to_vec())).await;
-    test.tx_should_fail_simple(&merge(invalid_ixs, &[&valid_memo_ix])).await;
+    test.tx_should_fail_simple(&merge(&valid_finalize_ixs, &[&invalid_memo_ix])).await;
+
+    // use_memo := false
+    let invalid_ixs = finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, None).await;
+    test.tx_should_fail_simple(&invalid_ixs).await;
 
     // Memo instruction missing
     test.tx_should_fail_simple(&valid_finalize_ixs).await;
@@ -1836,15 +1845,22 @@ async fn test_solana_pay_lamports_with_memo() {
     let payer = test.payer();
     let valid_finalize_ixs = finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, extra_data.memo.clone()).await;
     let valid_memo_ix = spl_memo::build_memo(memo.as_bytes(), &[]);
+    let invalid_memo_ix = spl_memo::build_memo(invalid_memo.as_bytes(), &[]);
     let valid_transfer_ix = system_instruction::transfer(
         &test.payer(),
         &extra_data.recipient(),
         request.public_inputs.join_split.amount,
     );
 
+    // Invalid memo
+    test.tx_should_fail_simple(&merge(&valid_finalize_ixs, &[&invalid_memo_ix, &valid_transfer_ix])).await;
+
+    // Missing memo instruction
+    test.tx_should_fail_simple(&merge(&valid_finalize_ixs, &[&valid_transfer_ix])).await;
+
     // Missing memo
-    let invalid_ixs = &finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, Some(invalid_memo.as_bytes().to_vec())).await;
-    test.tx_should_fail_simple(&merge(invalid_ixs, &[&valid_memo_ix, &valid_transfer_ix])).await;
+    let invalid_ixs = finalize_instructions(&mut test, &request, &extra_data, &extra_data.reference(), &payer, None).await;
+    test.tx_should_fail_simple(&merge(&invalid_ixs, &[&valid_memo_ix, &valid_transfer_ix])).await;
 
     // Invalid reference account
     let invalid_ixs = finalize_instructions(&mut test, &request, &extra_data, &Pubkey::new_unique(), &payer, extra_data.memo.clone()).await;
@@ -2017,6 +2033,7 @@ async fn test_solana_pay_tokens() {
                 ..Default::default()
             },
             0,
+            false,
             UserAccount(recipient_token_account),
             UserAccount(extra_data.identifier()),
             UserAccount(extra_data.reference()),
