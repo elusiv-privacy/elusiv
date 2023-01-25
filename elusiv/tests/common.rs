@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use std::str::FromStr;
-use elusiv::{state::{StorageAccount, NullifierAccount, fee::{ProgramFee, BasisPointFee}}, instruction::{ElusivInstruction, open_all_initial_accounts}, processor::{MultiInstancePDAAccountKind, SingleInstancePDAAccountKind}, proof::{CombinedMillerLoop, FinalExponentiation}, fields::fr_to_u256_le, types::U256};
+use elusiv::{state::{StorageAccount, NullifierAccount, fee::{ProgramFee, BasisPointFee}, governor::{GovernorAccount, PoolAccount, FeeCollectorAccount}, queue::CommitmentQueueAccount}, instruction::ElusivInstruction, processor::{MultiInstancePDAAccountKind, SingleInstancePDAAccountKind}, proof::{CombinedMillerLoop, FinalExponentiation, vkey::VKeyAccountManangerAccount}, fields::fr_to_u256_le, types::U256, commitment::CommitmentHashingAccount};
 use elusiv_types::{WritableUserAccount, WritableSignerAccount, PDAAccount, Lamports, PDAOffset, elusiv_token};
 use elusiv_computation::PartialComputation;
 pub use elusiv_test::*;
@@ -43,8 +43,42 @@ pub async fn genesis_fee(test: &mut ElusivProgramTest) -> ProgramFee {
 }
 
 pub async fn setup_initial_pdas(test: &mut ElusivProgramTest) {
-    let ixs = open_all_initial_accounts(test.payer());
+    let ixs = initial_single_instance_pdas(test.payer());
     test.tx_should_succeed_simple(&ixs).await;
+}
+
+pub fn initial_single_instance_pdas(payer: Pubkey) -> Vec<Instruction> {
+    vec![
+        ElusivInstruction::setup_governor_account_instruction(
+            WritableSignerAccount(payer),
+            WritableUserAccount(GovernorAccount::find(None).0)
+        ),
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::PoolAccount,
+            WritableSignerAccount(payer),
+            WritableUserAccount(PoolAccount::find(None).0)
+        ),
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::FeeCollectorAccount,
+            WritableSignerAccount(payer),
+            WritableUserAccount(FeeCollectorAccount::find(None).0)
+        ),
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::CommitmentHashingAccount,
+            WritableSignerAccount(payer),
+            WritableUserAccount(CommitmentHashingAccount::find(None).0)
+        ),
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::CommitmentQueueAccount,
+            WritableSignerAccount(payer),
+            WritableUserAccount(CommitmentQueueAccount::find(None).0)
+        ),
+        ElusivInstruction::open_single_instance_account_instruction(
+            SingleInstancePDAAccountKind::VKeyAccountManangerAccount,
+            WritableSignerAccount(payer),
+            WritableUserAccount(VKeyAccountManangerAccount::find(None).0)
+        ),
+    ]
 }
 
 pub async fn setup_fee(test: &mut ElusivProgramTest, fee_version: u32, program_fee: ProgramFee) {
@@ -146,7 +180,7 @@ macro_rules! commitment_queue {
 #[allow(unused_imports)] pub(crate) use pda_account;
 #[allow(unused_imports)] pub(crate) use commitment_queue;
 
-use solana_program::pubkey::Pubkey;
+use solana_program::{pubkey::Pubkey, instruction::Instruction};
 use solana_program_test::processor;
 use spl_associated_token_account::instruction::create_associated_token_account;
 

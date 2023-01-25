@@ -324,41 +324,6 @@ pub enum ElusivInstruction {
 #[cfg(feature = "elusiv-client")] use elusiv_types::accounts::PDAAccount;
 
 #[cfg(feature = "elusiv-client")]
-pub fn open_all_initial_accounts(payer: Pubkey) -> Vec<solana_program::instruction::Instruction> {
-    vec![
-        ElusivInstruction::setup_governor_account_instruction(
-            WritableSignerAccount(payer),
-            WritableUserAccount(GovernorAccount::find(None).0)
-        ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::PoolAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(PoolAccount::find(None).0)
-        ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::FeeCollectorAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(FeeCollectorAccount::find(None).0)
-        ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::CommitmentHashingAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(CommitmentHashingAccount::find(None).0)
-        ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::CommitmentQueueAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(CommitmentQueueAccount::find(None).0)
-        ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::VKeyAccountManangerAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(VKeyAccountManangerAccount::find(None).0)
-        ),
-    ]
-}
-
-#[cfg(feature = "elusiv-client")]
 impl ElusivInstruction {
     pub fn store_base_commitment_sol_instruction(
         hash_account_index: u32,

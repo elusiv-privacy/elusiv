@@ -53,7 +53,7 @@ async fn test_setup_initial_accounts() {
 #[tokio::test]
 async fn test_setup_initial_accounts_duplicate() {
     let mut test = start_test().await;
-    let ixs = open_all_initial_accounts(test.context().payer.pubkey());
+    let ixs = initial_single_instance_pdas(test.context().payer.pubkey());
     let mut double = ixs.clone();
     double.extend(ixs.clone());
 
