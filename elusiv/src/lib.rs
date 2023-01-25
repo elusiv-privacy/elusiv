@@ -20,3 +20,6 @@ pub use elusiv_computation;
 #[macro_use]
 #[cfg(feature = "static_assertions")]
 extern crate static_assertions;
+
+#[cfg(all(feature = "devnet", feature = "mainnet"))]
+compile_error!("The 'devnet' and 'mainnet' features are mutually exclusive and cannot be used together.");
