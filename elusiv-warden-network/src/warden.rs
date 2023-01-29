@@ -94,9 +94,6 @@ pub struct ElusivBasicWarden {
 
     /// Indicates the last time, `is_active` has been changed
     pub activation_timestamp: u64,
-
-    // Indicates the last time, this Warden has relayed a transaction
-    //pub last_relay_timestamp: ElusivOption<u64>,
 }
 
 /// An account associated with a single [`ElusivBasicWarden`]
@@ -143,6 +140,8 @@ pub struct BasicWardenStatsAccount {
     pub store: WardenStatistics,
     pub send: WardenStatistics,
     pub migrate: WardenStatistics,
+
+    pub last_activity_timestamp: u64,
 }
 
 /// An account associated with the operator of one or more [`ElusivBasicWarden`]s

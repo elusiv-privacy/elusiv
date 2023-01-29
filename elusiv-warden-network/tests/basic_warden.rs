@@ -307,7 +307,7 @@ async fn test_track_stats() {
         test.tx_should_fail(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts_1),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
             ],
             &[&warden.keypair]
         ).await;
@@ -316,7 +316,7 @@ async fn test_track_stats() {
         test.tx_should_fail(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id + 1], accounts.clone()),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
             ],
             &[&warden.keypair]
         ).await;
@@ -325,7 +325,7 @@ async fn test_track_stats() {
         test.tx_should_fail(
             &[
                 Instruction::new_with_bytes(OTHER_PROGRAM_ID, &[ix.instruction_id], accounts.clone()),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
             ],
             &[&warden.keypair]
         ).await;
@@ -334,14 +334,22 @@ async fn test_track_stats() {
         test.tx_should_fail_simple(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id + 1], accounts.clone()),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
             ]
         ).await;
+
+        // Instruction can be set to be infallible
+        let invalid_instructions = vec![
+            Instruction::new_with_bytes(OTHER_PROGRAM_ID, &[ix.instruction_id], accounts.clone()),
+            ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, false, UserAccount(warden.pubkey)),
+        ];
+        let mut fork = test.fork_for_instructions(&invalid_instructions).await;
+        fork.tx_should_succeed(&invalid_instructions, &[&warden.keypair]).await;
 
         test.tx_should_succeed(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, UserAccount(warden.pubkey)),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
             ],
             &[&warden.keypair]
         ).await;

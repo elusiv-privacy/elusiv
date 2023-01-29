@@ -6,13 +6,12 @@ use solana_program::account_info::AccountInfo;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::sysvar::instructions;
 use crate::error::ElusivWardenNetworkError;
-use crate::processor::current_timestamp;
+use crate::processor::{current_timestamp, unix_timestamp_to_day_and_year};
 use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, BasicWardenOperatorAccount, Identifier};
 use crate::{
     warden::{WardensAccount, ElusivWardenID, ElusivBasicWardenConfig, ElusivBasicWarden},
     network::BasicWardenNetworkAccount,
 };
-use super::get_day_and_year;
 
 pub fn register_basic_warden<'a>(
     warden: &AccountInfo<'a>,
@@ -212,8 +211,31 @@ pub fn track_basic_warden_stats(
     instructions_account: &AccountInfo,
 
     year: u16,
+    can_fail: bool,
 ) -> ProgramResult {
-    let (day, y) = get_day_and_year()?;
+    if let Err(err) = track_basic_warden_stats_inner(warden, stats_account, instructions_account, year) {
+        if can_fail {
+            return Err(err)
+        } else {
+            #[cfg(not(feature = "mainnet"))]
+            solana_program::msg!("Tracking error: {:?}", err);
+        }
+    }
+
+    Ok(())
+}
+
+fn track_basic_warden_stats_inner(
+    warden: &AccountInfo,
+    stats_account: &mut BasicWardenStatsAccount,
+    instructions_account: &AccountInfo,
+
+    year: u16,
+) -> ProgramResult {
+    let current_timestamp = current_timestamp()?;
+    let (day, y) = unix_timestamp_to_day_and_year(current_timestamp)
+        .ok_or(ElusivWardenNetworkError::TimestampError)?;
+
     guard!(y == year, ElusivWardenNetworkError::StatsError);
 
     guard!(stats_account.get_year() == year, ElusivWardenNetworkError::StatsError);
@@ -235,6 +257,8 @@ pub fn track_basic_warden_stats(
     } else {
         return Err(ElusivWardenNetworkError::StatsError.into())
     }
+
+    stats_account.set_last_activity_timestamp(&current_timestamp);
 
     Ok(())
 }

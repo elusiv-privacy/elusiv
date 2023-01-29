@@ -9,6 +9,7 @@ pub enum ElusivWardenNetworkError {
     ProposalError,
     VotingError,
     StatsError,
+    TimestampError,
 
     Overflow,
     Underflow,

@@ -90,6 +90,7 @@ pub enum ElusivWardenNetworkInstruction {
     #[sys(instructions, key = instructions::ID)]
     TrackBasicWardenStats {
         year: u16,
+        can_fail: bool,
     },
 
     // -------- APA --------
