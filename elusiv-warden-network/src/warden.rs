@@ -5,7 +5,7 @@ use solana_program::{pubkey::Pubkey, program_error::ProgramError};
 use elusiv_types::{accounts::PDAAccountData, TOKENS, ElusivOption};
 use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError};
 
-/// A unique ID publicly identifying a single Warden
+/// An unique ID publicly identifying a single Warden
 pub type ElusivWardenID = u32;
 
 /// The [`ElusivWardensAccount`] assigns each new Warden it's [`ElusivWardenID`]
@@ -61,6 +61,60 @@ pub enum TlsMode {
     Required,
 }
 
+/// An IANA timezone
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
+pub struct Timezone {
+    /// The tz area index in alphabetical order in `[0; 11)`
+    pub area: u8,
+    pub location: FixedLenString<14>,
+}
+
+/// The geographic region of a Warden
+/// 
+/// # Notes
+/// 
+/// - Based on the IANA tz database (https://data.iana.org/time-zones/tz-link.html), ommiting the oceans.
+/// - We simplify by mapping the oceans as follows:
+///     - Arctic -> Europe,
+///     - Atlantic -> America,
+///     - Indian -> Asia,
+///     - Pacific -> Asia
+#[repr(u8)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, Copy, PartialEq)]
+pub enum WardenRegion {
+    Africa,
+    America,
+    Antarctica,
+    Asia,
+    Australia,
+    Europe,
+    Other,  // Other is used to represent the tz Etc area or orbital locations
+}
+
+impl WardenRegion {
+    pub fn pda_offset(&self) -> u32 {
+        *self as u32
+    }
+
+    #[cfg(feature = "elusiv-client")]
+    pub fn from_tz_timezone_area(area: &str) -> Option<Self> {
+        match area {
+            "Africa" => Some(WardenRegion::Africa),
+            "America" => Some(WardenRegion::America),
+            "Antarctica" => Some(WardenRegion::Antarctica),
+            "Arctic" => Some(WardenRegion::Europe),
+            "Asia" => Some(WardenRegion::Asia),
+            "Atlantic" => Some(WardenRegion::America),
+            "Australia" => Some(WardenRegion::Australia),
+            "Europe" => Some(WardenRegion::Europe),
+            "Etc" => Some(WardenRegion::Other),
+            "Indian" => Some(WardenRegion::Asia),
+            "Pacific" => Some(WardenRegion::Asia),
+            _ => None
+        }
+    }
+}
+
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
 pub struct ElusivBasicWardenConfig {
     pub ident: Identifier,
@@ -73,8 +127,8 @@ pub struct ElusivBasicWardenConfig {
     pub uses_proxy: bool,
 
     pub jurisdiction: u16,
-    pub timezone: u16,
-    pub location: u16,
+    pub timezone: Timezone,
+    pub region: WardenRegion,
 
     pub version: [u16; 3],
     pub platform: Identifier,

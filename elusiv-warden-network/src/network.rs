@@ -26,7 +26,7 @@ impl WardenNetworkSize {
 pub struct ElusivBasicWardenNetwork;
 
 impl WardenNetwork for ElusivBasicWardenNetwork {
-    const SIZE: WardenNetworkSize = WardenNetworkSize::Dynamic(0, 2048);
+    const SIZE: WardenNetworkSize = WardenNetworkSize::Dynamic(0, 1024);
 }
 
 #[elusiv_account(eager_type: true)]

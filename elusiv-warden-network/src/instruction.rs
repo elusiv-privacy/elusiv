@@ -16,6 +16,8 @@ use crate::warden::{
     BasicWardenStatsAccount,
     BasicWardenAttesterMapAccount,
     Identifier,
+    Timezone,
+    WardenRegion,
 };
 use crate::macros::ElusivInstruction;
 use crate::processor;
@@ -34,6 +36,13 @@ pub enum ElusivWardenNetworkInstruction {
     #[pda(proposals_account, ApaProposalsAccount, { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     Init,
+
+    #[acc(payer, { signer, writable })]
+    #[pda(basic_network, BasicWardenNetworkAccount, pda_offset = Some(region.pda_offset()), { writable, find_pda, account_info })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    InitRegionAccount {
+        region: WardenRegion,
+    },
 
     // -------- Basic Warden --------
 
@@ -135,8 +144,8 @@ pub enum ElusivWardenNetworkInstruction {
         attester_warden_id: ElusivWardenID,
         warden_id: ElusivWardenID,
         asn: Option<u32>,
-        location: u16,
-        timezone: u16,
+        timezone: Timezone,
+        region: WardenRegion,
         uses_proxy: bool,
     },
 

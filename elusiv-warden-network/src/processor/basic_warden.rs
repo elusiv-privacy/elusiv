@@ -7,7 +7,7 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::sysvar::instructions;
 use crate::error::ElusivWardenNetworkError;
 use crate::processor::{current_timestamp, unix_timestamp_to_day_and_year};
-use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, BasicWardenOperatorAccount, Identifier, BasicWardenAttesterMapAccount};
+use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, BasicWardenOperatorAccount, Identifier, BasicWardenAttesterMapAccount, Timezone, WardenRegion};
 use crate::{
     warden::{WardensAccount, ElusivWardenID, ElusivBasicWardenConfig, ElusivBasicWarden},
     network::BasicWardenNetworkAccount,
@@ -215,8 +215,8 @@ pub fn attest_basic_warden_metadata(
     _attester_warden_id: ElusivWardenID,
     _warden_id: ElusivWardenID,
     asn: Option<u32>,
-    location: u16,
-    timezone: u16,
+    timezone: Timezone,
+    region: WardenRegion,
     uses_proxy: bool,
 ) -> ProgramResult {
     let attester_warden = attester_warden_account.get_warden();
@@ -225,13 +225,13 @@ pub fn attest_basic_warden_metadata(
 
     let mut warden = warden_account.get_warden();
     let warden_supplied_invalid_data = warden.config.timezone != timezone ||
-        warden.config.location != location ||
-        warden.config.uses_proxy != uses_proxy;
+        warden.config.uses_proxy != uses_proxy ||
+        warden.config.region != region;
 
     warden.asn = asn.into();
     warden.config.timezone = timezone;
-    warden.config.location = location;
     warden.config.uses_proxy = uses_proxy;
+    warden.config.region = region;
     warden.is_metadata_valid = Some(!warden_supplied_invalid_data).into();
 
     Ok(())

@@ -3,7 +3,6 @@ use elusiv_derive::BorshSerDeSized;
 use elusiv_proc_macros::elusiv_account;
 use elusiv_types::{accounts::PDAAccountData, tokens::TokenID, ElusivOption};
 use solana_program::pubkey::Pubkey;
-
 use crate::warden::FixedLenString;
 
 #[repr(u8)]

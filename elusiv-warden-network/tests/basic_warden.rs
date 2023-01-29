@@ -6,7 +6,7 @@ use std::net::Ipv4Addr;
 use elusiv_types::{WritableSignerAccount, SignerAccount, UserAccount, ProgramAccount, TOKENS};
 use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
-    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, ElusivBasicWardenFeatures},
+    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, ElusivBasicWardenFeatures, Timezone, WardenRegion},
     processor::{unix_timestamp_to_day_and_year, TRACKABLE_ELUSIV_INSTRUCTIONS},
 };
 use solana_program::{pubkey::Pubkey, instruction::{Instruction, AccountMeta}};
@@ -27,8 +27,11 @@ async fn test_register() {
         rpc_port: 0,
         tls_mode: elusiv_warden_network::warden::TlsMode::NoTls,
         jurisdiction: 0,
-        location: 0,
-        timezone: 0,
+        timezone: Timezone {
+            area: 0,
+            location: String::new().try_into().unwrap()
+        },
+        region: WardenRegion::America,
         version: [0, 0, 0],
         platform: platform.try_into().unwrap(),
         features: ElusivBasicWardenFeatures::default(),
@@ -116,8 +119,11 @@ async fn test_register_warden_account_fuzzing() {
         uses_proxy: false,
         tls_mode: elusiv_warden_network::warden::TlsMode::NoTls,
         jurisdiction: 0,
-        location: 0,
-        timezone: 0,
+        timezone: Timezone {
+            area: 0,
+            location: String::new().try_into().unwrap()
+        },
+        region: WardenRegion::America,
         version: [0, 0, 0],
         platform: String::new().try_into().unwrap(),
         features: ElusivBasicWardenFeatures::default(),
