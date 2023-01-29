@@ -634,35 +634,37 @@ pub fn finalize_verification_transfer_lamports<'a>(
             public_inputs.join_split.token_id == 0,
         )?;
 
-        guard!(recipient.key.to_bytes() == data.recipient_wallet.option().unwrap().skip_mr(), InvalidAccount);
+        if public_inputs.join_split.amount > 0 {
+            guard!(recipient.key.to_bytes() == data.recipient_wallet.option().unwrap().skip_mr(), InvalidAccount);
 
-        if public_inputs.solana_pay_transfer {
-            // `pool` transfers `amount` to `original_fee_payer` (lamports)
-            transfer_lamports_from_pda_checked(
-                pool,
-                original_fee_payer,
-                public_inputs.join_split.amount
-            )?;
+            if public_inputs.solana_pay_transfer {
+                // `pool` transfers `amount` to `original_fee_payer` (lamports)
+                transfer_lamports_from_pda_checked(
+                    pool,
+                    original_fee_payer,
+                    public_inputs.join_split.amount
+                )?;
 
-            // Last instruction: `original_fee_payer` transfers `amount` to `recipient`
-            let instructions_sysvar = DefaultInstructionsSysvar(instructions_account);
-            enforce_instruction(
-                &instructions_sysvar,
-                instructions_sysvar.find_instruction_count()? - 1,
-                &system_instruction::transfer(
-                    original_fee_payer.key,
-                    recipient.key,
-                    public_inputs.join_split.amount,
-                ),
-                false,
-            )?;
-        } else {
-            // `pool` transfers `amount` to `recipient` (lamports)
-            transfer_lamports_from_pda_checked(
-                pool,
-                recipient,
-                public_inputs.join_split.amount
-            )?;
+                // Last instruction: `original_fee_payer` transfers `amount` to `recipient`
+                let instructions_sysvar = DefaultInstructionsSysvar(instructions_account);
+                enforce_instruction(
+                    &instructions_sysvar,
+                    instructions_sysvar.find_instruction_count()? - 1,
+                    &system_instruction::transfer(
+                        original_fee_payer.key,
+                        recipient.key,
+                        public_inputs.join_split.amount,
+                    ),
+                    false,
+                )?;
+            } else {
+                // `pool` transfers `amount` to `recipient` (lamports)
+                transfer_lamports_from_pda_checked(
+                    pool,
+                    recipient,
+                    public_inputs.join_split.amount
+                )?;
+            }
         }
     }
 
@@ -794,82 +796,84 @@ pub fn finalize_verification_transfer_token<'a>(
             public_inputs.join_split.token_id == 0,
         )?;
 
-        let mut actual_recipient = recipient;
+        if public_inputs.join_split.amount > 0 {
+            let mut actual_recipient = recipient;
 
-        if !public_inputs.recipient_is_associated_token_account {   // Any token account
-            guard!(recipient.key.to_bytes() == recipient_address, InvalidAccount);
+            if !public_inputs.recipient_is_associated_token_account {   // Any token account
+                guard!(recipient.key.to_bytes() == recipient_address, InvalidAccount);
 
-            // Invalid recipient token account -> funds flow to `fee_collector` instead
-            if !matches!(verify_token_account(recipient, token_id), Ok(true)) {
-                actual_recipient = fee_collector_account;
+                // Invalid recipient token account -> funds flow to `fee_collector` instead
+                if !matches!(verify_token_account(recipient, token_id), Ok(true)) {
+                    actual_recipient = fee_collector_account;
+                }
+            } else {    // Associated-token-account
+                guard!(recipient_wallet.key.to_bytes() == recipient_address, InvalidAccount);
+                guard!(verify_associated_token_account(recipient_wallet.key, recipient.key, token_id)?, InvalidAccount);
+
+                if recipient.lamports() == 0 {  // Check if associated token accounts exists
+                    guard!(*mint_account.key == elusiv_token(token_id)?.mint, InvalidAccount);
+
+                    // We use signer (since it's an available system account) to sign the creation of the associated token account (refunded at the end)
+                    create_associated_token_account(
+                        original_fee_payer,
+                        recipient_wallet,
+                        recipient,
+                        mint_account,
+                        token_id,
+                    )?;
+
+                    // `pool` transfers `associated_token_account_rent` to `fee_payer` (token)
+                    associated_token_account_rent_token = Some(data.associated_token_account_rent);
+                } else {
+                    // TODO: can frozen account still receive funds?
+                    associated_token_account_rent_token = Some(0);
+                }
             }
-        } else {    // Associated-token-account
-            guard!(recipient_wallet.key.to_bytes() == recipient_address, InvalidAccount);
-            guard!(verify_associated_token_account(recipient_wallet.key, recipient.key, token_id)?, InvalidAccount);
 
-            if recipient.lamports() == 0 {  // Check if associated token accounts exists
-                guard!(*mint_account.key == elusiv_token(token_id)?.mint, InvalidAccount);
+            let token = Token::new(
+                token_id,
+                public_inputs.join_split.amount - associated_token_account_rent_token.unwrap_or(0)
+            );
 
-                // We use signer (since it's an available system account) to sign the creation of the associated token account (refunded at the end)
-                create_associated_token_account(
-                    original_fee_payer,
-                    recipient_wallet,
-                    recipient,
-                    mint_account,
-                    token_id,
+            if public_inputs.solana_pay_transfer {
+                // `pool` transfers `amount` to `original_fee_payer_account` (token)
+                transfer_token_from_pda::<PoolAccount>(
+                    pool,
+                    pool_account,
+                    original_fee_payer_account,
+                    token_program,
+                    token,
+                    None,
+                    None,
                 )?;
 
-                // `pool` transfers `associated_token_account_rent` to `fee_payer` (token)
-                associated_token_account_rent_token = Some(data.associated_token_account_rent);
+                // Last instruction: `original_fee_payer_account` transfers `amount` to `recipient` (token)
+                let instructions_sysvar = DefaultInstructionsSysvar(instructions_account);
+                enforce_instruction(
+                    &instructions_sysvar,
+                    instructions_sysvar.find_instruction_count()? - 1,
+                    &spl_token::instruction::transfer(
+                        token_program.key,
+                        original_fee_payer_account.key,
+                        actual_recipient.key,
+                        original_fee_payer.key,
+                        &[original_fee_payer.key],
+                        token.amount(),
+                    )?,
+                    false,
+                )?;
             } else {
-                // TODO: can frozen account still receive funds?
-                associated_token_account_rent_token = Some(0);
+                // `pool` transfers `amount` to `recipient` (token)
+                transfer_token_from_pda::<PoolAccount>(
+                    pool,
+                    pool_account,
+                    actual_recipient,
+                    token_program,
+                    token,
+                    None,
+                    None,
+                )?;
             }
-        }
-
-        let token = Token::new(
-            token_id,
-            public_inputs.join_split.amount - associated_token_account_rent_token.unwrap_or(0)
-        );
-
-        if public_inputs.solana_pay_transfer {
-            // `pool` transfers `amount` to `original_fee_payer_account` (token)
-            transfer_token_from_pda::<PoolAccount>(
-                pool,
-                pool_account,
-                original_fee_payer_account,
-                token_program,
-                token,
-                None,
-                None,
-            )?;
-
-            // Last instruction: `original_fee_payer_account` transfers `amount` to `recipient` (token)
-            let instructions_sysvar = DefaultInstructionsSysvar(instructions_account);
-            enforce_instruction(
-                &instructions_sysvar,
-                instructions_sysvar.find_instruction_count()? - 1,
-                &spl_token::instruction::transfer(
-                    token_program.key,
-                    original_fee_payer_account.key,
-                    actual_recipient.key,
-                    original_fee_payer.key,
-                    &[original_fee_payer.key],
-                    token.amount(),
-                )?,
-                false,
-            )?;
-        } else {
-            // `pool` transfers `amount` to `recipient` (token)
-            transfer_token_from_pda::<PoolAccount>(
-                pool,
-                pool_account,
-                actual_recipient,
-                token_program,
-                token,
-                None,
-                None,
-            )?;
         }
     }
 
@@ -1706,6 +1710,7 @@ mod tests {
     macro_rules! finalize_send_test {
         (
             $token_id: expr,
+            $amount: expr,
             $public_inputs: ident,
             $v_data: ident,
             $recipient: ident,
@@ -1729,7 +1734,7 @@ mod tests {
                     ],
                     output_commitment: RawU256::new(u256_from_str_skip_mr("987654321")),
                     fee_version: 0,
-                    amount: LAMPORTS_PER_SOL,
+                    amount: $amount,
                     fee: 10000,
                     token_id: $token_id,
                 },
@@ -1783,6 +1788,7 @@ mod tests {
     fn test_finalize_verification_send_valid() {
         finalize_send_test!(
             USDC_TOKEN_ID,
+            LAMPORTS_PER_SOL,
             public_inputs,
             verification_acc_data,
             recipient_bytes,
@@ -1872,6 +1878,7 @@ mod tests {
     fn test_finalize_verification_send_invalid() {
         finalize_send_test!(
             USDC_TOKEN_ID,
+            LAMPORTS_PER_SOL,
             public_inputs,
             verification_acc_data,
             recipient_bytes,
@@ -1945,6 +1952,7 @@ mod tests {
     fn test_finalize_verification_send_nullifier() {
         finalize_send_test!(
             USDC_TOKEN_ID,
+            LAMPORTS_PER_SOL,
             public_inputs,
             verification_acc_data,
             _recipient_bytes,
@@ -1987,15 +1995,7 @@ mod tests {
 
     #[test]
     fn test_finalize_verification_transfer_lamports() -> ProgramResult {
-        finalize_send_test!(
-            LAMPORTS_TOKEN_ID,
-            public_inputs,
-            verification_acc_data,
-            recipient_bytes,
-            _identifier_bytes,
-            _reference_bytes,
-            _finalize_data
-        );
+        finalize_send_test!(LAMPORTS_TOKEN_ID, LAMPORTS_PER_SOL, public_inputs, verification_acc_data, recipient_bytes, _i, _r, _f);
 
         account_info!(recipient, Pubkey::new_from_array(recipient_bytes));
         let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
@@ -2073,16 +2073,39 @@ mod tests {
     }
 
     #[test]
-    fn test_finalize_verification_transfer_token() -> ProgramResult {
-        finalize_send_test!(
-            USDC_TOKEN_ID,
-            public_inputs,
-            verification_acc_data,
-            recipient_bytes,
-            _identifier_bytes,
-            _reference_bytes,
-            _finalize_data
+    fn test_finalize_verification_transfer_lamports_merge() -> ProgramResult {
+        finalize_send_test!(LAMPORTS_TOKEN_ID, 0, public_inputs, verification_acc_data, recipient_bytes, _i, _r, _f);
+
+        let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
+        account_info!(f, fee_payer);  // fee_payer
+        test_account_info!(pool, 0);
+        test_account_info!(fee_c, 0);
+        test_account_info!(any, 0);
+        test_pda_account_info!(n_pda, NullifierDuplicateAccount, public_inputs.join_split.associated_nullifier_duplicate_pda_pubkey(), None);
+
+        account_info!(v_acc, Pubkey::new_unique(), verification_acc_data);
+        let mut data = vec![0; CommitmentQueueAccount::SIZE];
+        let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
+
+        {
+            pda_account!(mut v_acc, VerificationAccount, v_acc);
+            v_acc.set_state(&VerificationState::Finalized);
+            v_acc.set_is_verified(&ElusivOption::Some(true));
+        }
+
+        // For merges (zero-amount) the recipient key is ignored
+        account_info!(recipient, Pubkey::new_unique());
+        assert_matches!(
+            finalize_verification_transfer_lamports(&f, &recipient, &pool, &fee_c, &mut queue, &v_acc, &n_pda, &any, 0),
+            Ok(())
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_finalize_verification_transfer_token() -> ProgramResult {
+        finalize_send_test!(USDC_TOKEN_ID, LAMPORTS_PER_SOL, public_inputs, verification_acc_data, recipient_bytes, _i, _r, _f);
 
         account_info!(r, Pubkey::new_from_array(recipient_bytes));
         let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
@@ -2146,6 +2169,42 @@ mod tests {
         assert_eq!(v_acc.lamports(), 0);
         pda_account!(v_acc, VerificationAccount, v_acc);
         assert_matches!(v_acc.get_state(), VerificationState::Closed);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_finalize_verification_transfer_token_merge() -> ProgramResult {
+        finalize_send_test!(USDC_TOKEN_ID, 0, public_inputs, verification_acc_data, recipient_bytes, _i, _r, _f);
+
+        let fee_payer = Pubkey::new(&VerificationAccount::new(&mut verification_acc_data).unwrap().get_other_data().fee_payer.skip_mr());
+        account_info!(f, fee_payer, vec![]);  // fee_payer
+        account_info!(f_token, fee_payer, vec![], spl_token::id());  // fee_payer
+
+        test_pda_account_info!(pool, PoolAccount, None);
+        test_pda_account_info!(fee_c, FeeCollectorAccount, None);
+        program_token_account_info!(pool_token, PoolAccount, USDC_TOKEN_ID);
+        program_token_account_info!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+
+        test_account_info!(any, 0);
+        account_info!(spl, spl_token::id(), vec![]);
+        test_pda_account_info!(n_pda, NullifierDuplicateAccount, public_inputs.join_split.associated_nullifier_duplicate_pda_pubkey(), None);
+        account_info!(v_acc, Pubkey::new_unique(), verification_acc_data);
+        let mut data = vec![0; CommitmentQueueAccount::SIZE];
+        let mut queue = CommitmentQueueAccount::new(&mut data).unwrap();
+
+        {
+            pda_account!(mut v_acc, VerificationAccount, v_acc);
+            v_acc.set_state(&VerificationState::Finalized);
+            v_acc.set_is_verified(&ElusivOption::Some(true));
+        }
+
+        // For merges (zero-amount) the recipient key is ignored
+        account_info!(r, Pubkey::new_unique());
+        assert_matches!(
+            finalize_verification_transfer_token(&f, &f_token, &r, &r, &pool, &pool_token, &fee_c, &fee_c_token, &mut queue, &v_acc, &n_pda, &spl, &any, &any, 0),
+            Ok(())
+        );
 
         Ok(())
     }
