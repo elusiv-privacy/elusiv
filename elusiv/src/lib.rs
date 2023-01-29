@@ -18,7 +18,7 @@ pub use entrypoint::*;
 pub use elusiv_computation;
 
 #[macro_use]
-#[cfg(feature = "static_assertions")]
+#[cfg(test)]
 extern crate static_assertions;
 
 #[cfg(all(feature = "devnet", feature = "mainnet"))]

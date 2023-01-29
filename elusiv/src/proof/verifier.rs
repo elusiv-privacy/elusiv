@@ -317,11 +317,11 @@ pub fn prepare_public_inputs_instructions(public_inputs: &[U256], public_inputs_
     instructions
 }
 
-#[cfg(feature = "static_assertions")] const_assert_eq!(ADDITION_STEP_ROUNDS_COUNT, 2);
-#[cfg(feature = "static_assertions")] const_assert_eq!(DOUBLING_STEP_ROUNDS_COUNT, 2);
-#[cfg(feature = "static_assertions")] const_assert_eq!(MUL_BY_CHARACTERISTICS_ROUNDS_COUNT, 2);
-#[cfg(feature = "static_assertions")] const_assert_eq!(MUL_BY_034_ROUNDS_COUNT, 3);
-#[cfg(feature = "static_assertions")] const_assert_eq!(COMBINED_ELL_ROUNDS_COUNT, 13);
+#[cfg(test)] const_assert_eq!(ADDITION_STEP_ROUNDS_COUNT, 2);
+#[cfg(test)] const_assert_eq!(DOUBLING_STEP_ROUNDS_COUNT, 2);
+#[cfg(test)] const_assert_eq!(MUL_BY_CHARACTERISTICS_ROUNDS_COUNT, 2);
+#[cfg(test)] const_assert_eq!(MUL_BY_034_ROUNDS_COUNT, 3);
+#[cfg(test)] const_assert_eq!(COMBINED_ELL_ROUNDS_COUNT, 13);
 
 pub const COMBINED_MILLER_LOOP_IXS: usize = 215;
 pub const FINAL_EXPONENTIATION_IXS: usize = 17;
@@ -578,8 +578,8 @@ elusiv_computations!(
     }
 );
 
-#[cfg(feature = "static_assertions")] const_assert_eq!(INVERSE_FQ12_ROUNDS_COUNT, 4);
-#[cfg(feature = "static_assertions")] const_assert_eq!(EXP_BY_NEG_X_ROUNDS_COUNT, 128);
+#[cfg(test)] const_assert_eq!(INVERSE_FQ12_ROUNDS_COUNT, 4);
+#[cfg(test)] const_assert_eq!(EXP_BY_NEG_X_ROUNDS_COUNT, 128);
 
 elusiv_computations!(
     final_exponentiation, FinalExponentiation, 1_300_000,

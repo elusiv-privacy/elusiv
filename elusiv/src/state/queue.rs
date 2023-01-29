@@ -22,13 +22,13 @@ macro_rules! queue_account {
             raw_data: [$ty_element; $size],
         }
 
-        #[cfg(feature = "static_assertions")]
+        #[cfg(test)]
         const_assert_eq!(
             <$id_account as elusiv_types::SizedAccount>::SIZE,
             PDAAccountData::SIZE + (4 + 4) + <$ty_element>::SIZE * ($size)
         );
 
-        #[cfg(feature = "static_assertions")]
+        #[cfg(test)]
         const_assert_eq!(
             <$id>::SIZE,
             $size
