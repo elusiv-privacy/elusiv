@@ -51,6 +51,7 @@ pub struct ElusivBasicWardenFeatures {
     pub rpc: bool,
     pub relay: bool,
     pub instant_relay: bool,
+    pub geo_data_attestation: bool,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
@@ -69,6 +70,7 @@ pub struct ElusivBasicWardenConfig {
     pub addr: Ipv4Addr,
     pub rpc_port: u16,
     pub tls_mode: TlsMode,
+    pub uses_proxy: bool,
 
     pub jurisdiction: u16,
     pub timezone: u16,
@@ -85,6 +87,8 @@ pub struct ElusivBasicWardenConfig {
 pub struct ElusivBasicWarden {
     pub config: ElusivBasicWardenConfig,
     pub lut: Pubkey,
+
+    pub asn: ElusivOption<u32>,
 
     pub is_operator_confirmed: bool,
     pub is_metadata_valid: ElusivOption<bool>,
@@ -145,7 +149,7 @@ pub struct BasicWardenStatsAccount {
 }
 
 /// An account associated with the operator of one or more [`ElusivBasicWarden`]s
-#[elusiv_account(eager_type: true)]
+#[elusiv_account]
 pub struct BasicWardenOperatorAccount {
     pda_data: PDAAccountData,
 
@@ -153,4 +157,11 @@ pub struct BasicWardenOperatorAccount {
     pub ident: Identifier,
     pub url: Identifier,
     pub jurisdiction: ElusivOption<u16>,
+}
+
+/// An account associated with a single [`ElusivBasicWarden`]
+#[elusiv_account]
+pub struct BasicWardenAttesterMapAccount {
+    pda_data: PDAAccountData,
+    pub warden_id: ElusivWardenID,
 }

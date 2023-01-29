@@ -59,6 +59,7 @@ pub async fn register_warden(test: &mut ElusivProgramTest, warden: &mut Actor) {
                 operator: None.into(),
                 addr: Ipv4Addr::new(0, 0, 0, 0),
                 rpc_port: 0,
+                uses_proxy: false,
                 tls_mode: elusiv_warden_network::warden::TlsMode::NoTls,
                 jurisdiction: 0,
                 location: 0,

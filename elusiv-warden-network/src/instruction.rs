@@ -13,7 +13,9 @@ use crate::warden::{
     BasicWardenAccount,
     BasicWardenOperatorAccount,
     BasicWardenMapAccount,
-    BasicWardenStatsAccount, Identifier,
+    BasicWardenStatsAccount,
+    BasicWardenAttesterMapAccount,
+    Identifier,
 };
 use crate::macros::ElusivInstruction;
 use crate::processor;
@@ -104,6 +106,38 @@ pub enum ElusivWardenNetworkInstruction {
     ProposeApaProposal {
         proposal_id: u32,
         proposal: ApaProposal,
+    },
+
+    // -------- Metadata attestation --------
+
+    #[acc(signer, { signer, writable })]
+    #[acc(attester)]
+    #[pda(attester_account, BasicWardenAttesterMapAccount, pda_pubkey = attester.pubkey(), { writable, find_pda, account_info })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    AddMetadataAttester {
+        warden_id: ElusivWardenID,
+    },
+
+    #[acc(signer, { signer, writable })]
+    #[acc(attester)]
+    #[pda(attester_account, BasicWardenAttesterMapAccount, pda_pubkey = attester.pubkey(), { writable, account_info })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    RevokeMetadataAttester {
+        warden_id: ElusivWardenID,
+    },
+
+    #[acc(attester, { signer })]
+    #[pda(attester_warden_account, BasicWardenAccount, pda_offset = Some(attester_warden_id))]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    AttestBasicWardenMetadata {
+        attester_warden_id: ElusivWardenID,
+        warden_id: ElusivWardenID,
+        asn: Option<u32>,
+        location: u16,
+        timezone: u16,
+        uses_proxy: bool,
     },
 
     // -------- Program state management --------

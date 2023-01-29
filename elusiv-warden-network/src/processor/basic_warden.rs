@@ -7,11 +7,13 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::sysvar::instructions;
 use crate::error::ElusivWardenNetworkError;
 use crate::processor::{current_timestamp, unix_timestamp_to_day_and_year};
-use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, BasicWardenOperatorAccount, Identifier};
+use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, BasicWardenOperatorAccount, Identifier, BasicWardenAttesterMapAccount};
 use crate::{
     warden::{WardensAccount, ElusivWardenID, ElusivBasicWardenConfig, ElusivBasicWarden},
     network::BasicWardenNetworkAccount,
 };
+
+use super::close_program_account;
 
 pub fn register_basic_warden<'a>(
     warden: &AccountInfo<'a>,
@@ -29,6 +31,7 @@ pub fn register_basic_warden<'a>(
     let basic_warden = ElusivBasicWarden {
         config,
         lut: Pubkey::new_from_array([0; 32]),
+        asn: None.into(),
         is_active: false,
         is_operator_confirmed: false,
         is_metadata_valid: None.into(),
@@ -152,6 +155,84 @@ pub fn update_basic_warden_lut(
 
     basic_warden.lut = *lut_account.key;
     warden_account.set_warden(&basic_warden);
+
+    Ok(())
+}
+
+pub const METADATA_ATTESTER_AUTHORITY: Pubkey = Pubkey::new_from_array([0; 32]);
+
+pub fn add_metadata_attester<'a>(
+    signer: &AccountInfo<'a>,
+    attester: &AccountInfo,
+    attester_account: &AccountInfo<'a>,
+    warden_account: &mut BasicWardenAccount,
+
+    _warden_id: ElusivWardenID
+) -> ProgramResult {
+    guard!(*signer.key == METADATA_ATTESTER_AUTHORITY, ElusivWardenNetworkError::InvalidSigner);
+
+    open_pda_account_with_associated_pubkey::<BasicWardenAttesterMapAccount>(
+        &crate::id(),
+        signer,
+        attester_account,
+        attester.key,
+        None,
+        None,
+    )?;
+
+    let mut warden = warden_account.get_warden();
+    warden.config.features.geo_data_attestation = true;
+    warden_account.set_warden(&warden);
+
+    Ok(())
+}
+
+pub fn revoke_metadata_attester<'a>(
+    signer: &AccountInfo<'a>,
+    _attester: &AccountInfo,
+    attester_account: &AccountInfo<'a>,
+    warden_account: &mut BasicWardenAccount,
+
+    _warden_id: ElusivWardenID
+) -> ProgramResult {
+    guard!(*signer.key == METADATA_ATTESTER_AUTHORITY, ElusivWardenNetworkError::InvalidSigner);
+
+    close_program_account(signer, signer, attester_account)?;
+
+    let mut warden = warden_account.get_warden();
+    warden.config.features.geo_data_attestation = false;
+    warden_account.set_warden(&warden);
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn attest_basic_warden_metadata(
+    attester: &AccountInfo,
+    attester_warden_account: &BasicWardenAccount,
+    warden_account: &mut BasicWardenAccount,
+
+    _attester_warden_id: ElusivWardenID,
+    _warden_id: ElusivWardenID,
+    asn: Option<u32>,
+    location: u16,
+    timezone: u16,
+    uses_proxy: bool,
+) -> ProgramResult {
+    let attester_warden = attester_warden_account.get_warden();
+    guard!(*attester.key == attester_warden.config.key, ElusivWardenNetworkError::InvalidSigner);
+    guard!(attester_warden.config.features.geo_data_attestation, ElusivWardenNetworkError::InvalidSigner);
+
+    let mut warden = warden_account.get_warden();
+    let warden_supplied_invalid_data = warden.config.timezone != timezone ||
+        warden.config.location != location ||
+        warden.config.uses_proxy != uses_proxy;
+
+    warden.asn = asn.into();
+    warden.config.timezone = timezone;
+    warden.config.location = location;
+    warden.config.uses_proxy = uses_proxy;
+    warden.is_metadata_valid = Some(!warden_supplied_invalid_data).into();
 
     Ok(())
 }
