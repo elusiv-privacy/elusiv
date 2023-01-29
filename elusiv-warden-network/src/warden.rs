@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_utils::guard;
 use solana_program::{pubkey::Pubkey, program_error::ProgramError};
-use elusiv_types::{accounts::PDAAccountData, TOKENS};
+use elusiv_types::{accounts::PDAAccountData, TOKENS, ElusivOption};
 use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError};
 
 /// A unique ID publicly identifying a single Warden
@@ -14,7 +14,6 @@ pub struct WardensAccount {
     pda_data: PDAAccountData,
 
     pub next_warden_id: ElusivWardenID,
-    pub full_network_configured: bool,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
@@ -65,14 +64,15 @@ pub enum TlsMode {
 pub struct ElusivBasicWardenConfig {
     pub ident: Identifier,
     pub key: Pubkey,
-    pub owner: Pubkey,
+    pub operator: ElusivOption<Pubkey>,
 
     pub addr: Ipv4Addr,
-    pub port: u16,
+    pub rpc_port: u16,
     pub tls_mode: TlsMode,
 
     pub jurisdiction: u16,
     pub timezone: u16,
+    pub location: u16,
 
     pub version: [u16; 3],
     pub platform: Identifier,
@@ -85,10 +85,18 @@ pub struct ElusivBasicWardenConfig {
 pub struct ElusivBasicWarden {
     pub config: ElusivBasicWardenConfig,
     pub lut: Pubkey,
+
+    pub is_operator_confirmed: bool,
+    pub is_metadata_valid: ElusivOption<bool>,
     pub is_active: bool,
+
     pub join_timestamp: u64,
-    /// The timestamp of the last change of `is_active`
+
+    /// Indicates the last time, `is_active` has been changed
     pub activation_timestamp: u64,
+
+    // Indicates the last time, this Warden has relayed a transaction
+    //pub last_relay_timestamp: ElusivOption<u64>,
 }
 
 /// An account associated with a single [`ElusivBasicWarden`]
@@ -125,7 +133,7 @@ impl WardenStatistics {
     }
 }
 
-/// An account associated to a single [`ElusivBasicWarden`] storing activity statistics for a single year
+/// An account associated with a single [`ElusivBasicWarden`] storing activity statistics for a single year
 #[elusiv_account(eager_type: true)]
 pub struct BasicWardenStatsAccount {
     pda_data: PDAAccountData,
@@ -135,4 +143,15 @@ pub struct BasicWardenStatsAccount {
     pub store: WardenStatistics,
     pub send: WardenStatistics,
     pub migrate: WardenStatistics,
+}
+
+/// An account associated with the operator of one or more [`ElusivBasicWarden`]s
+#[elusiv_account(eager_type: true)]
+pub struct BasicWardenOperatorAccount {
+    pda_data: PDAAccountData,
+
+    pub key: Pubkey,
+    pub ident: Identifier,
+    pub url: Identifier,
+    pub jurisdiction: ElusivOption<u16>,
 }

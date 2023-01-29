@@ -1,5 +1,8 @@
 #![allow(clippy::too_many_arguments)]
 
+use borsh::{BorshDeserialize, BorshSerialize};
+use elusiv_types::{ElusivOption, AccountRepr};
+use solana_program::{system_program, sysvar::instructions};
 use crate::macros::*;
 use crate::state::fee::ProgramFee;
 use crate::types::{Proof, U256};
@@ -19,9 +22,6 @@ use crate::state::{
 };
 use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
 use crate::proof::{VerificationAccount, vkey::{VKeyAccount, VKeyAccountManangerAccount}};
-use elusiv_types::{ElusivOption, AccountRepr};
-use solana_program::{system_program, sysvar::instructions};
-use borsh::{BorshDeserialize, BorshSerialize};
 
 #[cfg(feature = "elusiv-client")]
 pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount, WritableSignerAccount};

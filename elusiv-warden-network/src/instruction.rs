@@ -11,8 +11,9 @@ use crate::warden::{
     ElusivBasicWardenConfig,
     WardensAccount,
     BasicWardenAccount,
+    BasicWardenOperatorAccount,
     BasicWardenMapAccount,
-    BasicWardenStatsAccount,
+    BasicWardenStatsAccount, Identifier,
 };
 use crate::macros::ElusivInstruction;
 use crate::processor;
@@ -43,6 +44,21 @@ pub enum ElusivWardenNetworkInstruction {
     RegisterBasicWarden {
         warden_id: ElusivWardenID,
         config: ElusivBasicWardenConfig,
+    },
+
+    #[acc(operator, { signer, writable })]
+    #[pda(operator_account, BasicWardenOperatorAccount, pda_pubkey = operator.pubkey(), { writable, find_pda, account_info })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    RegisterBasicWardenOperator {
+        ident: Identifier,
+        url: Identifier,
+        jurisdiction: Option<u16>,
+    },
+
+    #[acc(operator, { signer })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    ConfirmBasicWardenOperation {
+        warden_id: ElusivWardenID,
     },
 
     #[acc(warden, { signer })]

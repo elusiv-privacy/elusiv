@@ -4,6 +4,7 @@ use solana_program::program_error::ProgramError;
 #[derive(Copy, Clone, Debug)]
 pub enum ElusivWardenNetworkError {
     InvalidSignature,
+    InvalidSigner,
     WardenRegistrationError,
     ProposalError,
     VotingError,

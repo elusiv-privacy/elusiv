@@ -7,7 +7,7 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::sysvar::instructions;
 use crate::error::ElusivWardenNetworkError;
 use crate::processor::current_timestamp;
-use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount};
+use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, BasicWardenOperatorAccount, Identifier};
 use crate::{
     warden::{WardensAccount, ElusivWardenID, ElusivBasicWardenConfig, ElusivBasicWarden},
     network::BasicWardenNetworkAccount,
@@ -31,6 +31,8 @@ pub fn register_basic_warden<'a>(
         config,
         lut: Pubkey::new_from_array([0; 32]),
         is_active: false,
+        is_operator_confirmed: false,
+        is_metadata_valid: None.into(),
         activation_timestamp: current_timestamp,
         join_timestamp: current_timestamp,
     };
@@ -67,6 +69,53 @@ pub fn register_basic_warden<'a>(
 
     basic_network_account.try_add_member(warden_id)?;
     
+    Ok(())
+}
+
+pub fn register_basic_warden_operator<'a>(
+    operator: &AccountInfo<'a>,
+    operator_account: &AccountInfo<'a>,
+
+    ident: Identifier,
+    url: Identifier,
+    jurisdiction: Option<u16>,
+) -> ProgramResult {
+    open_pda_account_with_associated_pubkey::<BasicWardenOperatorAccount>(
+        &crate::id(),
+        operator,
+        operator_account,
+        operator.key,
+        None,
+        None,
+    )?;
+
+    pda_account!(mut operator_account, BasicWardenOperatorAccount, operator_account);
+    operator_account.set_ident(&ident);
+    operator_account.set_url(&url);
+    operator_account.set_jurisdiction(&jurisdiction.into());
+
+    Ok(())
+}
+
+pub fn confirm_basic_warden_operation(
+    operator: &AccountInfo,
+    warden_account: &mut BasicWardenAccount,
+
+    _warden_id: ElusivWardenID,
+) -> ProgramResult {
+    let mut warden = warden_account.get_warden();
+    warden.is_operator_confirmed = true;
+    match warden.config.operator.option() {
+        Some(key) => {
+            guard!(*operator.key == key, ElusivWardenNetworkError::InvalidSigner);
+        }
+        None => {
+            warden.config.operator = Some(*operator.key).into();
+        }
+    }
+
+    warden_account.set_warden(&warden);
+
     Ok(())
 }
 
