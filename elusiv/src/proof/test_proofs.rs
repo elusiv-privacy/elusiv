@@ -1,5 +1,8 @@
-use crate::{types::{Proof, U256}, fields::u256_from_str_skip_mr};
 use super::proof_from_str_projective;
+use crate::{
+    fields::u256_from_str_skip_mr,
+    types::{Proof, U256},
+};
 
 pub struct TestProof {
     pub proof: Proof,
@@ -10,7 +13,8 @@ impl TestProof {
     pub fn new(proof: Proof, public_inputs: &[&str]) -> Self {
         TestProof {
             proof,
-            public_inputs: public_inputs.iter()
+            public_inputs: public_inputs
+                .iter()
                 .map(|x| u256_from_str_skip_mr(x))
                 .collect(),
         }

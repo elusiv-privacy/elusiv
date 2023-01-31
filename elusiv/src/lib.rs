@@ -2,8 +2,8 @@
 
 pub mod bytes;
 pub mod commitment;
-mod error;
 pub mod entrypoint;
+mod error;
 pub mod fields;
 pub mod instruction;
 mod macros;
@@ -14,12 +14,14 @@ pub mod state;
 pub mod token;
 pub mod types;
 
-pub use entrypoint::*;
 pub use elusiv_computation;
+pub use entrypoint::*;
 
 #[macro_use]
 #[cfg(test)]
 extern crate static_assertions;
 
 #[cfg(all(feature = "devnet", feature = "mainnet"))]
-compile_error!("The 'devnet' and 'mainnet' features are mutually exclusive and cannot be used together.");
+compile_error!(
+    "The 'devnet' and 'mainnet' features are mutually exclusive and cannot be used together."
+);

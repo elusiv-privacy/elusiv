@@ -1,16 +1,16 @@
-mod interpreter;
 mod grammar;
+mod interpreter;
 mod parser;
 mod storage;
 
+use elusiv_computation::compute_unit_optimization;
 use elusiv_utils::batched_instructions_tx_count;
 use parser::try_parse_usize;
 use proc_macro::TokenStream;
-use proc_macro2::{ TokenTree, Delimiter, TokenTree::* };
-use std::iter::IntoIterator;
-use std::collections::HashMap;
+use proc_macro2::{Delimiter, TokenTree, TokenTree::*};
 use quote::quote;
-use elusiv_computation::compute_unit_optimization;
+use std::collections::HashMap;
+use std::iter::IntoIterator;
 
 /// For computations that are so costly, that they cannot be performed in a single step
 /// - This macro splits the computation you describe into `n` separate steps, all within a specified compute-unit budget.
@@ -20,13 +20,13 @@ use elusiv_computation::compute_unit_optimization;
 ///     - for each type `Type` that needs to be used in multiple steps,
 ///     - a field `ram_type: RAMType<Type>` needs to exist on `storage`,
 ///     - where `RAMType` implements `elusiv_computation::RAM`.
-/// 
+///
 /// # Macro output
 /// - a function `name_partial(round: usize, param_0, .., param_k) -> Result<Option<ReturnType>, &'static str>`
-/// - the count of rounds `NAME_ROUNDS_COUNT: usize` (function calls) required to complete the computation 
+/// - the count of rounds `NAME_ROUNDS_COUNT: usize` (function calls) required to complete the computation
 /// - this means after `NAME_ROUNDS_COUNT` calls of `name_partial` it will return `Ok(Some(v))` if all went well
 /// - **IMPORTANT**: it's the callers responsibility to make sure that if a single step of the computation return `Err(_)` no further computations are performed, otherwise undefined behavior would result
-/// 
+///
 /// # Syntax
 /// - A `Computation` consists of multiple `ComputationScope`s
 /// - `ComputationScope`:
@@ -51,12 +51,12 @@ use elusiv_computation::compute_unit_optimization;
 /// - `Expr`:
 ///     - unary-operators: deref and ref
 ///     - binary-operators: add, mul, sub, less, larger, equals (single Equal sign for both assignment and comparison)
-///     - ids, literals, function calls, arrays, 
+///     - ids, literals, function calls, arrays,
 ///     - a safe unwrap expr: `unwrap <<Expr>>` will cause the function to return `Err(_)` if the expr matches `None`
 /// - `Id`s can either be single idents or idents intersected by dots (:: accessors not allowed atm)
-/// 
+///
 /// - **TODO**: add compute-budget documentation
-/// 
+///
 /// # Usage
 /// ```
 /// elusiv_computations!(
@@ -70,17 +70,17 @@ use elusiv_computation::compute_unit_optimization;
 ///             return 2 * a;
 ///         }
 ///     }
-/// 
+///
 ///     main_fn(&mut storage: Storage, v: u32) -> u32 {
 ///         {   /// 100
 ///             let a: u32 = v;
 ///         }
-///         { 
+///         {
 ///             partial v = double(storage, a) {
 ///                 a = v;
 ///             }
 ///         }
-///         { 
+///         {
 ///             partial v = double(storage, a) {
 ///                 a = v;
 ///             }
@@ -100,34 +100,33 @@ fn impl_mult_step_computations(stream: proc_macro2::TokenStream) -> proc_macro2:
     let input: Vec<TokenTree> = stream.into_iter().collect();
 
     match &input[..] {
-        [
-            TokenTree::Ident(fn_name),
-            TokenTree::Punct(_),
-            TokenTree::Ident(computation_name),
-            TokenTree::Punct(_),
-            TokenTree::Literal(compute_budget_per_ix),
-            TokenTree::Punct(_),
-            tail @ ..
-        ] => {
+        [TokenTree::Ident(fn_name), TokenTree::Punct(_), TokenTree::Ident(computation_name), TokenTree::Punct(_), TokenTree::Literal(compute_budget_per_ix), TokenTree::Punct(_), tail @ ..] =>
+        {
             let mut rounds_map = HashMap::new();
             let mut compute_units_map = HashMap::new();
             let stream = multi_step_computation(tail, &mut rounds_map, &mut compute_units_map);
 
             // Create compute unit stream for last partial computation
             let cus = compute_units_map[&fn_name.to_string()].clone();
-            let compute_budget: u32 = try_parse_usize(&compute_budget_per_ix.to_string()).unwrap() as u32;
-            let optimization = compute_unit_optimization(cus.iter().map(|&x| x as u32).collect(), compute_budget);
+            let compute_budget: u32 =
+                try_parse_usize(&compute_budget_per_ix.to_string()).unwrap() as u32;
+            let optimization =
+                compute_unit_optimization(cus.iter().map(|&x| x as u32).collect(), compute_budget);
             let size = optimization.instructions.len();
             let total_rounds = optimization.total_rounds;
             let total_compute_units = optimization.total_compute_units;
-            let computation_name: proc_macro2::TokenStream = computation_name.to_string().parse().unwrap();
-            let instructions = optimization.instructions.iter()
-                .fold(quote!{}, |acc, &rounds| {
+            let computation_name: proc_macro2::TokenStream =
+                computation_name.to_string().parse().unwrap();
+            let instructions = optimization
+                .instructions
+                .iter()
+                .fold(quote! {}, |acc, &rounds| {
                     assert!(rounds <= u8::MAX as u32);
                     let rounds: proc_macro2::TokenStream = rounds.to_string().parse().unwrap();
                     quote! { #acc #rounds, }
                 });
-            let tx_count = batched_instructions_tx_count(optimization.instructions.len(), compute_budget);
+            let tx_count =
+                batched_instructions_tx_count(optimization.instructions.len(), compute_budget);
 
             quote! {
                 pub struct #computation_name { }
@@ -142,8 +141,8 @@ fn impl_mult_step_computations(stream: proc_macro2::TokenStream) -> proc_macro2:
 
                 #stream
             }
-        },
-        _ => panic!("Invalid syntax")
+        }
+        _ => panic!("Invalid syntax"),
     }
 }
 
@@ -154,7 +153,8 @@ fn multi_step_computation(
 ) -> proc_macro2::TokenStream {
     match input {
         // matches: `name{<generics>}(params) -> ty, {computation}`
-        [ Ident(id), Group(generics), Group(p), Punct(arrow0), Punct(arrow1), Ident(ty), Group(c), tail @ ..  ] => {
+        [Ident(id), Group(generics), Group(p), Punct(arrow0), Punct(arrow1), Ident(ty), Group(c), tail @ ..] =>
+        {
             assert_eq!(p.delimiter(), Delimiter::Parenthesis);
             assert_eq!(c.delimiter(), Delimiter::Brace);
             assert_eq!(arrow0.to_string(), "-");
@@ -166,32 +166,45 @@ fn multi_step_computation(
             let ty = ty.to_string().parse().unwrap();
 
             // Optional generics
-            let generics: proc_macro2::TokenStream = match &generics.stream().into_iter().collect::<Vec<TokenTree>>()[..] {
-                gen @ [ TokenTree::Punct(open), .., TokenTree::Punct(close) ] => {
-                    assert_eq!(open.to_string(), "<");
-                    assert_eq!(close.to_string(), ">");
+            let generics: proc_macro2::TokenStream =
+                match &generics.stream().into_iter().collect::<Vec<TokenTree>>()[..] {
+                    gen @ [TokenTree::Punct(open), .., TokenTree::Punct(close)] => {
+                        assert_eq!(open.to_string(), "<");
+                        assert_eq!(close.to_string(), ">");
 
-                    let mut g = quote::quote!{};
-                    for t in gen { g.extend(proc_macro2::TokenStream::from(t.clone())); }
-                    g
-                },
-                _ => quote::quote!{}
-            };
+                        let mut g = quote::quote! {};
+                        for t in gen {
+                            g.extend(proc_macro2::TokenStream::from(t.clone()));
+                        }
+                        g
+                    }
+                    _ => quote::quote! {},
+                };
 
-            let (rounds, compute_units, stream) = interpreter::interpret(computation, id, generics, params, ty, previous_computation_rounds, previous_compute_units);
+            let (rounds, compute_units, stream) = interpreter::interpret(
+                computation,
+                id,
+                generics,
+                params,
+                ty,
+                previous_computation_rounds,
+                previous_compute_units,
+            );
             previous_computation_rounds.insert(id.clone(), rounds);
-            previous_compute_units.insert(format!("{}_zero", id.clone()), vec![0; compute_units.len()]);
+            previous_compute_units
+                .insert(format!("{}_zero", id.clone()), vec![0; compute_units.len()]);
             previous_compute_units.insert(id.clone(), compute_units);
-            let tail = multi_step_computation(tail, previous_computation_rounds, previous_compute_units);
+            let tail =
+                multi_step_computation(tail, previous_computation_rounds, previous_compute_units);
 
-            quote!{
+            quote! {
                 #stream
                 #tail
             }
         }
 
         // matches: `name(params) -> ty, {computation}`
-        [ Ident(id), Group(p), Punct(arrow0), Punct(arrow1), Ident(ty), Group(c), tail @ ..  ] => {
+        [Ident(id), Group(p), Punct(arrow0), Punct(arrow1), Ident(ty), Group(c), tail @ ..] => {
             assert_eq!(p.delimiter(), Delimiter::Parenthesis);
             assert_eq!(c.delimiter(), Delimiter::Brace);
             assert_eq!(arrow0.to_string(), "-");
@@ -202,26 +215,38 @@ fn multi_step_computation(
             let params = p.stream();
             let ty = ty.to_string().parse().unwrap();
 
-            let (rounds, compute_units, stream) = interpreter::interpret(computation, id, quote!{}, params, ty, previous_computation_rounds, previous_compute_units);
+            let (rounds, compute_units, stream) = interpreter::interpret(
+                computation,
+                id,
+                quote! {},
+                params,
+                ty,
+                previous_computation_rounds,
+                previous_compute_units,
+            );
             previous_computation_rounds.insert(id.clone(), rounds);
-            previous_compute_units.insert(format!("{}_zero", id.clone()), vec![0; compute_units.len()]);
+            previous_compute_units
+                .insert(format!("{}_zero", id.clone()), vec![0; compute_units.len()]);
             previous_compute_units.insert(id.clone(), compute_units);
-            let tail = multi_step_computation(tail, previous_computation_rounds, previous_compute_units);
+            let tail =
+                multi_step_computation(tail, previous_computation_rounds, previous_compute_units);
 
-            quote!{
+            quote! {
                 #stream
                 #tail
             }
         }
 
-        [] => { quote!{} }
-        [ Punct(comma), tail @ .. ] => {
+        [] => {
+            quote! {}
+        }
+        [Punct(comma), tail @ ..] => {
             assert_eq!(comma.to_string(), ",");
 
             multi_step_computation(tail, previous_computation_rounds, previous_compute_units)
         }
 
-        tree => panic!("Invalid macro input {:?}", tree) 
+        tree => panic!("Invalid macro input {:?}", tree),
     }
 }
 
@@ -230,13 +255,15 @@ mod tests {
     use super::*;
 
     macro_rules! assert_eq_stream {
-        ($a: expr, $b: expr) => { assert_eq!($a.to_string(), $b.to_string()) };
+        ($a: expr, $b: expr) => {
+            assert_eq!($a.to_string(), $b.to_string())
+        };
     }
 
     #[test]
     fn test_simple_computation() {
         // This is the macro input
-        let input = quote!{
+        let input = quote! {
             fn_two, FnTwoComputation,
 
             fn_name() -> isize {
@@ -263,8 +290,8 @@ mod tests {
         };
 
         // And it should "compile" to this code:
-        let expected = quote!{
-            pub const FN_NAME_ROUNDS_COUNT: usize = 3usize; 
+        let expected = quote! {
+            pub const FN_NAME_ROUNDS_COUNT: usize = 3usize;
 
             fn fn_name_partial(round: usize, ) -> Result<Option<isize>, ElusivError> {
                 match round {
@@ -293,7 +320,7 @@ mod tests {
                 Ok(None)
             }
 
-            pub const FN_TWO_ROUNDS_COUNT: usize = 2usize; 
+            pub const FN_TWO_ROUNDS_COUNT: usize = 2usize;
 
             fn fn_two_partial(round: usize, ) -> Result<Option<isize>, ElusivError> {
                 match round {

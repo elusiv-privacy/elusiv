@@ -21,7 +21,10 @@ impl Vars {
 
     pub fn get_var(&mut self, id: &str) -> Option<&mut Var> {
         let pos = self.0.iter().position(|var| var.id == id);
-        match pos { Some(p) => Some(&mut self.0[p]), _ => None }
+        match pos {
+            Some(p) => Some(&mut self.0[p]),
+            _ => None,
+        }
     }
 }
 
@@ -36,7 +39,13 @@ pub struct Var {
 
 impl Var {
     pub fn new(id: String, ty: Option<String>, declaration: Option<usize>) -> Self {
-        Var { id, ty, declaration, usages: vec![], assigns: vec![] }
+        Var {
+            id,
+            ty,
+            declaration,
+            usages: vec![],
+            assigns: vec![],
+        }
     }
 
     pub fn add(scopes: &mut Vec<usize>, scope: usize) {
@@ -68,29 +77,35 @@ pub struct StorageMapping {
 impl StorageMappings {
     pub fn read(&mut self, r: MemoryRead) -> TokenStream {
         let m = self.get_mapping(&r.id.ty);
-        if !m.contains(&r.id.id) { m.allocate(&r.id.id); }
+        if !m.contains(&r.id.id) {
+            m.allocate(&r.id.id);
+        }
 
         let index = m.get_position(&r.id.id);
         let name = ram_name(&r.id.ty);
         let id = &r.id.id.parse::<TokenStream>().unwrap();
 
         if r.mutable {
-            quote!{ let mut #id = #name.read(#index); }
+            quote! { let mut #id = #name.read(#index); }
         } else {
-            quote!{ let #id = #name.read(#index); }
+            quote! { let #id = #name.read(#index); }
         }
     }
 
     pub fn free(&mut self, r: MemoryId) {
         let m = self.get_mapping(&r.ty);
-        if !m.contains(&r.id) { m.allocate(&r.id); }
+        if !m.contains(&r.id) {
+            m.allocate(&r.id);
+        }
 
         m.deallocate(&r.id);
     }
 
     pub fn write(&mut self, w: MemoryId) -> TokenStream {
         let m = self.get_mapping(&w.ty);
-        if !m.contains(&w.id) { m.allocate(&w.id); }
+        if !m.contains(&w.id) {
+            m.allocate(&w.id);
+        }
 
         let index = m.get_position(&w.id);
         let name = ram_name(&w.ty);
@@ -101,11 +116,11 @@ impl StorageMappings {
         if first < index {
             m.deallocate(&w.id);
             m.allocate(&w.id);
-            quote!{
+            quote! {
                 #name.write(#id, #first);
             }
         } else {
-            quote!{ #name.write(#id, #index); }
+            quote! { #name.write(#id, #index); }
         }
     }
 
@@ -123,21 +138,38 @@ impl StorageMappings {
 
 impl StorageMapping {
     pub fn new(size: usize, ty: String) -> Self {
-        StorageMapping { mapping: vec![None; size], ty }
+        StorageMapping {
+            mapping: vec![None; size],
+            ty,
+        }
     }
 
     pub fn contains(&self, id: &str) -> bool {
-        let r = self.mapping.iter().find(|x| match x { None => false, Some(x) => x == id });
+        let r = self.mapping.iter().find(|x| match x {
+            None => false,
+            Some(x) => x == id,
+        });
         matches!(r, Some(_))
     }
 
     fn get_position(&self, id: &str) -> usize {
-        self.mapping.iter().position(|x| match x { None => false, Some(x) => x == id }).unwrap()
+        self.mapping
+            .iter()
+            .position(|x| match x {
+                None => false,
+                Some(x) => x == id,
+            })
+            .unwrap()
     }
 
     fn first_free(&self) -> usize {
         for (i, m) in self.mapping.iter().enumerate() {
-            match m { None => { return i; }, Some(_) => { } }
+            match m {
+                None => {
+                    return i;
+                }
+                Some(_) => {}
+            }
         }
         panic!("No space left for allocation")
     }
@@ -145,24 +177,32 @@ impl StorageMapping {
     pub fn height(&self) -> usize {
         for i in 0..self.mapping.len() {
             let index = self.mapping.len() - 1 - i;
-            if self.mapping[index].is_some() { return index + 1 }
+            if self.mapping[index].is_some() {
+                return index + 1;
+            }
         }
         0
     }
 
     pub fn allocate(&mut self, id: &str) {
-        if self.contains(id) { panic!("Cannot allocate var '{}' twice", id) }
+        if self.contains(id) {
+            panic!("Cannot allocate var '{}' twice", id)
+        }
         let index = self.first_free();
         self.mapping[index] = Some(String::from(id));
     }
 
     pub fn deallocate(&mut self, id: &str) {
-        if !self.contains(id) { panic!("Cannot deallocate var '{}'", id) }
+        if !self.contains(id) {
+            panic!("Cannot deallocate var '{}'", id)
+        }
         let index = self.get_position(id);
         self.mapping[index] = None;
     }
 }
 
 pub fn ram_name(ty: &str) -> TokenStream {
-    format!("storage.ram_{}", ty.to_lowercase()).parse::<TokenStream>().unwrap()
+    format!("storage.ram_{}", ty.to_lowercase())
+        .parse::<TokenStream>()
+        .unwrap()
 }

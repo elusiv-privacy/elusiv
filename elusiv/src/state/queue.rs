@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
-use solana_program::program_error::ProgramError;
-use elusiv_types::{ProgramAccount, PDAAccountData};
-use crate::commitment::commitments_per_batch;
-use crate::error::ElusivError::{QueueIsFull, QueueIsEmpty, InvalidFeeVersion, InvalidQueueAccess};
-use crate::macros::{guard, elusiv_account};
 use crate::bytes::*;
+use crate::commitment::commitments_per_batch;
+use crate::error::ElusivError::{InvalidFeeVersion, InvalidQueueAccess, QueueIsEmpty, QueueIsFull};
+use crate::macros::{elusiv_account, guard};
 use crate::processor::CommitmentHashRequest;
+use elusiv_types::{PDAAccountData, ProgramAccount};
+use solana_program::program_error::ProgramError;
 
 /// Generates a [`QueueAccount`] and a [`Queue`] that implements the [`RingQueue`] trait
 macro_rules! queue_account {
@@ -29,10 +29,7 @@ macro_rules! queue_account {
         );
 
         #[cfg(test)]
-        const_assert_eq!(
-            <$id>::SIZE,
-            $size
-        );
+        const_assert_eq!(<$id>::SIZE, $size);
 
         pub struct $id<'a, 'b> {
             account: &'b mut $id_account<'a>,
@@ -40,19 +37,33 @@ macro_rules! queue_account {
 
         impl<'a, 'b> Queue<'a, 'b, $id_account<'a>> for $id<'a, 'b> {
             type T = $id<'a, 'b>;
-            fn new(account: &'b mut $id_account<'a>) -> Self::T { $id { account } }
+            fn new(account: &'b mut $id_account<'a>) -> Self::T {
+                $id { account }
+            }
         }
-        
+
         impl<'a, 'b> RingQueue for $id<'a, 'b> {
             type N = $ty_element;
             const CAPACITY: u32 = $size - 1;
-        
-            fn get_head(&self) -> u32 { self.account.get_head() }
-            fn set_head(&mut self, value: &u32) { self.account.set_head(value) }
-            fn get_tail(&self) -> u32 { self.account.get_tail() }
-            fn set_tail(&mut self, value: &u32) { self.account.set_tail(value) }
-            fn get_data(&self, index: usize) -> Self::N { self.account.get_raw_data(index) }
-            fn set_data(&mut self, index: usize, value: &Self::N) { self.account.set_raw_data(index, value) }
+
+            fn get_head(&self) -> u32 {
+                self.account.get_head()
+            }
+            fn set_head(&mut self, value: &u32) {
+                self.account.set_head(value)
+            }
+            fn get_tail(&self) -> u32 {
+                self.account.get_tail()
+            }
+            fn set_tail(&mut self, value: &u32) {
+                self.account.set_tail(value)
+            }
+            fn get_data(&self, index: usize) -> Self::N {
+                self.account.get_raw_data(index)
+            }
+            fn set_data(&mut self, index: usize, value: &Self::N) {
+                self.account.set_raw_data(index, value)
+            }
         }
     };
 }
@@ -63,7 +74,13 @@ pub trait Queue<'a, 'b, Account: ProgramAccount<'a>> {
 }
 
 // Queue used for storing commitments that should sequentially inserted into the active MT
-queue_account!(CommitmentQueue, CommitmentQueueAccount, b"commitment_queue", 240, CommitmentHashRequest);
+queue_account!(
+    CommitmentQueue,
+    CommitmentQueueAccount,
+    b"commitment_queue",
+    240,
+    CommitmentHashRequest
+);
 
 impl<'a, 'b> CommitmentQueue<'a, 'b> {
     /// Returns the next batch of commitments to be hashed together
@@ -88,7 +105,9 @@ impl<'a, 'b> CommitmentQueue<'a, 'b> {
             requests.push(request);
         }
 
-        if requests.is_empty() { return Err(QueueIsEmpty.into()) }
+        if requests.is_empty() {
+            return Err(QueueIsEmpty.into());
+        }
         Ok((requests, highest_batching_rate))
     }
 }
@@ -165,7 +184,9 @@ pub trait RingQueue {
         let tail = self.get_tail();
 
         while ptr != tail {
-            if self.get_data(ptr as usize) == *value { return true }
+            if self.get_data(ptr as usize) == *value {
+                return true;
+            }
             ptr = (ptr + 1) % Self::SIZE;
         }
 
@@ -201,8 +222,11 @@ pub trait RingQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        commitment::MAX_COMMITMENT_BATCHING_RATE,
+        fields::{fr_to_u256_le, u64_to_scalar},
+    };
     use assert_matches::assert_matches;
-    use crate::{commitment::MAX_COMMITMENT_BATCHING_RATE, fields::{u64_to_scalar, fr_to_u256_le}};
 
     struct TestQueue<const S: usize> {
         head: u32,
@@ -214,23 +238,41 @@ mod tests {
         type N = u32;
         const CAPACITY: u32 = S as u32 - 1;
 
-        fn get_head(&self) -> u32 { self.head }
-        fn set_head(&mut self, value: &u32) { self.head = *value; }
+        fn get_head(&self) -> u32 {
+            self.head
+        }
+        fn set_head(&mut self, value: &u32) {
+            self.head = *value;
+        }
 
-        fn get_tail(&self) -> u32 { self.tail }
-        fn set_tail(&mut self, value: &u32) { self.tail = *value; }
+        fn get_tail(&self) -> u32 {
+            self.tail
+        }
+        fn set_tail(&mut self, value: &u32) {
+            self.tail = *value;
+        }
 
-        fn get_data(&self, index: usize) -> u32 { self.data[index] }
-        fn set_data(&mut self, index: usize, value: &u32) { self.data[index] = *value; }
+        fn get_data(&self, index: usize) -> u32 {
+            self.data[index]
+        }
+        fn set_data(&mut self, index: usize, value: &u32) {
+            self.data[index] = *value;
+        }
     }
 
     impl<const S: usize> TestQueue<S> {
-        pub fn capacity(&self) -> u32 { Self::CAPACITY }
+        pub fn capacity(&self) -> u32 {
+            Self::CAPACITY
+        }
     }
 
     macro_rules! test_queue {
         ($id: ident, $size: literal, $head: literal, $tail: literal) => {
-            let mut $id = TestQueue { head: $head, tail: $tail, data: [0; $size] };
+            let mut $id = TestQueue {
+                head: $head,
+                tail: $tail,
+                data: [0; $size],
+            };
         };
     }
 
@@ -337,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_view() {
-        test_queue!(queue, 13, 0, 0); 
+        test_queue!(queue, 13, 0, 0);
 
         assert_matches!(queue.view(0), Err(_));
 
@@ -360,7 +402,7 @@ mod tests {
     #[test]
     fn test_remove() {
         test_queue!(queue, 13, 0, 0);
-        
+
         queue.enqueue(0).unwrap();
         queue.enqueue(1).unwrap();
         queue.enqueue(2).unwrap();
@@ -404,7 +446,12 @@ mod tests {
 
         // Incomplete batch
         for _ in 0..3 {
-            q.enqueue(CommitmentHashRequest { commitment: [0; 32], fee_version: 0, min_batching_rate: 2 }).unwrap();
+            q.enqueue(CommitmentHashRequest {
+                commitment: [0; 32],
+                fee_version: 0,
+                min_batching_rate: 2,
+            })
+            .unwrap();
         }
         assert_matches!(q.next_batch(), Err(_));
 
@@ -413,13 +460,12 @@ mod tests {
         for b in 0..=MAX_COMMITMENT_BATCHING_RATE {
             let c = commitments_per_batch(b as u32);
             for i in 0..c {
-                q.enqueue(
-                    CommitmentHashRequest {
-                        commitment: fr_to_u256_le(&u64_to_scalar(i as u64)),
-                        fee_version: 0,
-                        min_batching_rate: if i == 0 { b as u32 } else { 0 },
-                    }
-                ).unwrap();
+                q.enqueue(CommitmentHashRequest {
+                    commitment: fr_to_u256_le(&u64_to_scalar(i as u64)),
+                    fee_version: 0,
+                    min_batching_rate: if i == 0 { b as u32 } else { 0 },
+                })
+                .unwrap();
             }
         }
 
@@ -437,8 +483,18 @@ mod tests {
 
         // Mismatching fee
         q.clear();
-        q.enqueue(CommitmentHashRequest { commitment: [0; 32], fee_version: 0, min_batching_rate: 1 }).unwrap();
-        q.enqueue(CommitmentHashRequest { commitment: [0; 32], fee_version: 1, min_batching_rate: 1 }).unwrap();
+        q.enqueue(CommitmentHashRequest {
+            commitment: [0; 32],
+            fee_version: 0,
+            min_batching_rate: 1,
+        })
+        .unwrap();
+        q.enqueue(CommitmentHashRequest {
+            commitment: [0; 32],
+            fee_version: 1,
+            min_batching_rate: 1,
+        })
+        .unwrap();
         assert_matches!(q.next_batch(), Err(_));
     }
 }

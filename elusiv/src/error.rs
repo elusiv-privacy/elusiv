@@ -1,5 +1,5 @@
-use std::fmt;
 use solana_program::program_error::ProgramError;
+use std::fmt;
 
 pub type ElusivResult = Result<(), ElusivError>;
 

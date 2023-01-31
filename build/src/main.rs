@@ -1,6 +1,6 @@
+use std::{env, process::Command};
 use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames};
-use std::{process::Command, env};
 
 #[derive(Debug, StructOpt)]
 enum BuildTarget {
@@ -71,7 +71,12 @@ fn main() {
                 _ => {}
             }
         }
-        BuildCommand::Test{ target, unit, integration, tarpaulin } => {
+        BuildCommand::Test {
+            target,
+            unit,
+            integration,
+            tarpaulin,
+        } => {
             build_target = target;
 
             if unit {
@@ -94,25 +99,14 @@ fn main() {
     }
 
     let current_dir = env::current_dir().expect("Unable to get current directory");
-    let out_dir = current_dir
-        .join("../")
-        .join("lib")
-        .display()
-        .to_string();
+    let out_dir = current_dir.join("../").join("lib").display().to_string();
 
     let manifest = match build_target {
-        BuildTarget::Elusiv => {
-            current_dir
-                .join("../")
-                .join("elusiv")
-                .join("Cargo.toml")
-        }
-        BuildTarget::ElusivWardenNetwork => {
-            current_dir
-                .join("../")
-                .join("elusiv-warden-network")
-                .join("Cargo.toml")
-        }
+        BuildTarget::Elusiv => current_dir.join("../").join("elusiv").join("Cargo.toml"),
+        BuildTarget::ElusivWardenNetwork => current_dir
+            .join("../")
+            .join("elusiv-warden-network")
+            .join("Cargo.toml"),
     };
 
     let manifest_path = ["--manifest-path", &manifest.display().to_string()];

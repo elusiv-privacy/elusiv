@@ -1,5 +1,5 @@
+use super::{fee::ProgramFee, program_account::PDAAccountData};
 use crate::macros::elusiv_account;
-use super::{program_account::PDAAccountData, fee::ProgramFee};
 
 #[elusiv_account(eager_type: true)]
 pub struct GovernorAccount {

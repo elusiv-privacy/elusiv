@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 env:
   solana_version: 1.10.41
@@ -23,7 +23,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
           key: cargo-${{ runner.os }}-v0000-${{ hashFiles('**/Cargo.lock') }}
-      
+
       - uses: actions/cache@v2
         name: Cache elusiv target
         with:

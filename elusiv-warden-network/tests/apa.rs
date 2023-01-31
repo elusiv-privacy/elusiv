@@ -2,7 +2,10 @@ mod common;
 
 use common::*;
 use elusiv_types::{ElusivOption, UserAccount, WritableSignerAccount, SPL_TOKEN_COUNT};
-use elusiv_warden_network::{apa::{ApaProposal, ApaProponentRole, ApaLevel, ApaProposalAccount, ApaProposalsAccount}, instruction::ElusivWardenNetworkInstruction};
+use elusiv_warden_network::{
+    apa::{ApaLevel, ApaProponentRole, ApaProposal, ApaProposalAccount, ApaProposalsAccount},
+    instruction::ElusivWardenNetworkInstruction,
+};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 
@@ -27,8 +30,9 @@ async fn test_propose_apa_proposal() {
             proposal.clone(),
             WritableSignerAccount(test.payer()),
             UserAccount(Pubkey::new_unique()),
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     // Invalid token_id
     let mut proposal_1 = proposal.clone();
@@ -39,8 +43,9 @@ async fn test_propose_apa_proposal() {
             proposal_1,
             WritableSignerAccount(test.payer()),
             UserAccount(Pubkey::new_unique()),
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     for proposal_id in 0..3 {
         test.ix_should_succeed_simple(
@@ -49,11 +54,17 @@ async fn test_propose_apa_proposal() {
                 proposal.clone(),
                 WritableSignerAccount(test.payer()),
                 UserAccount(Pubkey::new_unique()),
-            )
-        ).await;
+            ),
+        )
+        .await;
     }
 
-    assert_eq!(3, test.eager_account::<ApaProposalsAccount, _>(None).await.number_of_proposals);
+    assert_eq!(
+        3,
+        test.eager_account::<ApaProposalsAccount, _>(None)
+            .await
+            .number_of_proposals
+    );
 
     let apa_proposal_account = test.eager_account::<ApaProposalAccount, _>(Some(0)).await;
     let mut proposal = proposal;

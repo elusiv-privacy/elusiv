@@ -1,8 +1,8 @@
-use std::fs;
 use elusiv_proc_macro_utils::pubkey_bytes;
 use proc_macro2::TokenStream;
 use quote::quote;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::fs;
 
 const TOKEN_TOML_PATH: &str = "/Token.toml";
 
@@ -32,15 +32,17 @@ pub fn impl_parse_tokens() -> TokenStream {
     let tokens: Tokens = toml::from_str(&contents).unwrap();
     let count = tokens.token.len();
 
-    let mut content = quote!{};
-    let mut symbols = quote!{};
+    let mut content = quote! {};
+    let mut symbols = quote! {};
 
     for (i, token) in tokens.token.iter().enumerate() {
         let ident = token.symbol.as_str();
         let sym: TokenStream = format!("{}_TOKEN_ID", token.symbol).parse().unwrap();
-        let sym_fn: TokenStream = format!("{}_token", token.symbol.to_lowercase()).parse().unwrap();
+        let sym_fn: TokenStream = format!("{}_token", token.symbol.to_lowercase())
+            .parse()
+            .unwrap();
         let id = i as u16;
-        symbols.extend(quote!{
+        symbols.extend(quote! {
             #[cfg(feature = "elusiv-client")]
             pub const #sym: u16 = #id;
 

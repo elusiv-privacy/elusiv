@@ -85,7 +85,11 @@ pub fn compute_unit_optimization(round_costs: Vec<u32>, max_cus: u32) -> Partial
     let total_rounds = start_round + rounds;
     assert!(total_rounds <= u16::MAX as u32); // assert this since `VerificationAccount` saves rounds as u16
 
-    PartialComputationResult { instructions, total_compute_units, total_rounds }
+    PartialComputationResult {
+        instructions,
+        total_compute_units,
+        total_rounds,
+    }
 }
 
 pub fn compute_unit_instructions(round_costs: Vec<u32>, max_cus: u32) -> Vec<u32> {

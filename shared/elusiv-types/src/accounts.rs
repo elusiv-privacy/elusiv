@@ -1,11 +1,11 @@
+use crate as elusiv_types;
+use crate::bytes::{BorshSerDeSized, ElusivOption};
 use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::account_info::{AccountInfo, next_account_info};
+use elusiv_derive::BorshSerDeSized;
+use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
-use elusiv_derive::BorshSerDeSized;
-use crate::bytes::{BorshSerDeSized, ElusivOption};
-use crate as elusiv_types;
 
 /// An account with a fixed size
 pub trait SizedAccount: Sized {
@@ -20,9 +20,9 @@ pub trait ProgramAccount<'a>: SizedAccount {
 }
 
 /// A program owned system-program account that can store data up to 10 MiB in size
-/// 
+///
 /// # Note
-/// 
+///
 /// - Each [`ChildAccount`] is bound to a single [`ParentAccount`].
 /// - Each [`ChildAccount`]'s data starts with the [`ChildAccountConfig`].
 pub trait ChildAccount: Sized {
@@ -36,7 +36,7 @@ pub trait ChildAccount: Sized {
         let mut config = ChildAccountConfig::try_from_slice(config_data)?;
 
         if config.is_in_use {
-            return Err(ProgramError::IllegalOwner)
+            return Err(ProgramError::IllegalOwner);
         }
         config.is_in_use = true;
         let v = config.try_to_vec()?;
@@ -54,7 +54,9 @@ pub fn split_child_account_data(data: &[u8]) -> Result<(&[u8], &[u8]), ProgramEr
 }
 
 /// Splits the accounts data into the [`ChildAccountConfig`] and inner-data mutably
-pub fn split_child_account_data_mut(data: &mut [u8]) -> Result<(&mut [u8], &mut [u8]), ProgramError> {
+pub fn split_child_account_data_mut(
+    data: &mut [u8],
+) -> Result<(&mut [u8], &mut [u8]), ProgramError> {
     let (config, inner_data) = data.split_at_mut(ChildAccountConfig::SIZE);
     Ok((config, inner_data))
 }
@@ -73,9 +75,9 @@ impl<A: ChildAccount> SizedAccount for A {
 }
 
 /// A [`ProgramAccount`] that itself "owns" one or more [`ChildAccount`]s
-/// 
+///
 /// # Note
-/// 
+///
 /// - A [`ChildAccount`] can be a PDA, but will most likely be data accounts (size > 10 KiB).
 pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
     /// The number of child-accounts
@@ -91,7 +93,7 @@ pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
         child_accounts: Vec<Option<&'b AccountInfo<'t>>>,
     ) -> Result<Self, ProgramError> {
         if child_accounts.len() != Self::COUNT {
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
         let mut s = Self::new(data)?;
@@ -111,18 +113,21 @@ pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
     fn get_child_pubkey(&self, index: usize) -> Option<Pubkey>;
 
     /// Returns the child-accounts [`AccountInfo`] for the specified index
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// - Each child-account has to be serialized using the [`ChildAccount`] struct.
     /// - Modifiying/accessing without the [`ChildAccount`] struct can lead to undefined behaviour.
     /// - Use `execute_on_sub_account` instead of `get_account_unsafe` directly.
-    unsafe fn get_child_account_unsafe(&self, child_index: usize) -> Result<&AccountInfo<'t>, ProgramError>;
+    unsafe fn get_child_account_unsafe(
+        &self,
+        child_index: usize,
+    ) -> Result<&AccountInfo<'t>, ProgramError>;
 
     /// Finds all `n elem [0; COUNT]` available child-accounts in an [`AccountInfo`]-iterator
-    /// 
+    ///
     /// # Notes
-    /// 
+    ///
     /// - All matched accounts are consumed from the iterator.
     /// - The accounts need to match the order in which their pubkeys are stored.
     /// - Any account which pubkey has been previously set can be used.
@@ -148,7 +153,11 @@ pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
                     #[allow(clippy::needless_range_loop)]
                     for child_index in i..Self::COUNT {
                         match child_pubkeys[child_index] {
-                            Some(pubkey) => if *account.key != pubkey { continue },
+                            Some(pubkey) => {
+                                if *account.key != pubkey {
+                                    continue;
+                                }
+                            }
                             None => continue,
                         }
 
@@ -157,7 +166,7 @@ pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
                         }
 
                         if writable && !account.is_writable {
-                            return Err(ProgramError::InvalidArgument)
+                            return Err(ProgramError::InvalidArgument);
                         }
 
                         accounts[child_index] = Some(account);
@@ -182,7 +191,8 @@ pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
         child_index: usize,
         closure: C,
     ) -> Result<T, ProgramError>
-    where C: FnOnce(&[u8]) -> T
+    where
+        C: FnOnce(&[u8]) -> T,
     {
         let account: &AccountInfo<'t> = unsafe { self.get_child_account_unsafe(child_index) }?;
         let data = &account.data.borrow()[..];
@@ -196,7 +206,8 @@ pub trait ParentAccount<'a, 'b, 't>: ProgramAccount<'a> {
         child_index: usize,
         closure: C,
     ) -> Result<T, ProgramError>
-    where C: FnOnce(&mut [u8]) -> T
+    where
+        C: FnOnce(&mut [u8]) -> T,
     {
         let account: &AccountInfo<'t> = unsafe { self.get_child_account_unsafe(child_index) }?;
         let data = &mut account.data.borrow_mut()[..];
@@ -214,13 +225,13 @@ pub trait PDAAccount {
 
     /// The PDA associated with no [`Pubkey`] and the [`None`] [`PDAOffset`]
     const FIRST_PDA: (Pubkey, u8);
-    
+
     #[cfg(feature = "elusiv-client")]
     const IDENT: &'static str;
 
     fn find(offset: PDAOffset) -> (Pubkey, u8) {
         if offset.is_none() {
-            return Self::FIRST_PDA
+            return Self::FIRST_PDA;
         }
 
         let seed = Self::seeds(Self::SEED, None, offset);
@@ -246,22 +257,24 @@ pub trait PDAAccount {
 
     fn create(offset: PDAOffset, bump: u8) -> Result<Pubkey, ProgramError> {
         if offset.is_none() {
-            return Ok(Self::FIRST_PDA.0)
+            return Ok(Self::FIRST_PDA.0);
         }
 
         let seed = Self::signers_seeds(None, offset, bump);
         let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
 
-        Pubkey::create_program_address(&seed, &Self::PROGRAM_ID)
-            .or(Err(ProgramError::InvalidSeeds))
+        Pubkey::create_program_address(&seed, &Self::PROGRAM_ID).or(Err(ProgramError::InvalidSeeds))
     }
 
-    fn create_with_pubkey(pubkey: Pubkey, offset: PDAOffset, bump: u8) -> Result<Pubkey, ProgramError> {
+    fn create_with_pubkey(
+        pubkey: Pubkey,
+        offset: PDAOffset,
+        bump: u8,
+    ) -> Result<Pubkey, ProgramError> {
         let seed = Self::signers_seeds(Some(pubkey), offset, bump);
         let seed: Vec<&[u8]> = seed.iter().map(|x| &x[..]).collect();
 
-        Pubkey::create_program_address(&seed, &Self::PROGRAM_ID)
-            .or(Err(ProgramError::InvalidSeeds))
+        Pubkey::create_program_address(&seed, &Self::PROGRAM_ID).or(Err(ProgramError::InvalidSeeds))
     }
 
     fn seeds(seed: &[u8], pubkey: Option<Pubkey>, offset: PDAOffset) -> Vec<Vec<u8>> {
@@ -285,9 +298,9 @@ pub trait PDAAccount {
     }
 
     /// Extracts the bump from an [`AccountInfo`]
-    /// 
+    ///
     /// # Note
-    /// 
+    ///
     /// This requires the account to store [`PDAAccountData`] as the leading data
     fn get_bump(account: &AccountInfo) -> u8 {
         account.data.borrow()[0]
@@ -295,15 +308,19 @@ pub trait PDAAccount {
 
     fn verify_account(account: &AccountInfo, offset: PDAOffset) -> ProgramResult {
         if Self::create(offset, Self::get_bump(account))? != *account.key {
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
         Ok(())
     }
 
-    fn verify_account_with_pubkey(account: &AccountInfo, pubkey: Pubkey, offset: PDAOffset) -> ProgramResult {
+    fn verify_account_with_pubkey(
+        account: &AccountInfo,
+        pubkey: Pubkey,
+        offset: PDAOffset,
+    ) -> ProgramResult {
         if Self::create_with_pubkey(pubkey, offset, Self::get_bump(account))? != *account.key {
-            return Err(ProgramError::InvalidArgument)
+            return Err(ProgramError::InvalidArgument);
         }
 
         Ok(())
@@ -369,7 +386,7 @@ macro_rules! impl_user_account {
     ($ty: ident) => {
         #[cfg(feature = "elusiv-client")]
         #[derive(Debug)]
-        pub struct $ty (pub Pubkey);
+        pub struct $ty(pub Pubkey);
 
         #[cfg(feature = "elusiv-client")]
         impl AccountRepr for $ty {

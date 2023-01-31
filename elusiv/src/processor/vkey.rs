@@ -1,8 +1,15 @@
+use crate::{
+    error::ElusivError,
+    processor::setup_child_account,
+    proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey},
+    types::U256,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_types::{ElusivOption, ChildAccountConfig, BorshSerDeSized, ProgramAccount, ParentAccount};
+use elusiv_types::{
+    BorshSerDeSized, ChildAccountConfig, ElusivOption, ParentAccount, ProgramAccount,
+};
 use elusiv_utils::{guard, open_pda_account_with_offset};
-use solana_program::{entrypoint::ProgramResult, account_info::AccountInfo};
-use crate::{proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey}, error::ElusivError, types::U256, processor::setup_child_account};
+use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
 pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 964;
 
@@ -31,13 +38,7 @@ pub fn create_vkey_account<'a>(
 
     // TODO: require specific authority as signer in mainnet
 
-    open_pda_account_with_offset::<VKeyAccount>(
-        &crate::id(),
-        signer,
-        vkey_account,
-        vkey_id,
-        None,
-    )?;
+    open_pda_account_with_offset::<VKeyAccount>(&crate::id(), signer, vkey_account, vkey_id, None)?;
 
     let data = &mut vkey_account.data.borrow_mut()[..];
     let mut vkey_account = VKeyAccount::new(data)?;
@@ -45,12 +46,13 @@ pub fn create_vkey_account<'a>(
     vkey_account.set_deploy_authority(&deploy_authority);
     vkey_account.set_public_inputs_count(&public_inputs_count);
 
-    let binary_data_account_size = VerifyingKey::source_size(public_inputs_count as usize) + ChildAccountConfig::SIZE;
+    let binary_data_account_size =
+        VerifyingKey::source_size(public_inputs_count as usize) + ChildAccountConfig::SIZE;
     setup_child_account(
         &mut vkey_account,
         vkey_binary_data_account,
         0,
-        false,  // don't care about zeroness, signer can submit any data
+        false, // don't care about zeroness, signer can submit any data
         Some(binary_data_account_size),
     )?;
 
@@ -66,10 +68,16 @@ pub fn set_vkey_account_data(
     data_position: u32,
     packet: VKeyAccountDataPacket,
 ) -> ProgramResult {
-    guard!(!vkey_account.get_is_frozen(), ElusivError::InvalidAccountState);
+    guard!(
+        !vkey_account.get_is_frozen(),
+        ElusivError::InvalidAccountState
+    );
 
     if let Some(deploy_authority) = vkey_account.get_deploy_authority().option() {
-        guard!(signer.key.to_bytes() == deploy_authority, ElusivError::InvalidAccount);
+        guard!(
+            signer.key.to_bytes() == deploy_authority,
+            ElusivError::InvalidAccount
+        );
     }
 
     let public_inputs_count = vkey_account.get_public_inputs_count();
@@ -81,7 +89,8 @@ pub fn set_vkey_account_data(
     guard!(start < len, ElusivError::InvalidPublicInputs);
 
     vkey_account.execute_on_child_account_mut(0, |data| {
-        data[start..end - cutoff].copy_from_slice(&packet.0[..VKEY_ACCOUNT_DATA_PACKET_SIZE - cutoff])
+        data[start..end - cutoff]
+            .copy_from_slice(&packet.0[..VKEY_ACCOUNT_DATA_PACKET_SIZE - cutoff])
     })?;
 
     Ok(())
@@ -94,10 +103,16 @@ pub fn freeze_vkey_account(
 
     _vkey_id: u32,
 ) -> ProgramResult {
-    guard!(!vkey_account.get_is_frozen(), ElusivError::InvalidAccountState);
+    guard!(
+        !vkey_account.get_is_frozen(),
+        ElusivError::InvalidAccountState
+    );
 
     if let Some(deploy_authority) = vkey_account.get_deploy_authority().option() {
-        guard!(signer.key.to_bytes() == deploy_authority, ElusivError::InvalidAccount);
+        guard!(
+            signer.key.to_bytes() == deploy_authority,
+            ElusivError::InvalidAccount
+        );
     }
 
     vkey_account.set_is_frozen(&true);
@@ -107,9 +122,14 @@ pub fn freeze_vkey_account(
 
 #[cfg(test)]
 mod test {
-    use assert_matches::assert_matches;
-    use crate::{processor::vkey_account, proof::vkey::{TestVKey, VerifyingKeyInfo}, macros::test_account_info, bytes::div_ceiling_usize};
     use super::*;
+    use crate::{
+        bytes::div_ceiling_usize,
+        macros::test_account_info,
+        processor::vkey_account,
+        proof::vkey::{TestVKey, VerifyingKeyInfo},
+    };
+    use assert_matches::assert_matches;
 
     #[test]
     fn test_set_vkey_account_data() {
@@ -117,27 +137,36 @@ mod test {
         vkey_account!(vkey_account, TestVKey);
         test_account_info!(signer);
 
-        vkey_account.execute_on_child_account_mut(0, |d| {
-            for b in d.iter_mut() {
-                *b = 0;
-            }
-        }).unwrap();
+        vkey_account
+            .execute_on_child_account_mut(0, |d| {
+                for b in d.iter_mut() {
+                    *b = 0;
+                }
+            })
+            .unwrap();
 
-        let positions = div_ceiling_usize(VerifyingKey::source_size(TestVKey::public_inputs_count()), VKEY_ACCOUNT_DATA_PACKET_SIZE);
+        let positions = div_ceiling_usize(
+            VerifyingKey::source_size(TestVKey::public_inputs_count()),
+            VKEY_ACCOUNT_DATA_PACKET_SIZE,
+        );
         for i in 0..positions {
-            let slice = &data[i * VKEY_ACCOUNT_DATA_PACKET_SIZE..std::cmp::min((i + 1) * VKEY_ACCOUNT_DATA_PACKET_SIZE, data.len())];
+            let slice = &data[i * VKEY_ACCOUNT_DATA_PACKET_SIZE
+                ..std::cmp::min((i + 1) * VKEY_ACCOUNT_DATA_PACKET_SIZE, data.len())];
             set_vkey_account_data(
                 &signer,
                 &mut vkey_account,
                 0,
                 i as u32,
                 VKeyAccountDataPacket(slice.to_vec()),
-            ).unwrap();
+            )
+            .unwrap();
         }
 
-        vkey_account.execute_on_child_account(0, |d| {
-            assert_eq!(d, data);
-        }).unwrap();
+        vkey_account
+            .execute_on_child_account(0, |d| {
+                assert_eq!(d, data);
+            })
+            .unwrap();
     }
 
     #[test]
@@ -146,9 +175,11 @@ mod test {
         test_account_info!(signer);
 
         vkey_account.set_public_inputs_count(&TestVKey::PUBLIC_INPUTS_COUNT);
-        vkey_account.execute_on_child_account_mut(0, |data| {
-            data.copy_from_slice(&TestVKey::verifying_key_source())
-        }).unwrap();
+        vkey_account
+            .execute_on_child_account_mut(0, |data| {
+                data.copy_from_slice(&TestVKey::verifying_key_source())
+            })
+            .unwrap();
 
         freeze_vkey_account(&signer, &mut vkey_account, 0).unwrap();
 

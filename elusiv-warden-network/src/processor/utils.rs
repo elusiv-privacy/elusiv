@@ -16,13 +16,13 @@ const TWO_K_100_EPOCH: u64 = 4_102_444_800;
 const DAYS_PER_QUADRENNIAL: u64 = 365 * 4 + 1;
 
 /// Returns the day (of the year) and year for a unix-timestamp
-/// 
+///
 /// # Notes
-/// 
+///
 /// Will return [`None`] for all years outside the range 2000-2099
 pub fn unix_timestamp_to_day_and_year(timestamp: u64) -> Option<(u32, u16)> {
     if !(TWO_K_EPOCH..TWO_K_100_EPOCH).contains(&timestamp) {
-        return None
+        return None;
     }
 
     let days_since_2k = (timestamp - TWO_K_EPOCH) / 86_400;
@@ -36,7 +36,7 @@ pub fn unix_timestamp_to_day_and_year(timestamp: u64) -> Option<(u32, u16)> {
             days -= d;
             year += 1;
         } else {
-            break
+            break;
         }
     }
 
@@ -49,21 +49,45 @@ mod test {
 
     #[test]
     fn test_unix_timestamp_to_day_and_year() {
-        assert_eq!(unix_timestamp_to_day_and_year(946684800).unwrap(), (1, 2000));
-        assert_eq!(unix_timestamp_to_day_and_year(978220800).unwrap(), (366, 2000));
+        assert_eq!(
+            unix_timestamp_to_day_and_year(946684800).unwrap(),
+            (1, 2000)
+        );
+        assert_eq!(
+            unix_timestamp_to_day_and_year(978220800).unwrap(),
+            (366, 2000)
+        );
 
-        assert_eq!(unix_timestamp_to_day_and_year(978307200).unwrap(), (1, 2001));
-        assert_eq!(unix_timestamp_to_day_and_year(1009756800).unwrap(), (365, 2001));
+        assert_eq!(
+            unix_timestamp_to_day_and_year(978307200).unwrap(),
+            (1, 2001)
+        );
+        assert_eq!(
+            unix_timestamp_to_day_and_year(1009756800).unwrap(),
+            (365, 2001)
+        );
 
-        assert_eq!(unix_timestamp_to_day_and_year(1072915200).unwrap(), (1, 2004));
-        assert_eq!(unix_timestamp_to_day_and_year(1104451200).unwrap(), (366, 2004));
+        assert_eq!(
+            unix_timestamp_to_day_and_year(1072915200).unwrap(),
+            (1, 2004)
+        );
+        assert_eq!(
+            unix_timestamp_to_day_and_year(1104451200).unwrap(),
+            (366, 2004)
+        );
 
-        assert_eq!(unix_timestamp_to_day_and_year(1671713372).unwrap(), (356, 2022));
+        assert_eq!(
+            unix_timestamp_to_day_and_year(1671713372).unwrap(),
+            (356, 2022)
+        );
 
         let mut timestamp = TWO_K_EPOCH;
         for year in 0..99 {
             for day in 0..365 + u32::from(year % 4 == 0) {
-                assert_eq!(unix_timestamp_to_day_and_year(timestamp).unwrap(), (day + 1, year + 2000));
+                assert_eq!(
+                    unix_timestamp_to_day_and_year(timestamp).unwrap(),
+                    (day + 1, year + 2000)
+                );
                 timestamp += 86_400;
             }
         }

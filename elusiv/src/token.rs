@@ -6,7 +6,7 @@ mod tests {
     use crate::macros::{account_info, pyth_price_account_info};
     use assert_matches::assert_matches;
     use solana_program::{native_token::LAMPORTS_PER_SOL, pubkey::Pubkey};
-    use std::{ops::Add, ops::Sub, num::NonZeroU16};
+    use std::{num::NonZeroU16, ops::Add, ops::Sub};
 
     macro_rules! test_token_id {
         ($id: ident, $id_num: literal, $fn: ident) => {
@@ -28,37 +28,72 @@ mod tests {
     fn test_token_new() {
         assert_matches!(Token::new(0, 123), Token::Lamports(Lamports(123)));
         let id = NonZeroU16::new(99).unwrap();
-        assert_matches!(Token::new(99, 456), Token::SPLToken(SPLToken { amount: 456, id }));
+        assert_matches!(
+            Token::new(99, 456),
+            Token::SPLToken(SPLToken { amount: 456, id })
+        );
     }
 
     #[test]
     #[allow(unused_variables)]
     fn test_token_new_checked() {
-        assert_matches!(Token::new_checked(TOKENS.len() as u16, 1_000_000), Err(TokenError::InvalidTokenID));
+        assert_matches!(
+            Token::new_checked(TOKENS.len() as u16, 1_000_000),
+            Err(TokenError::InvalidTokenID)
+        );
 
         let min = lamports_token().min;
         let max = lamports_token().max;
-        assert_matches!(Token::new_checked(0, max + 1), Err(TokenError::InvalidAmount));
-        assert_matches!(Token::new_checked(0, min - 1), Err(TokenError::InvalidAmount));
+        assert_matches!(
+            Token::new_checked(0, max + 1),
+            Err(TokenError::InvalidAmount)
+        );
+        assert_matches!(
+            Token::new_checked(0, min - 1),
+            Err(TokenError::InvalidAmount)
+        );
 
-        assert_matches!(Token::new_checked(0, lamports_token().max), Ok(Token::Lamports(Lamports(max))));
-        assert_matches!(Token::new_checked(0, lamports_token().min), Ok(Token::Lamports(Lamports(min))));
+        assert_matches!(
+            Token::new_checked(0, lamports_token().max),
+            Ok(Token::Lamports(Lamports(max)))
+        );
+        assert_matches!(
+            Token::new_checked(0, lamports_token().min),
+            Ok(Token::Lamports(Lamports(min)))
+        );
     }
 
     #[test]
     fn test_token_new_from_price() {
-        let price = Price { price: 123456, expo: -30, conf: 100 };
-        assert_matches!(Token::new_from_price(0, price, true), Err(TokenError::InvalidAmount));
+        let price = Price {
+            price: 123456,
+            expo: -30,
+            conf: 100,
+        };
+        assert_matches!(
+            Token::new_from_price(0, price, true),
+            Err(TokenError::InvalidAmount)
+        );
 
-        let price = Price { price: 123456789, expo: -2, conf: 100 };
-        assert_matches!(Token::new_from_price(0, price, true), Ok(Token::Lamports(Lamports(1234567))));
+        let price = Price {
+            price: 123456789,
+            expo: -2,
+            conf: 100,
+        };
+        assert_matches!(
+            Token::new_from_price(0, price, true),
+            Ok(Token::Lamports(Lamports(1234567)))
+        );
     }
 
     #[test]
     fn test_enforce_token_equality() {
         let a = Token::new(0, 1_000_000);
         let b = Token::new(1, 1_000_000);
-        assert_matches!(a.enforce_token_equality(&b), Err(TokenError::MismatchedTokenID));
+        assert_matches!(
+            a.enforce_token_equality(&b),
+            Err(TokenError::MismatchedTokenID)
+        );
 
         let a = Token::new(1, 1_000_000);
         assert_matches!(a.enforce_token_equality(&b), Ok(1));
@@ -80,31 +115,58 @@ mod tests {
     #[test]
     fn test_into_lamports() {
         assert_matches!(Token::new(0, 10).into_lamports(), Ok(Lamports(10)));
-        assert_matches!(Token::new(1, 10).into_lamports(), Err(TokenError::InvalidTokenID));
+        assert_matches!(
+            Token::new(1, 10).into_lamports(),
+            Err(TokenError::InvalidTokenID)
+        );
     }
 
     #[test]
     fn test_add_tokens() {
-        assert_matches!(Token::new(0, 10).add(Token::new(1, 10)), Err(TokenError::MismatchedTokenID));
-        assert_matches!(Token::new(0, u64::MAX).add(Token::new(0, 1)), Err(TokenError::Overflow));
-        assert_matches!(Token::new(0, 123).add(Token::new(0, 1_000)), Ok(Token::Lamports(Lamports(1_123))));
+        assert_matches!(
+            Token::new(0, 10).add(Token::new(1, 10)),
+            Err(TokenError::MismatchedTokenID)
+        );
+        assert_matches!(
+            Token::new(0, u64::MAX).add(Token::new(0, 1)),
+            Err(TokenError::Overflow)
+        );
+        assert_matches!(
+            Token::new(0, 123).add(Token::new(0, 1_000)),
+            Ok(Token::Lamports(Lamports(1_123)))
+        );
     }
 
     #[test]
     fn test_sub_tokens() {
-        assert_matches!(Token::new(0, 10).sub(Token::new(1, 10)), Err(TokenError::MismatchedTokenID));
-        assert_matches!(Token::new(0, 0).sub(Token::new(0, 1)), Err(TokenError::Underflow));
-        assert_matches!(Token::new(0, 123).sub(Token::new(0, 23)), Ok(Token::Lamports(Lamports(100))));
+        assert_matches!(
+            Token::new(0, 10).sub(Token::new(1, 10)),
+            Err(TokenError::MismatchedTokenID)
+        );
+        assert_matches!(
+            Token::new(0, 0).sub(Token::new(0, 1)),
+            Err(TokenError::Underflow)
+        );
+        assert_matches!(
+            Token::new(0, 123).sub(Token::new(0, 23)),
+            Ok(Token::Lamports(Lamports(100)))
+        );
     }
 
     #[test]
     fn test_lamports_into_token_strict() {
-        assert_matches!(Lamports(123).into_token_strict(), Token::Lamports(Lamports(123)));
+        assert_matches!(
+            Lamports(123).into_token_strict(),
+            Token::Lamports(Lamports(123))
+        );
     }
 
     #[test]
     fn test_add_lamports() {
-        assert_matches!(Lamports(u64::MAX).add(Lamports(1)), Err(TokenError::Overflow));
+        assert_matches!(
+            Lamports(u64::MAX).add(Lamports(1)),
+            Err(TokenError::Overflow)
+        );
         assert_matches!(Lamports(100).add(Lamports(23)), Ok(Lamports(123)));
     }
 
@@ -135,27 +197,43 @@ mod tests {
 
     #[test]
     fn test_token_price_new() {
-        let sol_usd = Price { price: 39, conf: 1, expo: 0 };    // 1 SOL = 39 USD +- 1 USD
+        let sol_usd = Price {
+            price: 39,
+            conf: 1,
+            expo: 0,
+        }; // 1 SOL = 39 USD +- 1 USD
         pyth_price_account_info!(sol_usd_account, LAMPORTS_TOKEN_ID, sol_usd);
 
-        let usdc_usd = Price { price: 1, conf: 1, expo: 0 };    // 1 USDC = 1 USD
+        let usdc_usd = Price {
+            price: 1,
+            conf: 1,
+            expo: 0,
+        }; // 1 USDC = 1 USD
         pyth_price_account_info!(usdc_usd_account, USDC_TOKEN_ID, usdc_usd);
 
-        let price = TokenPrice::new(
-            &sol_usd_account,
-            &usdc_usd_account,
-            USDC_TOKEN_ID,
-        ).unwrap();
+        let price = TokenPrice::new(&sol_usd_account, &usdc_usd_account, USDC_TOKEN_ID).unwrap();
 
-        assert_eq!(price.lamports_usd, Price { price: sol_usd.price, conf: sol_usd.conf, expo: -9 });
+        assert_eq!(
+            price.lamports_usd,
+            Price {
+                price: sol_usd.price,
+                conf: sol_usd.conf,
+                expo: -9
+            }
+        );
         assert_eq!(price.token_usd, usdc_usd);
     }
 
     #[test]
     fn test_load_token_usd_price() {
-        let sol_usd = Price { price: 39, conf: 1, expo: 0 };    // 1 SOL = 39 USD +- 1 USD
+        let sol_usd = Price {
+            price: 39,
+            conf: 1,
+            expo: 0,
+        }; // 1 SOL = 39 USD +- 1 USD
         pyth_price_account_info!(sol_usd_account, LAMPORTS_TOKEN_ID, sol_usd);
-        let lamports_usd = TokenPrice::load_token_usd_price(&sol_usd_account, LAMPORTS_TOKEN_ID).unwrap();
+        let lamports_usd =
+            TokenPrice::load_token_usd_price(&sol_usd_account, LAMPORTS_TOKEN_ID).unwrap();
         assert_eq!(lamports_usd.price, sol_usd.price);
         assert_eq!(lamports_usd.conf, sol_usd.conf);
         assert_eq!(lamports_usd.expo, -9);
@@ -167,8 +245,16 @@ mod tests {
 
     #[test]
     fn test_token_price_new_from_price() {
-        let lamports_usd = Price { price: 39, conf: 123, expo: -9 };
-        let token_usd = Price { price: 1, conf: 45, expo: 0 };
+        let lamports_usd = Price {
+            price: 39,
+            conf: 123,
+            expo: -9,
+        };
+        let token_usd = Price {
+            price: 1,
+            conf: 45,
+            expo: 0,
+        };
 
         let price = TokenPrice::new_from_price(lamports_usd, token_usd, USDC_TOKEN_ID);
 
@@ -179,12 +265,24 @@ mod tests {
 
     #[test]
     fn test_new_from_sol_price() {
-        let sol_usd = Price { price: 390, conf: 123, expo: -1 };
-        let token_usd = Price { price: 99, conf: 123, expo: -2 };
+        let sol_usd = Price {
+            price: 390,
+            conf: 123,
+            expo: -1,
+        };
+        let token_usd = Price {
+            price: 99,
+            conf: 123,
+            expo: -2,
+        };
 
         let price = TokenPrice::new_from_sol_price(sol_usd, token_usd, USDT_TOKEN_ID).unwrap();
 
-        let lamports_usd = Price { price: 390, conf: 123, expo: -10 };
+        let lamports_usd = Price {
+            price: 390,
+            conf: 123,
+            expo: -10,
+        };
         assert_eq!(price.lamports_usd, lamports_usd);
         assert_eq!(price.token_usd, token_usd);
         assert_eq!(price.token_id, USDT_TOKEN_ID);
@@ -193,49 +291,105 @@ mod tests {
     #[test]
     fn test_token_price_new_lamports() {
         let price = TokenPrice::new_lamports();
-        assert_matches!(price.token_into_lamports(Token::Lamports(Lamports(123))), Ok(Lamports(123)));
+        assert_matches!(
+            price.token_into_lamports(Token::Lamports(Lamports(123))),
+            Ok(Lamports(123))
+        );
     }
 
     #[test]
     fn test_token_into_lamports() {
         // 1 LAMPORT = 39 * 10^{-9} USD
-        let lamports_usd = Price { price: 39, conf: 0, expo: -9 };
+        let lamports_usd = Price {
+            price: 39,
+            conf: 0,
+            expo: -9,
+        };
         // 1 USDC = 0.5 USD
-        let token_usd = Price { price: 500_000, conf: 0, expo: -6 };
+        let token_usd = Price {
+            price: 500_000,
+            conf: 0,
+            expo: -6,
+        };
         let price = TokenPrice::new_from_price(lamports_usd, token_usd, USDC_TOKEN_ID);
 
         // 1 USD = 1 / 39 * 10^{-9} LAMPORTS
         // 1 USDC = 0.5 * 1 / (39 * 10^{-9}) LAMPORTS (https://www.wolframalpha.com/input?i=0.5+*+1+%2F+%2839+*+power+%2810%2C+-9%29%29)
-        assert_eq!(12820512, price.token_into_lamports(Token::new(USDC_TOKEN_ID, 1_000_000)).unwrap().0);
+        assert_eq!(
+            12820512,
+            price
+                .token_into_lamports(Token::new(USDC_TOKEN_ID, 1_000_000))
+                .unwrap()
+                .0
+        );
 
         // 99 USDC = 0.5 * 99 * 1 / (39 * 10^{-9}) LAMPORTS (https://www.wolframalpha.com/input?i=0.5+*+99+*+1+%2F+%2839+*+power+%2810%2C+-9%29%29)
-        assert_eq!(1269230769, price.token_into_lamports(Token::new(USDC_TOKEN_ID, 99_000_000)).unwrap().0);
+        assert_eq!(
+            1269230769,
+            price
+                .token_into_lamports(Token::new(USDC_TOKEN_ID, 99_000_000))
+                .unwrap()
+                .0
+        );
     }
 
     #[test]
     fn test_lamports_into_token() {
         // 1 LAMPORT = 39 * 10^{-9} USD
-        let lamports_usd = Price { price: 39, conf: 0, expo: -9 };
+        let lamports_usd = Price {
+            price: 39,
+            conf: 0,
+            expo: -9,
+        };
         // 1 USDC = 0.5 USD
-        let token_usd = Price { price: 500_000, conf: 0, expo: -6 };
+        let token_usd = Price {
+            price: 500_000,
+            conf: 0,
+            expo: -6,
+        };
         let price = TokenPrice::new_from_price(lamports_usd, token_usd, USDC_TOKEN_ID);
 
         // 1 LAMPORT = 39 * 10^{-9} * 2 USDC = 0.000_000_078 USDC (https://www.wolframalpha.com/input?i=2+*+39+*+power+%2810%2C+-9%29)
-        assert_eq!(0, price.lamports_into_token(&Lamports(1), USDC_TOKEN_ID).unwrap().amount());
+        assert_eq!(
+            0,
+            price
+                .lamports_into_token(&Lamports(1), USDC_TOKEN_ID)
+                .unwrap()
+                .amount()
+        );
 
         // 1_000 LAMPORTS = 1_000 * 39 * 10^{-9} * 2 USDC = 0.000_078 USDC (https://www.wolframalpha.com/input?i=1000+*+2+*+39+*+power+%2810%2C+-9%29)
-        assert_eq!(78, price.lamports_into_token(&Lamports(1_000), USDC_TOKEN_ID).unwrap().amount());
+        assert_eq!(
+            78,
+            price
+                .lamports_into_token(&Lamports(1_000), USDC_TOKEN_ID)
+                .unwrap()
+                .amount()
+        );
 
         // 99 SOL = 99 * 10^9 LAMPORTS = 99 * 10^9 * 39 * 10^{-9} * 2 USDC = 99 * 39 * 2 USDC
-        assert_eq!(99 * 39 * 2 * 1_000_000, price.lamports_into_token(&Lamports(99 * LAMPORTS_PER_SOL), USDC_TOKEN_ID).unwrap().amount());
+        assert_eq!(
+            99 * 39 * 2 * 1_000_000,
+            price
+                .lamports_into_token(&Lamports(99 * LAMPORTS_PER_SOL), USDC_TOKEN_ID)
+                .unwrap()
+                .amount()
+        );
     }
 
     #[test]
     fn test_pyth_price_account_data() {
-        let price = Price { price: 123, conf: 456, expo: 7 };
+        let price = Price {
+            price: 123,
+            conf: 456,
+            expo: 7,
+        };
         pyth_price_account_info!(sol_usd_account, LAMPORTS_TOKEN_ID, price);
         let price_feed = load_price_feed_from_account_info(&sol_usd_account).unwrap();
         assert_eq!(price, price_feed.get_current_price().unwrap());
-        assert_eq!(*sol_usd_account.key, TOKENS[LAMPORTS_TOKEN_ID as usize].pyth_usd_price_key);
+        assert_eq!(
+            *sol_usd_account.key,
+            TOKENS[LAMPORTS_TOKEN_ID as usize].pyth_usd_price_key
+        );
     }
 }

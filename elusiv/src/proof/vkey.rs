@@ -1,11 +1,14 @@
-use ark_bn254::{Fq2, Fq12, G1Affine, G1Projective};
+use crate::{
+    fields::{Wrap, G1A, G2A},
+    types::U256,
+};
+use ark_bn254::{Fq12, Fq2, G1Affine, G1Projective};
 use ark_ec::AffineCurve;
 use ark_ff::Zero;
 use borsh::BorshDeserialize;
 use elusiv_proc_macros::elusiv_account;
-use elusiv_types::{PDAAccountData, ElusivOption, BorshSerDeSized, ChildAccount};
+use elusiv_types::{BorshSerDeSized, ChildAccount, ElusivOption, PDAAccountData};
 use solana_program::pubkey::Pubkey;
-use crate::{types::U256, fields::{Wrap, G1A, G2A}};
 
 #[elusiv_account(eager_type: true)]
 pub struct VKeyAccountManangerAccount {
@@ -24,12 +27,12 @@ impl ChildAccount for VKeyChildAccount {
 pub struct VKeyAccount {
     pda_data: PDAAccountData,
     pubkeys: [ElusivOption<Pubkey>; 1],
-    
+
     pub public_inputs_count: u32,
     pub is_frozen: bool,
     pub deploy_authority: ElusivOption<U256>,
 }
- 
+
 pub trait VerifyingKeyInfo {
     const VKEY_ID: u32;
     const PUBLIC_INPUTS_COUNT: u32;
@@ -49,15 +52,14 @@ pub trait VerifyingKeyInfo {
 
     #[cfg(test)]
     fn arkworks_vk() -> ark_groth16::VerifyingKey<ark_bn254::Bn254> {
-        let vk: TestingVerifyingKeyFile = serde_json::from_str(Self::verification_key_json()).unwrap();
+        let vk: TestingVerifyingKeyFile =
+            serde_json::from_str(Self::verification_key_json()).unwrap();
         ark_groth16::VerifyingKey {
             alpha_g1: vk.alpha.into(),
             beta_g2: vk.beta.into(),
             gamma_g2: vk.gamma.into(),
             delta_g2: vk.delta.into(),
-            gamma_abc_g1: vk.ic.into_iter()
-                .map(|a| { G1Affine::from(a) })
-                .collect()
+            gamma_abc_g1: vk.ic.into_iter().map(G1Affine::from).collect(),
         }
     }
 
@@ -107,16 +109,16 @@ pub struct VerifyingKey<'a> {
 
 impl<'a> VerifyingKey<'a> {
     /// Creates a new [`VerifyingKey`]
-    /// 
+    ///
     /// # `source`
-    /// 
+    ///
     /// ```
     /// alpha_beta: Fq12,
     /// gamma_abc_base: G1Affine,
     /// gamma_abc: [[[G1Affine; 255]; 32]; public_inputs_count],
     /// gamma_neg: [(Fq2, Fq2, Fq2); 91],
     /// delta_neg: [(Fq2, Fq2, Fq2); 91],
-    /// 
+    ///
     /// alpha: G1Affine,
     /// beta: G2Affine,
     /// gamma: G2Affine,
@@ -125,16 +127,14 @@ impl<'a> VerifyingKey<'a> {
     pub fn new(source: &'a [u8], public_inputs_count: usize) -> Option<Self> {
         assert_eq!(source.len(), Self::source_size(public_inputs_count));
         if source.len() != Self::source_size(public_inputs_count) {
-            return None
+            return None;
         }
 
-        Some(
-            Self {
-                source,
-                public_inputs_count,
-                gamma_abc_size: Self::gamma_abc_size(public_inputs_count),
-            }
-        )
+        Some(Self {
+            source,
+            public_inputs_count,
+            gamma_abc_size: Self::gamma_abc_size(public_inputs_count),
+        })
     }
 
     const COEFFS_ARRAY_SIZE: usize = 91 * 3 * Wrap::<Fq2>::SIZE;
@@ -144,7 +144,12 @@ impl<'a> VerifyingKey<'a> {
     }
 
     pub const fn source_size(public_inputs_count: usize) -> usize {
-        Wrap::<Fq12>::SIZE + G1A::SIZE + Self::gamma_abc_size(public_inputs_count) + 2 * Self::COEFFS_ARRAY_SIZE + G1A::SIZE + 3 * G2A::SIZE
+        Wrap::<Fq12>::SIZE
+            + G1A::SIZE
+            + Self::gamma_abc_size(public_inputs_count)
+            + 2 * Self::COEFFS_ARRAY_SIZE
+            + G1A::SIZE
+            + 3 * G2A::SIZE
     }
 
     pub fn alpha_beta(&self) -> Fq12 {
@@ -160,50 +165,74 @@ impl<'a> VerifyingKey<'a> {
 
     pub fn gamma_abc(&self, public_input: usize, window_index: usize, window: u8) -> G1Affine {
         if window == 0 {
-            return G1Affine::zero()
+            return G1Affine::zero();
         }
 
-        let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + ((public_input * 32 + window_index) * 255 + window as usize - 1) * G1A::SIZE;
+        let offset = Wrap::<Fq12>::SIZE
+            + G1A::SIZE
+            + ((public_input * 32 + window_index) * 255 + window as usize - 1) * G1A::SIZE;
         let slice = &self.source[offset..offset + G1A::SIZE];
         G1A::try_from_slice(slice).unwrap().0
     }
 
     pub fn gamma_g2_neg_pc(&self, index: usize, inner_index: usize) -> Fq2 {
-        let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + (index * 3 + inner_index) * Wrap::<Fq2>::SIZE;
+        let offset = Wrap::<Fq12>::SIZE
+            + G1A::SIZE
+            + self.gamma_abc_size
+            + (index * 3 + inner_index) * Wrap::<Fq2>::SIZE;
         let slice = &self.source[offset..offset + Wrap::<Fq2>::SIZE];
         Wrap::try_from_slice(slice).unwrap().0
     }
 
     pub fn delta_g2_neg_pc(&self, index: usize, inner_index: usize) -> Fq2 {
-        let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + Self::COEFFS_ARRAY_SIZE + (index * 3 + inner_index) * Wrap::<Fq2>::SIZE;
+        let offset = Wrap::<Fq12>::SIZE
+            + G1A::SIZE
+            + self.gamma_abc_size
+            + Self::COEFFS_ARRAY_SIZE
+            + (index * 3 + inner_index) * Wrap::<Fq2>::SIZE;
         let slice = &self.source[offset..offset + Wrap::<Fq2>::SIZE];
         Wrap::try_from_slice(slice).unwrap().0
     }
 
     #[cfg(feature = "elusiv-client")]
     pub fn alpha(&self) -> G1Affine {
-        let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + 2 * Self::COEFFS_ARRAY_SIZE;
+        let offset =
+            Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + 2 * Self::COEFFS_ARRAY_SIZE;
         let slice = &self.source[offset..offset + G1A::SIZE];
         G1A::try_from_slice(slice).unwrap().0
     }
 
     #[cfg(feature = "elusiv-client")]
     pub fn beta(&self) -> ark_bn254::G2Affine {
-        let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + 2 * Self::COEFFS_ARRAY_SIZE + G1A::SIZE;
+        let offset = Wrap::<Fq12>::SIZE
+            + G1A::SIZE
+            + self.gamma_abc_size
+            + 2 * Self::COEFFS_ARRAY_SIZE
+            + G1A::SIZE;
         let slice = &self.source[offset..offset + G2A::SIZE];
         G2A::try_from_slice(slice).unwrap().0
     }
 
     #[cfg(feature = "elusiv-client")]
     pub fn gamma(&self) -> ark_bn254::G2Affine {
-        let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + 2 * Self::COEFFS_ARRAY_SIZE + G1A::SIZE + G2A::SIZE;
+        let offset = Wrap::<Fq12>::SIZE
+            + G1A::SIZE
+            + self.gamma_abc_size
+            + 2 * Self::COEFFS_ARRAY_SIZE
+            + G1A::SIZE
+            + G2A::SIZE;
         let slice = &self.source[offset..offset + G2A::SIZE];
         G2A::try_from_slice(slice).unwrap().0
     }
 
     #[cfg(feature = "elusiv-client")]
     pub fn delta(&self) -> ark_bn254::G2Affine {
-        let offset = Wrap::<Fq12>::SIZE + G1A::SIZE + self.gamma_abc_size + 2 * Self::COEFFS_ARRAY_SIZE + G1A::SIZE + 2 * G2A::SIZE;
+        let offset = Wrap::<Fq12>::SIZE
+            + G1A::SIZE
+            + self.gamma_abc_size
+            + 2 * Self::COEFFS_ARRAY_SIZE
+            + G1A::SIZE
+            + 2 * G2A::SIZE;
         let slice = &self.source[offset..offset + G2A::SIZE];
         G2A::try_from_slice(slice).unwrap().0
     }
@@ -246,7 +275,8 @@ impl From<G1PRep> for G1Affine {
             ark_bn254::Fq::from_str(&value.0[0]).unwrap(),
             ark_bn254::Fq::from_str(&value.0[1]).unwrap(),
             ark_bn254::Fq::from_str(&value.0[2]).unwrap(),
-        ).into()
+        )
+        .into()
     }
 }
 
@@ -272,14 +302,15 @@ impl From<G2PRep> for ark_bn254::G2Affine {
                 ark_bn254::Fq::from_str(&value.0[2][0]).unwrap(),
                 ark_bn254::Fq::from_str(&value.0[2][1]).unwrap(),
             ),
-        ).into()
+        )
+        .into()
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::fields::u256_to_big_uint;
     use super::*;
+    use crate::fields::u256_to_big_uint;
 
     fn test_vkey<VKey: VerifyingKeyInfo>() {
         let source = VKey::verifying_key_source();

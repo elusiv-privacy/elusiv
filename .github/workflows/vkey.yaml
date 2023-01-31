@@ -3,7 +3,7 @@ name: Verifying-key check
 on:
   push:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *"
 
 jobs:
   run-bash-script:
@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-            token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
       - name: send_quadra vkey up-to-date-check
         run: |
           sh ./vkey.sh send_quadra temp2/send_quadra

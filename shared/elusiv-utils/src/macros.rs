@@ -4,7 +4,7 @@
 macro_rules! guard {
     ($assertion: expr, $error: expr) => {
         if !$assertion {
-            return Err($error.into())
+            return Err($error.into());
         }
     };
 }
@@ -15,7 +15,7 @@ macro_rules! two_pow {
     ($exp: expr) => {
         match 2usize.checked_pow($exp) {
             Some(v) => v,
-            None => panic!()
+            None => panic!(),
         }
     };
 }

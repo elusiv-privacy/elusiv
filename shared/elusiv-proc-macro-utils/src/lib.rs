@@ -1,7 +1,7 @@
-use std::{fs, str::FromStr, collections::HashMap};
-use serde::{Serialize, Deserialize};
-use solana_program::pubkey::Pubkey;
 use proc_macro2::TokenStream;
+use serde::{Deserialize, Serialize};
+use solana_program::pubkey::Pubkey;
+use std::{collections::HashMap, fs, str::FromStr};
 use syn::{Field, Fields};
 
 const ID_TOML_PATH: &str = "/../Id.toml";
@@ -57,7 +57,9 @@ pub fn pda(pda_seed: &[u8]) -> (Pubkey, u8) {
 }
 
 pub fn pubkey_bytes(pubkey: &str) -> TokenStream {
-    format!("{:?}", Pubkey::from_str(pubkey).unwrap().to_bytes()).parse().unwrap()
+    format!("{:?}", Pubkey::from_str(pubkey).unwrap().to_bytes())
+        .parse()
+        .unwrap()
 }
 
 /// Enforces that a field definition at a specific index matches the stream (visibility is ignored)
@@ -65,7 +67,7 @@ pub fn enforce_field(stream: TokenStream, index: usize, fields: &Fields) {
     let field = fields.iter().collect::<Vec<&Field>>()[index].clone();
     let ident = field.ident;
     let ty = field.ty;
-    let expected = quote::quote!{ #ident : #ty }.to_string();
+    let expected = quote::quote! { #ident : #ty }.to_string();
 
     assert_eq!(
         expected,
@@ -83,6 +85,6 @@ pub fn try_parse_usize(source: &str) -> Option<usize> {
     source.retain(|x| x != '_');
     match source.parse::<usize>() {
         Ok(u) => Some(u),
-        Err(_) => None
+        Err(_) => None,
     }
 }

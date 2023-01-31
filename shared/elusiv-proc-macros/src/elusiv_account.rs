@@ -1,7 +1,7 @@
 use elusiv_proc_macro_utils::enforce_field;
-use syn::{Type, Data, Field};
-use quote::{quote, ToTokens};
 use proc_macro2::{TokenStream, TokenTree};
+use quote::{quote, ToTokens};
+use syn::{Data, Field, Type};
 
 struct ElusivAccountAttr {
     ident: String,
@@ -15,12 +15,15 @@ struct Lifetimes {
 
 impl Lifetimes {
     fn new() -> Self {
-        Self { lifetimes: Vec::new(), all_lifetimes: quote!() }
+        Self {
+            lifetimes: Vec::new(),
+            all_lifetimes: quote!(),
+        }
     }
 
     fn push(&mut self, lifetime: TokenStream) {
         self.lifetimes.push(lifetime.clone());
-        self.all_lifetimes.extend(quote!{ #lifetime , });
+        self.all_lifetimes.extend(quote! { #lifetime , });
     }
 
     fn as_anonymous_lifetimes(&self) -> TokenStream {
@@ -41,8 +44,11 @@ impl ToTokens for Lifetimes {
         self.all_lifetimes.clone()
     }
 
-    fn into_token_stream(self) -> TokenStream where Self: Sized, {
-       self.all_lifetimes 
+    fn into_token_stream(self) -> TokenStream
+    where
+        Self: Sized,
+    {
+        self.all_lifetimes
     }
 
     fn to_tokens(&self, tokens: &mut TokenStream) {
@@ -62,15 +68,17 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     let ident = ast.ident.clone();
     let eager_ident: TokenStream = format!("{}Eager", ident).parse().unwrap();
     let vis = vis_token(&ast.vis);
-    let s = if let Data::Struct(s) = &ast.data { s } else { panic!("Only structs can be used with `elusiv_account`") };
+    let s = if let Data::Struct(s) = &ast.data {
+        s
+    } else {
+        panic!("Only structs can be used with `elusiv_account`")
+    };
 
-    let struct_attrs = ast.attrs
-        .iter()
-        .fold(TokenStream::new(), |acc, x| {
-            let mut acc = acc;
-            acc.extend(x.to_token_stream());
-            acc
-        });
+    let struct_attrs = ast.attrs.iter().fold(TokenStream::new(), |acc, x| {
+        let mut acc = acc;
+        acc.extend(x.to_token_stream());
+        acc
+    });
 
     let attrs: Vec<TokenTree> = attrs.into_iter().collect();
     let attrs = match_attrs(&attrs);
@@ -103,13 +111,13 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 // TODO: field no longer does not need to be enforced at a specific index
                 enforce_field(
-                    quote!{
+                    quote! {
                         pubkeys : [ElusivOption < Pubkey >; #child_account_count]
                     },
                     1,
                     &s.fields,
                 );
-            
+
                 // 'a, 'b, 't lifetimes for the `ParentAccount` impl
                 lifetimes.push(quote!('b));
                 lifetimes.push(quote!('t));
@@ -142,7 +150,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     }
                 });
 
-                impls.extend(quote!{
+                impls.extend(quote! {
                     #[cfg(feature = "elusiv-client")]
                     impl elusiv_types::accounts::EagerParentAccountRepr for #eager_ident {
                         fn child_pubkeys(&self) -> Vec<Option<solana_program::pubkey::Pubkey>> {
@@ -153,7 +161,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     }
                 });
 
-                field_idents.extend(quote!{
+                field_idents.extend(quote! {
                     child_accounts,
                 });
 
@@ -168,8 +176,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
             // Turns the account into a `ComputationAccount`
             "partial_computation" => {
-                enforce_field(quote!{ instruction : u32 }, 1, &s.fields);
-                enforce_field(quote!{ round : u32 }, 2, &s.fields);
+                enforce_field(quote! { instruction : u32 }, 1, &s.fields);
+                enforce_field(quote! { round : u32 }, 2, &s.fields);
 
                 impls.extend(quote! {
                     #[cfg(feature = "elusiv-client")]
@@ -199,12 +207,12 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 use_eager_type = true;
             }
 
-            any => panic!("Invalid attribute '{}'", any)
+            any => panic!("Invalid attribute '{}'", any),
         }
     }
 
     // Since all ElusivAccounts are PDAAccounts, they require leading PDAAccountData
-    enforce_field(quote!{ pda_data : PDAAccountData }, 0, &s.fields);
+    enforce_field(quote! { pda_data : PDAAccountData }, 0, &s.fields);
 
     for Field {
         attrs,
@@ -212,7 +220,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         ident,
         ty,
         ..
-    } in &s.fields {
+    } in &s.fields
+    {
         let field_ident = ident.clone().unwrap();
         let vis = vis_token(vis);
         let getter_ident: TokenStream = format!("get_{}", field_ident).parse().unwrap();
@@ -225,7 +234,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
             panic!("'data' is a reserved keyword, please pick a different field identifier")
         }
 
-        eager_idents.extend(quote!{ #field_ident, });
+        eager_idents.extend(quote! { #field_ident, });
 
         let mut doc = quote!();
         for attr in attrs {
@@ -243,8 +252,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     use_getter = false;
                     use_setter = false;
                     custom_field = true;
-        
-                    field_defs.extend(quote!{
+
+                    field_defs.extend(quote! {
                         #doc
                         #vis #field_ident: #ty,
                     });
@@ -256,12 +265,12 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                     // Because of the lifetime dependency of some custom fields, we only represent the types that don't use lifetimes
                     if is_type_lifetime_bound(ty) {
-                        eager_defs.extend(quote!{
+                        eager_defs.extend(quote! {
                             #doc
                             pub #field_ident: Vec<u8>,
                         });
                     } else {
-                        eager_defs.extend(quote!{
+                        eager_defs.extend(quote! {
                             #doc
                             pub #field_ident: #ty,
                         });
@@ -287,21 +296,21 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     use_setter = false;
                 }
 
-                any => panic!("Unknown attribute '{}' for field '{}'", any, field_ident)
+                any => panic!("Unknown attribute '{}' for field '{}'", any, field_ident),
             }
         }
 
-        field_idents.extend(quote!{
+        field_idents.extend(quote! {
             #field_ident,
         });
 
         if !custom_field {
-            field_defs.extend(quote!{
+            field_defs.extend(quote! {
                 #doc
                 #field_ident: &'a mut [u8],
             });
 
-            eager_defs.extend(quote!{
+            eager_defs.extend(quote! {
                 #doc
                 pub #field_ident: #ty,
             });
@@ -310,7 +319,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         match ty {
             Type::Path(_) => {
                 if custom_field {
-                    sizes.push(quote!{ <#ty as elusiv_types::bytes::SizedType>::SIZE });
+                    sizes.push(quote! { <#ty as elusiv_types::bytes::SizedType>::SIZE });
 
                     if is_type_lifetime_bound(ty) {
                         let mut ty2 = ty.clone();
@@ -326,7 +335,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         });
                     }
                 } else {
-                    sizes.push(quote!{ <#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE });
+                    sizes.push(quote! { <#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE });
 
                     fields_split.extend(quote!{
                         let (#field_ident, data) = data.split_at_mut(<#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE);
@@ -345,9 +354,9 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                             }
                         });
                     }
-                    
+
                     if use_setter {
-                        fns.extend(quote!{
+                        fns.extend(quote! {
                             #doc
                             #vis fn #setter_ident(&mut self, value: &#ty) {
                                 let v = <#ty as borsh::BorshSerialize>::try_to_vec(value).unwrap();
@@ -364,10 +373,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 
                 let ty = array.elem.clone().into_token_stream();
                 let len = array.len.clone();
-                let size = quote!{ <#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE * #len };
+                let size = quote! { <#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE * #len };
                 sizes.push(size.clone());
 
-                fields_split.extend(quote!{
+                fields_split.extend(quote! {
                     let (#field_ident, data) = data.split_at_mut(#size);
                 });
 
@@ -397,19 +406,21 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     });
                 }
             }
-            _ => panic!("Invalid field type '{:?}' for '{:?}'", ty, field_ident)
+            _ => panic!("Invalid field type '{:?}' for '{:?}'", ty, field_ident),
         }
     }
 
-    let account_size_test: TokenStream = format!("test_{}_account_size", ident.to_string().to_lowercase()).parse().unwrap();
-    let account_size = sizes.iter()
-        .fold(quote!(), |acc, x| {
-            if acc.is_empty() {
-                x.clone()
-            } else {
-                quote!{ #acc + #x }
-            }
-        });
+    let account_size_test: TokenStream =
+        format!("test_{}_account_size", ident.to_string().to_lowercase())
+            .parse()
+            .unwrap();
+    let account_size = sizes.iter().fold(quote!(), |acc, x| {
+        if acc.is_empty() {
+            x.clone()
+        } else {
+            quote! { #acc + #x }
+        }
+    });
     let anonymous_lifetimes = lifetimes.as_anonymous_lifetimes();
 
     let eager_type = if use_eager_type {
@@ -490,24 +501,22 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
 /// Matches attributes with the syntac `ident: value, ..` with value being a `TokenStream`
 fn match_attrs(tree: &[TokenTree]) -> Vec<ElusivAccountAttr> {
     match tree {
-        [
-            TokenTree::Ident(attr_ident),
-            TokenTree::Punct(colon),
-            tail @ ..
-        ] => {
+        [TokenTree::Ident(attr_ident), TokenTree::Punct(colon), tail @ ..] => {
             let ident = attr_ident.to_string();
             assert_eq!(colon.to_string(), ":", "Invalid character '{}'", colon);
 
             let (value, tail) = match tail {
-                [
-                    any,
-                    TokenTree::Punct(comma),
-                    tail @ ..
-                ] => {
-                    assert_eq!(comma.to_string(), ",", "Invalid character '{}' in attribute '{}'", comma, ident);
+                [any, TokenTree::Punct(comma), tail @ ..] => {
+                    assert_eq!(
+                        comma.to_string(),
+                        ",",
+                        "Invalid character '{}' in attribute '{}'",
+                        comma,
+                        ident
+                    );
                     (any.to_token_stream(), match_attrs(tail))
                 }
-                [ any ] => (any.to_token_stream(), vec![]),
+                [any] => (any.to_token_stream(), vec![]),
                 _ => panic!("Invalid value for argument '{}'", ident),
             };
 
@@ -525,16 +534,20 @@ fn match_inner(inner: TokenStream) -> Vec<ElusivAccountAttr> {
     let tree: Vec<TokenTree> = inner.clone().into_iter().collect();
 
     match &tree[..] {
-        [ TokenTree::Ident(id) ] => {
-            vec![ElusivAccountAttr { ident: id.to_string(), value: quote!() }]
+        [TokenTree::Ident(id)] => {
+            vec![ElusivAccountAttr {
+                ident: id.to_string(),
+                value: quote!(),
+            }]
         }
-        [ TokenTree::Literal(lit) ] => {
-            vec![ElusivAccountAttr { ident: lit.to_string(), value: quote!() }]
+        [TokenTree::Literal(lit)] => {
+            vec![ElusivAccountAttr {
+                ident: lit.to_string(),
+                value: quote!(),
+            }]
         }
-        [ TokenTree::Group(g) ] => {
-            match_attrs(&g.stream().into_iter().collect::<Vec<TokenTree>>())
-        }
-        _ => panic!("Invalid inner attributes '{}'", inner)
+        [TokenTree::Group(g)] => match_attrs(&g.stream().into_iter().collect::<Vec<TokenTree>>()),
+        _ => panic!("Invalid inner attributes '{}'", inner),
     }
 }
 
@@ -543,7 +556,7 @@ fn inner_attr_value(attr_ident: &str, inner: &TokenStream) -> TokenStream {
     let inner_attrs = match_inner(inner.clone());
     for ElusivAccountAttr { ident, value } in inner_attrs {
         if ident == attr_ident {
-            return value
+            return value;
         }
     }
     panic!("Inner attribute '{}' not found in '{}'", attr_ident, inner);
@@ -556,9 +569,17 @@ fn is_type_lifetime_bound(ty: &Type) -> bool {
 
 /// Anonymizes all lifetimes of a type
 fn anonymize_type_lifetimes(ty: &mut Type) {
-    if let Type::Path(syn::TypePath { path: syn::Path { segments, .. }, .. }) = ty {
+    if let Type::Path(syn::TypePath {
+        path: syn::Path { segments, .. },
+        ..
+    }) = ty
+    {
         for segment in segments.iter_mut() {
-            if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments { args, .. }) = &mut segment.arguments {
+            if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                args,
+                ..
+            }) = &mut segment.arguments
+            {
                 for arg in args.iter_mut() {
                     if let syn::GenericArgument::Lifetime(lt) = arg {
                         lt.ident = syn::Ident::new(&String::from("_"), lt.ident.span());

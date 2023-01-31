@@ -1,24 +1,26 @@
-use std::marker::PhantomData;
+use crate::bytes::BorshSerDeSized;
+use crate::fields::{fr_to_u256_le, u256_to_big_uint, u64_to_u256_skip_mr, G1A, G2A};
+use crate::macros::BorshSerDeSized;
+use crate::proof::vkey::{MigrateUnaryVKey, SendQuadraVKey, VerifyingKeyInfo};
 use crate::proof::NullifierDuplicateAccount;
-use crate::proof::vkey::{SendQuadraVKey, MigrateUnaryVKey, VerifyingKeyInfo};
 use crate::u64_array;
-use crate::fields::{G1A, G2A, u64_to_u256_skip_mr, u256_to_big_uint, fr_to_u256_le};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use elusiv_types::{SizedType, PDAAccount};
+use borsh::BorshDeserialize;
+use borsh::BorshSerialize;
+use elusiv_types::{PDAAccount, SizedType};
 use solana_program::account_info::AccountInfo;
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
-use crate::bytes::BorshSerDeSized;
-use borsh::BorshDeserialize;
-use borsh::BorshSerialize;
-use crate::macros::BorshSerDeSized;
+use std::marker::PhantomData;
 
 /// Unsigned 256 bit integer ordered in LE ([32] is the first byte)
 pub type U256 = [u8; 32];
 
 /// A U256 in non-montgomery reduction form
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug, Default)]
+#[derive(
+    BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug, Default,
+)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct RawU256(U256);
 
@@ -35,8 +37,12 @@ impl RawU256 {
     }
 
     /// Skips the montgomery reduction
-    pub fn skip_mr(&self) -> U256 { self.0 }
-    pub fn skip_mr_ref(&self) -> &U256 { &self.0 }
+    pub fn skip_mr(&self) -> U256 {
+        self.0
+    }
+    pub fn skip_mr_ref(&self) -> &U256 {
+        &self.0
+    }
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Eq, Clone, Copy, Debug)]
@@ -76,11 +82,17 @@ impl<'a, N: BorshSerDeSized + Clone> SizedType for Lazy<'a, N> {
 
 impl<'a, N: BorshSerDeSized + Clone> LazyField<'a> for Lazy<'a, N> {
     fn new(data: &'a mut [u8]) -> Self {
-        Self { modified: false, value: None, data }
+        Self {
+            modified: false,
+            value: None,
+            data,
+        }
     }
 
     fn serialize(&mut self) {
-        if !self.modified { return }
+        if !self.modified {
+            return;
+        }
         let v = self.value.clone().unwrap().try_to_vec().unwrap();
         assert!(self.data.len() >= v.len());
         self.data[..v.len()].copy_from_slice(&v[..]);
@@ -112,16 +124,25 @@ pub struct JITArray<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> {
     phantom: PhantomData<N>,
 }
 
-impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> SizedType for JITArray<'a, N, CAPACITY> {
+impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> SizedType
+    for JITArray<'a, N, CAPACITY>
+{
     const SIZE: usize = N::SIZE * CAPACITY;
 }
 
-impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> LazyField<'a> for JITArray<'a, N, CAPACITY> {
+impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> LazyField<'a>
+    for JITArray<'a, N, CAPACITY>
+{
     fn new(data: &'a mut [u8]) -> Self {
-        Self { data, phantom: PhantomData }
+        Self {
+            data,
+            phantom: PhantomData,
+        }
     }
 
-    fn serialize(&mut self) { panic!() }    // no call to serialize required, performed after each set
+    fn serialize(&mut self) {
+        panic!()
+    } // no call to serialize required, performed after each set
 }
 
 impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> JITArray<'a, N, CAPACITY> {
@@ -211,19 +232,20 @@ pub struct JoinSplitPublicInputs {
 
 impl JoinSplitPublicInputs {
     pub fn roots(&self) -> Vec<Option<RawU256>> {
-        self.input_commitments.iter()
-            .map(|c| c.root)
-            .collect()
+        self.input_commitments.iter().map(|c| c.root).collect()
     }
 
     pub fn nullifier_hashes(&self) -> Vec<RawU256> {
-        self.input_commitments.iter()
+        self.input_commitments
+            .iter()
             .map(|c| c.nullifier_hash)
             .collect()
     }
 
     pub fn associated_nullifier_duplicate_pda_pubkey(&self) -> Pubkey {
-        let nullifier_hashes: Vec<&RawU256> = self.input_commitments.iter()
+        let nullifier_hashes: Vec<&RawU256> = self
+            .input_commitments
+            .iter()
             .map(|c| &c.nullifier_hash)
             .collect();
 
@@ -237,7 +259,10 @@ impl JoinSplitPublicInputs {
         )
     }
 
-    pub fn create_nullifier_duplicate_pda(&self, account: &AccountInfo) -> Result<Pubkey, ProgramError> {
+    pub fn create_nullifier_duplicate_pda(
+        &self,
+        account: &AccountInfo,
+    ) -> Result<Pubkey, ProgramError> {
         NullifierDuplicateAccount::create_with_pubkey(
             self.associated_nullifier_duplicate_pda_pubkey(),
             None,
@@ -271,7 +296,7 @@ pub trait PublicInputs {
     fn public_signals(&self) -> Vec<RawU256>;
 
     fn public_signals_skip_mr(&self) -> Vec<U256> {
-        self.public_signals().iter().map(|&p| p.skip_mr()).collect() 
+        self.public_signals().iter().map(|&p| p.skip_mr()).collect()
     }
 }
 
@@ -325,23 +350,31 @@ pub struct MigratePublicInputs {
 
 impl PublicInputs for SendPublicInputs {
     const PUBLIC_INPUTS_COUNT: usize = SendQuadraVKey::PUBLIC_INPUTS_COUNT as usize;
-    
+
     fn verify_additional_constraints(&self) -> bool {
         // Maximum commitment-count is 4
         // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
-        if self.join_split.input_commitments.len() > JOIN_SPLIT_MAX_N_ARITY { return false }
+        if self.join_split.input_commitments.len() > JOIN_SPLIT_MAX_N_ARITY {
+            return false;
+        }
 
         // Minimum commitment-count is 1
-        if self.join_split.input_commitments.is_empty() { return false }
+        if self.join_split.input_commitments.is_empty() {
+            return false;
+        }
 
         // The first root has to be != `None`
         // https://github.com/elusiv-privacy/circuits/blob/dc1785ae0bf172892930548f4e1f9f1d48df6c97/circuits/send.circom#L7
-        if self.join_split.input_commitments[0].root.is_none() { return false }
+        if self.join_split.input_commitments[0].root.is_none() {
+            return false;
+        }
 
         true
     }
 
-    fn join_split_inputs(&self) -> &JoinSplitPublicInputs { &self.join_split }
+    fn join_split_inputs(&self) -> &JoinSplitPublicInputs {
+        &self.join_split
+    }
 
     // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
     // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/send.circom
@@ -388,19 +421,25 @@ impl PublicInputs for SendPublicInputs {
 
 impl PublicInputs for MigratePublicInputs {
     const PUBLIC_INPUTS_COUNT: usize = MigrateUnaryVKey::PUBLIC_INPUTS_COUNT as usize;
-    
+
     fn verify_additional_constraints(&self) -> bool {
         // commitment-count is 1
         // https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
-        if self.join_split.input_commitments.len() != 1 { return false }
+        if self.join_split.input_commitments.len() != 1 {
+            return false;
+        }
 
         // The first root has to be != `None`
-        if self.join_split.input_commitments[0].root.is_none() { return false }
+        if self.join_split.input_commitments[0].root.is_none() {
+            return false;
+        }
 
         true
     }
 
-    fn join_split_inputs(&self) -> &JoinSplitPublicInputs { &self.join_split }
+    fn join_split_inputs(&self) -> &JoinSplitPublicInputs {
+        &self.join_split
+    }
 
     // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
     // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/migrate.circom
@@ -427,16 +466,20 @@ pub fn compute_fee_rec<V: crate::proof::vkey::VerifyingKeyInfo, P: PublicInputs>
     program_fee: &crate::state::fee::ProgramFee,
     price: &crate::token::TokenPrice,
 ) {
-    let fee = program_fee.proof_verification_fee(
-        crate::proof::prepare_public_inputs_instructions(
-            &public_inputs.public_signals_skip_mr(),
-            V::public_inputs_count()
-        ).len(),
-        0,
-        public_inputs.join_split_inputs().amount,
-        public_inputs.join_split_inputs().token_id,
-        price,
-    ).unwrap().amount();
+    let fee = program_fee
+        .proof_verification_fee(
+            crate::proof::prepare_public_inputs_instructions(
+                &public_inputs.public_signals_skip_mr(),
+                V::public_inputs_count(),
+            )
+            .len(),
+            0,
+            public_inputs.join_split_inputs().amount,
+            public_inputs.join_split_inputs().token_id,
+            price,
+        )
+        .unwrap()
+        .amount();
 
     if fee != public_inputs.join_split_inputs().fee {
         public_inputs.set_fee(fee);
@@ -465,7 +508,9 @@ pub fn u256_to_le_limbs(v: U256) -> [u64; 4] {
 /// Can be used to split a number > scalar field modulus (like Curve25519 keys) into two public inputs
 pub fn split_u256_into_limbs(v: U256) -> [U256; 2] {
     let mut a = v;
-    for i in 0..16 { a[i + 16] = 0; }
+    for i in 0..16 {
+        a[i + 16] = 0;
+    }
 
     let mut b = [0; 32];
     b[..16].copy_from_slice(&v[16..32]);
@@ -476,14 +521,20 @@ pub fn split_u256_into_limbs(v: U256) -> [U256; 2] {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::str::FromStr;
+    use crate::{
+        fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr},
+        proof::proof_from_str,
+    };
     use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
-    use crate::{fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr}, proof::proof_from_str};
+    use std::str::FromStr;
 
     #[test]
     fn test_raw_u256() {
         // Just as info: `.0` returns the montgomery-reduced field element, `.into_repr` the actual field element
-        assert_ne!(Fr::from_str("123").unwrap().0, Fr::from_str("123").unwrap().into_repr());
+        assert_ne!(
+            Fr::from_str("123").unwrap().0,
+            Fr::from_str("123").unwrap().into_repr()
+        );
 
         assert_eq!(
             Fr::from_str("123").unwrap(),
@@ -558,12 +609,10 @@ mod test {
     #[test]
     fn test_join_split_public_inputs_ser_de() {
         let inputs = JoinSplitPublicInputs {
-            input_commitments: vec![
-                InputCommitment {
-                    root: Some(RawU256::new(u256_from_str_skip_mr("22"))),
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("333")),
-                }
-            ],
+            input_commitments: vec![InputCommitment {
+                root: Some(RawU256::new(u256_from_str_skip_mr("22"))),
+                nullifier_hash: RawU256::new(u256_from_str_skip_mr("333")),
+            }],
             output_commitment: RawU256::new(u256_from_str_skip_mr("44444")),
             fee_version: 999,
             amount: 666,
@@ -572,7 +621,10 @@ mod test {
         };
 
         let serialized = inputs.try_to_vec().unwrap();
-        assert_eq!(inputs, JoinSplitPublicInputs::try_from_slice(&serialized[..]).unwrap());
+        assert_eq!(
+            inputs,
+            JoinSplitPublicInputs::try_from_slice(&serialized[..]).unwrap()
+        );
     }
 
     #[test]
@@ -605,12 +657,10 @@ mod test {
         // Maximum commitment-count
         let mut inputs = valid_inputs.clone();
         for i in inputs.join_split.input_commitments.len()..JOIN_SPLIT_MAX_N_ARITY + 1 {
-            inputs.join_split.input_commitments.push(
-                InputCommitment {
-                    root: None,
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr(&i.to_string())),
-                }
-            );
+            inputs.join_split.input_commitments.push(InputCommitment {
+                root: None,
+                nullifier_hash: RawU256::new(u256_from_str_skip_mr(&i.to_string())),
+            });
         }
         assert!(!inputs.verify_additional_constraints());
 
@@ -661,7 +711,10 @@ mod test {
             "0",
             "3",
             "306186522190603117929438292402982536627",
-        ].iter().map(|&p| RawU256(u256_from_str_skip_mr(p))).collect::<Vec<RawU256>>();
+        ]
+        .iter()
+        .map(|&p| RawU256(u256_from_str_skip_mr(p)))
+        .collect::<Vec<RawU256>>();
 
         assert_eq!(expected, inputs.public_signals());
         assert_eq!(expected.len(), SendPublicInputs::PUBLIC_INPUTS_COUNT);
@@ -703,12 +756,10 @@ mod test {
     fn test_migrate_public_inputs_verify() {
         let valid_inputs = MigratePublicInputs {
             join_split: JoinSplitPublicInputs {
-                input_commitments: vec![
-                    InputCommitment {
-                        root: Some(RawU256::new([0; 32])),
-                        nullifier_hash: RawU256::new([0; 32]),
-                    }
-                ],
+                input_commitments: vec![InputCommitment {
+                    root: Some(RawU256::new([0; 32])),
+                    nullifier_hash: RawU256::new([0; 32]),
+                }],
                 output_commitment: RawU256::new([0; 32]),
                 fee_version: 0,
                 amount: 0,
@@ -722,7 +773,10 @@ mod test {
 
         // commitment-count is 1
         let mut inputs = valid_inputs.clone();
-        inputs.join_split.input_commitments.push(inputs.join_split.input_commitments[0].clone());
+        inputs
+            .join_split
+            .input_commitments
+            .push(inputs.join_split.input_commitments[0].clone());
         assert!(!inputs.verify_additional_constraints());
 
         // The first root has to be != `None`
@@ -759,7 +813,10 @@ mod test {
             "409746283836180593012730668816372135835438959821191292730",
             "0",
             "50001",
-        ].iter().map(|&p| RawU256(u256_from_str_skip_mr(p))).collect::<Vec<RawU256>>();
+        ]
+        .iter()
+        .map(|&p| RawU256(u256_from_str_skip_mr(p)))
+        .collect::<Vec<RawU256>>();
 
         assert_eq!(expected, inputs.public_signals());
         assert_eq!(expected.len(), MigratePublicInputs::PUBLIC_INPUTS_COUNT);
@@ -768,7 +825,9 @@ mod test {
     #[test]
     fn test_split_u256() {
         assert_eq!(
-            split_u256_into_limbs(u256_from_str_skip_mr("1157920892373337907853269984665640564039457584007913129639935")),
+            split_u256_into_limbs(u256_from_str_skip_mr(
+                "1157920892373337907853269984665640564039457584007913129639935"
+            )),
             [
                 u256_from_str_skip_mr("125150045379035551642519419267248553983"),
                 u256_from_str_skip_mr("3402823669209901715842"),
@@ -776,7 +835,9 @@ mod test {
         );
 
         assert_eq!(
-            split_u256_into_limbs(u256_from_str_skip_mr("212334656798193948954971085461110323640890639608634923090101683")),
+            split_u256_into_limbs(u256_from_str_skip_mr(
+                "212334656798193948954971085461110323640890639608634923090101683"
+            )),
             [
                 u256_from_str_skip_mr("306186522190603117929438292402982536627"),
                 u256_from_str_skip_mr("623995473875165532486851"),
@@ -806,17 +867,35 @@ mod test {
 
     #[test]
     fn test_compute_hashed_inputs() {
-        let recipient = u256_from_str_skip_mr("115792089237316195423570985008687907853269984665640564039457584007913129639935");
-        let identifier = u256_from_str_skip_mr("7664287681500223472370483741580378590496434315208292049383954342296148132753");
+        let recipient = u256_from_str_skip_mr(
+            "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+        );
+        let identifier = u256_from_str_skip_mr(
+            "7664287681500223472370483741580378590496434315208292049383954342296148132753",
+        );
         let iv = u256_from_str_skip_mr("5683487854789");
-        let encrypted_owner = u256_from_str_skip_mr("21620303059720667189546524860541209640581655979702452251272504609177116384089");
-        let solana_pay_id = u256_from_str_skip_mr("15301892188911160449341837174902405446602050384096489477117140364841430914614");
+        let encrypted_owner = u256_from_str_skip_mr(
+            "21620303059720667189546524860541209640581655979702452251272504609177116384089",
+        );
+        let solana_pay_id = u256_from_str_skip_mr(
+            "15301892188911160449341837174902405446602050384096489477117140364841430914614",
+        );
         let is_associated_token_account = true;
 
-        let expected = u256_from_str_skip_mr("13377023609243152888087996289546074665572546267939720535001129695597521747191");
+        let expected = u256_from_str_skip_mr(
+            "13377023609243152888087996289546074665572546267939720535001129695597521747191",
+        );
 
         assert_eq!(
-            generate_hashed_inputs(recipient, identifier, iv, encrypted_owner, solana_pay_id, is_associated_token_account, &None),
+            generate_hashed_inputs(
+                recipient,
+                identifier,
+                iv,
+                encrypted_owner,
+                solana_pay_id,
+                is_associated_token_account,
+                &None
+            ),
             expected
         );
     }

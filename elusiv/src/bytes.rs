@@ -3,14 +3,15 @@ pub use elusiv_types::bytes::*;
 
 macro_rules! div_ceiling {
     ($id: ident, $ty: ty) => {
-        
         #[doc = " Rounds a integer division up"]
         #[doc = ""]
         #[doc = " # Panics"]
         #[doc = ""]
         #[doc = " Panics for a zero-divisor"]
         pub const fn $id(divident: $ty, divisor: $ty) -> $ty {
-            if divisor == 0 { panic!() }
+            if divisor == 0 {
+                panic!()
+            }
             (divident + divisor - 1) / divisor
         }
     };
@@ -23,7 +24,9 @@ div_ceiling!(div_ceiling_usize, usize);
 macro_rules! safe_num_downcast {
     ($id: ident, $h: ty, $l: ty) => {
         pub const fn $id(u: $h) -> $l {
-            if u > <$l>::MAX as $h { panic!() }
+            if u > <$l>::MAX as $h {
+                panic!()
+            }
             u as $l
         }
     };
@@ -44,10 +47,14 @@ pub fn contains<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8]) -> bool 
     find(v, data, length).is_some()
 }
 
-pub fn find<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8], length: usize) -> Option<usize> {
+pub fn find<N: BorshSerialize + BorshSerDeSized>(
+    v: N,
+    data: &[u8],
+    length: usize,
+) -> Option<usize> {
     let bytes = match N::try_to_vec(&v) {
         Ok(v) => v,
-        Err(_) => return None
+        Err(_) => return None,
     };
 
     assert!(data.len() >= length);
@@ -55,7 +62,9 @@ pub fn find<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8], length: usiz
         let index = i * N::SIZE;
         if data[index] == bytes[0] {
             for j in 1..N::SIZE {
-                if data[index + j] != bytes[j] { continue 'A; }
+                if data[index + j] != bytes[j] {
+                    continue 'A;
+                }
             }
             return Some(i);
         }
@@ -66,11 +75,15 @@ pub fn find<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8], length: usiz
 pub fn is_zero(s: &[u8]) -> bool {
     for i in (0..s.len()).step_by(16) {
         if s.len() - i >= 16 {
-            let arr: [u8; 16] = s[i..i+16].try_into().unwrap();
-            if u128::from_be_bytes(arr) != 0 { return false }
+            let arr: [u8; 16] = s[i..i + 16].try_into().unwrap();
+            if u128::from_be_bytes(arr) != 0 {
+                return false;
+            }
         } else {
             for &bit in s.iter().skip(i) {
-                if bit != 0 { return false }
+                if bit != 0 {
+                    return false;
+                }
             }
         }
     }
@@ -112,7 +125,10 @@ mod tests {
 
     #[test]
     fn test_pubkey_ser_de() {
-        assert_eq!(Pubkey::SIZE, Pubkey::new_unique().try_to_vec().unwrap().len());
+        assert_eq!(
+            Pubkey::SIZE,
+            Pubkey::new_unique().try_to_vec().unwrap().len()
+        );
     }
 
     macro_rules! test_safe_downcast {
@@ -130,10 +146,34 @@ mod tests {
         };
     }
 
-    test_safe_downcast!(u64_as_u32_safe, test_u64_as_u32_safe, test_u64_as_u32_safe_panic, u64, u32);
-    test_safe_downcast!(usize_as_u32_safe, test_usize_as_u32_safe, test_usize_as_u32_safe_panic, usize, u32);
-    test_safe_downcast!(usize_as_u16_safe, test_usize_as_u16_safe, test_usize_as_u16_safe_panic, usize, u16);
-    test_safe_downcast!(usize_as_u8_safe, test_usize_as_u8_safe, test_usize_as_u8_safe_panic, usize, u8);
+    test_safe_downcast!(
+        u64_as_u32_safe,
+        test_u64_as_u32_safe,
+        test_u64_as_u32_safe_panic,
+        u64,
+        u32
+    );
+    test_safe_downcast!(
+        usize_as_u32_safe,
+        test_usize_as_u32_safe,
+        test_usize_as_u32_safe_panic,
+        usize,
+        u32
+    );
+    test_safe_downcast!(
+        usize_as_u16_safe,
+        test_usize_as_u16_safe,
+        test_usize_as_u16_safe_panic,
+        usize,
+        u16
+    );
+    test_safe_downcast!(
+        usize_as_u8_safe,
+        test_usize_as_u8_safe,
+        test_usize_as_u8_safe_panic,
+        usize,
+        u8
+    );
 
     #[test]
     fn test_u64_as_usize_safe() {
@@ -143,7 +183,10 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_u64_as_usize_safe_panic() {
-        assert_eq!(u64_as_usize_safe(u32::MAX as u64 + 1), u32::MAX as usize + 1);
+        assert_eq!(
+            u64_as_usize_safe(u32::MAX as u64 + 1),
+            u32::MAX as usize + 1
+        );
     }
 
     #[test]
@@ -183,7 +226,11 @@ mod tests {
     }
 
     #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
-    struct B { a0: A, a1: A, a2: A }
+    struct B {
+        a0: A,
+        a1: A,
+        a2: A,
+    }
 
     #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
     enum C {
@@ -203,10 +250,7 @@ mod tests {
     enum TestEnum {
         A { v: [u64; 1] },
         B { v: [u64; 2] },
-        C {
-            v: [u64; 3],
-            c: u8,
-        },
+        C { v: [u64; 3], c: u8 },
     }
 
     #[test]
