@@ -1,15 +1,11 @@
 pub use elusiv_derive::*;
 pub use elusiv_proc_macros::*;
-pub use elusiv_utils::{
-    guard,
-    two_pow,
-    pda_account,
-};
+pub use elusiv_utils::{guard, pda_account, two_pow};
 
 /// Creates a dummy pyth-price-account [`solana_program::account_info::AccountInfo`] for testing
-/// 
+///
 /// # Usage
-/// 
+///
 /// `pyth_price_account_info!($id: ident, $token_id: ident, $price: expr)`
 #[cfg(test)]
 macro_rules! pyth_price_account_info {
@@ -21,9 +17,9 @@ macro_rules! pyth_price_account_info {
 }
 
 /// Create a dummy [`solana_program::account_info::AccountInfo`] for testing
-/// 
+///
 /// # Usage
-/// 
+///
 /// - `account_info!($id: ident, $pubkey: expr)`
 /// - `account_info!($id: ident, $pubkey: expr, $data: expr)`
 /// - `account_info!($id: ident, $pubkey: expr, $data: expr, $owner: expr)`
@@ -48,19 +44,21 @@ macro_rules! account_info {
         let owner = $owner;
         let $id = solana_program::account_info::AccountInfo::new(
             &$pubkey,
-            false, false, &mut lamports,
+            false,
+            false,
+            &mut lamports,
             &mut $data_id,
             &owner,
             false,
-            0
+            0,
         );
     };
 }
 
 /// Creates an [`solana_program::account_info::AccountInfo`] for testing
-/// 
+///
 /// # Usage
-/// 
+///
 /// - `test_account_info!($id: ident)`
 /// - `test_account_info!($id: ident, $data_size: expr)`
 /// - `test_account_info!($id: ident, $data_size: expr, $owner: expr)`
@@ -68,15 +66,15 @@ macro_rules! account_info {
 macro_rules! test_account_info {
     ($id: ident) => {
         let pk = solana_program::pubkey::Pubkey::new_unique();
-        crate::macros::account_info!($id, pk, vec![]) 
+        crate::macros::account_info!($id, pk, vec![])
     };
     ($id: ident, $data_size: expr) => {
         let pk = solana_program::pubkey::Pubkey::new_unique();
-        crate::macros::account_info!($id, pk, vec![0; $data_size]) 
+        crate::macros::account_info!($id, pk, vec![0; $data_size])
     };
     ($id: ident, $data_size: expr, $owner: expr) => {
         let pk = solana_program::pubkey::Pubkey::new_unique();
-        crate::macros::account_info!($id, pk, vec![0; $data_size], $owner) 
+        crate::macros::account_info!($id, pk, vec![0; $data_size], $owner)
     };
 }
 
@@ -87,31 +85,32 @@ macro_rules! test_pda_account_info {
     };
     ($id: ident, $ty: ty, $offset: expr) => {
         let (pk, bump) = <$ty as elusiv_types::PDAAccount>::find($offset);
-        crate::macros::account_info!($id, pk, vec![bump]) 
+        crate::macros::account_info!($id, pk, vec![bump])
     };
     ($id: ident, $ty: ty, $pubkey: expr, $offset: expr) => {
         let (pk, bump) = <$ty as elusiv_types::PDAAccount>::find_with_pubkey($pubkey, $offset);
-        crate::macros::account_info!($id, pk, vec![bump]) 
+        crate::macros::account_info!($id, pk, vec![bump])
     };
 }
 
 /// Creates a program-token-account for a specific [`elusiv_types::PDAAccount`] and a token-id
-/// 
+///
 /// # Usage
-/// 
+///
 /// `program_token_account_info!($id: ident, $pda_ty: ty, $token_id: expr)`
 #[cfg(test)]
 macro_rules! program_token_account_info {
     ($id: ident, $pda_ty: ty, $token_id: expr) => {
-        let pk = crate::processor::program_token_account_address::<$pda_ty>($token_id, None).unwrap();
+        let pk =
+            crate::processor::program_token_account_address::<$pda_ty>($token_id, None).unwrap();
         crate::macros::account_info!($id, pk, vec![], spl_token::id())
     };
 }
 
 /// Creates an instance `$id` of a [`elusiv_types::ProgramAccount`], specified by `$ty`
-/// 
+///
 /// # Usage
-/// 
+///
 /// - `zero_program_account!($id: ident, $ty: ty)`
 /// - mutable instance: `zero_program_account!(mut $id: ident, $ty: ty)`
 #[cfg(test)]
@@ -127,13 +126,13 @@ macro_rules! zero_program_account {
 }
 
 /// Creates an instance `$id` of a `$ty` implementing [`elusiv_types::accounts::ParentAccount`]
-/// 
+///
 /// # Notes
-/// 
+///
 /// - This only works for up to 32 child-accounts.
-/// 
+///
 /// # Usage
-/// 
+///
 /// - `parent_account!($id: ident, $ty: ty)`
 /// - mutable instance: `parent_account!(mut $id: ident, $ty: ty)`
 #[cfg(test)]
@@ -161,10 +160,17 @@ macro_rules! parent_account {
     };
 }
 
-#[cfg(test)] pub(crate) use pyth_price_account_info;
-#[cfg(test)] pub(crate) use account_info;
-#[cfg(test)] pub(crate) use test_account_info;
-#[cfg(test)] pub(crate) use test_pda_account_info;
-#[cfg(test)] pub(crate) use zero_program_account;
-#[cfg(test)] pub(crate) use program_token_account_info;
-#[cfg(test)] pub(crate) use parent_account;
+#[cfg(test)]
+pub(crate) use account_info;
+#[cfg(test)]
+pub(crate) use parent_account;
+#[cfg(test)]
+pub(crate) use program_token_account_info;
+#[cfg(test)]
+pub(crate) use pyth_price_account_info;
+#[cfg(test)]
+pub(crate) use test_account_info;
+#[cfg(test)]
+pub(crate) use test_pda_account_info;
+#[cfg(test)]
+pub(crate) use zero_program_account;

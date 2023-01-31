@@ -1,20 +1,17 @@
+use crate::error::ElusivError::InvalidAccount;
+use crate::macros::guard;
+use crate::state::program_account::{PDAAccount, PDAOffset};
+use crate::token::{elusiv_token, Lamports, SPLToken, Token};
 use solana_program::instruction::Instruction;
 use solana_program::program::invoke;
 use solana_program::program_pack::Pack;
 use solana_program::pubkey::Pubkey;
 use solana_program::sysvar::instructions;
 use solana_program::{
-    account_info::AccountInfo,
-    entrypoint::ProgramResult,
-    program_error::ProgramError,
-    rent::Rent,
+    account_info::AccountInfo, entrypoint::ProgramResult, program_error::ProgramError, rent::Rent,
     sysvar::Sysvar,
 };
 use spl_associated_token_account::get_associated_token_address;
-use crate::error::ElusivError::InvalidAccount;
-use crate::macros::guard;
-use crate::state::program_account::{PDAAccount, PDAOffset};
-use crate::token::{Token, Lamports, SPLToken, elusiv_token};
 
 pub use elusiv_utils::*;
 
@@ -57,23 +54,16 @@ pub fn transfer_token<'a>(
 ) -> ProgramResult {
     match token {
         Token::Lamports(lamports) => {
-            transfer_with_system_program(
-                source,
-                destination,
-                token_program,
-                lamports.0,
-            )
+            transfer_with_system_program(source, destination, token_program, lamports.0)
         }
-        Token::SPLToken(SPLToken { amount, .. }) => {
-            transfer_with_token_program(
-                source,
-                source_token_account,
-                destination,
-                token_program,
-                amount,
-                None,
-            )
-        }
+        Token::SPLToken(SPLToken { amount, .. }) => transfer_with_token_program(
+            source,
+            source_token_account,
+            destination,
+            token_program,
+            amount,
+            None,
+        ),
     }
 }
 
@@ -90,11 +80,7 @@ pub fn transfer_token_from_pda<'a, T: PDAAccount>(
 
     match token {
         Token::Lamports(lamports) => {
-            transfer_lamports_from_pda_checked(
-                source,
-                destination,
-                lamports.0,
-            )
+            transfer_lamports_from_pda_checked(source, destination, lamports.0)
         }
         Token::SPLToken(SPLToken { amount, .. }) => {
             let bump = T::get_bump(source);
@@ -123,8 +109,11 @@ fn transfer_with_token_program<'a>(
 ) -> ProgramResult {
     guard!(*token_program.key == spl_token::ID, InvalidAccount);
 
-    guard!(*source_token_account.owner == spl_token::ID, InvalidAccount);   // redundant
-    guard!(*destination_token_account.owner == spl_token::ID, InvalidAccount);
+    guard!(*source_token_account.owner == spl_token::ID, InvalidAccount); // redundant
+    guard!(
+        *destination_token_account.owner == spl_token::ID,
+        InvalidAccount
+    );
 
     let instruction = spl_token::instruction::transfer(
         &spl_token::id(),
@@ -187,12 +176,10 @@ pub fn program_token_account_address<A: PDAAccount>(
     token_id: u16,
     offset: PDAOffset,
 ) -> Result<Pubkey, ProgramError> {
-    Ok(
-        get_associated_token_address(
-            &A::find(offset).0,
-            &elusiv_token(token_id)?.mint
-        )
-    )
+    Ok(get_associated_token_address(
+        &A::find(offset).0,
+        &elusiv_token(token_id)?.mint,
+    ))
 }
 
 pub fn verify_program_token_account(
@@ -203,10 +190,7 @@ pub fn verify_program_token_account(
     if token_id == 0 {
         guard!(owner_pda.key == token_account.key, InvalidAccount);
     } else {
-        let pubkey = get_associated_token_address(
-            owner_pda.key,
-            &elusiv_token(token_id)?.mint,
-        );
+        let pubkey = get_associated_token_address(owner_pda.key, &elusiv_token(token_id)?.mint);
         guard!(pubkey == *token_account.key, InvalidAccount);
     }
 
@@ -214,13 +198,20 @@ pub fn verify_program_token_account(
 }
 
 pub fn spl_token_account_rent() -> Result<Lamports, ProgramError> {
-    Ok(Lamports(Rent::get()?.minimum_balance(spl_token::state::Account::LEN)))
+    Ok(Lamports(
+        Rent::get()?.minimum_balance(spl_token::state::Account::LEN),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{macros::{test_account_info, account_info}, proof::VerificationAccount, state::governor::PoolAccount, token::TOKENS};
+    use crate::{
+        macros::{account_info, test_account_info},
+        proof::VerificationAccount,
+        state::governor::PoolAccount,
+        token::TOKENS,
+    };
     use assert_matches::assert_matches;
     use solana_program::{pubkey::Pubkey, system_program};
 
@@ -233,12 +224,28 @@ mod tests {
         test_account_info!(dst, 0, spl_token::id());
 
         assert_matches!(
-            transfer_token_from_pda::<PoolAccount>(&non_pda, &src, &dst, &token_program, Token::new(1, 100), None, None),
+            transfer_token_from_pda::<PoolAccount>(
+                &non_pda,
+                &src,
+                &dst,
+                &token_program,
+                Token::new(1, 100),
+                None,
+                None
+            ),
             Err(_)
         );
 
         assert_matches!(
-            transfer_token_from_pda::<PoolAccount>(&pda, &src, &dst, &token_program, Token::new(1, 100), None, None),
+            transfer_token_from_pda::<PoolAccount>(
+                &pda,
+                &src,
+                &dst,
+                &token_program,
+                Token::new(1, 100),
+                None,
+                None
+            ),
             Ok(_)
         );
     }
@@ -330,28 +337,58 @@ mod tests {
         account_info!(pda_account, pubkey, vec![]);
 
         assert_matches!(
-            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 2, None),
+            open_pda_account_with_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &pda_account,
+                2,
+                None
+            ),
             Err(_)
         );
 
         assert_matches!(
-            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 3, None),
+            open_pda_account_with_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &pda_account,
+                3,
+                None
+            ),
             Ok(())
         );
 
         // Using bump:
         assert_matches!(
-            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 2, Some(bump)),
+            open_pda_account_with_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &pda_account,
+                2,
+                Some(bump)
+            ),
             Err(_)
         );
 
         assert_matches!(
-            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 3, Some(0)),
+            open_pda_account_with_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &pda_account,
+                3,
+                Some(0)
+            ),
             Err(_)
         );
 
         assert_matches!(
-            open_pda_account_with_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, 3, Some(bump)),
+            open_pda_account_with_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &pda_account,
+                3,
+                Some(bump)
+            ),
             Ok(())
         );
     }
@@ -367,34 +404,64 @@ mod tests {
         account_info!(invalid_pda_account, invalid_pubkey, vec![]);
 
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &invalid_pda_account, None),
+            open_pda_account_without_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &invalid_pda_account,
+                None
+            ),
             Err(_)
         );
 
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, None),
+            open_pda_account_without_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &pda_account,
+                None
+            ),
             Ok(())
         );
 
         // Using bump:
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &invalid_pda_account, Some(bump)),
+            open_pda_account_without_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &invalid_pda_account,
+                Some(bump)
+            ),
             Err(_)
         );
 
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &invalid_pda_account, Some(invalid_bump)),
+            open_pda_account_without_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &invalid_pda_account,
+                Some(invalid_bump)
+            ),
             Err(_)
         );
 
         // Invalid bump can be supplied for None due to FIRST_PDA
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, Some(123)),
+            open_pda_account_without_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &pda_account,
+                Some(123)
+            ),
             Ok(())
         );
 
         assert_matches!(
-            open_pda_account_without_offset::<VerificationAccount>(&crate::id(), &payer, &pda_account, Some(bump)),
+            open_pda_account_without_offset::<VerificationAccount>(
+                &crate::id(),
+                &payer,
+                &pda_account,
+                Some(bump)
+            ),
             Ok(())
         );
     }
@@ -407,13 +474,22 @@ mod tests {
         unsafe {
             // Underflow
             let balance = pda.lamports();
-            assert_matches!(transfer_lamports_from_pda(&pda, &recipient, balance + 1), Err(_));
+            assert_matches!(
+                transfer_lamports_from_pda(&pda, &recipient, balance + 1),
+                Err(_)
+            );
 
             // Overflow
-            assert_matches!(transfer_lamports_from_pda(&pda, &recipient, u64::MAX), Err(_));
+            assert_matches!(
+                transfer_lamports_from_pda(&pda, &recipient, u64::MAX),
+                Err(_)
+            );
 
             // Valid amount
-            assert_matches!(transfer_lamports_from_pda(&pda, &recipient, balance), Ok(()));
+            assert_matches!(
+                transfer_lamports_from_pda(&pda, &recipient, balance),
+                Ok(())
+            );
             assert_eq!(pda.lamports(), 0);
             assert_eq!(recipient.lamports(), balance * 2);
         }
@@ -443,10 +519,22 @@ mod tests {
         account_info!(token_account1, pk_pool_1, vec![]);
 
         assert_matches!(verify_program_token_account(&pool, &pool, 0), Ok(()));
-        assert_matches!(verify_program_token_account(&pool, &token_account0, 1), Ok(_));
-        assert_matches!(verify_program_token_account(&pool, &token_account1, 1), Err(_));
+        assert_matches!(
+            verify_program_token_account(&pool, &token_account0, 1),
+            Ok(_)
+        );
+        assert_matches!(
+            verify_program_token_account(&pool, &token_account1, 1),
+            Err(_)
+        );
 
-        assert_matches!(verify_program_token_account(&pool, &token_account1, 2), Ok(_));
-        assert_matches!(verify_program_token_account(&pool, &token_account0, 2), Err(_));
+        assert_matches!(
+            verify_program_token_account(&pool, &token_account1, 2),
+            Ok(_)
+        );
+        assert_matches!(
+            verify_program_token_account(&pool, &token_account0, 2),
+            Err(_)
+        );
     }
 }

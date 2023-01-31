@@ -7,21 +7,28 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::assign_op_pattern)]
 
-use elusiv_interpreter::elusiv_computations;
-use elusiv_computation::PartialComputation;
-use std::ops::{Neg, AddAssign};
-use ark_ec::ProjectiveCurve;
-use ark_bn254::{Fq, Fq2, Fq6, Fq12, Fq12Parameters, G1Affine, G2Affine, Fq6Parameters, Parameters, G1Projective};
-use ark_ff::fields::models::{ QuadExtParameters, fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper};
-use ark_ff::{Field, CubicExtParameters, One, Zero, biginteger::BigInteger256, field_new};
-use ark_ec::models::bn::BnParameters;
-use super::*;
 use super::vkey::VerifyingKey;
+use super::*;
 use crate::bytes::usize_as_u8_safe;
-use crate::error::ElusivError::{ComputationIsAlreadyFinished, PartialComputationError, CouldNotProcessProof, InvalidAccountState};
+use crate::error::ElusivError::{
+    ComputationIsAlreadyFinished, CouldNotProcessProof, InvalidAccountState,
+    PartialComputationError,
+};
 use crate::error::ElusivResult;
 use crate::fields::G2HomProjective;
 use crate::processor::COMPUTE_VERIFICATION_IX_COUNT;
+use ark_bn254::{
+    Fq, Fq12, Fq12Parameters, Fq2, Fq6, Fq6Parameters, G1Affine, G1Projective, G2Affine, Parameters,
+};
+use ark_ec::models::bn::BnParameters;
+use ark_ec::ProjectiveCurve;
+use ark_ff::fields::models::{
+    fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper, QuadExtParameters,
+};
+use ark_ff::{biginteger::BigInteger256, field_new, CubicExtParameters, Field, One, Zero};
+use elusiv_computation::PartialComputation;
+use elusiv_interpreter::elusiv_computations;
+use std::ops::{AddAssign, Neg};
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
 pub enum VerificationStep {
@@ -44,7 +51,7 @@ pub fn verify_partial(
         VerificationStep::PublicInputPreparation => {
             // This enables us to use a uniform number of ixs per tx (by only allowing the last ix to perform the computation)
             if instruction_index != COMPUTE_VERIFICATION_IX_COUNT - 1 {
-                return Ok(None)
+                return Ok(None);
             }
 
             prepare_public_inputs(verifier_account, vkey, instruction, round)?;
@@ -52,7 +59,10 @@ pub fn verify_partial(
         }
         VerificationStep::CombinedMillerLoop => {
             // Proof first has to be setup
-            guard!(matches!(verifier_account.get_state(), VerificationState::ProofSetup), InvalidAccountState);
+            guard!(
+                matches!(verifier_account.get_state(), VerificationState::ProofSetup),
+                InvalidAccountState
+            );
 
             combined_miller_loop(verifier_account, vkey, instruction, round)?;
             verifier_account.serialize_rams().unwrap();
@@ -60,7 +70,7 @@ pub fn verify_partial(
         VerificationStep::FinalExponentiation => {
             // This enables us to use a uniform number of ixs per tx (by only allowing the last ix to perform the computation)
             if instruction_index != COMPUTE_VERIFICATION_IX_COUNT - 1 {
-                return Ok(None)
+                return Ok(None);
             }
 
             let v = final_exponentiation(verifier_account, vkey, instruction, round);
@@ -80,12 +90,7 @@ pub fn prepare_public_inputs(
 ) -> ElusivResult {
     let rounds = verifier_account.get_prepare_inputs_instructions(instruction);
 
-    let result = prepare_public_inputs_partial(
-        round,
-        rounds as usize,
-        verifier_account,
-        vkey,
-    );
+    let result = prepare_public_inputs_partial(round, rounds as usize, verifier_account, vkey);
 
     if round + rounds as usize == prepare_public_inputs_rounds(vkey.public_inputs_count) {
         let prepared_inputs = result.ok_or(CouldNotProcessProof)?;
@@ -126,8 +131,13 @@ pub fn combined_miller_loop(
             round,
             verifier_account,
             vkey,
-            &a, &b, &c, &prepared_inputs,
-            &mut r, &mut coeff_index, &mut alt_b,
+            &a,
+            &b,
+            &c,
+            &prepared_inputs,
+            &mut r,
+            &mut coeff_index,
+            &mut alt_b,
         )?;
     }
 
@@ -159,7 +169,10 @@ pub fn final_exponentiation(
     instruction: usize,
     round: usize,
 ) -> Result<Option<bool>, ElusivError> {
-    guard!(instruction < FinalExponentiation::IX_COUNT, ComputationIsAlreadyFinished);
+    guard!(
+        instruction < FinalExponentiation::IX_COUNT,
+        ComputationIsAlreadyFinished
+    );
 
     let rounds = FinalExponentiation::INSTRUCTION_ROUNDS[instruction] as usize;
 
@@ -180,14 +193,16 @@ pub fn final_exponentiation(
         // Final verification, we check:
         // https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
         // https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L60
-        return Ok(Some(vkey.alpha_beta() == v))
+        return Ok(Some(vkey.alpha_beta() == v));
     }
 
     Ok(None)
 }
 
-macro_rules! read_g1_p{
-    ($ram: expr, $o: literal) => { G1Projective::new($ram.read($o), $ram.read($o + 1), $ram.read($o + 2)) };
+macro_rules! read_g1_p {
+    ($ram: expr, $o: literal) => {
+        G1Projective::new($ram.read($o), $ram.read($o + 1), $ram.read($o + 2))
+    };
 }
 
 const PREPARE_PUBLIC_INPUTS_ROUNDS: usize = 33;
@@ -214,12 +229,15 @@ fn prepare_public_inputs_partial(
 
     for round in round..round + rounds {
         let round = round % PREPARE_PUBLIC_INPUTS_ROUNDS;
-        if round == 0 { acc = G1Projective::zero(); }
+        if round == 0 {
+            acc = G1Projective::zero();
+        }
 
         if round < PREPARE_PUBLIC_INPUTS_ROUNDS - 1 {
             let gamma_abc = vkey.gamma_abc(input_index, round, public_input[round]);
             acc.add_assign_mixed(&gamma_abc);
-        } else { // Adding
+        } else {
+            // Adding
             let mut g_ic = if input_index == 0 {
                 vkey.gamma_abc_base()
             } else {
@@ -236,7 +254,7 @@ fn prepare_public_inputs_partial(
                 input_index += 1;
                 public_input = storage.get_public_input(input_index).skip_mr();
             } else {
-                return Some(g_ic.into_affine())
+                return Some(g_ic.into_affine());
             }
         }
     }
@@ -252,13 +270,13 @@ pub fn precomputed_input_preparation(
     public_inputs: &[U256],
 ) -> Option<G1Affine> {
     if public_inputs.len() != vkey.public_inputs_count {
-        return None
+        return None;
     }
 
     let mut g_ic = vkey.gamma_abc_base();
     for (i, public_input) in public_inputs.iter().enumerate() {
         if *public_input == [0; 32] {
-            continue
+            continue;
         }
 
         let mut acc = G1Projective::zero();
@@ -278,7 +296,10 @@ const ADD_COST: u16 = 30;
 const MAX_CUS: u16 = 1_330; // 1_400_000 / 1000 minus padding
 
 /// Returns the instructions (and their rounds) required for a specific public-input-bound input preparation
-pub fn prepare_public_inputs_instructions(public_inputs: &[U256], public_inputs_count: usize) -> Vec<u32> {
+pub fn prepare_public_inputs_instructions(
+    public_inputs: &[U256],
+    public_inputs_count: usize,
+) -> Vec<u32> {
     assert!(public_inputs.len() == public_inputs_count);
 
     let mut instructions = Vec::new();
@@ -290,8 +311,16 @@ pub fn prepare_public_inputs_instructions(public_inputs: &[U256], public_inputs_
     for public_input in public_inputs.iter() {
         for b in 0..33 {
             let cus = if b == 32 {
-                if *public_input == [0; 32] { 0 } else { ADD_COST }
-            } else if public_input[b] == 0 { 0 } else { ADD_MIXED_COST };
+                if *public_input == [0; 32] {
+                    0
+                } else {
+                    ADD_COST
+                }
+            } else if public_input[b] == 0 {
+                0
+            } else {
+                ADD_MIXED_COST
+            };
 
             if compute_units + cus > MAX_CUS {
                 instructions.push(rounds);
@@ -312,16 +341,24 @@ pub fn prepare_public_inputs_instructions(public_inputs: &[U256], public_inputs_
     }
 
     // Redundant check
-    assert_eq!(total_rounds, prepare_public_inputs_rounds(public_inputs_count));
+    assert_eq!(
+        total_rounds,
+        prepare_public_inputs_rounds(public_inputs_count)
+    );
 
     instructions
 }
 
-#[cfg(test)] const_assert_eq!(ADDITION_STEP_ROUNDS_COUNT, 2);
-#[cfg(test)] const_assert_eq!(DOUBLING_STEP_ROUNDS_COUNT, 2);
-#[cfg(test)] const_assert_eq!(MUL_BY_CHARACTERISTICS_ROUNDS_COUNT, 2);
-#[cfg(test)] const_assert_eq!(MUL_BY_034_ROUNDS_COUNT, 3);
-#[cfg(test)] const_assert_eq!(COMBINED_ELL_ROUNDS_COUNT, 13);
+#[cfg(test)]
+const_assert_eq!(ADDITION_STEP_ROUNDS_COUNT, 2);
+#[cfg(test)]
+const_assert_eq!(DOUBLING_STEP_ROUNDS_COUNT, 2);
+#[cfg(test)]
+const_assert_eq!(MUL_BY_CHARACTERISTICS_ROUNDS_COUNT, 2);
+#[cfg(test)]
+const_assert_eq!(MUL_BY_034_ROUNDS_COUNT, 3);
+#[cfg(test)]
+const_assert_eq!(COMBINED_ELL_ROUNDS_COUNT, 13);
 
 pub const COMBINED_MILLER_LOOP_IXS: usize = 215;
 pub const FINAL_EXPONENTIATION_IXS: usize = 17;
@@ -541,7 +578,7 @@ elusiv_computations!(
                             f = v;
                             _ = j.add_assign(1);
                         };
-                    }    
+                    }
                 }
             }
         }
@@ -578,8 +615,10 @@ elusiv_computations!(
     }
 );
 
-#[cfg(test)] const_assert_eq!(INVERSE_FQ12_ROUNDS_COUNT, 4);
-#[cfg(test)] const_assert_eq!(EXP_BY_NEG_X_ROUNDS_COUNT, 128);
+#[cfg(test)]
+const_assert_eq!(INVERSE_FQ12_ROUNDS_COUNT, 4);
+#[cfg(test)]
+const_assert_eq!(EXP_BY_NEG_X_ROUNDS_COUNT, 128);
 
 elusiv_computations!(
     final_exponentiation, FinalExponentiation, 1_300_000,
@@ -757,17 +796,31 @@ fn write_g1_projective(ram: &mut RAMFq, g1p: &G1Projective, offset: usize) {
 
 /// Inverse of 2 (in q)
 /// - Calculated using: Fq::one().double().inverse().unwrap()
-const TWO_INV: Fq = Fq::new(BigInteger256::new([9781510331150239090, 15059239858463337189, 10331104244869713732, 2249375503248834476]));
+const TWO_INV: Fq = Fq::new(BigInteger256::new([
+    9781510331150239090,
+    15059239858463337189,
+    10331104244869713732,
+    2249375503248834476,
+]));
 
 /// https://docs.rs/ark-bn254/0.3.0/src/ark_bn254/curves/g2.rs.html#19
 /// COEFF_B = 3/(u+9) = (19485874751759354771024239261021720505790618469301721065564631296452457478373, 266929791119991161246907387137283842545076965332900288569378510910307636690)
-const COEFF_B: Fq2 = field_new!(Fq2,
-    field_new!(Fq, "19485874751759354771024239261021720505790618469301721065564631296452457478373"),
-    field_new!(Fq, "266929791119991161246907387137283842545076965332900288569378510910307636690"),
+const COEFF_B: Fq2 = field_new!(
+    Fq2,
+    field_new!(
+        Fq,
+        "19485874751759354771024239261021720505790618469301721065564631296452457478373"
+    ),
+    field_new!(
+        Fq,
+        "266929791119991161246907387137283842545076965332900288569378510910307636690"
+    ),
 );
 
 type Coefficients = (Fq2, Fq2, Fq2);
-fn new_coeffs(c0: Fq2, c1: Fq2, c2: Fq2) -> Coefficients { (c0, c1, c2) }
+fn new_coeffs(c0: Fq2, c1: Fq2, c2: Fq2) -> Coefficients {
+    (c0, c1, c2)
+}
 
 const TWIST_MUL_BY_Q_X: Fq2 = Parameters::TWIST_MUL_BY_Q_X;
 const TWIST_MUL_BY_Q_Y: Fq2 = Parameters::TWIST_MUL_BY_Q_Y;
@@ -829,8 +882,10 @@ fn frobenius_map(f: Fq12, u: usize) -> Fq12 {
     k
 }
 
-#[cfg(feature = "test-elusiv")] use crate::types::Proof;
-#[cfg(feature = "test-elusiv")] use std::str::FromStr;
+#[cfg(feature = "test-elusiv")]
+use crate::types::Proof;
+#[cfg(feature = "test-elusiv")]
+use std::str::FromStr;
 
 #[cfg(feature = "test-elusiv")]
 pub fn proof_from_str(
@@ -839,33 +894,21 @@ pub fn proof_from_str(
     c: (&str, &str, bool),
 ) -> Proof {
     Proof {
-        a: G1A(
-            G1Affine::new(
-                Fq::from_str(a.0).unwrap(),
-                Fq::from_str(a.1).unwrap(),
-                a.2
-            )
-        ),
-        b: G2A(
-            G2Affine::new(
-                Fq2::new(
-                    Fq::from_str(b.0.0).unwrap(),
-                    Fq::from_str(b.0.1).unwrap()
-                ),
-                Fq2::new(
-                    Fq::from_str(b.1.0).unwrap(),
-                    Fq::from_str(b.1.1).unwrap()
-                ),
-                b.2
-            )
-        ),
-        c: G1A(
-            G1Affine::new(
-                Fq::from_str(c.0).unwrap(),
-                Fq::from_str(c.1).unwrap(),
-                c.2
-            )
-        )
+        a: G1A(G1Affine::new(
+            Fq::from_str(a.0).unwrap(),
+            Fq::from_str(a.1).unwrap(),
+            a.2,
+        )),
+        b: G2A(G2Affine::new(
+            Fq2::new(Fq::from_str(b.0 .0).unwrap(), Fq::from_str(b.0 .1).unwrap()),
+            Fq2::new(Fq::from_str(b.1 .0).unwrap(), Fq::from_str(b.1 .1).unwrap()),
+            b.2,
+        )),
+        c: G1A(G1Affine::new(
+            Fq::from_str(c.0).unwrap(),
+            Fq::from_str(c.1).unwrap(),
+            c.2,
+        )),
     }
 }
 
@@ -879,56 +922,44 @@ pub fn proof_from_str_projective(
     use ark_bn254::G2Projective;
 
     Proof {
-        a: G1A(
-            G1Projective::new(
-                Fq::from_str(a.0).unwrap(),
-                Fq::from_str(a.1).unwrap(),
-                Fq::from_str(a.2).unwrap(),
-            ).into()
-        ),
-        b: G2A(
-            G2Projective::new(
-                Fq2::new(
-                    Fq::from_str(b.0.0).unwrap(),
-                    Fq::from_str(b.0.1).unwrap()
-                ),
-                Fq2::new(
-                    Fq::from_str(b.1.0).unwrap(),
-                    Fq::from_str(b.1.1).unwrap()
-                ),
-                Fq2::new(
-                    Fq::from_str(b.2.0).unwrap(),
-                    Fq::from_str(b.2.1).unwrap()
-                ),
-            ).into()
-        ),
-        c: G1A(
-            G1Projective::new(
-                Fq::from_str(c.0).unwrap(),
-                Fq::from_str(c.1).unwrap(),
-                Fq::from_str(c.2).unwrap(),
-            ).into()
+        a: G1A(G1Projective::new(
+            Fq::from_str(a.0).unwrap(),
+            Fq::from_str(a.1).unwrap(),
+            Fq::from_str(a.2).unwrap(),
         )
+        .into()),
+        b: G2A(G2Projective::new(
+            Fq2::new(Fq::from_str(b.0 .0).unwrap(), Fq::from_str(b.0 .1).unwrap()),
+            Fq2::new(Fq::from_str(b.1 .0).unwrap(), Fq::from_str(b.1 .1).unwrap()),
+            Fq2::new(Fq::from_str(b.2 .0).unwrap(), Fq::from_str(b.2 .1).unwrap()),
+        )
+        .into()),
+        c: G1A(G1Projective::new(
+            Fq::from_str(c.0).unwrap(),
+            Fq::from_str(c.1).unwrap(),
+            Fq::from_str(c.2).unwrap(),
+        )
+        .into()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
-    use ark_bn254::{Fr, Bn254};
-    use ark_ec::PairingEngine;
+    use crate::fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr};
+    use crate::macros::zero_program_account;
+    use crate::proof::test_proofs::{invalid_proofs, valid_proofs};
+    use crate::proof::vkey::{TestVKey, VerifyingKeyInfo};
+    use crate::state::empty_root_raw;
+    use crate::types::{InputCommitment, JoinSplitPublicInputs, PublicInputs, SendPublicInputs};
+    use ark_bn254::{Bn254, Fr};
     use ark_ec::bn::G2Prepared;
     use ark_ec::models::bn::BnParameters;
+    use ark_ec::PairingEngine;
     use ark_groth16::prepare_inputs;
     use assert_matches::assert_matches;
     use solana_program::native_token::LAMPORTS_PER_SOL;
-    use crate::fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr};
-    use crate::macros::zero_program_account;
-    use crate::proof::test_proofs::{valid_proofs, invalid_proofs};
-    use crate::proof::vkey::{TestVKey, VerifyingKeyInfo};
-    use crate::state::empty_root_raw;
-    use crate::types::{SendPublicInputs, JoinSplitPublicInputs, PublicInputs, InputCommitment};
+    use std::str::FromStr;
 
     fn setup_storage_account<VKey: VerifyingKeyInfo>(
         storage: &mut VerificationAccount,
@@ -944,29 +975,52 @@ mod tests {
             storage.set_public_input(i, &RawU256::new(public_input));
         }
 
-        let instructions = prepare_public_inputs_instructions(public_inputs, VKey::public_inputs_count());
-        storage.setup_public_inputs_instructions(&instructions).unwrap();
+        let instructions =
+            prepare_public_inputs_instructions(public_inputs, VKey::public_inputs_count());
+        storage
+            .setup_public_inputs_instructions(&instructions)
+            .unwrap();
     }
 
     fn f() -> Fq12 {
         let f = Fq6::new(
             Fq2::new(
-                Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                Fq::from_str(
+                    "20925091368075991963132407952916453596237117852799702412141988931506241672722",
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+                )
+                .unwrap(),
             ),
             Fq2::new(
-                Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                Fq::from_str(
+                    "5932690455294482368858352783906317764044134926538780366070347507990829997699",
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+                )
+                .unwrap(),
             ),
             Fq2::new(
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+                Fq::from_str(
+                    "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "19526707366532583397322534596786476145393586591811230548888354920504818678603",
+                )
+                .unwrap(),
             ),
         );
         Fq12::new(f, f)
     }
 
-    fn g2_affine() -> G2Affine { G2Affine::new(f().c0.c0, f().c0.c1, false) }
+    fn g2_affine() -> G2Affine {
+        G2Affine::new(f().c0.c0, f().c0.c1, false)
+    }
 
     macro_rules! vkey {
         ($id: ident, $vkey: ident) => {
@@ -999,22 +1053,30 @@ mod tests {
         // First version
         zero_program_account!(mut storage, VerificationAccount);
         for (i, public_input) in public_inputs.iter().enumerate() {
-            storage.set_public_input(i, & RawU256::new(u256_from_str_skip_mr(public_input)));
+            storage.set_public_input(i, &RawU256::new(u256_from_str_skip_mr(public_input)));
         }
 
         // precomputed_input_preparation version
         let p_result = precomputed_input_preparation(
             &vkey,
-            &public_inputs.iter().map(|&p| { u256_from_str_skip_mr(p) }).collect::<Vec<U256>>()[..],
-        ).unwrap();
+            &public_inputs
+                .iter()
+                .map(|&p| u256_from_str_skip_mr(p))
+                .collect::<Vec<U256>>()[..],
+        )
+        .unwrap();
 
         let result = prepare_public_inputs_partial(
             0,
             prepare_public_inputs_rounds(TestVKey::public_inputs_count()),
             &mut storage,
             &vkey,
-        ).unwrap();
-        let public_inputs: Vec<Fr> = public_inputs.iter().map(|s| Fr::from_str(s).unwrap()).collect();
+        )
+        .unwrap();
+        let public_inputs: Vec<Fr> = public_inputs
+            .iter()
+            .map(|s| Fr::from_str(s).unwrap())
+            .collect();
         let expected = prepare_inputs(&pvk, &public_inputs).unwrap().into_affine();
         assert_eq!(result, expected);
         assert_eq!(result, p_result);
@@ -1026,17 +1088,17 @@ mod tests {
 
         for i in 0..storage.get_prepare_inputs_instructions_count() {
             let round = storage.get_round();
-            prepare_public_inputs(
-                &mut storage,
-                &vkey,
-                i as usize,
-                round as usize,
-            ).unwrap();
+            prepare_public_inputs(&mut storage, &vkey, i as usize, round as usize).unwrap();
         }
         let expected = prepare_inputs(
             &pvk,
-            &public_inputs.iter().map(|&x| u256_to_fr_skip_mr(&RawU256::new(x).reduce())).collect::<Vec<Fr>>()
-        ).unwrap().into_affine();
+            &public_inputs
+                .iter()
+                .map(|&x| u256_to_fr_skip_mr(&RawU256::new(x).reduce()))
+                .collect::<Vec<Fr>>(),
+        )
+        .unwrap()
+        .into_affine();
         assert_eq!(storage.prepared_inputs.get().0, expected);
     }
 
@@ -1057,25 +1119,54 @@ mod tests {
         zero_program_account!(mut storage, VerificationAccount);
         let mut value: Option<Fq12> = None;
         let a = G1Affine::new(
-            Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
-            Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-            false
+            Fq::from_str(
+                "10026859857882131638516328056627849627085232677511724829502598764489185541935",
+            )
+            .unwrap(),
+            Fq::from_str(
+                "19685960310506634721912121951341598678325833230508240750559904196809564625591",
+            )
+            .unwrap(),
+            false,
         );
         let prepared_inputs = G1Affine::new(
-            Fq::from_str("6859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
-            Fq::from_str("310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-            false
+            Fq::from_str(
+                "6859857882131638516328056627849627085232677511724829502598764489185541935",
+            )
+            .unwrap(),
+            Fq::from_str("310506634721912121951341598678325833230508240750559904196809564625591")
+                .unwrap(),
+            false,
         );
         let c = G1Affine::new(
-            Fq::from_str("21186803555845400161937398579081414146527572885637089779856221229551142844794").unwrap(),
-            Fq::from_str("85960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
-            false
+            Fq::from_str(
+                "21186803555845400161937398579081414146527572885637089779856221229551142844794",
+            )
+            .unwrap(),
+            Fq::from_str(
+                "85960310506634721912121951341598678325833230508240750559904196809564625591",
+            )
+            .unwrap(),
+            false,
         );
         let c0 = f().c0.c0;
         let c1 = f().c0.c1;
         let c2 = f().c0.c2;
         for round in 0..COMBINED_ELL_ROUNDS_COUNT {
-            value = combined_ell_partial(round, &mut storage, &vkey, &a, &prepared_inputs, &c, &c0, &c1, &c2, 0, f()).unwrap();
+            value = combined_ell_partial(
+                round,
+                &mut storage,
+                &vkey,
+                &a,
+                &prepared_inputs,
+                &c,
+                &c0,
+                &c1,
+                &c2,
+                0,
+                f(),
+            )
+            .unwrap();
         }
 
         let pvk = TestVKey::arkworks_pvk();
@@ -1092,9 +1183,19 @@ mod tests {
         vkey!(vkey, TestVKey);
         zero_program_account!(mut storage, VerificationAccount);
         let prepared_inputs = G1Affine::new(
-            Fq::new(BigInteger256([8166105574990738357, 14893958969660524502, 13741065838606745905, 2671370669009161592])),
-            Fq::new(BigInteger256([1732807305541484699, 1852698713330294736, 13051725764221510649, 2467965794402811157])),
-            false
+            Fq::new(BigInteger256([
+                8166105574990738357,
+                14893958969660524502,
+                13741065838606745905,
+                2671370669009161592,
+            ])),
+            Fq::new(BigInteger256([
+                1732807305541484699,
+                1852698713330294736,
+                13051725764221510649,
+                2467965794402811157,
+            ])),
+            false,
         );
 
         let proof = proof_from_str(
@@ -1122,7 +1223,11 @@ mod tests {
         );
 
         // First version
-        let mut r = G2HomProjective { x: Fq2::zero(), y: Fq2::zero(), z: Fq2::zero() };
+        let mut r = G2HomProjective {
+            x: Fq2::zero(),
+            y: Fq2::zero(),
+            z: Fq2::zero(),
+        };
         let mut j = 0;
         let mut alt_b = G2A(g2_affine());
         let mut result = None;
@@ -1138,7 +1243,8 @@ mod tests {
                 &mut r,
                 &mut j,
                 &mut alt_b,
-            ).unwrap();
+            )
+            .unwrap();
         }
         assert_eq!(j, 91);
 
@@ -1177,16 +1283,34 @@ mod tests {
         let q = g2_affine();
         let mut r = G2HomProjective {
             x: Fq2::new(
-                Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                Fq::from_str(
+                    "20925091368075991963132407952916453596237117852799702412141988931506241672722",
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+                )
+                .unwrap(),
             ),
             y: Fq2::new(
-                Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                Fq::from_str(
+                    "5932690455294482368858352783906317764044134926538780366070347507990829997699",
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+                )
+                .unwrap(),
             ),
             z: Fq2::new(
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+                Fq::from_str(
+                    "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "19526707366532583397322534596786476145393586591811230548888354920504818678603",
+                )
+                .unwrap(),
             ),
         };
         let mut r2 = r.clone();
@@ -1197,7 +1321,7 @@ mod tests {
         }
 
         let expected = reference_addition_step(&mut r2, &q);
-        
+
         assert_eq!(result.unwrap(), expected);
         assert_eq!(r.x, r2.x);
         assert_eq!(r.y, r2.y);
@@ -1209,16 +1333,34 @@ mod tests {
         zero_program_account!(mut storage, VerificationAccount);
         let mut r = G2HomProjective {
             x: Fq2::new(
-                Fq::from_str("20925091368075991963132407952916453596237117852799702412141988931506241672722").unwrap(),
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                Fq::from_str(
+                    "20925091368075991963132407952916453596237117852799702412141988931506241672722",
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+                )
+                .unwrap(),
             ),
             y: Fq2::new(
-                Fq::from_str("5932690455294482368858352783906317764044134926538780366070347507990829997699").unwrap(),
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
+                Fq::from_str(
+                    "5932690455294482368858352783906317764044134926538780366070347507990829997699",
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+                )
+                .unwrap(),
             ),
             z: Fq2::new(
-                Fq::from_str("18684276579894497974780190092329868933855710870485375969907530111657029892231").unwrap(),
-                Fq::from_str("19526707366532583397322534596786476145393586591811230548888354920504818678603").unwrap(),
+                Fq::from_str(
+                    "18684276579894497974780190092329868933855710870485375969907530111657029892231",
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "19526707366532583397322534596786476145393586591811230548888354920504818678603",
+                )
+                .unwrap(),
             ),
         };
         let mut r2 = r.clone();
@@ -1330,7 +1472,10 @@ mod tests {
         let expected = prepare_public_inputs_rounds(TestVKey::public_inputs_count()) as u32;
 
         assert_eq!(
-            prepare_public_inputs_instructions(&vec![[0; 32]; TestVKey::public_inputs_count()], TestVKey::public_inputs_count()),
+            prepare_public_inputs_instructions(
+                &vec![[0; 32]; TestVKey::public_inputs_count()],
+                TestVKey::public_inputs_count()
+            ),
             vec![expected]
         );
     }
@@ -1342,7 +1487,9 @@ mod tests {
     ) -> bool {
         zero_program_account!(mut storage, VerificationAccount);
         setup_storage_account::<VKey>(&mut storage, proof, public_inputs);
-        let instruction_count = storage.get_prepare_inputs_instructions_count() as usize + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS;
+        let instruction_count = storage.get_prepare_inputs_instructions_count() as usize
+            + COMBINED_MILLER_LOOP_IXS
+            + FINAL_EXPONENTIATION_IXS;
 
         let mut result = None;
         for _ in 0..instruction_count {
@@ -1357,11 +1504,19 @@ mod tests {
         vkey!(vkey, TestVKey);
 
         for p in valid_proofs() {
-            assert!(full_verification::<TestVKey>(p.proof, &p.public_inputs, &vkey));
+            assert!(full_verification::<TestVKey>(
+                p.proof,
+                &p.public_inputs,
+                &vkey
+            ));
         }
 
         for p in invalid_proofs() {
-            assert!(!full_verification::<TestVKey>(p.proof, &p.public_inputs, &vkey));
+            assert!(!full_verification::<TestVKey>(
+                p.proof,
+                &p.public_inputs,
+                &vkey
+            ));
         }
     }
 
@@ -1371,7 +1526,9 @@ mod tests {
         let public_inputs = valid_proofs()[0].public_inputs.clone();
         zero_program_account!(mut storage, VerificationAccount);
         setup_storage_account::<TestVKey>(&mut storage, proof, &public_inputs);
-        let instruction_count = storage.get_prepare_inputs_instructions_count() as usize + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS;
+        let instruction_count = storage.get_prepare_inputs_instructions_count() as usize
+            + COMBINED_MILLER_LOOP_IXS
+            + FINAL_EXPONENTIATION_IXS;
 
         vkey!(vkey, TestVKey);
 
@@ -1380,7 +1537,10 @@ mod tests {
         }
 
         // Additional ix will result in error
-        assert_matches!(verify_partial(&mut storage, &vkey, COMPUTE_VERIFICATION_IX_COUNT - 1), Err(_));
+        assert_matches!(
+            verify_partial(&mut storage, &vkey, COMPUTE_VERIFICATION_IX_COUNT - 1),
+            Err(_)
+        );
     }
 
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L59
@@ -1388,7 +1548,7 @@ mod tests {
         let mut c0: Fq2 = coeffs.0;
         let mut c1: Fq2 = coeffs.1;
         let c2: Fq2 = coeffs.2;
-    
+
         c0.mul_assign_by_fp(&p.y);
         c1.mul_assign_by_fp(&p.x);
 
@@ -1410,7 +1570,9 @@ mod tests {
     // https://github.com/arkworks-rs/algebra/blob/6ea310ef09f8b7510ce947490919ea6229bbecd6/ec/src/models/bn/mod.rs#L78
     fn reference_exp_by_neg_x(f: Fq12) -> Fq12 {
         let mut f = f.cyclotomic_exp(Parameters::X);
-        if !Parameters::X_IS_NEGATIVE { f.conjugate(); }
+        if !Parameters::X_IS_NEGATIVE {
+            f.conjugate();
+        }
         f
     }
 

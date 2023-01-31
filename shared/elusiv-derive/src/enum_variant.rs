@@ -1,10 +1,10 @@
-use quote::quote;
 use proc_macro2::TokenStream;
+use quote::quote;
 
 pub fn impl_enum_variant_index(ast: &syn::DeriveInput) -> TokenStream {
     let ident = &ast.ident.clone();
     let (impl_generics, ty_generics, where_clause) = &ast.generics.split_for_impl();
-    let mut output = quote!{};
+    let mut output = quote! {};
 
     match &ast.data {
         syn::Data::Enum(e) => {
@@ -14,12 +14,14 @@ pub fn impl_enum_variant_index(ast: &syn::DeriveInput) -> TokenStream {
                 let id = var.ident.clone();
                 let i = i as u8;
 
-                output.extend(quote!{
+                output.extend(quote! {
                     #ident::#id { .. } => #i,
                 })
             }
         }
-        _ => { panic!() }
+        _ => {
+            panic!()
+        }
     }
 
     quote! {

@@ -1,6 +1,6 @@
-use quote::quote;
-use proc_macro2::TokenStream;
 use elusiv_proc_macro_utils::pda;
+use proc_macro2::TokenStream;
+use quote::quote;
 
 pub fn impl_pda_account(ast: &syn::DeriveInput) -> TokenStream {
     let ident = &ast.ident.clone();
@@ -15,7 +15,10 @@ pub fn impl_pda_account(ast: &syn::DeriveInput) -> TokenStream {
     let pda_seed = pda_seed_string.as_bytes();
     let pda_seed_tokens: TokenStream = format!("{:?}", pda_seed).parse().unwrap();
     if pda_seed.len() > 32 {
-        panic!("PDA-Seeds are only allowed to be <= 32 bytes in length (found {})", pda_seed.len());
+        panic!(
+            "PDA-Seeds are only allowed to be <= 32 bytes in length (found {})",
+            pda_seed.len()
+        );
     }
     let (first_pubkey, first_bump) = pda(pda_seed);
     let first_pubkey: TokenStream = format!("{:?}", first_pubkey.to_bytes()).parse().unwrap();

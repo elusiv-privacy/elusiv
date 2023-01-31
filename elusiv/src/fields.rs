@@ -1,14 +1,26 @@
-use ark_bn254::{Fr, Fq, Fq2, Fq6, Fq12, G1Affine, G2Affine, G1Projective};
-use ark_ff::{BigInteger256, PrimeField, One};
-use borsh::{BorshSerialize, BorshDeserialize};
-use crate::{types::{U256, u256_to_le_limbs}, bytes::BorshSerDeSized};
 use crate::bytes::slice_to_array;
+use crate::{
+    bytes::BorshSerDeSized,
+    types::{u256_to_le_limbs, U256},
+};
+use ark_bn254::{Fq, Fq12, Fq2, Fq6, Fr, G1Affine, G1Projective, G2Affine};
+use ark_ff::{BigInteger256, One, PrimeField};
+use borsh::{BorshDeserialize, BorshSerialize};
 
 /// From &[u8] to [u8; 8]
 #[macro_export]
 macro_rules! u64_array {
     ($v: expr, $o: expr) => {
-        [$v[$o], $v[$o + 1], $v[$o + 2], $v[$o + 3], $v[$o + 4], $v[$o + 5], $v[$o + 6], $v[$o + 7]]
+        [
+            $v[$o],
+            $v[$o + 1],
+            $v[$o + 2],
+            $v[$o + 3],
+            $v[$o + 4],
+            $v[$o + 5],
+            $v[$o + 6],
+            $v[$o + 7],
+        ]
     };
 }
 
@@ -16,7 +28,12 @@ macro_rules! u64_array {
 //const BASE_MODULUS_RAW: BigInteger256 = BigInteger256([0x3c208c16d87cfd47, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]);
 
 /// Bn254 scalar field modulus: `r = 21888242871839275222246405745257275088548364400416034343698204186575808495617` in non-mr-form
-pub const SCALAR_MODULUS_RAW: BigInteger256 = BigInteger256([4891460686036598785, 2896914383306846353, 13281191951274694749, 3486998266802970665]);
+pub const SCALAR_MODULUS_RAW: BigInteger256 = BigInteger256([
+    4891460686036598785,
+    2896914383306846353,
+    13281191951274694749,
+    3486998266802970665,
+]);
 
 /// Constructs a base field element from an element that is already in montgomery-reduced-form
 pub fn base_skip_mr(e: BigInteger256) -> Fq {
@@ -50,20 +67,24 @@ pub fn u64_limb(slice: &[u8], offset: usize) -> u64 {
 
 /// Deserializes 32 bytes into a base field element
 macro_rules! fq_skip_mr {
-    ($v: expr) => { base_skip_mr(le_u256($v)) };
+    ($v: expr) => {
+        base_skip_mr(le_u256($v))
+    };
 }
 
 /// Deserializes 32 bytes into a scalar field element
 macro_rules! fr_skip_mr {
-    ($v: expr) => { scalar_skip_mr(le_u256($v)) };
+    ($v: expr) => {
+        scalar_skip_mr(le_u256($v))
+    };
 }
 
 /// Little-endian montgomery represented value writing of a base field element
 fn write_base_montgomery<W: std::io::Write>(v: Fq, writer: &mut W) -> std::io::Result<()> {
-    writer.write_all(&u64::to_le_bytes(v.0.0[0])[..])?;
-    writer.write_all(&u64::to_le_bytes(v.0.0[1])[..])?;
-    writer.write_all(&u64::to_le_bytes(v.0.0[2])[..])?;
-    writer.write_all(&u64::to_le_bytes(v.0.0[3])[..])
+    writer.write_all(&u64::to_le_bytes(v.0 .0[0])[..])?;
+    writer.write_all(&u64::to_le_bytes(v.0 .0[1])[..])?;
+    writer.write_all(&u64::to_le_bytes(v.0 .0[2])[..])?;
+    writer.write_all(&u64::to_le_bytes(v.0 .0[3])[..])
 }
 
 /// Wraps foreign types into the local scope
@@ -77,13 +98,15 @@ impl<T: Clone> Clone for Wrap<T> {
 }
 
 // BigInteger256
-impl BorshSerDeSized for Wrap<BigInteger256> { const SIZE: usize = 32; }
+impl BorshSerDeSized for Wrap<BigInteger256> {
+    const SIZE: usize = 32;
+}
 impl BorshSerialize for Wrap<BigInteger256> {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_all(&u64::to_le_bytes(self.0.0[0])[..])?;
-        writer.write_all(&u64::to_le_bytes(self.0.0[1])[..])?;
-        writer.write_all(&u64::to_le_bytes(self.0.0[2])[..])?;
-        writer.write_all(&u64::to_le_bytes(self.0.0[3])[..])
+        writer.write_all(&u64::to_le_bytes(self.0 .0[0])[..])?;
+        writer.write_all(&u64::to_le_bytes(self.0 .0[1])[..])?;
+        writer.write_all(&u64::to_le_bytes(self.0 .0[2])[..])?;
+        writer.write_all(&u64::to_le_bytes(self.0 .0[3])[..])
     }
 }
 impl BorshDeserialize for Wrap<BigInteger256> {
@@ -97,13 +120,15 @@ impl BorshDeserialize for Wrap<BigInteger256> {
 }
 
 // Fr
-impl BorshSerDeSized for Wrap<Fr> { const SIZE: usize = 32; }
+impl BorshSerDeSized for Wrap<Fr> {
+    const SIZE: usize = 32;
+}
 impl BorshSerialize for Wrap<Fr> {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_all(&u64::to_le_bytes(self.0.0.0[0])[..])?;
-        writer.write_all(&u64::to_le_bytes(self.0.0.0[1])[..])?;
-        writer.write_all(&u64::to_le_bytes(self.0.0.0[2])[..])?;
-        writer.write_all(&u64::to_le_bytes(self.0.0.0[3])[..])
+        writer.write_all(&u64::to_le_bytes(self.0 .0 .0[0])[..])?;
+        writer.write_all(&u64::to_le_bytes(self.0 .0 .0[1])[..])?;
+        writer.write_all(&u64::to_le_bytes(self.0 .0 .0[2])[..])?;
+        writer.write_all(&u64::to_le_bytes(self.0 .0 .0[3])[..])
     }
 }
 impl BorshDeserialize for Wrap<Fr> {
@@ -116,7 +141,9 @@ impl BorshDeserialize for Wrap<Fr> {
 }
 
 // Fq
-impl BorshSerDeSized for Wrap<Fq> { const SIZE: usize = 32; }
+impl BorshSerDeSized for Wrap<Fq> {
+    const SIZE: usize = 32;
+}
 impl BorshSerialize for Wrap<Fq> {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         write_base_montgomery(self.0, writer)
@@ -132,7 +159,9 @@ impl BorshDeserialize for Wrap<Fq> {
 }
 
 // Fq2
-impl BorshSerDeSized for Wrap<Fq2> { const SIZE: usize = 64; }
+impl BorshSerDeSized for Wrap<Fq2> {
+    const SIZE: usize = 64;
+}
 impl BorshSerialize for Wrap<Fq2> {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         write_base_montgomery(self.0.c0, writer)?;
@@ -142,17 +171,16 @@ impl BorshSerialize for Wrap<Fq2> {
 impl BorshDeserialize for Wrap<Fq2> {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
         assert!(buf.len() >= 64);
-        let res = Fq2::new(
-            fq_skip_mr!(buf),
-            fq_skip_mr!(&buf[32..])
-        );
+        let res = Fq2::new(fq_skip_mr!(buf), fq_skip_mr!(&buf[32..]));
         *buf = &buf[64..];
         Ok(Wrap(res))
     }
 }
 
 // Fq6
-impl BorshSerDeSized for Wrap<Fq6> { const SIZE: usize = 192; }
+impl BorshSerDeSized for Wrap<Fq6> {
+    const SIZE: usize = 192;
+}
 impl BorshSerialize for Wrap<Fq6> {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         write_base_montgomery(self.0.c0.c0, writer)?;
@@ -177,7 +205,9 @@ impl BorshDeserialize for Wrap<Fq6> {
 }
 
 // Fq12
-impl BorshSerDeSized for Wrap<Fq12> { const SIZE: usize = 384; }
+impl BorshSerDeSized for Wrap<Fq12> {
+    const SIZE: usize = 384;
+}
 impl BorshSerialize for Wrap<Fq12> {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         <Wrap<Fq6>>::serialize(&Wrap(self.0.c0), writer)?;
@@ -211,7 +241,9 @@ impl G2A {
 }
 
 // G1A
-impl BorshSerDeSized for G1A { const SIZE: usize = 65; }
+impl BorshSerDeSized for G1A {
+    const SIZE: usize = 65;
+}
 impl BorshSerialize for G1A {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         write_base_montgomery(self.0.x, writer)?;
@@ -229,16 +261,24 @@ impl BorshDeserialize for G1A {
         Ok(G1A(G1Affine::new(a, b, bool::deserialize(buf)?)))
     }
 }
-impl BorshSerDeSized for Wrap<G1A> { const SIZE: usize = 65; }
+impl BorshSerDeSized for Wrap<G1A> {
+    const SIZE: usize = 65;
+}
 impl BorshSerialize for Wrap<G1A> {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> { self.0.serialize(writer) }
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.0.serialize(writer)
+    }
 }
 impl BorshDeserialize for Wrap<G1A> {
-    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> { Ok(Wrap(G1A::deserialize(buf)?)) }
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        Ok(Wrap(G1A::deserialize(buf)?))
+    }
 }
 
 // G2A
-impl BorshSerDeSized for G2A { const SIZE: usize = 129; }
+impl BorshSerDeSized for G2A {
+    const SIZE: usize = 129;
+}
 impl BorshSerialize for G2A {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         write_base_montgomery(self.0.x.c0, writer)?;
@@ -258,12 +298,18 @@ impl BorshDeserialize for G2A {
         Ok(G2A(G2Affine::new(x, y, bool::deserialize(buf)?)))
     }
 }
-impl BorshSerDeSized for Wrap<G2A> { const SIZE: usize = 65; }
+impl BorshSerDeSized for Wrap<G2A> {
+    const SIZE: usize = 65;
+}
 impl BorshSerialize for Wrap<G2A> {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> { self.0.serialize(writer) }
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.0.serialize(writer)
+    }
 }
 impl BorshDeserialize for Wrap<G2A> {
-    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> { Ok(Wrap(G2A::deserialize(buf)?)) }
+    fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+        Ok(Wrap(G2A::deserialize(buf)?))
+    }
 }
 
 // Homogenous projective coordinates form
@@ -273,7 +319,9 @@ pub struct G2HomProjective {
     pub y: Fq2,
     pub z: Fq2,
 }
-impl BorshSerDeSized for G2HomProjective { const SIZE: usize = 192; }
+impl BorshSerDeSized for G2HomProjective {
+    const SIZE: usize = 192;
+}
 impl BorshSerialize for G2HomProjective {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         write_base_montgomery(self.x.c0, writer)?;
@@ -355,10 +403,11 @@ pub fn affine_into_projective(a: &G1Affine) -> G1Projective {
     G1Projective::new(a.x, a.y, Fq::one())
 }
 
-#[cfg(test)] use std::str::FromStr;
+#[cfg(test)]
+use std::str::FromStr;
 
 /// Returns an [`U256`] from the supplied str after performing a Montgomery reduction
-/// 
+///
 /// # Note
 /// The input str needs to be a scalar-field element
 #[cfg(test)]
@@ -399,7 +448,11 @@ mod tests {
 
     #[test]
     fn test_scalar_mod() {
-        let mut r = Fr::from_str("21888242871839275222246405745257275088548364400416034343698204186575808495616").unwrap().into_repr();
+        let mut r = Fr::from_str(
+            "21888242871839275222246405745257275088548364400416034343698204186575808495616",
+        )
+        .unwrap()
+        .into_repr();
         r.add_nocarry(&BigInteger256::from(1));
 
         assert_eq!(SCALAR_MODULUS_RAW, r);
@@ -407,7 +460,11 @@ mod tests {
 
     #[test]
     fn test_is_element_scalar_field() {
-        let max = Fr::from_str("21888242871839275222246405745257275088548364400416034343698204186575808495616").unwrap().into_repr();
+        let max = Fr::from_str(
+            "21888242871839275222246405745257275088548364400416034343698204186575808495616",
+        )
+        .unwrap()
+        .into_repr();
 
         let mut x = max;
         x.add_nocarry(&BigInteger256::from(100));
@@ -420,17 +477,19 @@ mod tests {
 
     #[test]
     fn test_ser_de_big_integer_256() {
-        test_ser_de!(
-            Wrap<BigInteger256>,
-            Wrap(BigInteger256::from(123456789))
-        );
+        test_ser_de!(Wrap<BigInteger256>, Wrap(BigInteger256::from(123456789)));
     }
 
     #[test]
     fn test_ser_de_fr() {
         test_ser_de!(
             Wrap<Fr>,
-            Wrap(Fr::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap())
+            Wrap(
+                Fr::from_str(
+                    "14744269619966411208579211824598458697587494354926760081771325075741142829156"
+                )
+                .unwrap()
+            )
         );
     }
 
@@ -438,7 +497,12 @@ mod tests {
     fn test_ser_de_fq() {
         test_ser_de!(
             Wrap<Fq>,
-            Wrap(Fq::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap())
+            Wrap(
+                Fq::from_str(
+                    "14744269619966411208579211824598458697587494354926760081771325075741142829156"
+                )
+                .unwrap()
+            )
         );
     }
 
@@ -447,8 +511,14 @@ mod tests {
         test_ser_de!(
             Wrap<Fq2>,
             Wrap(Fq2::new(
-                Fq::from_str("139214303935475888711984321184227760578793579443975701453971046059378311483").unwrap(),
-                Fq::from_str("14744269619966411208579211824598458697587494354926760081771325075741142829156").unwrap()
+                Fq::from_str(
+                    "139214303935475888711984321184227760578793579443975701453971046059378311483"
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "14744269619966411208579211824598458697587494354926760081771325075741142829156"
+                )
+                .unwrap()
             ))
         );
     }
@@ -516,8 +586,14 @@ mod tests {
         test_ser_de!(
             G1A,
             G1A(G1Affine::new(
-                Fq::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap(),
-                Fq::from_str("19685960310506634721912121951341598678325833230508240750559904196809564625591").unwrap(),
+                Fq::from_str(
+                    "10026859857882131638516328056627849627085232677511724829502598764489185541935"
+                )
+                .unwrap(),
+                Fq::from_str(
+                    "19685960310506634721912121951341598678325833230508240750559904196809564625591"
+                )
+                .unwrap(),
                 false
             ))
         );
@@ -543,7 +619,10 @@ mod tests {
 
     #[test]
     fn test_fr_u256_parsing() {
-        let f = Fr::from_str("10026859857882131638516328056627849627085232677511724829502598764489185541935").unwrap();
+        let f = Fr::from_str(
+            "10026859857882131638516328056627849627085232677511724829502598764489185541935",
+        )
+        .unwrap();
         let u = fr_to_u256_le(&f);
         assert_eq!(f, u256_to_fr_skip_mr(&u));
     }
@@ -552,16 +631,20 @@ mod tests {
     fn test_u64_to_scalar() {
         assert_eq!(u64_to_scalar(123), Fr::from_str("123").unwrap());
         assert_eq!(
-            Fr::from_repr(
-                u64_to_scalar_skip_mr(123).0
-            ).unwrap(),
+            Fr::from_repr(u64_to_scalar_skip_mr(123).0).unwrap(),
             Fr::from_str("123").unwrap()
         );
     }
 
     #[test]
     fn test_u64_to_u256() {
-        assert_eq!(u64_to_u256(123456789123456789), u256_from_str("123456789123456789"));
-        assert_eq!(u64_to_u256_skip_mr(123456789123456789), u256_from_str_skip_mr("123456789123456789"));
+        assert_eq!(
+            u64_to_u256(123456789123456789),
+            u256_from_str("123456789123456789")
+        );
+        assert_eq!(
+            u64_to_u256_skip_mr(123456789123456789),
+            u256_from_str_skip_mr("123456789123456789")
+        );
     }
 }

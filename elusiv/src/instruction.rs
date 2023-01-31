@@ -1,30 +1,33 @@
 #![allow(clippy::too_many_arguments)]
 
-use crate::macros::*;
-use crate::state::fee::ProgramFee;
-use crate::types::{Proof, U256};
 use super::processor;
 use super::processor::BaseCommitmentHashRequest;
+use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
+use crate::macros::*;
 use crate::processor::{
-    SingleInstancePDAAccountKind,
-    MultiInstancePDAAccountKind,
-    ProofRequest, MAX_MT_COUNT, FinalizeSendData, VKeyAccountDataPacket,
+    FinalizeSendData, MultiInstancePDAAccountKind, ProofRequest, SingleInstancePDAAccountKind,
+    VKeyAccountDataPacket, MAX_MT_COUNT,
 };
+use crate::proof::{
+    vkey::{VKeyAccount, VKeyAccountManangerAccount},
+    VerificationAccount,
+};
+use crate::state::fee::ProgramFee;
 use crate::state::queue::CommitmentQueueAccount;
 use crate::state::{
-    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
-    StorageAccount,
-    NullifierAccount,
     fee::FeeAccount,
+    governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
+    NullifierAccount, StorageAccount,
 };
-use crate::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount};
-use crate::proof::{VerificationAccount, vkey::{VKeyAccount, VKeyAccountManangerAccount}};
-use elusiv_types::{ElusivOption, AccountRepr};
-use solana_program::{system_program, sysvar::instructions};
+use crate::types::{Proof, U256};
 use borsh::{BorshDeserialize, BorshSerialize};
+use elusiv_types::{AccountRepr, ElusivOption};
+use solana_program::{system_program, sysvar::instructions};
 
 #[cfg(feature = "elusiv-client")]
-pub use elusiv_types::accounts::{UserAccount, SignerAccount, WritableUserAccount, WritableSignerAccount};
+pub use elusiv_types::accounts::{
+    SignerAccount, UserAccount, WritableSignerAccount, WritableUserAccount,
+};
 
 #[repr(u8)]
 #[derive(BorshDeserialize, BorshSerialize, ElusivInstruction)]
@@ -45,7 +48,7 @@ pub enum ElusivInstruction {
     #[acc(token_price_account)]
     #[pda(governor, GovernorAccount)]
     #[acc(hashing_account, { writable })]
-    #[acc(token_program)]   // if `token_id = 0` { `system_program` } else { `token_program` }
+    #[acc(token_program)] // if `token_id = 0` { `system_program` } else { `token_program` }
     #[sys(system_program, key = system_program::ID)]
     StoreBaseCommitment {
         hash_account_index: u32,
@@ -126,7 +129,7 @@ pub enum ElusivInstruction {
     #[acc(token_price_account)]
     #[pda(governor, GovernorAccount)]
     #[pda(verification_account, VerificationAccount, pda_pubkey = fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
-    #[acc(token_program)]   // if `token_id = 0` { `system_program` } else { `token_program` }
+    #[acc(token_program)] // if `token_id = 0` { `system_program` } else { `token_program` }
     #[sys(system_program, key = system_program::ID)]
     InitVerificationTransferFee {
         verification_account_index: u32,
@@ -149,7 +152,7 @@ pub enum ElusivInstruction {
         vkey_id: u32,
     },
 
-    // Finalizing proofs that finished 
+    // Finalizing proofs that finished
     #[acc(recipient)]
     #[acc(identifier_account)]
     #[acc(transaction_reference_account)]
@@ -207,7 +210,6 @@ pub enum ElusivInstruction {
     },
 
     // -------- Verifying key management --------
-
     #[acc(signer, { writable, signer })]
     #[pda(vkey_manager, VKeyAccountManangerAccount, { writable })]
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, account_info, find_pda })]
@@ -320,8 +322,10 @@ pub enum ElusivInstruction {
     Nop,
 }
 
-#[cfg(feature = "elusiv-client")] use solana_program::pubkey::Pubkey;
-#[cfg(feature = "elusiv-client")] use elusiv_types::accounts::PDAAccount;
+#[cfg(feature = "elusiv-client")]
+use elusiv_types::accounts::PDAAccount;
+#[cfg(feature = "elusiv-client")]
+use solana_program::pubkey::Pubkey;
 
 #[cfg(feature = "elusiv-client")]
 impl ElusivInstruction {
@@ -331,7 +335,8 @@ impl ElusivInstruction {
         client: Pubkey,
         warden: Pubkey,
     ) -> solana_program::instruction::Instruction {
-        let (hash_account_pubkey, hash_account_bump) = BaseCommitmentHashingAccount::find(Some(hash_account_index));
+        let (hash_account_pubkey, hash_account_bump) =
+            BaseCommitmentHashingAccount::find(Some(hash_account_index));
 
         ElusivInstruction::store_base_commitment_instruction(
             hash_account_index,
@@ -401,7 +406,12 @@ mod tests {
 
     #[test]
     fn test_instruction_tag() {
-        assert_eq!(1, get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash { hash_account_index: 123, }));
+        assert_eq!(
+            1,
+            get_variant_tag!(ElusivInstruction::ComputeBaseCommitmentHash {
+                hash_account_index: 123,
+            })
+        );
     }
 
     #[test]
@@ -410,7 +420,13 @@ mod tests {
         // https://github.com/elusiv-privacy/elusiv/blob/basic-warden-network/elusiv-warden-network/src/processor/basic_warden.rs
 
         assert_eq!(2, ElusivInstruction::FINALIZE_BASE_COMMITMENT_HASH_INDEX);
-        assert_eq!(13, ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_LAMPORTS_INDEX);
-        assert_eq!(14, ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_TOKEN_INDEX);
+        assert_eq!(
+            13,
+            ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_LAMPORTS_INDEX
+        );
+        assert_eq!(
+            14,
+            ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_TOKEN_INDEX
+        );
     }
 }

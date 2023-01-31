@@ -1,9 +1,12 @@
-use crate::commitment::{BaseCommitmentHashComputation, commitment_hash_computation_instructions, commitments_per_batch, MAX_COMMITMENT_BATCHING_RATE};
+use super::program_account::PDAAccountData;
+use crate::bytes::{div_ceiling_u64, u64_as_usize_safe};
+use crate::commitment::{
+    commitment_hash_computation_instructions, commitments_per_batch, BaseCommitmentHashComputation,
+    MAX_COMMITMENT_BATCHING_RATE,
+};
 use crate::macros::elusiv_account;
-use crate::bytes::{u64_as_usize_safe, div_ceiling_u64};
 use crate::proof::{CombinedMillerLoop, FinalExponentiation};
 use crate::token::{Lamports, Token, TokenError, TokenPrice};
-use super::program_account::PDAAccountData;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;
 use elusiv_derive::BorshSerDeSized;
@@ -27,7 +30,7 @@ pub struct ProgramFee {
     pub base_commitment_network_fee: BasisPointFee,
 
     /// Per join-split-amount fee in basis points
-    pub proof_network_fee: BasisPointFee, 
+    pub proof_network_fee: BasisPointFee,
 
     /// Used only as privacy mining incentive to push rewards for wardens without increasing user costs
     pub base_commitment_subvention: Lamports,
@@ -74,17 +77,18 @@ impl ProgramFee {
         for min_batching_rate in 0..MAX_COMMITMENT_BATCHING_RATE as u32 {
             let commitment_fee = self.commitment_hash_computation_fee(min_batching_rate).0;
             if self.base_commitment_subvention.0 > commitment_fee {
-                return false
+                return false;
             }
 
             // For proof verification we assume the cheapest scenario to be proof_base_tx_count (and network fee to be zero)
-            let proof_fee = self.proof_base_tx_count * self.lamports_per_tx.0 + self.commitment_hash_computation_fee(min_batching_rate).0;
+            let proof_fee = self.proof_base_tx_count * self.lamports_per_tx.0
+                + self.commitment_hash_computation_fee(min_batching_rate).0;
             if self.proof_subvention.0 > proof_fee {
-                return false
+                return false;
             }
 
             if self.proof_base_tx_count != Self::proof_base_tx_count() {
-                return false
+                return false;
             }
         }
         true
@@ -117,19 +121,18 @@ impl ProgramFee {
     pub fn commitment_hash_computation_fee(&self, min_batching_rate: u32) -> Lamports {
         let tx_count_total = commitment_hash_computation_instructions(min_batching_rate).len();
         let commitments_per_batch = commitments_per_batch(min_batching_rate);
-        Lamports(
-            div_ceiling_u64(
-                tx_count_total as u64 * self.hash_tx_compensation().0,
-                commitments_per_batch as u64
-            )
-        )
+        Lamports(div_ceiling_u64(
+            tx_count_total as u64 * self.hash_tx_compensation().0,
+            commitments_per_batch as u64,
+        ))
     }
 
     pub fn proof_verification_computation_fee(
         &self,
         input_preparation_tx_count: usize,
     ) -> Lamports {
-        let amount = (input_preparation_tx_count + u64_as_usize_safe(self.proof_base_tx_count)) as u64
+        let amount = (input_preparation_tx_count + u64_as_usize_safe(self.proof_base_tx_count))
+            as u64
             * self.lamports_per_tx.0
             + self.warden_proof_reward.0;
         Lamports(amount)
@@ -143,8 +146,12 @@ impl ProgramFee {
         token_id: u16,
         price: &TokenPrice,
     ) -> Result<Token, TokenError> {
-        let proof_verification_fee = self.proof_verification_computation_fee(input_preparation_tx_count).into_token(price, token_id)?;
-        let commitment_hash_fee = self.commitment_hash_computation_fee(min_batching_rate).into_token(price, token_id)?;
+        let proof_verification_fee = self
+            .proof_verification_computation_fee(input_preparation_tx_count)
+            .into_token(price, token_id)?;
+        let commitment_hash_fee = self
+            .commitment_hash_computation_fee(min_batching_rate)
+            .into_token(price, token_id)?;
         let network_fee = Token::new(token_id, self.proof_network_fee.calc(amount));
         let subvention = self.proof_subvention.into_token(price, token_id)?;
 

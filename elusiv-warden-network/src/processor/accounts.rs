@@ -1,6 +1,6 @@
+use crate::{apa::ApaProposalsAccount, network::BasicWardenNetworkAccount, warden::WardensAccount};
 use elusiv_utils::open_pda_account_without_offset;
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
-use crate::{apa::ApaProposalsAccount, warden::WardensAccount, network::BasicWardenNetworkAccount};
 
 pub fn init<'a>(
     payer: &AccountInfo<'a>,
@@ -8,12 +8,7 @@ pub fn init<'a>(
     basic_network_account: &AccountInfo<'a>,
     apa_proposals_account: &AccountInfo<'a>,
 ) -> ProgramResult {
-    open_pda_account_without_offset::<WardensAccount>(
-        &crate::id(),
-        payer,
-        wardens_account,
-        None,
-    )?;
+    open_pda_account_without_offset::<WardensAccount>(&crate::id(), payer, wardens_account, None)?;
 
     open_pda_account_without_offset::<BasicWardenNetworkAccount>(
         &crate::id(),
@@ -33,9 +28,9 @@ pub fn init<'a>(
 }
 
 /// Closes a program owned account in devnet and localhost
-/// 
+///
 /// # Note
-/// 
+///
 /// - `signer` needs to be the program's keypair
 /// - `recipient` receives the accounts Lamports
 #[cfg(not(feature = "mainnet"))]

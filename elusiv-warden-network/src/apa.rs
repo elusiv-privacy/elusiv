@@ -51,9 +51,9 @@ pub struct ApaProposalAccount {
 }
 
 /// Maps an APA-target's pubkey to proposal-ids
-/// 
+///
 /// # Notes
-/// 
+///
 /// Maps the PDA with [`None`] [`elusiv_types::PDAOffset`] to the proposal-id of the [`ApaProposal`] with the highest [`ApaLevel`].
 /// If there are multiple proposals, the successfull one is used.
 #[elusiv_account(eager_type: true)]

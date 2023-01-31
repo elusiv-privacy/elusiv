@@ -1,11 +1,20 @@
 pub mod macros;
 
-use solana_program::{
-    pubkey::Pubkey, system_instruction, entrypoint::ProgramResult, account_info::AccountInfo, rent::Rent, program::invoke_signed, sysvar::Sysvar,
-    program_error::ProgramError::{self, InvalidInstructionData, InsufficientFunds}, 
-};
-use elusiv_types::{accounts::{PDAAccount, SizedAccount, PDAAccountData}, PDAOffset};
 use elusiv_types::bytes::BorshSerDeSized;
+use elusiv_types::{
+    accounts::{PDAAccount, PDAAccountData, SizedAccount},
+    PDAOffset,
+};
+use solana_program::{
+    account_info::AccountInfo,
+    entrypoint::ProgramResult,
+    program::invoke_signed,
+    program_error::ProgramError::{self, InsufficientFunds, InvalidInstructionData},
+    pubkey::Pubkey,
+    rent::Rent,
+    system_instruction,
+    sysvar::Sysvar,
+};
 
 #[cfg(feature = "sdk")]
 use solana_sdk::compute_budget::ComputeBudgetInstruction;
@@ -18,7 +27,7 @@ pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
 #[macro_export]
 macro_rules! signers_seeds {
     ($seeds: ident) => {
-        $seeds.iter().map(|x| &x[..]).collect::<Vec<&[u8]>>() 
+        $seeds.iter().map(|x| &x[..]).collect::<Vec<&[u8]>>()
     };
 }
 
@@ -29,7 +38,15 @@ pub fn open_pda_account_with_offset<'a, T: PDAAccount + SizedAccount>(
     pda_offset: u32,
     bump: Option<u8>,
 ) -> ProgramResult {
-    open_pda_account::<T>(program_id, payer, pda_account, None, Some(pda_offset), bump, T::SIZE) 
+    open_pda_account::<T>(
+        program_id,
+        payer,
+        pda_account,
+        None,
+        Some(pda_offset),
+        bump,
+        T::SIZE,
+    )
 }
 
 pub fn open_pda_account_without_offset<'a, T: PDAAccount + SizedAccount>(
@@ -49,7 +66,15 @@ pub fn open_pda_account_with_associated_pubkey<'a, T: PDAAccount + SizedAccount>
     pda_offset: PDAOffset,
     bump: Option<u8>,
 ) -> ProgramResult {
-    open_pda_account::<T>(program_id, payer, pda_account, Some(*pubkey), pda_offset, bump, T::SIZE)
+    open_pda_account::<T>(
+        program_id,
+        payer,
+        pda_account,
+        Some(*pubkey),
+        pda_offset,
+        bump,
+        T::SIZE,
+    )
 }
 
 pub fn open_pda_account<'a, T: PDAAccount>(
@@ -79,7 +104,14 @@ pub fn open_pda_account<'a, T: PDAAccount>(
     let seeds = T::signers_seeds(pda_pubkey, pda_offset, bump);
     let signers_seeds = signers_seeds!(seeds);
 
-    create_pda_account(program_id, payer, pda_account, account_size, bump, &signers_seeds)
+    create_pda_account(
+        program_id,
+        payer,
+        pda_account,
+        account_size,
+        bump,
+        &signers_seeds,
+    )
 }
 
 pub fn create_pda_account<'a>(
@@ -107,11 +139,8 @@ pub fn create_pda_account<'a>(
             space,
             program_id,
         ),
-        &[
-            payer.clone(),
-            pda_account.clone(),
-        ],
-        &[signers_seeds]
+        &[payer.clone(), pda_account.clone()],
+        &[signers_seeds],
     )?;
 
     // Assign default fields
@@ -121,7 +150,7 @@ pub fn create_pda_account<'a>(
             bump_seed: bump,
             version: 0,
         },
-        data
+        data,
     )?;
 
     Ok(())
@@ -133,22 +162,18 @@ pub fn transfer_with_system_program<'a>(
     system_program: &AccountInfo<'a>,
     lamports: u64,
 ) -> ProgramResult {
-    guard!(*system_program.key == solana_program::system_program::ID, InvalidInstructionData);
-
-    let instruction = solana_program::system_instruction::transfer(
-        source.key,
-        destination.key,
-        lamports,
+    guard!(
+        *system_program.key == solana_program::system_program::ID,
+        InvalidInstructionData
     );
-    
+
+    let instruction =
+        solana_program::system_instruction::transfer(source.key, destination.key, lamports);
+
     solana_program::program::invoke(
         &instruction,
-        &[
-            source.clone(),
-            destination.clone(),
-            system_program.clone(),
-        ],
-    )    
+        &[source.clone(), destination.clone(), system_program.clone()],
+    )
 }
 
 #[allow(clippy::missing_safety_doc)]
@@ -157,11 +182,10 @@ pub unsafe fn transfer_lamports_from_pda<'a>(
     recipient: &AccountInfo<'a>,
     lamports: u64,
 ) -> ProgramResult {
-    **pda.try_borrow_mut_lamports()? = pda.lamports().checked_sub(lamports)
-        .ok_or(MATH_ERR)?;
+    **pda.try_borrow_mut_lamports()? = pda.lamports().checked_sub(lamports).ok_or(MATH_ERR)?;
 
-    **recipient.try_borrow_mut_lamports()? = recipient.lamports().checked_add(lamports)
-        .ok_or(MATH_ERR)?;
+    **recipient.try_borrow_mut_lamports()? =
+        recipient.lamports().checked_add(lamports).ok_or(MATH_ERR)?;
 
     Ok(())
 }
@@ -177,22 +201,15 @@ pub fn transfer_lamports_from_pda_checked<'a>(
     if !cfg!(feature = "test-unit") {
         let rent_lamports = Rent::get()?.minimum_balance(pda_size);
         if pda_lamports.checked_sub(lamports).ok_or(MATH_ERR)? < rent_lamports {
-            return Err(ProgramError::AccountNotRentExempt)
+            return Err(ProgramError::AccountNotRentExempt);
         }
     }
 
-    unsafe {
-        transfer_lamports_from_pda(pda, recipient, lamports)
-    }
+    unsafe { transfer_lamports_from_pda(pda, recipient, lamports) }
 }
 
-pub fn close_account<'a>(
-    payer: &AccountInfo<'a>,
-    account: &AccountInfo<'a>,
-) -> ProgramResult {
-    unsafe {
-        transfer_lamports_from_pda(account, payer, account.lamports())
-    }
+pub fn close_account<'a>(payer: &AccountInfo<'a>, account: &AccountInfo<'a>) -> ProgramResult {
+    unsafe { transfer_lamports_from_pda(account, payer, account.lamports()) }
 }
 
 #[cfg(feature = "sdk")]
@@ -205,9 +222,9 @@ pub fn batch_instructions(
     let mut v = Vec::new();
 
     let batch_size = 1_400_000 / compute_units_per_ix as usize;
-    let mut ixs = vec![
-        ComputeBudgetInstruction::set_compute_unit_limit(batch_size as u32 * compute_units_per_ix),
-    ];
+    let mut ixs = vec![ComputeBudgetInstruction::set_compute_unit_limit(
+        batch_size as u32 * compute_units_per_ix,
+    )];
     for _ in 0..batch_size {
         ixs.push(ix.clone());
     }
@@ -215,12 +232,12 @@ pub fn batch_instructions(
     for _ in 0..total_ix_count / batch_size {
         v.push(ixs.clone());
     }
-    
+
     let remaining_ix_count = total_ix_count % batch_size;
     if remaining_ix_count > 0 {
-        let mut ixs = vec![
-            ComputeBudgetInstruction::set_compute_unit_limit(batch_size as u32 * compute_units_per_ix),
-        ];
+        let mut ixs = vec![ComputeBudgetInstruction::set_compute_unit_limit(
+            batch_size as u32 * compute_units_per_ix,
+        )];
         for _ in 0..remaining_ix_count {
             ixs.push(ix.clone());
         }
@@ -231,10 +248,8 @@ pub fn batch_instructions(
 }
 
 #[cfg(feature = "computation")]
-pub fn batched_instructions_tx_count(
-    total_ix_count: usize,
-    compute_units_per_ix: u32,
-) -> usize {
-    let batch_size = elusiv_computation::MAX_COMPUTE_UNIT_LIMIT as usize / compute_units_per_ix as usize;
+pub fn batched_instructions_tx_count(total_ix_count: usize, compute_units_per_ix: u32) -> usize {
+    let batch_size =
+        elusiv_computation::MAX_COMPUTE_UNIT_LIMIT as usize / compute_units_per_ix as usize;
     total_ix_count / batch_size + usize::from(total_ix_count % batch_size != 0)
 }

@@ -3,10 +3,10 @@ pub use elusiv_types::accounts::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::macros::{parent_account, account_info};
+    use crate::macros::{account_info, parent_account};
     use borsh::BorshDeserialize;
-    use elusiv_types::{ElusivOption, BorshSerDeSized, split_child_account_data};
-    use solana_program::{account_info::AccountInfo, pubkey::Pubkey, program_error::ProgramError};
+    use elusiv_types::{split_child_account_data, BorshSerDeSized, ElusivOption};
+    use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
 
     struct TestPDAAccount;
 
@@ -24,7 +24,10 @@ mod tests {
         assert_ne!(TestPDAAccount::find(None), TestPDAAccount::find(Some(0)));
         assert_ne!(TestPDAAccount::find(Some(0)), TestPDAAccount::find(Some(1)));
 
-        assert_eq!(TestPDAAccount::find(None), (Pubkey::new_from_array([0; 32]), 123));
+        assert_eq!(
+            TestPDAAccount::find(None),
+            (Pubkey::new_from_array([0; 32]), 123)
+        );
         //assert_eq!(TestPDAAccount::find(None).0, Pubkey::find_program_address(&[TestPDAAccount::SEED], &crate::PROGRAM_ID).0);
     }
 
@@ -64,8 +67,11 @@ mod tests {
         const PROGRAM_ID: Pubkey = crate::PROGRAM_ID;
         const SEED: &'static [u8] = b"ABC";
         const FIRST_PDA: (Pubkey, u8) = (
-            Pubkey::new_from_array([68, 179, 231, 162, 105, 190, 164, 236, 219, 59, 110, 153, 250, 190, 228, 201, 206, 98, 34, 111, 200, 139, 69, 232, 47, 91, 47, 54, 136, 144, 12, 62]),
-            0
+            Pubkey::new_from_array([
+                68, 179, 231, 162, 105, 190, 164, 236, 219, 59, 110, 153, 250, 190, 228, 201, 206,
+                98, 34, 111, 200, 139, 69, 232, 47, 91, 47, 54, 136, 144, 12, 62,
+            ]),
+            0,
         );
 
         #[cfg(feature = "elusiv-client")]
@@ -78,13 +84,11 @@ mod tests {
 
     impl<'a, 'b, 't> ProgramAccount<'a> for TestParentAccount<'a, 'b, 't> {
         fn new(_data: &'a mut [u8]) -> Result<Self, ProgramError> {
-            Ok(
-                Self {
-                    _data,
-                    pubkeys: [ElusivOption::None; CHILD_ACCOUNT_COUNT],
-                    accounts: vec![None; CHILD_ACCOUNT_COUNT],
-                }
-            )
+            Ok(Self {
+                _data,
+                pubkeys: [ElusivOption::None; CHILD_ACCOUNT_COUNT],
+                accounts: vec![None; CHILD_ACCOUNT_COUNT],
+            })
         }
     }
 
@@ -92,10 +96,13 @@ mod tests {
         const COUNT: usize = CHILD_ACCOUNT_COUNT;
         type Child = TestChildAccount;
 
-        unsafe fn get_child_account_unsafe(&self, child_index: usize) -> Result<&AccountInfo<'t>, ProgramError> {
+        unsafe fn get_child_account_unsafe(
+            &self,
+            child_index: usize,
+        ) -> Result<&AccountInfo<'t>, ProgramError> {
             match self.accounts[child_index] {
                 Some(account) => Ok(account),
-                None => Err(ProgramError::InvalidArgument)
+                None => Err(ProgramError::InvalidArgument),
             }
         }
 
@@ -116,7 +123,9 @@ mod tests {
     #[should_panic]
     fn test_get_child_account_unsafe() {
         parent_account!(account, TestParentAccount);
-        unsafe { _ = account.get_child_account_unsafe(3); }
+        unsafe {
+            _ = account.get_child_account_unsafe(3);
+        }
     }
 
     #[test]
@@ -124,22 +133,23 @@ mod tests {
         parent_account!(account, TestParentAccount);
 
         for i in 0..CHILD_ACCOUNT_COUNT {
-            account.execute_on_child_account_mut(i, |data| {
-                data[0] = i as u8 + 1;
-            }).unwrap();
+            account
+                .execute_on_child_account_mut(i, |data| {
+                    data[0] = i as u8 + 1;
+                })
+                .unwrap();
         }
 
         for i in 0..CHILD_ACCOUNT_COUNT {
-            assert_eq!(
-                account.accounts[i].unwrap().data.borrow()[1],
-                i as u8 + 1
-            );
+            assert_eq!(account.accounts[i].unwrap().data.borrow()[1], i as u8 + 1);
         }
 
         for i in 0..CHILD_ACCOUNT_COUNT {
-            account.execute_on_child_account(i, |data| {
-                assert_eq!(data[0], i as u8 + 1);
-            }).unwrap();
+            account
+                .execute_on_child_account(i, |data| {
+                    assert_eq!(data[0], i as u8 + 1);
+                })
+                .unwrap();
         }
     }
 
@@ -156,18 +166,14 @@ mod tests {
         }
 
         account_info!(unused_account, Pubkey::new_unique(), vec![1, 0]);
-        let account_info_iter = &mut provided_accounts.iter()
-            .map(|i| match i {
-                Some(i) => parent.accounts[*i].unwrap(),
-                None => &unused_account
-            });
-    
-        let matched_accounts = TestParentAccount::find_child_accounts(
-            &parent,
-            &crate::ID,
-            false,
-            account_info_iter,
-        ).unwrap();
+        let account_info_iter = &mut provided_accounts.iter().map(|i| match i {
+            Some(i) => parent.accounts[*i].unwrap(),
+            None => &unused_account,
+        });
+
+        let matched_accounts =
+            TestParentAccount::find_child_accounts(&parent, &crate::ID, false, account_info_iter)
+                .unwrap();
 
         assert_eq!(matched_accounts.len(), TestParentAccount::COUNT);
 
@@ -189,56 +195,52 @@ mod tests {
         test_find(
             [false, false, false],
             vec![Some(0), Some(1), Some(2)],
-            vec![]
+            vec![],
         );
 
         // First account set
         test_find(
             [true, false, false],
             vec![Some(0), Some(1), Some(2)],
-            vec![0]
+            vec![0],
         );
 
         // Middle account set
         test_find(
             [false, true, false],
             vec![Some(0), Some(1), Some(2)],
-            vec![1]
+            vec![1],
         );
 
         // Last account set
         test_find(
             [false, false, true],
             vec![Some(0), Some(1), Some(2)],
-            vec![2]
+            vec![2],
         );
 
         // Different account at start
         test_find(
             [true, true, true],
             vec![None, Some(0), Some(1), Some(2)],
-            vec![]
+            vec![],
         );
 
         // Wrong order
-        test_find(
-            [true, true, true],
-            vec![Some(2), Some(1), Some(0)],
-            vec![2]
-        );
+        test_find([true, true, true], vec![Some(2), Some(1), Some(0)], vec![2]);
 
         // Correct order
         test_find(
             [true, true, true],
             vec![Some(0), Some(1), Some(2)],
-            vec![0, 1, 2]
+            vec![0, 1, 2],
         );
 
         // Accounts at end ignored
         test_find(
             [true, true, true],
             vec![Some(0), Some(1), Some(2), None, None],
-            vec![0, 1, 2]
+            vec![0, 1, 2],
         );
     }
 }

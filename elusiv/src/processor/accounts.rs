@@ -1,33 +1,29 @@
-use borsh::{BorshSerialize, BorshDeserialize};
-use elusiv_types::{ParentAccount, ChildAccount, SizedAccount, ChildAccountConfig, split_child_account_data_mut};
-use solana_program::{
-    entrypoint::ProgramResult,
-    account_info::AccountInfo,
-    sysvar::Sysvar,
-    rent::Rent, program_error::ProgramError,
-};
-use crate::{state::{
-    governor::{GovernorAccount, PoolAccount, FeeCollectorAccount},
-    program_account::ProgramAccount,
-    StorageAccount,
-    queue::{CommitmentQueueAccount, CommitmentQueue, Queue},
-    fee::{FeeAccount, ProgramFee}, NullifierAccount, MT_COMMITMENT_COUNT, NullifierChildAccount,
-}, proof::vkey::VKeyAccountManangerAccount};
+use super::utils::*;
+use crate::bytes::{is_zero, BorshSerDeSized, ElusivOption};
 use crate::commitment::{CommitmentHashingAccount, DEFAULT_COMMITMENT_BATCHING_RATE};
-use crate::{
-    bytes::usize_as_u32_safe,
-    processor::MATH_ERR,
-    map::ElusivMap,
-};
 use crate::error::ElusivError::{
-    InvalidInstructionData,
-    InvalidFeeVersion,
-    MerkleTreeIsNotFullYet,
-    SubAccountAlreadyExists
+    InvalidFeeVersion, InvalidInstructionData, MerkleTreeIsNotFullYet, SubAccountAlreadyExists,
 };
 use crate::macros::*;
-use crate::bytes::{BorshSerDeSized, ElusivOption, is_zero};
-use super::utils::*;
+use crate::{bytes::usize_as_u32_safe, map::ElusivMap, processor::MATH_ERR};
+use crate::{
+    proof::vkey::VKeyAccountManangerAccount,
+    state::{
+        fee::{FeeAccount, ProgramFee},
+        governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
+        program_account::ProgramAccount,
+        queue::{CommitmentQueue, CommitmentQueueAccount, Queue},
+        NullifierAccount, NullifierChildAccount, StorageAccount, MT_COMMITMENT_COUNT,
+    },
+};
+use borsh::{BorshDeserialize, BorshSerialize};
+use elusiv_types::{
+    split_child_account_data_mut, ChildAccount, ChildAccountConfig, ParentAccount, SizedAccount,
+};
+use solana_program::{
+    account_info::AccountInfo, entrypoint::ProgramResult, program_error::ProgramError, rent::Rent,
+    sysvar::Sysvar,
+};
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
 pub enum SingleInstancePDAAccountKind {
@@ -48,22 +44,44 @@ pub fn open_single_instance_account<'a>(
 ) -> ProgramResult {
     match kind {
         SingleInstancePDAAccountKind::CommitmentHashingAccount => {
-            open_pda_account_without_offset::<CommitmentHashingAccount>(&crate::id(), payer, pda_account, None)
+            open_pda_account_without_offset::<CommitmentHashingAccount>(
+                &crate::id(),
+                payer,
+                pda_account,
+                None,
+            )
         }
         SingleInstancePDAAccountKind::CommitmentQueueAccount => {
-            open_pda_account_without_offset::<CommitmentQueueAccount>(&crate::id(), payer, pda_account, None)
+            open_pda_account_without_offset::<CommitmentQueueAccount>(
+                &crate::id(),
+                payer,
+                pda_account,
+                None,
+            )
         }
         SingleInstancePDAAccountKind::PoolAccount => {
             open_pda_account_without_offset::<PoolAccount>(&crate::id(), payer, pda_account, None)
         }
         SingleInstancePDAAccountKind::FeeCollectorAccount => {
-            open_pda_account_without_offset::<FeeCollectorAccount>(&crate::id(), payer, pda_account, None)
+            open_pda_account_without_offset::<FeeCollectorAccount>(
+                &crate::id(),
+                payer,
+                pda_account,
+                None,
+            )
         }
-        SingleInstancePDAAccountKind::StorageAccount => {
-            open_pda_account_without_offset::<StorageAccount>(&crate::id(), payer, pda_account, None)
-        }
+        SingleInstancePDAAccountKind::StorageAccount => open_pda_account_without_offset::<
+            StorageAccount,
+        >(
+            &crate::id(), payer, pda_account, None
+        ),
         SingleInstancePDAAccountKind::VKeyAccountManangerAccount => {
-            open_pda_account_without_offset::<VKeyAccountManangerAccount>(&crate::id(), payer, pda_account, None)
+            open_pda_account_without_offset::<VKeyAccountManangerAccount>(
+                &crate::id(),
+                payer,
+                pda_account,
+                None,
+            )
         }
     }
 }
@@ -121,7 +139,7 @@ pub fn enable_nullifier_child_account(
     _merkle_tree_index: u32,
     child_index: u32,
 ) -> ProgramResult {
-    // Note: we don't zero-check these accounts, BUT we need to manipulate the maps we store in each account and set the size to zero 
+    // Note: we don't zero-check these accounts, BUT we need to manipulate the maps we store in each account and set the size to zero
     setup_child_account(
         nullifier_account,
         child_account,
@@ -147,7 +165,10 @@ pub fn reset_active_merkle_tree(
 
     active_merkle_tree_index: u32,
 ) -> ProgramResult {
-    guard!(storage_account.get_trees_count() == active_merkle_tree_index, InvalidInstructionData);
+    guard!(
+        storage_account.get_trees_count() == active_merkle_tree_index,
+        InvalidInstructionData
+    );
 
     let queue = CommitmentQueue::new(queue);
     guard!(is_mt_full(storage_account, &queue)?, MerkleTreeIsNotFullYet);
@@ -164,13 +185,13 @@ fn is_mt_full(
     queue: &CommitmentQueue,
 ) -> Result<bool, ProgramError> {
     if storage_account.is_full() {
-        return Ok(true)
+        return Ok(true);
     }
 
     let commitments_count = storage_account.get_next_commitment_ptr() as usize;
     let queue_len = queue.next_batch()?.0.len();
     if commitments_count + queue_len >= MT_COMMITMENT_COUNT {
-        return Ok(true)
+        return Ok(true);
     }
 
     Ok(false)
@@ -185,7 +206,10 @@ pub fn archive_closed_merkle_tree<'a>(
 
     closed_merkle_tree_index: u32,
 ) -> ProgramResult {
-    guard!(storage_account.get_trees_count() > closed_merkle_tree_index, InvalidInstructionData);
+    guard!(
+        storage_account.get_trees_count() > closed_merkle_tree_index,
+        InvalidInstructionData
+    );
     panic!("N-SMT not implemented yet");
 }
 
@@ -237,13 +261,7 @@ pub fn init_new_fee_version<'a>(
     // Note: we have no upgrade-authroity check here since with the current setup it's impossible to have a fee version higher than zero, so will be added once that changes
     guard!(fee_version == governor.get_fee_version(), InvalidFeeVersion);
     guard!(program_fee.is_valid(), InvalidInstructionData);
-    open_pda_account_with_offset::<FeeAccount>(
-        &crate::id(),
-        payer,
-        new_fee,
-        fee_version,
-        None,
-    )?;
+    open_pda_account_with_offset::<FeeAccount>(&crate::id(), payer, new_fee, fee_version, None)?;
 
     let mut data = new_fee.data.borrow_mut();
     let mut fee = FeeAccount::new(&mut data[..])?;
@@ -254,9 +272,9 @@ pub fn init_new_fee_version<'a>(
 }
 
 /// Closes a program owned account in devnet and localhost
-/// 
+///
 /// # Note
-/// 
+///
 /// - `signer` needs to be the program's keypair
 /// - `recipient` receives the accounts Lamports
 #[cfg(not(feature = "mainnet"))]
@@ -272,9 +290,9 @@ pub fn close_program_account<'a>(
 }
 
 /// Verifies a single user-supplied [`ChildAccount`] and then saves it's pubkey in the `parent_account`
-/// 
+///
 /// # Notes
-/// 
+///
 /// - If `size` is manually supplied (not the default [`C::SIZE`] is used) [`elusiv_types::ChildAccountConfig::SIZE`] needs to be contained in the size.
 pub fn setup_child_account<'a, 'b, 't, P: ParentAccount<'a, 'b, 't>>(
     parent_account: &mut P,
@@ -284,10 +302,14 @@ pub fn setup_child_account<'a, 'b, 't, P: ParentAccount<'a, 'b, 't>>(
     size: Option<usize>,
 ) -> ProgramResult {
     if parent_account.get_child_pubkey(child_index).is_some() {
-        return Err(SubAccountAlreadyExists.into())
+        return Err(SubAccountAlreadyExists.into());
     }
 
-    verify_extern_data_account(child_account, size.unwrap_or(<P::Child as SizedAccount>::SIZE), check_zeroness)?;
+    verify_extern_data_account(
+        child_account,
+        size.unwrap_or(<P::Child as SizedAccount>::SIZE),
+        check_zeroness,
+    )?;
     parent_account.set_child_pubkey(child_index, ElusivOption::Some(*child_account.key));
     P::Child::try_start_using_account(child_account)?;
 
@@ -317,10 +339,17 @@ fn verify_extern_data_account(
     }
 
     // Check rent-exemption
-    if cfg!(test) { // only unit-testing (since we have no ledger there)
-        guard!(account.lamports() >= u32::MAX as u64, InvalidInstructionData);
+    if cfg!(test) {
+        // only unit-testing (since we have no ledger there)
+        guard!(
+            account.lamports() >= u32::MAX as u64,
+            InvalidInstructionData
+        );
     } else {
-        guard!(account.lamports() >= Rent::get()?.minimum_balance(data_len), InvalidInstructionData);
+        guard!(
+            account.lamports() >= Rent::get()?.minimum_balance(data_len),
+            InvalidInstructionData
+        );
     }
 
     // Check ownership
@@ -332,14 +361,18 @@ fn verify_extern_data_account(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_matches::assert_matches;
-    use solana_program::pubkey::Pubkey;
     use crate::{
         macros::account_info,
-        state::{program_account::{PDAAccount, SizedAccount, ParentAccount}, queue::RingQueue, StorageChildAccount},
         processor::CommitmentHashRequest,
+        state::{
+            program_account::{PDAAccount, ParentAccount, SizedAccount},
+            queue::RingQueue,
+            StorageChildAccount,
+        },
         types::U256,
     };
+    use assert_matches::assert_matches;
+    use solana_program::pubkey::Pubkey;
 
     #[test]
     fn test_open_single_instance_account() {
@@ -352,14 +385,22 @@ mod tests {
         // Invalid PDA
         account_info!(pda_account, invalid_pda, vec![]);
         assert_matches!(
-            open_single_instance_account(&payer, &pda_account, SingleInstancePDAAccountKind::PoolAccount),
+            open_single_instance_account(
+                &payer,
+                &pda_account,
+                SingleInstancePDAAccountKind::PoolAccount
+            ),
             Err(_)
         );
 
         // Valid PDA
         account_info!(pda_account, valid_pda, vec![]);
         assert_matches!(
-            open_single_instance_account(&payer, &pda_account, SingleInstancePDAAccountKind::PoolAccount),
+            open_single_instance_account(
+                &payer,
+                &pda_account,
+                SingleInstancePDAAccountKind::PoolAccount
+            ),
             Ok(())
         );
     }
@@ -374,14 +415,24 @@ mod tests {
 
         // Invalid offset
         assert_matches!(
-            open_multi_instance_account(&payer, &pda_account, MultiInstancePDAAccountKind::NullifierAccount, 1),
+            open_multi_instance_account(
+                &payer,
+                &pda_account,
+                MultiInstancePDAAccountKind::NullifierAccount,
+                1
+            ),
             Err(_)
         );
 
         // Valid offset
         account_info!(pda_account, valid_pda, vec![]);
         assert_matches!(
-            open_multi_instance_account(&payer, &pda_account, MultiInstancePDAAccountKind::NullifierAccount, 0),
+            open_multi_instance_account(
+                &payer,
+                &pda_account,
+                MultiInstancePDAAccountKind::NullifierAccount,
+                0
+            ),
             Ok(_)
         );
     }
@@ -393,19 +444,39 @@ mod tests {
         storage_account.set_child_pubkey(0, ElusivOption::Some(Pubkey::new_unique()));
 
         // Account has invalid size
-        account_info!(child_account, Pubkey::new_unique(), vec![0; StorageChildAccount::SIZE - 1]);
-        assert_matches!(enable_storage_child_account(&mut storage_account, &child_account, 0), Err(_));
+        account_info!(
+            child_account,
+            Pubkey::new_unique(),
+            vec![0; StorageChildAccount::SIZE - 1]
+        );
+        assert_matches!(
+            enable_storage_child_account(&mut storage_account, &child_account, 0),
+            Err(_)
+        );
 
         // Account has already been setup
-        account_info!(child_account, Pubkey::new_unique(), vec![0; StorageChildAccount::SIZE]);
-        assert_matches!(enable_storage_child_account(&mut storage_account, &child_account, 0), Err(_));
+        account_info!(
+            child_account,
+            Pubkey::new_unique(),
+            vec![0; StorageChildAccount::SIZE]
+        );
+        assert_matches!(
+            enable_storage_child_account(&mut storage_account, &child_account, 0),
+            Err(_)
+        );
 
         // Success at different index
-        assert_matches!(enable_storage_child_account(&mut storage_account, &child_account, 3), Ok(()));
+        assert_matches!(
+            enable_storage_child_account(&mut storage_account, &child_account, 3),
+            Ok(())
+        );
         assert_eq!(child_account.data.borrow()[0], 1);
 
         // Account already is use
-        assert_matches!(enable_storage_child_account(&mut storage_account, &child_account, 1), Err(_));
+        assert_matches!(
+            enable_storage_child_account(&mut storage_account, &child_account, 1),
+            Err(_)
+        );
     }
 
     #[test]
@@ -415,19 +486,39 @@ mod tests {
         nullifier_account.set_child_pubkey(0, ElusivOption::Some(Pubkey::new_unique()));
 
         // Account has invalid size
-        account_info!(child_account, Pubkey::new_unique(), vec![0; NullifierChildAccount::SIZE - 1]);
-        assert_matches!(enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 0), Err(_));
+        account_info!(
+            child_account,
+            Pubkey::new_unique(),
+            vec![0; NullifierChildAccount::SIZE - 1]
+        );
+        assert_matches!(
+            enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 0),
+            Err(_)
+        );
 
         // Account has already been setup
-        account_info!(child_account, Pubkey::new_unique(), vec![0; NullifierChildAccount::SIZE]);
-        assert_matches!(enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 0), Err(_));
+        account_info!(
+            child_account,
+            Pubkey::new_unique(),
+            vec![0; NullifierChildAccount::SIZE]
+        );
+        assert_matches!(
+            enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 0),
+            Err(_)
+        );
 
         // Success at different index with
-        assert_matches!(enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 3), Ok(()));
+        assert_matches!(
+            enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 3),
+            Ok(())
+        );
         assert_eq!(child_account.data.borrow()[0], 1);
 
         // Account already is use
-        assert_matches!(enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 1), Err(_));
+        assert_matches!(
+            enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 1),
+            Err(_)
+        );
     }
 
     #[test]
@@ -439,8 +530,20 @@ mod tests {
         let mut q_data = vec![0; CommitmentQueueAccount::SIZE];
         let mut queue = CommitmentQueueAccount::new(&mut q_data).unwrap();
         let mut queue = CommitmentQueue::new(&mut queue);
-        queue.enqueue(CommitmentHashRequest { min_batching_rate: 1, commitment: [0; 32], fee_version: 0 }).unwrap();
-        queue.enqueue(CommitmentHashRequest { min_batching_rate: 1, commitment: [0; 32], fee_version: 0 }).unwrap();
+        queue
+            .enqueue(CommitmentHashRequest {
+                min_batching_rate: 1,
+                commitment: [0; 32],
+                fee_version: 0,
+            })
+            .unwrap();
+        queue
+            .enqueue(CommitmentHashRequest {
+                min_batching_rate: 1,
+                commitment: [0; 32],
+                fee_version: 0,
+            })
+            .unwrap();
 
         assert!(is_mt_full(&storage_account, &queue).unwrap());
 
@@ -461,7 +564,14 @@ mod tests {
         let mut nullifier_account = NullifierAccount::new(&mut data).unwrap();
         test_account_info!(archived_tree_account, 0);
 
-        archive_closed_merkle_tree(&payer, &mut storage_account, &mut nullifier_account, &archived_tree_account, 0).unwrap();
+        archive_closed_merkle_tree(
+            &payer,
+            &mut storage_account,
+            &mut nullifier_account,
+            &archived_tree_account,
+            0,
+        )
+        .unwrap();
     }
 
     #[test]

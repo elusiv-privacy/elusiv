@@ -1,15 +1,16 @@
-use std::{num::NonZeroU16, ops::{Add, Sub}};
+use crate as elusiv_types;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_derive::BorshSerDeSized;
 use solana_program::{
-    account_info::AccountInfo,
-    program_error::ProgramError,
-    program_pack::Pack, pubkey::Pubkey,
+    account_info::AccountInfo, program_error::ProgramError, program_pack::Pack, pubkey::Pubkey,
 };
 use spl_associated_token_account::get_associated_token_address;
-use crate as elusiv_types;
+use std::{
+    num::NonZeroU16,
+    ops::{Add, Sub},
+};
 
-pub use pyth_sdk_solana::{Price, load_price_feed_from_account_info};
+pub use pyth_sdk_solana::{load_price_feed_from_account_info, Price};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct ElusivToken {
@@ -64,22 +65,32 @@ impl Token {
         let id = token_id as usize;
 
         if id >= TOKENS.len() {
-            return Err(TokenError::InvalidTokenID)
+            return Err(TokenError::InvalidTokenID);
         }
 
         if amount < TOKENS[id].min || amount > TOKENS[id].max {
-            return Err(TokenError::InvalidAmount)
+            return Err(TokenError::InvalidAmount);
         }
 
         Ok(Self::new(token_id, amount))
     }
 
-    pub fn new_from_price(token_id: u16, price: Price, check_amount: bool) -> Result<Self, TokenError> {
-        let target_expo = if token_id == 0 { 0 } else { -(elusiv_token(token_id)?.decimals as i32) };
-        let amount = price.scale_to_exponent(target_expo)
+    pub fn new_from_price(
+        token_id: u16,
+        price: Price,
+        check_amount: bool,
+    ) -> Result<Self, TokenError> {
+        let target_expo = if token_id == 0 {
+            0
+        } else {
+            -(elusiv_token(token_id)?.decimals as i32)
+        };
+        let amount = price
+            .scale_to_exponent(target_expo)
             .ok_or(TokenError::PriceError)?
             .price
-            .try_into().or(Err(TokenError::PriceError))?;
+            .try_into()
+            .or(Err(TokenError::PriceError))?;
 
         if check_amount {
             Self::new_checked(token_id, amount)
@@ -92,7 +103,7 @@ impl Token {
         let token_id = self.token_id();
 
         if token_id != other.token_id() {
-            return Err(TokenError::MismatchedTokenID)
+            return Err(TokenError::MismatchedTokenID);
         }
 
         Ok(token_id)
@@ -101,21 +112,21 @@ impl Token {
     pub fn token_id(&self) -> TokenID {
         match self {
             Token::Lamports(_) => 0,
-            Token::SPLToken(SPLToken { id, .. }) => id.get()
+            Token::SPLToken(SPLToken { id, .. }) => id.get(),
         }
     }
 
     pub fn amount(&self) -> u64 {
         match self {
             Token::Lamports(Lamports(amount)) => *amount,
-            Token::SPLToken(SPLToken { amount, .. }) => *amount
+            Token::SPLToken(SPLToken { amount, .. }) => *amount,
         }
     }
 
     pub fn into_lamports(&self) -> Result<Lamports, TokenError> {
         match self {
             Token::Lamports(lamports) => Ok(*lamports),
-            _ => Err(TokenError::InvalidTokenID)
+            _ => Err(TokenError::InvalidTokenID),
         }
     }
 }
@@ -136,7 +147,7 @@ pub enum TokenError {
 
 impl From<TokenError> for ProgramError {
     fn from(e: TokenError) -> Self {
-        ProgramError::Custom(e as u32 + 100) 
+        ProgramError::Custom(e as u32 + 100)
     }
 }
 
@@ -145,7 +156,8 @@ impl Add for Token {
 
     fn add(self, rhs: Self) -> Self::Output {
         let token_id = self.enforce_token_equality(&rhs)?;
-        let sum = self.amount()
+        let sum = self
+            .amount()
             .checked_add(rhs.amount())
             .ok_or(TokenError::Overflow)?;
         Ok(Self::new(token_id, sum))
@@ -157,22 +169,21 @@ impl Sub for Token {
 
     fn sub(self, rhs: Self) -> Self::Output {
         let token_id = self.enforce_token_equality(&rhs)?;
-        let dif = self.amount()
+        let dif = self
+            .amount()
             .checked_sub(rhs.amount())
             .ok_or(TokenError::Underflow)?;
         Ok(Self::new(token_id, dif))
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug, Default)]
+#[derive(
+    BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug, Default,
+)]
 pub struct Lamports(pub u64);
 
 impl Lamports {
-    pub fn into_token(
-        &self,
-        price: &TokenPrice,
-        token_id: TokenID,
-    ) -> Result<Token, TokenError> {
+    pub fn into_token(&self, price: &TokenPrice, token_id: TokenID) -> Result<Token, TokenError> {
         price.lamports_into_token(self, token_id)
     }
 
@@ -193,17 +204,15 @@ impl Add for Lamports {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct SPLToken {
     pub id: NonZeroU16,
-    pub amount: u64
+    pub amount: u64,
 }
 
 impl SPLToken {
     pub fn new(token_id: TokenID, amount: u64) -> Result<Self, TokenError> {
-        Ok(
-            SPLToken {
-                id: NonZeroU16::new(token_id).ok_or(TokenError::InvalidTokenID)?,
-                amount
-            }
-        )
+        Ok(SPLToken {
+            id: NonZeroU16::new(token_id).ok_or(TokenError::InvalidTokenID)?,
+            amount,
+        })
     }
 }
 
@@ -216,7 +225,7 @@ pub fn verify_token_account(
         Ok(*account.owner != spl_token::ID)
     } else {
         if *account.owner != spl_token::ID {
-            return Ok(false)
+            return Ok(false);
         }
 
         let data = &account.data.borrow()[..];
@@ -235,10 +244,7 @@ pub fn verify_associated_token_account(
     if token_id == 0 {
         Ok(*wallet_address == *token_account_address)
     } else {
-        let expected = get_associated_token_address(
-            wallet_address,
-            &elusiv_token(token_id)?.mint,
-        );
+        let expected = get_associated_token_address(wallet_address, &elusiv_token(token_id)?.mint);
 
         Ok(*token_account_address == expected)
     }
@@ -257,17 +263,17 @@ impl TokenPrice {
         token_id: TokenID,
     ) -> Result<Self, ProgramError> {
         if token_id == 0 {
-            Ok(Self::new_lamports()) 
+            Ok(Self::new_lamports())
         } else {
             let lamports = TOKENS[0];
             let token = TOKENS[token_id as usize];
 
             if lamports.pyth_usd_price_key != *sol_usd_price_account.key {
-                return Err(TokenError::InvalidPriceAccount.into())
+                return Err(TokenError::InvalidPriceAccount.into());
             }
 
             if token.pyth_usd_price_key != *token_usd_price_account.key {
-                return Err(TokenError::InvalidPriceAccount.into())
+                return Err(TokenError::InvalidPriceAccount.into());
             }
 
             let lamports_usd = Self::load_token_usd_price(sol_usd_price_account, 0)?;
@@ -284,23 +290,25 @@ impl TokenPrice {
         let price_feed = load_price_feed_from_account_info(token_usd_price_account)
             .or(Err(TokenError::PriceError))?;
 
-        let base_price = price_feed.get_current_price()
+        let base_price = price_feed
+            .get_current_price()
             .ok_or(TokenError::PriceError)?;
-        let price = base_price.cmul(1, -(elusiv_token(token_id)?.price_base_exp as i32))
+        let price = base_price
+            .cmul(1, -(elusiv_token(token_id)?.price_base_exp as i32))
             .ok_or(TokenError::PriceError)?;
 
         Ok(price)
     }
 
-    pub fn new_from_price(
-        lamports_usd: Price,
-        token_usd: Price,
-        token_id: TokenID,
-    ) -> Self {
+    pub fn new_from_price(lamports_usd: Price, token_usd: Price, token_id: TokenID) -> Self {
         if token_id == 0 {
             Self::new_lamports()
         } else {
-            Self { lamports_usd, token_usd, token_id }
+            Self {
+                lamports_usd,
+                token_usd,
+                token_id,
+            }
         }
     }
 
@@ -312,58 +320,84 @@ impl TokenPrice {
         if token_id == 0 {
             Ok(Self::new_lamports())
         } else {
-            let lamports_usd = sol_usd.cmul(1, -(elusiv_token(0)?.price_base_exp as i32))
+            let lamports_usd = sol_usd
+                .cmul(1, -(elusiv_token(0)?.price_base_exp as i32))
                 .ok_or(TokenError::PriceError)?;
 
-            Ok(Self { lamports_usd, token_usd, token_id })
+            Ok(Self {
+                lamports_usd,
+                token_usd,
+                token_id,
+            })
         }
     }
 
     pub fn new_lamports() -> Self {
         Self {
-            lamports_usd: Price { price: 1, conf: 0, expo: 0 },
-            token_usd: Price { price: 1, conf: 0, expo: 0 },
+            lamports_usd: Price {
+                price: 1,
+                conf: 0,
+                expo: 0,
+            },
+            token_usd: Price {
+                price: 1,
+                conf: 0,
+                expo: 0,
+            },
             token_id: 0,
         }
     }
 
     pub fn token_into_lamports(&self, token: Token) -> Result<Lamports, TokenError> {
         if token.token_id() != self.token_id {
-            return Err(TokenError::InvalidTokenID)
+            return Err(TokenError::InvalidTokenID);
         }
 
         if self.token_id == 0 {
-            return Ok(Lamports(token.amount()))
+            return Ok(Lamports(token.amount()));
         }
 
-        let usd = self.token_usd.mul(
-            &Price {
+        let usd = self
+            .token_usd
+            .mul(&Price {
                 price: token.amount().try_into().unwrap(),
                 conf: 0,
                 expo: -(elusiv_token(self.token_id)?.decimals as i32),
-            }
-        ).ok_or(TokenError::PriceError)?;
-        let price = usd.get_price_in_quote(&self.lamports_usd, 0).ok_or(TokenError::PriceError)?;
+            })
+            .ok_or(TokenError::PriceError)?;
+        let price = usd
+            .get_price_in_quote(&self.lamports_usd, 0)
+            .ok_or(TokenError::PriceError)?;
         Token::new_from_price(0, price, false)?.into_lamports()
     }
 
-    pub fn lamports_into_token(&self, lamports: &Lamports, token_id: TokenID) -> Result<Token, TokenError> {
+    pub fn lamports_into_token(
+        &self,
+        lamports: &Lamports,
+        token_id: TokenID,
+    ) -> Result<Token, TokenError> {
         if token_id != self.token_id {
-            return Err(TokenError::InvalidTokenID)
+            return Err(TokenError::InvalidTokenID);
         }
 
         if self.token_id == 0 {
-            return Ok(lamports.into_token_strict())
+            return Ok(lamports.into_token_strict());
         }
 
-        let usd = self.lamports_usd.mul(
-            &Price {
+        let usd = self
+            .lamports_usd
+            .mul(&Price {
                 price: lamports.0.try_into().unwrap(),
                 conf: 0,
                 expo: 0,
-            }
-        ).ok_or(TokenError::PriceError)?;
-        let price = usd.get_price_in_quote(&self.token_usd, -(elusiv_token(self.token_id)?.decimals as i32)).ok_or(TokenError::PriceError)?;
+            })
+            .ok_or(TokenError::PriceError)?;
+        let price = usd
+            .get_price_in_quote(
+                &self.token_usd,
+                -(elusiv_token(self.token_id)?.decimals as i32),
+            )
+            .ok_or(TokenError::PriceError)?;
         Token::new_from_price(token_id, price, false)
     }
 }
@@ -371,7 +405,10 @@ impl TokenPrice {
 #[cfg(feature = "test-elusiv")]
 pub fn pyth_price_account_data(price: &Price) -> Result<Vec<u8>, TokenError> {
     use bytemuck::bytes_of;
-    use pyth_sdk_solana::{state::{MAGIC, VERSION_2, AccountType}, PriceStatus};
+    use pyth_sdk_solana::{
+        state::{AccountType, MAGIC, VERSION_2},
+        PriceStatus,
+    };
 
     let mut account = pyth_sdk_solana::state::PriceAccount {
         magic: MAGIC,

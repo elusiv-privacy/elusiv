@@ -1,4 +1,4 @@
-use elusiv_proc_macro_utils::{read_program_id, pubkey_bytes};
+use elusiv_proc_macro_utils::{pubkey_bytes, read_program_id};
 use proc_macro2::TokenStream;
 use quote::quote;
 

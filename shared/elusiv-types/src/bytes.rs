@@ -42,7 +42,9 @@ pub const fn max(a: usize, b: usize) -> usize {
 #[macro_export]
 macro_rules! impl_borsh_sized {
     ($ty: ty, $size: expr) => {
-        impl BorshSerDeSized for $ty { const SIZE: usize = $size; }
+        impl BorshSerDeSized for $ty {
+            const SIZE: usize = $size;
+        }
     };
 }
 
@@ -75,7 +77,7 @@ impl<N> From<Option<N>> for ElusivOption<N> {
     fn from(o: Option<N>) -> Self {
         match o {
             Some(v) => ElusivOption::Some(v),
-            None => ElusivOption::None
+            None => ElusivOption::None,
         }
     }
 }
@@ -84,7 +86,7 @@ impl<N: Clone> ElusivOption<N> {
     pub fn option(&self) -> Option<N> {
         match self {
             ElusivOption::Some(v) => Option::Some(v.clone()),
-            ElusivOption::None => Option::None
+            ElusivOption::None => Option::None,
         }
     }
 }
@@ -119,7 +121,9 @@ impl<T: BorshSerDeSized> BorshSerialize for ElusivOption<T> {
 }
 
 impl<T> Default for ElusivOption<T> {
-    fn default() -> Self { ElusivOption::None }
+    fn default() -> Self {
+        ElusivOption::None
+    }
 }
 
 impl<T: BorshSerDeSized> BorshSerDeSized for ElusivOption<T> {
@@ -137,9 +141,9 @@ impl BorshSerDeSized for () {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate as elusiv_types;
     use crate::bytes::BorshSerDeSized;
     use elusiv_derive::BorshSerDeSized;
-    use crate as elusiv_types;
 
     #[test]
     fn test_max() {
@@ -148,11 +152,15 @@ mod tests {
     }
 
     #[derive(BorshDeserialize, BorshSerialize)]
-    struct A { }
+    struct A {}
     impl_borsh_sized!(A, 11);
 
     #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
-    struct B { a0: A, a1: A, a2: A }
+    struct B {
+        a0: A,
+        a1: A,
+        a2: A,
+    }
 
     #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
     enum C {
@@ -172,10 +180,7 @@ mod tests {
     enum TestEnum {
         A { v: [u64; 1] },
         B { v: [u64; 2] },
-        C {
-            v: [u64; 3],
-            c: u8,
-        },
+        C { v: [u64; 3], c: u8 },
     }
 
     #[test]

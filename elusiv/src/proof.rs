@@ -1,22 +1,25 @@
-pub mod vkey;
+#[cfg(test)]
+mod test_proofs;
 pub mod verifier;
-#[cfg(test)] mod test_proofs;
+pub mod vkey;
 
-use borsh::{BorshSerialize, BorshDeserialize};
+use crate::bytes::{
+    usize_as_u32_safe, BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, SizedType,
+};
+use crate::error::ElusivError;
+use crate::fields::{G2HomProjective, Wrap, G1A, G2A};
+use crate::macros::{elusiv_account, guard};
+use crate::processor::{ProofRequest, MAX_MT_COUNT};
+use crate::state::program_account::PDAAccountData;
+use crate::token::Lamports;
+use crate::types::{Lazy, LazyField, RawU256, U256};
+use ark_bn254::{Fq, Fq12, Fq2, Fq6};
+use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::RAM;
 use elusiv_derive::{BorshSerDeSized, EnumVariantIndex};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::pubkey::Pubkey;
 pub use verifier::*;
-use ark_bn254::{Fq, Fq2, Fq6, Fq12};
-use crate::error::ElusivError;
-use crate::processor::{ProofRequest, MAX_MT_COUNT};
-use crate::state::program_account::PDAAccountData;
-use crate::token::Lamports;
-use crate::types::{U256, LazyField, Lazy, RawU256};
-use crate::fields::{Wrap, G1A, G2A, G2HomProjective};
-use crate::macros::{elusiv_account, guard};
-use crate::bytes::{BorshSerDeSized, SizedType, BorshSerDeSizedEnum, ElusivOption, usize_as_u32_safe};
 
 pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
 pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
@@ -62,28 +65,40 @@ pub struct VerificationAccount {
     pub public_input: [RawU256; MAX_PUBLIC_INPUTS_COUNT],
 
     // Proof
-    #[pub_non_lazy] pub a: Lazy<'a, G1A>,
-    #[pub_non_lazy] pub b: Lazy<'a, G2A>,
-    #[pub_non_lazy] pub c: Lazy<'a, G1A>,
+    #[pub_non_lazy]
+    pub a: Lazy<'a, G1A>,
+    #[pub_non_lazy]
+    pub b: Lazy<'a, G2A>,
+    #[pub_non_lazy]
+    pub c: Lazy<'a, G1A>,
 
     // Computation values
-    #[pub_non_lazy] prepared_inputs: Lazy<'a, G1A>,
-    #[pub_non_lazy] r: Lazy<'a, G2HomProjective>,
-    #[pub_non_lazy] f: Lazy<'a, Wrap<Fq12>>,
-    #[pub_non_lazy] alt_b: Lazy<'a, G2A>,
+    #[pub_non_lazy]
+    prepared_inputs: Lazy<'a, G1A>,
+    #[pub_non_lazy]
+    r: Lazy<'a, G2HomProjective>,
+    #[pub_non_lazy]
+    f: Lazy<'a, Wrap<Fq12>>,
+    #[pub_non_lazy]
+    alt_b: Lazy<'a, G2A>,
     coeff_index: u8,
 
     // RAMs for storing computation values
-    #[pub_non_lazy] ram_fq: RAMFq<'a>,
-    #[pub_non_lazy] ram_fq2: RAMFq2<'a>,
-    #[pub_non_lazy] ram_fq6: RAMFq6<'a>,
-    #[pub_non_lazy] ram_fq12: RAMFq12<'a>,
+    #[pub_non_lazy]
+    ram_fq: RAMFq<'a>,
+    #[pub_non_lazy]
+    ram_fq2: RAMFq2<'a>,
+    #[pub_non_lazy]
+    ram_fq6: RAMFq6<'a>,
+    #[pub_non_lazy]
+    ram_fq12: RAMFq12<'a>,
 
     // If true, the proof request can be finalized
     pub is_verified: ElusivOption<bool>,
 
     pub other_data: VerificationAccountData,
-    #[no_getter] pub request: ProofRequest,
+    #[no_getter]
+    pub request: ProofRequest,
     pub tree_indices: [u32; MAX_MT_COUNT],
 }
 
@@ -139,19 +154,18 @@ impl<'a> VerificationAccount<'a> {
 
         for (i, &public_input) in public_inputs.iter().enumerate() {
             let offset = i * 32;
-            self.public_input[offset..(32 + offset)].copy_from_slice(&public_input.skip_mr_ref()[..32]);
+            self.public_input[offset..(32 + offset)]
+                .copy_from_slice(&public_input.skip_mr_ref()[..32]);
         }
 
         self.setup_public_inputs_instructions(instructions)?;
 
         // Remembers the authorized signer
-        self.set_other_data(
-            &VerificationAccountData {
-                fee_payer: signer,
-                skip_nullifier_pda,
-                ..Default::default()
-            }
-        );
+        self.set_other_data(&VerificationAccountData {
+            fee_payer: signer,
+            skip_nullifier_pda,
+            ..Default::default()
+        });
 
         Ok(())
     }
@@ -186,7 +200,7 @@ impl<'a> VerificationAccount<'a> {
 
         Ok(())
     }
-    
+
     pub fn all_tree_indices(&self) -> [u32; MAX_MT_COUNT] {
         let mut m = [0; MAX_MT_COUNT];
         for (i, m) in m.iter_mut().enumerate() {
@@ -201,7 +215,7 @@ impl<'a> VerificationAccount<'a> {
 }
 
 /// Stores data lazily on the heap, read requests will trigger deserialization
-/// 
+///
 /// Note: heap allocation happens jit
 pub struct LazyRAM<'a, N: Clone + Copy, const SIZE: usize> {
     /// Stores all serialized values
@@ -214,7 +228,10 @@ pub struct LazyRAM<'a, N: Clone + Copy, const SIZE: usize> {
     frame: usize,
 }
 
-impl<'a, N: Clone + Copy, const SIZE: usize> RAM<N> for LazyRAM<'a, N, SIZE> where Wrap<N>: BorshSerDeSized {
+impl<'a, N: Clone + Copy, const SIZE: usize> RAM<N> for LazyRAM<'a, N, SIZE>
+where
+    Wrap<N>: BorshSerDeSized,
+{
     fn write(&mut self, value: N, index: usize) {
         self.check_vector_size(self.frame + index);
         self.data[self.frame + index] = Some(value);
@@ -236,18 +253,33 @@ impl<'a, N: Clone + Copy, const SIZE: usize> RAM<N> for LazyRAM<'a, N, SIZE> whe
         }
     }
 
-    fn set_frame(&mut self, frame: usize) { self.frame = frame }
-    fn get_frame(&mut self) -> usize { self.frame }
+    fn set_frame(&mut self, frame: usize) {
+        self.frame = frame
+    }
+    fn get_frame(&mut self) -> usize {
+        self.frame
+    }
 }
 
-impl<'a, N: Clone + Copy, const SIZE: usize> SizedType for LazyRAM<'a, N, SIZE> where Wrap<N>: BorshSerDeSized {
+impl<'a, N: Clone + Copy, const SIZE: usize> SizedType for LazyRAM<'a, N, SIZE>
+where
+    Wrap<N>: BorshSerDeSized,
+{
     const SIZE: usize = <Wrap<N>>::SIZE * SIZE;
 }
 
-impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>: BorshSerDeSized {
+impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE>
+where
+    Wrap<N>: BorshSerDeSized,
+{
     pub fn new(source: &'a mut [u8]) -> Self {
         assert!(source.len() == Self::SIZE);
-        LazyRAM { data: vec![], frame: 0, source, changes: vec![] }
+        LazyRAM {
+            data: vec![],
+            frame: 0,
+            source,
+            changes: vec![],
+        }
     }
 
     /// `check_vector_size` has to be called before every `data` access
@@ -267,7 +299,7 @@ impl<'a, N: Clone + Copy, const SIZE: usize> LazyRAM<'a, N, SIZE> where Wrap<N>:
                 if let Some(value) = self.data[i] {
                     <Wrap<N>>::override_slice(
                         &Wrap(value),
-                        &mut self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE]
+                        &mut self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE],
                     )?;
                 }
             }
@@ -292,23 +324,25 @@ impl<'a> NullifierDuplicateAccount<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        fields::{u256_from_str, u256_from_str_skip_mr},
+        state::program_account::ProgramAccount,
+        types::{InputCommitment, JoinSplitPublicInputs, PublicInputs, SendPublicInputs},
+    };
     use assert_matches::assert_matches;
     use elusiv_types::SizedAccount;
-    use crate::{state::program_account::ProgramAccount, fields::{u256_from_str, u256_from_str_skip_mr}, types::{SendPublicInputs, PublicInputs, JoinSplitPublicInputs, InputCommitment}};
 
     #[test]
     fn test_setup_verification_account() {
         let mut data = vec![0; VerificationAccount::SIZE];
-        let mut verification_account = VerificationAccount::new(&mut data).unwrap(); 
+        let mut verification_account = VerificationAccount::new(&mut data).unwrap();
 
-        let public_inputs = SendPublicInputs{
+        let public_inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
-                input_commitments: vec![
-                    InputCommitment {
-                        root: Some(RawU256::new(u256_from_str("22"))),
-                        nullifier_hash: RawU256::new(u256_from_str_skip_mr("333")),
-                    }
-                ],
+                input_commitments: vec![InputCommitment {
+                    root: Some(RawU256::new(u256_from_str("22"))),
+                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("333")),
+                }],
                 output_commitment: RawU256::new(u256_from_str_skip_mr("44444")),
                 fee_version: 55555,
                 amount: 666666,
@@ -331,37 +365,52 @@ mod tests {
         let instructions = vec![1, 2, 3];
         let vkey_id = 255;
 
-        verification_account.setup(
-            data.fee_payer,
-            true,
-            &public_inputs,
-            &instructions,
-            vkey_id,
-            request,
-            [123, 456],
-        ).unwrap();
+        verification_account
+            .setup(
+                data.fee_payer,
+                true,
+                &public_inputs,
+                &instructions,
+                vkey_id,
+                request,
+                [123, 456],
+            )
+            .unwrap();
 
         assert_matches!(verification_account.get_state(), VerificationState::None);
         assert_eq!(verification_account.get_vkey_id(), vkey_id);
-        
-        assert_eq!(verification_account.get_prepare_inputs_instructions_count() as usize, instructions.len());
+
+        assert_eq!(
+            verification_account.get_prepare_inputs_instructions_count() as usize,
+            instructions.len()
+        );
         for (i, instruction) in instructions.iter().enumerate() {
-            assert_eq!(verification_account.get_prepare_inputs_instructions(i), *instruction as u16);
+            assert_eq!(
+                verification_account.get_prepare_inputs_instructions(i),
+                *instruction as u16
+            );
         }
 
         assert_eq!(verification_account.all_tree_indices(), [123, 456]);
 
         assert_eq!(verification_account.get_other_data(), data);
         for (i, public_input) in public_inputs.iter().enumerate() {
-            assert_eq!(verification_account.get_public_input(i).skip_mr(), public_input.skip_mr());
+            assert_eq!(
+                verification_account.get_public_input(i).skip_mr(),
+                public_input.skip_mr()
+            );
         }
     }
 
     impl BorshDeserialize for Wrap<u64> {
-        fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> { Ok(Wrap(u64::deserialize(buf)?)) }
+        fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
+            Ok(Wrap(u64::deserialize(buf)?))
+        }
     }
     impl BorshSerialize for Wrap<u64> {
-        fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> { self.0.serialize(writer) }
+        fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+            self.0.serialize(writer)
+        }
     }
     impl BorshSerDeSized for Wrap<u64> {
         const SIZE: usize = u64::SIZE;
@@ -392,7 +441,7 @@ mod tests {
     fn test_check_vector_size() {
         let mut data = vec![0; VerificationAccount::SIZE];
         let account = VerificationAccount::new(&mut data).unwrap();
-        let mut ram = account.ram_fq12; 
+        let mut ram = account.ram_fq12;
 
         assert_eq!(ram.data.len(), 0);
         assert_eq!(ram.changes.len(), 0);
