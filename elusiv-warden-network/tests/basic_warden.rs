@@ -6,8 +6,8 @@ use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
     processor::{unix_timestamp_to_day_and_year, TRACKABLE_ELUSIV_INSTRUCTIONS},
     warden::{
-        BasicWardenAccount, BasicWardenMapAccount, BasicWardenStatsAccount,
-        ElusivBasicWardenConfig, ElusivBasicWardenFeatures,
+        BasicWardenAccount, BasicWardenFeatures, BasicWardenMapAccount, BasicWardenStatsAccount,
+        ElusivBasicWardenConfig, Timezone, WardenFeatures, WardenRegion,
     },
 };
 use solana_program::{
@@ -27,15 +27,21 @@ async fn test_register() {
     let mut config = ElusivBasicWardenConfig {
         ident: ident.try_into().unwrap(),
         key: test.payer(),
-        owner: Pubkey::new_unique(),
+        operator: Some(Pubkey::new_unique()).into(),
         addr: Ipv4Addr::new(0, 0, 0, 0),
-        port: 0,
+        uses_proxy: false,
+        rpc_port: 0,
         tls_mode: elusiv_warden_network::warden::TlsMode::NoTls,
         jurisdiction: 0,
-        timezone: 0,
+        timezone: Timezone {
+            area: 0,
+            location: String::new().try_into().unwrap(),
+        },
+        region: WardenRegion::America,
         version: [0, 0, 0],
         platform: platform.try_into().unwrap(),
-        features: ElusivBasicWardenFeatures::default(),
+        warden_features: WardenFeatures::default(),
+        basic_warden_features: BasicWardenFeatures::default(),
         tokens: [false; TOKENS.len()],
     };
 
@@ -122,15 +128,21 @@ async fn test_register_warden_account_fuzzing() {
     let config = ElusivBasicWardenConfig {
         ident: String::new().try_into().unwrap(),
         key: test.payer(),
-        owner: Pubkey::new_unique(),
+        operator: Some(Pubkey::new_unique()).into(),
         addr: Ipv4Addr::new(0, 0, 0, 0),
-        port: 0,
+        rpc_port: 0,
+        uses_proxy: false,
         tls_mode: elusiv_warden_network::warden::TlsMode::NoTls,
         jurisdiction: 0,
-        timezone: 0,
+        timezone: Timezone {
+            area: 0,
+            location: String::new().try_into().unwrap(),
+        },
+        region: WardenRegion::America,
         version: [0, 0, 0],
         platform: String::new().try_into().unwrap(),
-        features: ElusivBasicWardenFeatures::default(),
+        warden_features: WardenFeatures::default(),
+        basic_warden_features: BasicWardenFeatures::default(),
         tokens: [false; TOKENS.len()],
     };
 
@@ -341,6 +353,7 @@ async fn test_track_stats() {
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts_1),
                 ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
                     year,
+                    true,
                     UserAccount(warden.pubkey),
                 ),
             ],
@@ -358,6 +371,7 @@ async fn test_track_stats() {
                 ),
                 ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
                     year,
+                    true,
                     UserAccount(warden.pubkey),
                 ),
             ],
@@ -375,6 +389,7 @@ async fn test_track_stats() {
                 ),
                 ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
                     year,
+                    true,
                     UserAccount(warden.pubkey),
                 ),
             ],
@@ -391,16 +406,31 @@ async fn test_track_stats() {
             ),
             ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
                 year,
+                true,
                 UserAccount(warden.pubkey),
             ),
         ])
         .await;
+
+        // Instruction can be set to be infallible
+        let invalid_instructions = vec![
+            Instruction::new_with_bytes(OTHER_PROGRAM_ID, &[ix.instruction_id], accounts.clone()),
+            ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
+                year,
+                false,
+                UserAccount(warden.pubkey),
+            ),
+        ];
+        let mut fork = test.fork_for_instructions(&invalid_instructions).await;
+        fork.tx_should_succeed(&invalid_instructions, &[&warden.keypair])
+            .await;
 
         test.tx_should_succeed(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts),
                 ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
                     year,
+                    true,
                     UserAccount(warden.pubkey),
                 ),
             ],

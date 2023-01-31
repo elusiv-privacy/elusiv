@@ -4,10 +4,12 @@ use std::fmt;
 #[derive(Copy, Clone, Debug)]
 pub enum ElusivWardenNetworkError {
     InvalidSignature,
+    InvalidSigner,
     WardenRegistrationError,
     ProposalError,
     VotingError,
     StatsError,
+    TimestampError,
 
     Overflow,
     Underflow,

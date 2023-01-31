@@ -3,12 +3,12 @@ use crate::{
     macros::{elusiv_account, BorshSerDeSized},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_types::{accounts::PDAAccountData, TOKENS};
+use elusiv_types::{accounts::PDAAccountData, ElusivOption, TOKENS};
 use elusiv_utils::guard;
 use solana_program::{program_error::ProgramError, pubkey::Pubkey};
 use std::net::Ipv4Addr;
 
-/// A unique ID publicly identifying a single Warden
+/// An unique ID publicly identifying a single Warden
 pub type ElusivWardenID = u32;
 
 /// The [`ElusivWardensAccount`] assigns each new Warden it's [`ElusivWardenID`]
@@ -17,7 +17,6 @@ pub struct WardensAccount {
     pda_data: PDAAccountData,
 
     pub next_warden_id: ElusivWardenID,
-    pub full_network_configured: bool,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
@@ -51,8 +50,13 @@ impl<const MAX_LEN: usize> TryFrom<String> for FixedLenString<MAX_LEN> {
 pub type Identifier = FixedLenString<256>;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Debug, Clone, PartialEq)]
-pub struct ElusivBasicWardenFeatures {
+pub struct WardenFeatures {
     pub apa: bool,
+    pub attestation: bool,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Debug, Clone, PartialEq)]
+pub struct BasicWardenFeatures {
     pub rpc: bool,
     pub relay: bool,
     pub instant_relay: bool,
@@ -65,23 +69,80 @@ pub enum TlsMode {
     Required,
 }
 
+/// An IANA timezone
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
+pub struct Timezone {
+    /// The tz area index in alphabetical order in `[0; 11)`
+    pub area: u8,
+    pub location: FixedLenString<14>,
+}
+
+/// The geographic region of a Warden
+///
+/// # Notes
+///
+/// - Based on the IANA tz database (https://data.iana.org/time-zones/tz-link.html), ommiting the oceans.
+/// - We simplify by mapping the oceans as follows:
+///     - Arctic -> Europe,
+///     - Atlantic -> America,
+///     - Indian -> Asia,
+///     - Pacific -> Asia
+#[repr(u8)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, Copy, PartialEq)]
+pub enum WardenRegion {
+    Africa,
+    America,
+    Antarctica,
+    Asia,
+    Australia,
+    Europe,
+    Other, // Other is used to represent the tz Etc area or orbital locations
+}
+
+impl WardenRegion {
+    pub fn pda_offset(&self) -> u32 {
+        *self as u32
+    }
+
+    #[cfg(feature = "elusiv-client")]
+    pub fn from_tz_timezone_area(area: &str) -> Option<Self> {
+        match area {
+            "Africa" => Some(WardenRegion::Africa),
+            "America" => Some(WardenRegion::America),
+            "Antarctica" => Some(WardenRegion::Antarctica),
+            "Arctic" => Some(WardenRegion::Europe),
+            "Asia" => Some(WardenRegion::Asia),
+            "Atlantic" => Some(WardenRegion::America),
+            "Australia" => Some(WardenRegion::Australia),
+            "Europe" => Some(WardenRegion::Europe),
+            "Etc" => Some(WardenRegion::Other),
+            "Indian" => Some(WardenRegion::Asia),
+            "Pacific" => Some(WardenRegion::Asia),
+            _ => None,
+        }
+    }
+}
+
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
 pub struct ElusivBasicWardenConfig {
     pub ident: Identifier,
     pub key: Pubkey,
-    pub owner: Pubkey,
+    pub operator: ElusivOption<Pubkey>,
 
     pub addr: Ipv4Addr,
-    pub port: u16,
+    pub rpc_port: u16,
     pub tls_mode: TlsMode,
+    pub uses_proxy: bool,
 
     pub jurisdiction: u16,
-    pub timezone: u16,
+    pub timezone: Timezone,
+    pub region: WardenRegion,
 
     pub version: [u16; 3],
     pub platform: Identifier,
 
-    pub features: ElusivBasicWardenFeatures,
+    pub warden_features: WardenFeatures,
+    pub basic_warden_features: BasicWardenFeatures,
     pub tokens: [bool; TOKENS.len()],
 }
 
@@ -89,9 +150,16 @@ pub struct ElusivBasicWardenConfig {
 pub struct ElusivBasicWarden {
     pub config: ElusivBasicWardenConfig,
     pub lut: Pubkey,
+
+    pub asn: ElusivOption<u32>,
+
+    pub is_operator_confirmed: bool,
+    pub is_metadata_valid: ElusivOption<bool>,
     pub is_active: bool,
+
     pub join_timestamp: u64,
-    /// The timestamp of the last change of `is_active`
+
+    /// Indicates the last time, `is_active` has been changed
     pub activation_timestamp: u64,
 }
 
@@ -131,7 +199,7 @@ impl WardenStatistics {
     }
 }
 
-/// An account associated to a single [`ElusivBasicWarden`] storing activity statistics for a single year
+/// An account associated with a single [`ElusivBasicWarden`] storing activity statistics for a single year
 #[elusiv_account(eager_type: true)]
 pub struct BasicWardenStatsAccount {
     pda_data: PDAAccountData,
@@ -141,4 +209,13 @@ pub struct BasicWardenStatsAccount {
     pub store: WardenStatistics,
     pub send: WardenStatistics,
     pub migrate: WardenStatistics,
+
+    pub last_activity_timestamp: u64,
+}
+
+/// An account associated with a single [`ElusivBasicWarden`]
+#[elusiv_account]
+pub struct BasicWardenAttesterMapAccount {
+    pda_data: PDAAccountData,
+    pub warden_id: ElusivWardenID,
 }

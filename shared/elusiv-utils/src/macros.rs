@@ -25,10 +25,10 @@ macro_rules! two_pow {
 macro_rules! pda_account {
     ($id: ident, $ty: ty, $account_info: ident) => {
         let mut data = &mut $account_info.data.borrow_mut()[..];
-        let $id = <$ty>::new(&mut data)?;
+        let $id = <$ty as elusiv_types::accounts::ProgramAccount>::new(&mut data)?;
     };
     (mut $id: ident, $ty: ty, $account_info: ident) => {
         let mut data = &mut $account_info.data.borrow_mut()[..];
-        let mut $id = <$ty>::new(&mut data)?;
+        let mut $id = <$ty as elusiv_types::accounts::ProgramAccount>::new(&mut data)?;
     };
 }

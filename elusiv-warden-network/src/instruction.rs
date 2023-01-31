@@ -3,10 +3,12 @@
 use crate::apa::{ApaProposal, ApaProposalAccount, ApaProposalsAccount, ApaTargetMapAccount};
 use crate::macros::ElusivInstruction;
 use crate::network::BasicWardenNetworkAccount;
+use crate::operator::WardenOperatorAccount;
 use crate::processor;
 use crate::warden::{
-    BasicWardenAccount, BasicWardenMapAccount, BasicWardenStatsAccount, ElusivBasicWardenConfig,
-    ElusivWardenID, WardensAccount,
+    BasicWardenAccount, BasicWardenAttesterMapAccount, BasicWardenMapAccount,
+    BasicWardenStatsAccount, ElusivBasicWardenConfig, ElusivWardenID, Identifier, Timezone,
+    WardenRegion, WardensAccount,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::AccountRepr;
@@ -29,6 +31,11 @@ pub enum ElusivWardenNetworkInstruction {
     #[sys(system_program, key = system_program::ID, { ignore })]
     Init,
 
+    #[acc(payer, { signer, writable })]
+    #[pda(basic_network, BasicWardenNetworkAccount, pda_offset = Some(region.pda_offset()), { writable, find_pda, account_info })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    InitRegionAccount { region: WardenRegion },
+
     // -------- Basic Warden --------
     #[acc(warden, { signer, writable })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable, find_pda, account_info })]
@@ -48,10 +55,26 @@ pub enum ElusivWardenNetworkInstruction {
         is_active: bool,
     },
 
+    // UpdateBasicWardenFeatures {
+    // },
     #[acc(warden, { signer })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
     #[acc(lut_account)]
     UpdateBasicWardenLut { warden_id: ElusivWardenID },
+
+    // -------- Warden operator --------
+    #[acc(operator, { signer, writable })]
+    #[pda(operator_account, WardenOperatorAccount, pda_pubkey = operator.pubkey(), { writable, find_pda, account_info })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    RegisterWardenOperator {
+        ident: Identifier,
+        url: Identifier,
+        jurisdiction: Option<u16>,
+    },
+
+    #[acc(operator, { signer })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    ConfirmBasicWardenOperation { warden_id: ElusivWardenID },
 
     // -------- Basic Warden statistics --------
     #[acc(warden)]
@@ -63,7 +86,7 @@ pub enum ElusivWardenNetworkInstruction {
     #[acc(warden)]
     #[pda(stats_account, BasicWardenStatsAccount, pda_pubkey = warden.pubkey(), pda_offset = Some(year.into()), { writable })]
     #[sys(instructions, key = instructions::ID)]
-    TrackBasicWardenStats { year: u16 },
+    TrackBasicWardenStats { year: u16, can_fail: bool },
 
     // -------- APA --------
     #[acc(proponent, { signer, writable })]
@@ -75,6 +98,33 @@ pub enum ElusivWardenNetworkInstruction {
     ProposeApaProposal {
         proposal_id: u32,
         proposal: ApaProposal,
+    },
+
+    // -------- Metadata attestation --------
+    #[acc(signer, { signer, writable })]
+    #[acc(attester)]
+    #[pda(attester_account, BasicWardenAttesterMapAccount, pda_pubkey = attester.pubkey(), { writable, find_pda, account_info })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    AddMetadataAttester { warden_id: ElusivWardenID },
+
+    #[acc(signer, { signer, writable })]
+    #[acc(attester)]
+    #[pda(attester_account, BasicWardenAttesterMapAccount, pda_pubkey = attester.pubkey(), { writable, account_info })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    RevokeMetadataAttester { warden_id: ElusivWardenID },
+
+    #[acc(attester, { signer })]
+    #[pda(attester_warden_account, BasicWardenAccount, pda_offset = Some(attester_warden_id))]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    AttestBasicWardenMetadata {
+        attester_warden_id: ElusivWardenID,
+        warden_id: ElusivWardenID,
+        asn: Option<u32>,
+        timezone: Timezone,
+        region: WardenRegion,
+        uses_proxy: bool,
     },
 
     // -------- Program state management --------

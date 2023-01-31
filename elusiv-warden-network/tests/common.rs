@@ -5,7 +5,10 @@ pub use elusiv_test::*;
 use elusiv_types::{WritableSignerAccount, TOKENS};
 use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
-    warden::{ElusivBasicWardenConfig, ElusivBasicWardenFeatures, WardensAccount},
+    warden::{
+        BasicWardenFeatures, ElusivBasicWardenConfig, Timezone, WardenFeatures, WardenRegion,
+        WardensAccount,
+    },
 };
 use solana_program::pubkey::Pubkey;
 use std::net::Ipv4Addr;
@@ -62,15 +65,21 @@ pub async fn register_warden(test: &mut ElusivProgramTest, warden: &mut Actor) {
             ElusivBasicWardenConfig {
                 ident: String::new().try_into().unwrap(),
                 key: warden.pubkey,
-                owner: Pubkey::new_unique(),
+                operator: None.into(),
                 addr: Ipv4Addr::new(0, 0, 0, 0),
-                port: 0,
+                rpc_port: 0,
+                uses_proxy: false,
                 tls_mode: elusiv_warden_network::warden::TlsMode::NoTls,
                 jurisdiction: 0,
-                timezone: 0,
+                timezone: Timezone {
+                    area: 0,
+                    location: String::new().try_into().unwrap(),
+                },
+                region: WardenRegion::America,
                 version: [0, 0, 0],
                 platform: String::new().try_into().unwrap(),
-                features: ElusivBasicWardenFeatures::default(),
+                warden_features: WardenFeatures::default(),
+                basic_warden_features: BasicWardenFeatures::default(),
                 tokens: [false; TOKENS.len()],
             },
             WritableSignerAccount(warden.pubkey),
