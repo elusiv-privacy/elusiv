@@ -1,5 +1,5 @@
 use elusiv_proc_macros::elusiv_account;
-use elusiv_types::PDAAccountData;
+use elusiv_types::{PDAAccountData, SPL_TOKEN_COUNT};
 use elusiv_utils::guard;
 use solana_program::entrypoint::ProgramResult;
 use crate::error::ElusivWardenNetworkError;
@@ -26,15 +26,16 @@ impl WardenNetworkSize {
 pub struct ElusivBasicWardenNetwork;
 
 impl WardenNetwork for ElusivBasicWardenNetwork {
-    const SIZE: WardenNetworkSize = WardenNetworkSize::Dynamic(0, 1024);
+    const SIZE: WardenNetworkSize = WardenNetworkSize::Dynamic(0, 512);
 }
 
 #[elusiv_account(eager_type: true)]
 pub struct BasicWardenNetworkAccount {
     pda_data: PDAAccountData,
 
-    members: [ElusivWardenID; ElusivBasicWardenNetwork::SIZE.max()],
     members_count: u32,
+    members: [ElusivWardenID; ElusivBasicWardenNetwork::SIZE.max()],
+    tokens: [[bool; SPL_TOKEN_COUNT]; ElusivBasicWardenNetwork::SIZE.max()],
 }
 
 impl<'a> BasicWardenNetworkAccount<'a> {

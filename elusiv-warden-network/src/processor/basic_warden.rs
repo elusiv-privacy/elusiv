@@ -181,7 +181,7 @@ pub fn add_metadata_attester<'a>(
     )?;
 
     let mut warden = warden_account.get_warden();
-    warden.config.features.geo_data_attestation = true;
+    warden.config.features.attestation = true;
     warden_account.set_warden(&warden);
 
     Ok(())
@@ -200,7 +200,7 @@ pub fn revoke_metadata_attester<'a>(
     close_program_account(signer, signer, attester_account)?;
 
     let mut warden = warden_account.get_warden();
-    warden.config.features.geo_data_attestation = false;
+    warden.config.features.attestation = false;
     warden_account.set_warden(&warden);
 
     Ok(())
@@ -221,7 +221,7 @@ pub fn attest_basic_warden_metadata(
 ) -> ProgramResult {
     let attester_warden = attester_warden_account.get_warden();
     guard!(*attester.key == attester_warden.config.key, ElusivWardenNetworkError::InvalidSigner);
-    guard!(attester_warden.config.features.geo_data_attestation, ElusivWardenNetworkError::InvalidSigner);
+    guard!(attester_warden.config.features.attestation, ElusivWardenNetworkError::InvalidSigner);
 
     let mut warden = warden_account.get_warden();
     let warden_supplied_invalid_data = warden.config.timezone != timezone ||
@@ -233,6 +233,8 @@ pub fn attest_basic_warden_metadata(
     warden.config.uses_proxy = uses_proxy;
     warden.config.region = region;
     warden.is_metadata_valid = Some(!warden_supplied_invalid_data).into();
+
+    // TODO: Move Warden to according timezone account
 
     Ok(())
 }

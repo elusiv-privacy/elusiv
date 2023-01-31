@@ -51,7 +51,7 @@ pub struct ElusivBasicWardenFeatures {
     pub rpc: bool,
     pub relay: bool,
     pub instant_relay: bool,
-    pub geo_data_attestation: bool,
+    pub attestation: bool,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
