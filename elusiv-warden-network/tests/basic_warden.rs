@@ -1,15 +1,21 @@
 mod common;
 
 use common::*;
-use solana_program_test::*;
-use std::net::Ipv4Addr;
-use elusiv_types::{WritableSignerAccount, SignerAccount, UserAccount, ProgramAccount, TOKENS};
+use elusiv_types::{ProgramAccount, SignerAccount, UserAccount, WritableSignerAccount, TOKENS};
 use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
-    warden::{ElusivBasicWardenConfig, BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, ElusivBasicWardenFeatures, Timezone, WardenRegion},
     processor::{unix_timestamp_to_day_and_year, TRACKABLE_ELUSIV_INSTRUCTIONS},
+    warden::{
+        BasicWardenAccount, BasicWardenMapAccount, BasicWardenStatsAccount,
+        ElusivBasicWardenConfig, ElusivBasicWardenFeatures, Timezone, WardenRegion,
+    },
 };
-use solana_program::{pubkey::Pubkey, instruction::{Instruction, AccountMeta}};
+use solana_program::{
+    instruction::{AccountMeta, Instruction},
+    pubkey::Pubkey,
+};
+use solana_program_test::*;
+use std::net::Ipv4Addr;
 
 #[tokio::test]
 async fn test_register() {
@@ -29,7 +35,7 @@ async fn test_register() {
         jurisdiction: 0,
         timezone: Timezone {
             area: 0,
-            location: String::new().try_into().unwrap()
+            location: String::new().try_into().unwrap(),
         },
         region: WardenRegion::America,
         version: [0, 0, 0],
@@ -44,8 +50,9 @@ async fn test_register() {
             1,
             config.clone(),
             WritableSignerAccount(test.payer()),
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     // Invalid config.key
     config.key = Pubkey::new_unique();
@@ -54,8 +61,9 @@ async fn test_register() {
             0,
             config.clone(),
             WritableSignerAccount(test.payer()),
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     config.key = test.payer();
     test.ix_should_succeed_simple(
@@ -63,8 +71,9 @@ async fn test_register() {
             0,
             config.clone(),
             WritableSignerAccount(test.payer()),
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     // Duplicate registration fails
     test.ix_should_fail_simple(
@@ -72,10 +81,13 @@ async fn test_register() {
             0,
             config.clone(),
             WritableSignerAccount(test.payer()),
-        )
-    ).await;
+        ),
+    )
+    .await;
 
-    let map_account_data = test.eager_account2::<BasicWardenMapAccount, _>(test.payer(), None).await;
+    let map_account_data = test
+        .eager_account2::<BasicWardenMapAccount, _>(test.payer(), None)
+        .await;
     assert_eq!(0, map_account_data.warden_id);
 
     let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(0)).await;
@@ -96,7 +108,9 @@ async fn test_register_warden_id() {
         let mut warden = Actor::new(&mut test).await;
         register_warden(&mut test, &mut warden).await;
 
-        let map_account_data = test.eager_account2::<BasicWardenMapAccount, _>(warden.pubkey, None).await;
+        let map_account_data = test
+            .eager_account2::<BasicWardenMapAccount, _>(warden.pubkey, None)
+            .await;
         assert_eq!(n, map_account_data.warden_id);
 
         let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(n)).await;
@@ -121,7 +135,7 @@ async fn test_register_warden_account_fuzzing() {
         jurisdiction: 0,
         timezone: Timezone {
             area: 0,
-            location: String::new().try_into().unwrap()
+            location: String::new().try_into().unwrap(),
         },
         region: WardenRegion::America,
         version: [0, 0, 0],
@@ -136,8 +150,9 @@ async fn test_register_warden_account_fuzzing() {
             config.clone(),
             WritableSignerAccount(test.payer()),
         ),
-        &warden
-    ).await;
+        &warden,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -151,12 +166,18 @@ async fn test_update_state() {
     let timestamp = basic_warden_account.warden.activation_timestamp;
 
     async fn set_timestamp(test: &mut ElusivProgramTest, timestamp: u64) {
-        test.set_pda_account::<BasicWardenAccount, _>(&elusiv_warden_network::id(), None, Some(0), |data| {
-            let mut account = BasicWardenAccount::new(data).unwrap();
-            let mut warden = account.get_warden();
-            warden.activation_timestamp = timestamp;
-            account.set_warden(&warden);
-        }).await;
+        test.set_pda_account::<BasicWardenAccount, _>(
+            &elusiv_warden_network::id(),
+            None,
+            Some(0),
+            |data| {
+                let mut account = BasicWardenAccount::new(data).unwrap();
+                let mut warden = account.get_warden();
+                warden.activation_timestamp = timestamp;
+                account.set_warden(&warden);
+            },
+        )
+        .await;
     }
 
     // Invalid signer
@@ -165,15 +186,17 @@ async fn test_update_state() {
             0,
             true,
             SignerAccount(warden.pubkey),
-        )
-    ).await;
+        ),
+    )
+    .await;
     test.ix_should_fail_simple(
         ElusivWardenNetworkInstruction::update_basic_warden_state_instruction(
             0,
             true,
             SignerAccount(test.payer()),
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     async fn set_state(test: &mut ElusivProgramTest, is_active: bool, warden: &Actor) {
         test.ix_should_succeed(
@@ -183,7 +206,8 @@ async fn test_update_state() {
                 SignerAccount(warden.pubkey),
             ),
             &[&warden.keypair],
-        ).await;
+        )
+        .await;
     }
 
     set_timestamp(&mut test, 0).await;
@@ -223,15 +247,17 @@ async fn test_update_lut() {
             0,
             SignerAccount(warden.pubkey),
             UserAccount(Pubkey::new_unique()),
-        )
-    ).await;
+        ),
+    )
+    .await;
     test.ix_should_fail_simple(
         ElusivWardenNetworkInstruction::update_basic_warden_lut_instruction(
             0,
             SignerAccount(test.payer()),
             UserAccount(Pubkey::new_unique()),
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     async fn set_lut(test: &mut ElusivProgramTest, lut: Pubkey, warden: &Actor) {
         test.ix_should_succeed(
@@ -241,7 +267,8 @@ async fn test_update_lut() {
                 UserAccount(lut),
             ),
             &[&warden.keypair],
-        ).await;
+        )
+        .await;
     }
 
     // LUT is updated correctly
@@ -272,14 +299,17 @@ async fn test_open_stats_account() {
                 year,
                 UserAccount(warden),
                 WritableSignerAccount(test.payer()),
-            )
-        ).await;
+            ),
+        )
+        .await;
     }
 
     for year in 2022..2072 {
         open_stats_account(&mut test, warden.pubkey, year).await;
 
-        let account = test.eager_account2::<BasicWardenStatsAccount, _>(warden.pubkey, Some(year as u32)).await;
+        let account = test
+            .eager_account2::<BasicWardenStatsAccount, _>(warden.pubkey, Some(year as u32))
+            .await;
         assert_eq!(account.year, year);
     }
 }
@@ -291,7 +321,10 @@ async fn test_track_stats() {
     let mut warden = Actor::new(&mut test).await;
     register_warden(&mut test, &mut warden).await;
 
-    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let year = unix_timestamp_to_day_and_year(timestamp).unwrap().1;
 
     test.ix_should_succeed_simple(
@@ -299,8 +332,9 @@ async fn test_track_stats() {
             year,
             UserAccount(warden.pubkey),
             WritableSignerAccount(test.payer()),
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     for ix in TRACKABLE_ELUSIV_INSTRUCTIONS {
         let mut accounts = Vec::new();
@@ -315,51 +349,91 @@ async fn test_track_stats() {
         test.tx_should_fail(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts_1),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
+                    year,
+                    true,
+                    UserAccount(warden.pubkey),
+                ),
             ],
-            &[&warden.keypair]
-        ).await;
+            &[&warden.keypair],
+        )
+        .await;
 
         // Invalid instruction id
         test.tx_should_fail(
             &[
-                Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id + 1], accounts.clone()),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
+                Instruction::new_with_bytes(
+                    ELUSIV_PROGRAM_ID,
+                    &[ix.instruction_id + 1],
+                    accounts.clone(),
+                ),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
+                    year,
+                    true,
+                    UserAccount(warden.pubkey),
+                ),
             ],
-            &[&warden.keypair]
-        ).await;
+            &[&warden.keypair],
+        )
+        .await;
 
         // Invalid program_id
         test.tx_should_fail(
             &[
-                Instruction::new_with_bytes(OTHER_PROGRAM_ID, &[ix.instruction_id], accounts.clone()),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
+                Instruction::new_with_bytes(
+                    OTHER_PROGRAM_ID,
+                    &[ix.instruction_id],
+                    accounts.clone(),
+                ),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
+                    year,
+                    true,
+                    UserAccount(warden.pubkey),
+                ),
             ],
-            &[&warden.keypair]
-        ).await;
+            &[&warden.keypair],
+        )
+        .await;
 
         // Invalid signer
-        test.tx_should_fail_simple(
-            &[
-                Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id + 1], accounts.clone()),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
-            ]
-        ).await;
+        test.tx_should_fail_simple(&[
+            Instruction::new_with_bytes(
+                ELUSIV_PROGRAM_ID,
+                &[ix.instruction_id + 1],
+                accounts.clone(),
+            ),
+            ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
+                year,
+                true,
+                UserAccount(warden.pubkey),
+            ),
+        ])
+        .await;
 
         // Instruction can be set to be infallible
         let invalid_instructions = vec![
             Instruction::new_with_bytes(OTHER_PROGRAM_ID, &[ix.instruction_id], accounts.clone()),
-            ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, false, UserAccount(warden.pubkey)),
+            ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
+                year,
+                false,
+                UserAccount(warden.pubkey),
+            ),
         ];
         let mut fork = test.fork_for_instructions(&invalid_instructions).await;
-        fork.tx_should_succeed(&invalid_instructions, &[&warden.keypair]).await;
+        fork.tx_should_succeed(&invalid_instructions, &[&warden.keypair])
+            .await;
 
         test.tx_should_succeed(
             &[
                 Instruction::new_with_bytes(ELUSIV_PROGRAM_ID, &[ix.instruction_id], accounts),
-                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(year, true, UserAccount(warden.pubkey)),
+                ElusivWardenNetworkInstruction::track_basic_warden_stats_instruction(
+                    year,
+                    true,
+                    UserAccount(warden.pubkey),
+                ),
             ],
-            &[&warden.keypair]
-        ).await;
+            &[&warden.keypair],
+        )
+        .await;
     }
 }

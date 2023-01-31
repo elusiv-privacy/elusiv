@@ -1,9 +1,12 @@
-use std::net::Ipv4Addr;
+use crate::{
+    error::ElusivWardenNetworkError,
+    macros::{elusiv_account, BorshSerDeSized},
+};
 use borsh::{BorshDeserialize, BorshSerialize};
+use elusiv_types::{accounts::PDAAccountData, ElusivOption, TOKENS};
 use elusiv_utils::guard;
-use solana_program::{pubkey::Pubkey, program_error::ProgramError};
-use elusiv_types::{accounts::PDAAccountData, TOKENS, ElusivOption};
-use crate::{macros::{elusiv_account, BorshSerDeSized}, error::ElusivWardenNetworkError};
+use solana_program::{program_error::ProgramError, pubkey::Pubkey};
+use std::net::Ipv4Addr;
 
 /// An unique ID publicly identifying a single Warden
 pub type ElusivWardenID = u32;
@@ -28,18 +31,19 @@ impl<const MAX_LEN: usize> TryFrom<String> for FixedLenString<MAX_LEN> {
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         if value.len() > MAX_LEN {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "String is too long"))
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "String is too long",
+            ));
         }
 
         let mut data = [0; MAX_LEN];
         data[..value.len()].copy_from_slice(value.as_bytes());
 
-        Ok(
-            Self {
-                len: value.len() as u64,
-                data,
-            }
-        )
+        Ok(Self {
+            len: value.len() as u64,
+            data,
+        })
     }
 }
 
@@ -70,9 +74,9 @@ pub struct Timezone {
 }
 
 /// The geographic region of a Warden
-/// 
+///
 /// # Notes
-/// 
+///
 /// - Based on the IANA tz database (https://data.iana.org/time-zones/tz-link.html), ommiting the oceans.
 /// - We simplify by mapping the oceans as follows:
 ///     - Arctic -> Europe,
@@ -88,7 +92,7 @@ pub enum WardenRegion {
     Asia,
     Australia,
     Europe,
-    Other,  // Other is used to represent the tz Etc area or orbital locations
+    Other, // Other is used to represent the tz Etc area or orbital locations
 }
 
 impl WardenRegion {
@@ -110,7 +114,7 @@ impl WardenRegion {
             "Etc" => Some(WardenRegion::Other),
             "Indian" => Some(WardenRegion::Asia),
             "Pacific" => Some(WardenRegion::Asia),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -178,10 +182,12 @@ impl WardenStatistics {
     pub fn inc(&self, day: u32) -> Result<&Self, ProgramError> {
         guard!(day < 366, ElusivWardenNetworkError::StatsError);
 
-        self.total.checked_add(1)
+        self.total
+            .checked_add(1)
             .ok_or(ElusivWardenNetworkError::Overflow)?;
 
-        self.activity[day as usize].checked_add(1)
+        self.activity[day as usize]
+            .checked_add(1)
             .ok_or(ElusivWardenNetworkError::Overflow)?;
 
         Ok(self)

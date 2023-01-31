@@ -1,9 +1,9 @@
+use crate::error::ElusivWardenNetworkError;
+use crate::warden::ElusivWardenID;
 use elusiv_proc_macros::elusiv_account;
 use elusiv_types::{PDAAccountData, SPL_TOKEN_COUNT};
 use elusiv_utils::guard;
 use solana_program::entrypoint::ProgramResult;
-use crate::error::ElusivWardenNetworkError;
-use crate::warden::ElusivWardenID;
 
 pub trait WardenNetwork {
     const SIZE: WardenNetworkSize;

@@ -1,17 +1,22 @@
-use elusiv_types::ProgramAccount;
-use elusiv_utils::{guard, open_pda_account_with_offset, pda_account, open_pda_account_with_associated_pubkey};
-use solana_program::program_error::ProgramError;
-use solana_program::pubkey::Pubkey;
-use solana_program::account_info::AccountInfo;
-use solana_program::entrypoint::ProgramResult;
-use solana_program::sysvar::instructions;
 use crate::error::ElusivWardenNetworkError;
 use crate::processor::{current_timestamp, unix_timestamp_to_day_and_year};
-use crate::warden::{BasicWardenAccount, BasicWardenStatsAccount, BasicWardenMapAccount, BasicWardenOperatorAccount, Identifier, BasicWardenAttesterMapAccount, Timezone, WardenRegion};
-use crate::{
-    warden::{WardensAccount, ElusivWardenID, ElusivBasicWardenConfig, ElusivBasicWarden},
-    network::BasicWardenNetworkAccount,
+use crate::warden::{
+    BasicWardenAccount, BasicWardenAttesterMapAccount, BasicWardenMapAccount,
+    BasicWardenOperatorAccount, BasicWardenStatsAccount, Identifier, Timezone, WardenRegion,
 };
+use crate::{
+    network::BasicWardenNetworkAccount,
+    warden::{ElusivBasicWarden, ElusivBasicWardenConfig, ElusivWardenID, WardensAccount},
+};
+use elusiv_types::ProgramAccount;
+use elusiv_utils::{
+    guard, open_pda_account_with_associated_pubkey, open_pda_account_with_offset, pda_account,
+};
+use solana_program::account_info::AccountInfo;
+use solana_program::entrypoint::ProgramResult;
+use solana_program::program_error::ProgramError;
+use solana_program::pubkey::Pubkey;
+use solana_program::sysvar::instructions;
 
 use super::close_program_account;
 
@@ -39,10 +44,14 @@ pub fn register_basic_warden<'a>(
         join_timestamp: current_timestamp,
     };
 
-    guard!(warden_id == wardens_account.get_next_warden_id(), ProgramError::InvalidArgument);
+    guard!(
+        warden_id == wardens_account.get_next_warden_id(),
+        ProgramError::InvalidArgument
+    );
     wardens_account.set_next_warden_id(
-        &warden_id.checked_add(1)
-            .ok_or_else(|| ProgramError::from(ElusivWardenNetworkError::WardenRegistrationError))?
+        &warden_id
+            .checked_add(1)
+            .ok_or_else(|| ProgramError::from(ElusivWardenNetworkError::WardenRegistrationError))?,
     );
 
     open_pda_account_with_offset::<BasicWardenAccount>(
@@ -66,11 +75,15 @@ pub fn register_basic_warden<'a>(
         None,
     )?;
 
-    pda_account!(mut warden_map_account, BasicWardenMapAccount, warden_map_account);
+    pda_account!(
+        mut warden_map_account,
+        BasicWardenMapAccount,
+        warden_map_account
+    );
     warden_map_account.set_warden_id(&warden_id);
 
     basic_network_account.try_add_member(warden_id)?;
-    
+
     Ok(())
 }
 
@@ -91,7 +104,11 @@ pub fn register_basic_warden_operator<'a>(
         None,
     )?;
 
-    pda_account!(mut operator_account, BasicWardenOperatorAccount, operator_account);
+    pda_account!(
+        mut operator_account,
+        BasicWardenOperatorAccount,
+        operator_account
+    );
     operator_account.set_ident(&ident);
     operator_account.set_url(&url);
     operator_account.set_jurisdiction(&jurisdiction.into());
@@ -109,7 +126,10 @@ pub fn confirm_basic_warden_operation(
     warden.is_operator_confirmed = true;
     match warden.config.operator.option() {
         Some(key) => {
-            guard!(*operator.key == key, ElusivWardenNetworkError::InvalidSigner);
+            guard!(
+                *operator.key == key,
+                ElusivWardenNetworkError::InvalidSigner
+            );
         }
         None => {
             warden.config.operator = Some(*operator.key).into();
@@ -129,7 +149,10 @@ pub fn update_basic_warden_state(
     is_active: bool,
 ) -> ProgramResult {
     let mut basic_warden = warden_account.get_warden();
-    guard!(*warden.key == basic_warden.config.key, ProgramError::MissingRequiredSignature);
+    guard!(
+        *warden.key == basic_warden.config.key,
+        ProgramError::MissingRequiredSignature
+    );
 
     // `activation_timestamp` is used to track all `is_active` changes
     if is_active != basic_warden.is_active {
@@ -151,7 +174,10 @@ pub fn update_basic_warden_lut(
     // TODO: verify lut_account to be a valid, frozen LUT (but not required ATM)
 
     let mut basic_warden = warden_account.get_warden();
-    guard!(*warden.key == basic_warden.config.key, ProgramError::MissingRequiredSignature);
+    guard!(
+        *warden.key == basic_warden.config.key,
+        ProgramError::MissingRequiredSignature
+    );
 
     basic_warden.lut = *lut_account.key;
     warden_account.set_warden(&basic_warden);
@@ -167,9 +193,12 @@ pub fn add_metadata_attester<'a>(
     attester_account: &AccountInfo<'a>,
     warden_account: &mut BasicWardenAccount,
 
-    _warden_id: ElusivWardenID
+    _warden_id: ElusivWardenID,
 ) -> ProgramResult {
-    guard!(*signer.key == METADATA_ATTESTER_AUTHORITY, ElusivWardenNetworkError::InvalidSigner);
+    guard!(
+        *signer.key == METADATA_ATTESTER_AUTHORITY,
+        ElusivWardenNetworkError::InvalidSigner
+    );
 
     open_pda_account_with_associated_pubkey::<BasicWardenAttesterMapAccount>(
         &crate::id(),
@@ -193,9 +222,12 @@ pub fn revoke_metadata_attester<'a>(
     attester_account: &AccountInfo<'a>,
     warden_account: &mut BasicWardenAccount,
 
-    _warden_id: ElusivWardenID
+    _warden_id: ElusivWardenID,
 ) -> ProgramResult {
-    guard!(*signer.key == METADATA_ATTESTER_AUTHORITY, ElusivWardenNetworkError::InvalidSigner);
+    guard!(
+        *signer.key == METADATA_ATTESTER_AUTHORITY,
+        ElusivWardenNetworkError::InvalidSigner
+    );
 
     close_program_account(signer, signer, attester_account)?;
 
@@ -220,13 +252,19 @@ pub fn attest_basic_warden_metadata(
     uses_proxy: bool,
 ) -> ProgramResult {
     let attester_warden = attester_warden_account.get_warden();
-    guard!(*attester.key == attester_warden.config.key, ElusivWardenNetworkError::InvalidSigner);
-    guard!(attester_warden.config.features.attestation, ElusivWardenNetworkError::InvalidSigner);
+    guard!(
+        *attester.key == attester_warden.config.key,
+        ElusivWardenNetworkError::InvalidSigner
+    );
+    guard!(
+        attester_warden.config.features.attestation,
+        ElusivWardenNetworkError::InvalidSigner
+    );
 
     let mut warden = warden_account.get_warden();
-    let warden_supplied_invalid_data = warden.config.timezone != timezone ||
-        warden.config.uses_proxy != uses_proxy ||
-        warden.config.region != region;
+    let warden_supplied_invalid_data = warden.config.timezone != timezone
+        || warden.config.uses_proxy != uses_proxy
+        || warden.config.region != region;
 
     warden.asn = asn.into();
     warden.config.timezone = timezone;
@@ -274,18 +312,16 @@ pub const TRACKABLE_ELUSIV_INSTRUCTIONS: [TrackableElusivInstruction; 3] = [
         instruction_id: 2,
         warden_index: 0,
     },
-
     // FinalizeVerificationTransferLamports
     TrackableElusivInstruction {
         instruction_id: 13,
         warden_index: 1,
     },
-
     // FinalizeVerificationTransferToken
     TrackableElusivInstruction {
         instruction_id: 14,
         warden_index: 3,
-    }
+    },
 ];
 
 pub fn track_basic_warden_stats(
@@ -296,9 +332,11 @@ pub fn track_basic_warden_stats(
     year: u16,
     can_fail: bool,
 ) -> ProgramResult {
-    if let Err(err) = track_basic_warden_stats_inner(warden, stats_account, instructions_account, year) {
+    if let Err(err) =
+        track_basic_warden_stats_inner(warden, stats_account, instructions_account, year)
+    {
         if can_fail {
-            return Err(err)
+            return Err(err);
         } else {
             #[cfg(not(feature = "mainnet"))]
             solana_program::msg!("Tracking error: {:?}", err);
@@ -321,24 +359,36 @@ fn track_basic_warden_stats_inner(
 
     guard!(y == year, ElusivWardenNetworkError::StatsError);
 
-    guard!(stats_account.get_year() == year, ElusivWardenNetworkError::StatsError);
+    guard!(
+        stats_account.get_year() == year,
+        ElusivWardenNetworkError::StatsError
+    );
 
     let index = instructions::load_current_index_checked(instructions_account)?;
     let previous_ix = instructions::load_instruction_at_checked(
-        index.checked_sub(1).ok_or(ElusivWardenNetworkError::StatsError)? as usize,
+        index
+            .checked_sub(1)
+            .ok_or(ElusivWardenNetworkError::StatsError)? as usize,
         instructions_account,
     )?;
 
     let ix_byte = previous_ix.data[0];
-    if let Some(ix) = TRACKABLE_ELUSIV_INSTRUCTIONS.iter().find(|i| {
-        i.instruction_id == ix_byte
-    }) {
-        guard!(previous_ix.accounts[ix.warden_index as usize].pubkey == *warden.key, ElusivWardenNetworkError::StatsError);
-        guard!(previous_ix.program_id == ELUSIV_PROGRAM_ID, ProgramError::IncorrectProgramId);
+    if let Some(ix) = TRACKABLE_ELUSIV_INSTRUCTIONS
+        .iter()
+        .find(|i| i.instruction_id == ix_byte)
+    {
+        guard!(
+            previous_ix.accounts[ix.warden_index as usize].pubkey == *warden.key,
+            ElusivWardenNetworkError::StatsError
+        );
+        guard!(
+            previous_ix.program_id == ELUSIV_PROGRAM_ID,
+            ProgramError::IncorrectProgramId
+        );
 
         stats_account.set_store(stats_account.get_store().inc(day)?);
     } else {
-        return Err(ElusivWardenNetworkError::StatsError.into())
+        return Err(ElusivWardenNetworkError::StatsError.into());
     }
 
     stats_account.set_last_activity_timestamp(&current_timestamp);
