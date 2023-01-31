@@ -6,7 +6,8 @@ use elusiv_types::{WritableSignerAccount, TOKENS};
 use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
     warden::{
-        ElusivBasicWardenConfig, ElusivBasicWardenFeatures, Timezone, WardenRegion, WardensAccount,
+        BasicWardenFeatures, ElusivBasicWardenConfig, Timezone, WardenFeatures, WardenRegion,
+        WardensAccount,
     },
 };
 use solana_program::pubkey::Pubkey;
@@ -77,7 +78,8 @@ pub async fn register_warden(test: &mut ElusivProgramTest, warden: &mut Actor) {
                 region: WardenRegion::America,
                 version: [0, 0, 0],
                 platform: String::new().try_into().unwrap(),
-                features: ElusivBasicWardenFeatures::default(),
+                warden_features: WardenFeatures::default(),
+                basic_warden_features: BasicWardenFeatures::default(),
                 tokens: [false; TOKENS.len()],
             },
             WritableSignerAccount(warden.pubkey),

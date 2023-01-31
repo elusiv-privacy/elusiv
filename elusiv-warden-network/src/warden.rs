@@ -50,12 +50,16 @@ impl<const MAX_LEN: usize> TryFrom<String> for FixedLenString<MAX_LEN> {
 pub type Identifier = FixedLenString<256>;
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Debug, Clone, PartialEq)]
-pub struct ElusivBasicWardenFeatures {
+pub struct WardenFeatures {
     pub apa: bool,
+    pub attestation: bool,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Debug, Clone, PartialEq)]
+pub struct BasicWardenFeatures {
     pub rpc: bool,
     pub relay: bool,
     pub instant_relay: bool,
-    pub attestation: bool,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone, PartialEq)]
@@ -137,7 +141,8 @@ pub struct ElusivBasicWardenConfig {
     pub version: [u16; 3],
     pub platform: Identifier,
 
-    pub features: ElusivBasicWardenFeatures,
+    pub warden_features: WardenFeatures,
+    pub basic_warden_features: BasicWardenFeatures,
     pub tokens: [bool; TOKENS.len()],
 }
 
@@ -206,17 +211,6 @@ pub struct BasicWardenStatsAccount {
     pub migrate: WardenStatistics,
 
     pub last_activity_timestamp: u64,
-}
-
-/// An account associated with the operator of one or more [`ElusivBasicWarden`]s
-#[elusiv_account]
-pub struct BasicWardenOperatorAccount {
-    pda_data: PDAAccountData,
-
-    pub key: Pubkey,
-    pub ident: Identifier,
-    pub url: Identifier,
-    pub jurisdiction: ElusivOption<u16>,
 }
 
 /// An account associated with a single [`ElusivBasicWarden`]

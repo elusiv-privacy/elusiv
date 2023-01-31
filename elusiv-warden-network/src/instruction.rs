@@ -3,11 +3,12 @@
 use crate::apa::{ApaProposal, ApaProposalAccount, ApaProposalsAccount, ApaTargetMapAccount};
 use crate::macros::ElusivInstruction;
 use crate::network::BasicWardenNetworkAccount;
+use crate::operator::WardenOperatorAccount;
 use crate::processor;
 use crate::warden::{
     BasicWardenAccount, BasicWardenAttesterMapAccount, BasicWardenMapAccount,
-    BasicWardenOperatorAccount, BasicWardenStatsAccount, ElusivBasicWardenConfig, ElusivWardenID,
-    Identifier, Timezone, WardenRegion, WardensAccount,
+    BasicWardenStatsAccount, ElusivBasicWardenConfig, ElusivWardenID, Identifier, Timezone,
+    WardenRegion, WardensAccount,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::AccountRepr;
@@ -47,10 +48,25 @@ pub enum ElusivWardenNetworkInstruction {
         config: ElusivBasicWardenConfig,
     },
 
+    #[acc(warden, { signer })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    UpdateBasicWardenState {
+        warden_id: ElusivWardenID,
+        is_active: bool,
+    },
+
+    // UpdateBasicWardenFeatures {
+    // },
+    #[acc(warden, { signer })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    #[acc(lut_account)]
+    UpdateBasicWardenLut { warden_id: ElusivWardenID },
+
+    // -------- Warden operator --------
     #[acc(operator, { signer, writable })]
-    #[pda(operator_account, BasicWardenOperatorAccount, pda_pubkey = operator.pubkey(), { writable, find_pda, account_info })]
+    #[pda(operator_account, WardenOperatorAccount, pda_pubkey = operator.pubkey(), { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
-    RegisterBasicWardenOperator {
+    RegisterWardenOperator {
         ident: Identifier,
         url: Identifier,
         jurisdiction: Option<u16>,
@@ -59,18 +75,6 @@ pub enum ElusivWardenNetworkInstruction {
     #[acc(operator, { signer })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
     ConfirmBasicWardenOperation { warden_id: ElusivWardenID },
-
-    #[acc(warden, { signer })]
-    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
-    UpdateBasicWardenState {
-        warden_id: ElusivWardenID,
-        is_active: bool,
-    },
-
-    #[acc(warden, { signer })]
-    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
-    #[acc(lut_account)]
-    UpdateBasicWardenLut { warden_id: ElusivWardenID },
 
     // -------- Basic Warden statistics --------
     #[acc(warden)]

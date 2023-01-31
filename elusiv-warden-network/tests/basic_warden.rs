@@ -6,8 +6,8 @@ use elusiv_warden_network::{
     instruction::ElusivWardenNetworkInstruction,
     processor::{unix_timestamp_to_day_and_year, TRACKABLE_ELUSIV_INSTRUCTIONS},
     warden::{
-        BasicWardenAccount, BasicWardenMapAccount, BasicWardenStatsAccount,
-        ElusivBasicWardenConfig, ElusivBasicWardenFeatures, Timezone, WardenRegion,
+        BasicWardenAccount, BasicWardenFeatures, BasicWardenMapAccount, BasicWardenStatsAccount,
+        ElusivBasicWardenConfig, Timezone, WardenFeatures, WardenRegion,
     },
 };
 use solana_program::{
@@ -40,7 +40,8 @@ async fn test_register() {
         region: WardenRegion::America,
         version: [0, 0, 0],
         platform: platform.try_into().unwrap(),
-        features: ElusivBasicWardenFeatures::default(),
+        warden_features: WardenFeatures::default(),
+        basic_warden_features: BasicWardenFeatures::default(),
         tokens: [false; TOKENS.len()],
     };
 
@@ -140,7 +141,8 @@ async fn test_register_warden_account_fuzzing() {
         region: WardenRegion::America,
         version: [0, 0, 0],
         platform: String::new().try_into().unwrap(),
-        features: ElusivBasicWardenFeatures::default(),
+        warden_features: WardenFeatures::default(),
+        basic_warden_features: BasicWardenFeatures::default(),
         tokens: [false; TOKENS.len()],
     };
 

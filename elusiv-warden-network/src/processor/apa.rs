@@ -3,7 +3,6 @@ use crate::apa::{
     ApaProponentRole, ApaProposal, ApaProposalAccount, ApaProposalsAccount, ApaTargetMapAccount,
 };
 use crate::error::ElusivWardenNetworkError;
-use elusiv_types::accounts::ProgramAccount;
 use elusiv_types::{elusiv_token, SPL_TOKEN_COUNT};
 use elusiv_utils::{
     guard, open_pda_account_with_associated_pubkey, open_pda_account_with_offset, pda_account,

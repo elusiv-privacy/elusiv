@@ -1,14 +1,14 @@
+use super::close_program_account;
 use crate::error::ElusivWardenNetworkError;
 use crate::processor::{current_timestamp, unix_timestamp_to_day_and_year};
 use crate::warden::{
     BasicWardenAccount, BasicWardenAttesterMapAccount, BasicWardenMapAccount,
-    BasicWardenOperatorAccount, BasicWardenStatsAccount, Identifier, Timezone, WardenRegion,
+    BasicWardenStatsAccount, Timezone, WardenRegion,
 };
 use crate::{
     network::BasicWardenNetworkAccount,
     warden::{ElusivBasicWarden, ElusivBasicWardenConfig, ElusivWardenID, WardensAccount},
 };
-use elusiv_types::ProgramAccount;
 use elusiv_utils::{
     guard, open_pda_account_with_associated_pubkey, open_pda_account_with_offset, pda_account,
 };
@@ -17,8 +17,6 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 use solana_program::sysvar::instructions;
-
-use super::close_program_account;
 
 pub fn register_basic_warden<'a>(
     warden: &AccountInfo<'a>,
@@ -31,6 +29,12 @@ pub fn register_basic_warden<'a>(
     config: ElusivBasicWardenConfig,
 ) -> ProgramResult {
     guard!(config.key == *warden.key, ProgramError::InvalidArgument);
+
+    basic_network_account.try_add_member(
+        warden_id,
+        &config.basic_warden_features,
+        &config.tokens,
+    )?;
 
     let current_timestamp = current_timestamp()?;
     let basic_warden = ElusivBasicWarden {
@@ -81,62 +85,6 @@ pub fn register_basic_warden<'a>(
         warden_map_account
     );
     warden_map_account.set_warden_id(&warden_id);
-
-    basic_network_account.try_add_member(warden_id)?;
-
-    Ok(())
-}
-
-pub fn register_basic_warden_operator<'a>(
-    operator: &AccountInfo<'a>,
-    operator_account: &AccountInfo<'a>,
-
-    ident: Identifier,
-    url: Identifier,
-    jurisdiction: Option<u16>,
-) -> ProgramResult {
-    open_pda_account_with_associated_pubkey::<BasicWardenOperatorAccount>(
-        &crate::id(),
-        operator,
-        operator_account,
-        operator.key,
-        None,
-        None,
-    )?;
-
-    pda_account!(
-        mut operator_account,
-        BasicWardenOperatorAccount,
-        operator_account
-    );
-    operator_account.set_ident(&ident);
-    operator_account.set_url(&url);
-    operator_account.set_jurisdiction(&jurisdiction.into());
-
-    Ok(())
-}
-
-pub fn confirm_basic_warden_operation(
-    operator: &AccountInfo,
-    warden_account: &mut BasicWardenAccount,
-
-    _warden_id: ElusivWardenID,
-) -> ProgramResult {
-    let mut warden = warden_account.get_warden();
-    warden.is_operator_confirmed = true;
-    match warden.config.operator.option() {
-        Some(key) => {
-            guard!(
-                *operator.key == key,
-                ElusivWardenNetworkError::InvalidSigner
-            );
-        }
-        None => {
-            warden.config.operator = Some(*operator.key).into();
-        }
-    }
-
-    warden_account.set_warden(&warden);
 
     Ok(())
 }
@@ -210,7 +158,7 @@ pub fn add_metadata_attester<'a>(
     )?;
 
     let mut warden = warden_account.get_warden();
-    warden.config.features.attestation = true;
+    warden.config.warden_features.attestation = true;
     warden_account.set_warden(&warden);
 
     Ok(())
@@ -232,7 +180,7 @@ pub fn revoke_metadata_attester<'a>(
     close_program_account(signer, signer, attester_account)?;
 
     let mut warden = warden_account.get_warden();
-    warden.config.features.attestation = false;
+    warden.config.warden_features.attestation = false;
     warden_account.set_warden(&warden);
 
     Ok(())
@@ -257,7 +205,7 @@ pub fn attest_basic_warden_metadata(
         ElusivWardenNetworkError::InvalidSigner
     );
     guard!(
-        attester_warden.config.features.attestation,
+        attester_warden.config.warden_features.attestation,
         ElusivWardenNetworkError::InvalidSigner
     );
 
