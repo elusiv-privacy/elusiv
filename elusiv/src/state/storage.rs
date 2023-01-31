@@ -52,7 +52,7 @@ pub struct StorageAccount {
     // The amount of archived MTs
     archived_count: u32,
 
-    // Stores the last HISTORY_ARRAY_COUNT roots of the active tree
+    // Stores the last HISTORY_ARRAY_COUNT roots of the active tree (including the current root)
     pub active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
     pub mt_roots_count: u32, // required since we batch insert commitments
 }
@@ -120,6 +120,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     pub fn is_root_valid(&self, root: U256) -> bool {
         let max_history_roots = std::cmp::min(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
 
+        // TODO: remove this, has become redundant
         if let Ok(current_root) = self.get_root() {
             return root == current_root
         }

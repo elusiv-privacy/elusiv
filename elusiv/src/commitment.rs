@@ -385,7 +385,7 @@ impl<'a> CommitmentHashingAccount<'a> {
         }
 
         if finalization_ix == batching_rate {
-            // Insert above hashes (including new MT)
+            // Insert above hashes (including new root)
             for i in 0..MT_HEIGHT - batching_rate as usize {
                 let mt_layer = MT_HEIGHT - batching_rate as usize - i - 1;
                 let ordering = ordering as usize >> (batching_rate as usize + i + 1);
@@ -397,12 +397,16 @@ impl<'a> CommitmentHashingAccount<'a> {
                 ).unwrap();
             }
 
+            storage_account.set_next_commitment_ptr(
+                &(ordering + usize_as_u32_safe(commitments_per_batch(batching_rate)))
+            );
+
+            // This inserts the new root into the `active_mt_root_history`
             storage_account.set_active_mt_root_history(
                 ordering as usize % HISTORY_ARRAY_COUNT,
                 &storage_account.get_root().unwrap(),
             );
             storage_account.set_mt_roots_count(&(storage_account.get_mt_roots_count() + 1));
-            storage_account.set_next_commitment_ptr(&(ordering + usize_as_u32_safe(commitments_per_batch(batching_rate))));
         }
     }
 }

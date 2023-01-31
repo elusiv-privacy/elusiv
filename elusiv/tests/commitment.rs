@@ -693,6 +693,9 @@ async fn test_single_commitment() {
             hash = full_poseidon2_hash(hash, u256_to_fr_skip_mr(&EMPTY_TREE[i]));
         }
         assert_eq!(fr_to_u256_le(&hash), s.get_root().unwrap());
+
+        // Root should be equal to first mt_root_history value
+        assert_eq!(s.get_root().unwrap(), s.get_active_mt_root_history(0));
     }).await;
 }
 
