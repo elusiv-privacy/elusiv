@@ -1,4 +1,5 @@
 #![allow(clippy::large_enum_variant)]
+#![allow(clippy::too_many_arguments)]
 
 use crate::apa::{ApaProposal, ApaProposalAccount, ApaProposalsAccount, ApaTargetMapAccount};
 use crate::macros::ElusivInstruction;
@@ -31,13 +32,6 @@ pub enum ElusivWardenNetworkInstruction {
     #[pda(proposals_account, ApaProposalsAccount, { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     Init,
-
-    #[acc(payer, { signer, writable })]
-    #[pda(basic_network, BasicWardenNetworkAccount, pda_offset = Some(region.pda_offset()), { writable, find_pda, account_info })]
-    #[sys(system_program, key = system_program::ID, { ignore })]
-    InitRegionAccount {
-        region: WardenRegion,
-    },
 
     // -------- Basic Warden --------
     #[acc(warden, { signer, writable })]
@@ -151,9 +145,11 @@ pub enum ElusivWardenNetworkInstruction {
     #[acc(attester, { signer })]
     #[pda(attester_warden_account, BasicWardenAccount, pda_offset = Some(attester_warden_id))]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    #[pda(basic_network, BasicWardenNetworkAccount, { writable })]
     AttestBasicWardenMetadata {
         attester_warden_id: ElusivWardenID,
         warden_id: ElusivWardenID,
+        member_index: u32,
         asn: Option<u32>,
         timezone: Timezone,
         region: WardenRegion,

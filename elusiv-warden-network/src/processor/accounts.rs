@@ -1,9 +1,9 @@
 use crate::{
     apa::ApaProposalsAccount,
     network::{ApaWardenNetworkAccount, BasicWardenNetworkAccount},
-    warden::{WardenRegion, WardensAccount},
+    warden::WardensAccount,
 };
-use elusiv_utils::{open_pda_account_with_offset, open_pda_account_without_offset};
+use elusiv_utils::open_pda_account_without_offset;
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
 pub fn init<'a>(
@@ -37,21 +37,6 @@ pub fn init<'a>(
     )?;
 
     Ok(())
-}
-
-pub fn init_region_account<'a>(
-    payer: &AccountInfo<'a>,
-    basic_network_account: &AccountInfo<'a>,
-
-    region: WardenRegion,
-) -> ProgramResult {
-    open_pda_account_with_offset::<BasicWardenNetworkAccount>(
-        &crate::id(),
-        payer,
-        basic_network_account,
-        region.pda_offset(),
-        None,
-    )
 }
 
 /// Closes a program owned account in devnet and localhost

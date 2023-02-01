@@ -1,9 +1,10 @@
-use crate::warden::ElusivWardenID;
+use crate::warden::{ElusivWardenID, WardenRegion};
 use crate::{error::ElusivWardenNetworkError, warden::BasicWardenFeatures};
 use elusiv_proc_macros::elusiv_account;
-use elusiv_types::{PDAAccountData, TOKENS};
+use elusiv_types::{ElusivOption, PDAAccountData, TOKENS};
 use elusiv_utils::guard;
 use solana_program::entrypoint::ProgramResult;
+use solana_program::pubkey::Pubkey;
 
 pub trait WardenNetwork {
     const SIZE: NetworkSize;
@@ -43,6 +44,7 @@ pub struct BasicWardenNetworkAccount {
     members: [ElusivWardenID; ElusivBasicWardenNetwork::SIZE.max()],
     features: [BasicWardenFeatures; ElusivBasicWardenNetwork::SIZE.max()],
     tokens: [[bool; TOKENS.len()]; ElusivBasicWardenNetwork::SIZE.max()],
+    region: [WardenRegion; ElusivApaWardenNetwork::SIZE.max()],
 }
 
 impl<'a> BasicWardenNetworkAccount<'a> {
@@ -50,6 +52,7 @@ impl<'a> BasicWardenNetworkAccount<'a> {
         &mut self,
         warden_id: ElusivWardenID,
         features: &BasicWardenFeatures,
+        region: &WardenRegion,
         supported_tokens: &[bool; TOKENS.len()],
     ) -> ProgramResult {
         let members_count = self.get_members_count();
@@ -60,8 +63,25 @@ impl<'a> BasicWardenNetworkAccount<'a> {
 
         self.set_members(members_count as usize, &warden_id);
         self.set_features(members_count as usize, features);
+        self.set_region(members_count as usize, region);
         self.set_tokens(members_count as usize, supported_tokens);
         self.set_members_count(&(members_count + 1));
+
+        Ok(())
+    }
+
+    pub fn update_region(
+        &mut self,
+        warden_id: ElusivWardenID,
+        member_index: usize,
+        region: &WardenRegion,
+    ) -> ProgramResult {
+        guard!(
+            self.get_members(member_index) == warden_id,
+            ElusivWardenNetworkError::InvalidInstructionData
+        );
+
+        self.set_region(member_index, region);
 
         Ok(())
     }
@@ -75,8 +95,9 @@ pub struct ApaWardenNetworkAccount {
 
     members_count: u32,
     members: [ElusivWardenID; ElusivApaWardenNetwork::SIZE.max()],
-    is_setup: bool,
     approvals: [bool; ElusivApaWardenNetwork::SIZE.max()],
+
+    apa_key: ElusivOption<Pubkey>,
 }
 
 impl<'a> ApaWardenNetworkAccount<'a> {

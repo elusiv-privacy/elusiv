@@ -100,10 +100,6 @@ pub enum WardenRegion {
 }
 
 impl WardenRegion {
-    pub fn pda_offset(&self) -> u32 {
-        *self as u32
-    }
-
     #[cfg(feature = "elusiv-client")]
     pub fn from_tz_timezone_area(area: &str) -> Option<Self> {
         match area {
