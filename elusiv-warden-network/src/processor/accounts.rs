@@ -1,6 +1,6 @@
 use crate::{
     apa::ApaProposalsAccount,
-    network::BasicWardenNetworkAccount,
+    network::{ApaWardenNetworkAccount, BasicWardenNetworkAccount},
     warden::{WardenRegion, WardensAccount},
 };
 use elusiv_utils::{open_pda_account_with_offset, open_pda_account_without_offset};
@@ -10,6 +10,7 @@ pub fn init<'a>(
     payer: &AccountInfo<'a>,
     wardens_account: &AccountInfo<'a>,
     basic_network_account: &AccountInfo<'a>,
+    apa_network_account: &AccountInfo<'a>,
     apa_proposals_account: &AccountInfo<'a>,
 ) -> ProgramResult {
     open_pda_account_without_offset::<WardensAccount>(&crate::id(), payer, wardens_account, None)?;
@@ -18,6 +19,13 @@ pub fn init<'a>(
         &crate::id(),
         payer,
         basic_network_account,
+        None,
+    )?;
+
+    open_pda_account_without_offset::<ApaWardenNetworkAccount>(
+        &crate::id(),
+        payer,
+        apa_network_account,
         None,
     )?;
 

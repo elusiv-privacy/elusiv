@@ -23,11 +23,17 @@ impl NetworkSize {
     }
 }
 
-pub struct ElusivBasicWardenNetwork;
+macro_rules! warden_network {
+    ($ident: ident, $size: expr) => {
+        pub struct $ident;
 
-impl WardenNetwork for ElusivBasicWardenNetwork {
-    const SIZE: NetworkSize = NetworkSize::Dynamic(0, 512);
+        impl WardenNetwork for $ident {
+            const SIZE: NetworkSize = $size;
+        }
+    };
 }
+
+warden_network!(ElusivBasicWardenNetwork, NetworkSize::Dynamic(0, 512));
 
 #[elusiv_account]
 pub struct BasicWardenNetworkAccount {
@@ -56,6 +62,54 @@ impl<'a> BasicWardenNetworkAccount<'a> {
         self.set_features(members_count as usize, features);
         self.set_tokens(members_count as usize, supported_tokens);
         self.set_members_count(&(members_count + 1));
+
+        Ok(())
+    }
+}
+
+warden_network!(ElusivApaWardenNetwork, NetworkSize::Fixed(6));
+
+#[elusiv_account]
+pub struct ApaWardenNetworkAccount {
+    pda_data: PDAAccountData,
+
+    members_count: u32,
+    members: [ElusivWardenID; ElusivApaWardenNetwork::SIZE.max()],
+    is_setup: bool,
+    approvals: [bool; ElusivApaWardenNetwork::SIZE.max()],
+}
+
+impl<'a> ApaWardenNetworkAccount<'a> {
+    pub fn apply(&mut self, warden_id: ElusivWardenID) -> ProgramResult {
+        let members_count = self.get_members_count();
+        guard!(
+            (members_count as usize) < ElusivApaWardenNetwork::SIZE.max(),
+            ElusivWardenNetworkError::WardenRegistrationError
+        );
+
+        self.set_members(members_count as usize, &warden_id);
+        self.set_members_count(&(members_count + 1));
+
+        Ok(())
+    }
+
+    pub fn confirm_others(
+        &mut self,
+        warden_id: ElusivWardenID,
+        member_index: usize,
+        confirm: bool,
+    ) -> ProgramResult {
+        guard!(
+            (self.get_members_count() as usize) == ElusivApaWardenNetwork::SIZE.max(),
+            ElusivWardenNetworkError::WardenRegistrationError
+        );
+
+        guard!(
+            self.get_members(member_index) == warden_id,
+            ElusivWardenNetworkError::InvalidInstructionData
+        );
+
+        self.set_approvals(member_index, &confirm);
 
         Ok(())
     }

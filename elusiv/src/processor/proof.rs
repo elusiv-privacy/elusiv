@@ -25,9 +25,7 @@ use crate::proof::{
 use crate::state::governor::{FeeCollectorAccount, PoolAccount};
 use crate::state::queue::{CommitmentQueue, CommitmentQueueAccount, Queue, RingQueue};
 use crate::state::MT_COMMITMENT_COUNT;
-use crate::state::{
-    governor::GovernorAccount, program_account::ProgramAccount, NullifierAccount, StorageAccount,
-};
+use crate::state::{governor::GovernorAccount, NullifierAccount, StorageAccount};
 use crate::token::{
     elusiv_token, verify_associated_token_account, verify_token_account, Lamports, Token,
     TokenPrice,
@@ -1360,6 +1358,7 @@ mod tests {
     use assert_matches::assert_matches;
     use elusiv_computation::PartialComputation;
     use elusiv_types::tokens::Price;
+    use elusiv_types::ProgramAccount;
     use solana_program::native_token::LAMPORTS_PER_SOL;
     use solana_program::pubkey::Pubkey;
     use solana_program::system_program;

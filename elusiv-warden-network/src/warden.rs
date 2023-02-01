@@ -219,3 +219,12 @@ pub struct BasicWardenAttesterMapAccount {
     pda_data: PDAAccountData,
     pub warden_id: ElusivWardenID,
 }
+
+pub type RAQuote = [u8; 1116];
+
+#[elusiv_account]
+pub struct ApaWardenRegistrationAccount {
+    pda_data: PDAAccountData,
+    pub warden_id: ElusivWardenID,
+    pub quote: RAQuote,
+}

@@ -4,6 +4,7 @@ use std::fmt;
 #[derive(Copy, Clone, Debug)]
 pub enum ElusivWardenNetworkError {
     InvalidSignature,
+    InvalidInstructionData,
     InvalidSigner,
     WardenRegistrationError,
     ProposalError,
