@@ -10,8 +10,8 @@ use crate::instruction::ElusivInstruction;
 use crate::macros::{guard, pda_account, BorshSerDeSized, EnumVariantIndex};
 use crate::processor::utils::{
     close_account, create_associated_token_account, spl_token_account_rent,
-    transfer_lamports_from_pda_checked, transfer_token, transfer_token_from_pda,
-    verify_program_token_account,
+    system_program_account_rent, transfer_lamports_from_pda_checked, transfer_token,
+    transfer_token_from_pda, verify_program_token_account,
 };
 use crate::processor::{MATH_ERR, ZERO_COMMITMENT_RAW};
 use crate::proof::vkey::{
@@ -286,6 +286,14 @@ pub fn init_verification_transfer_fee<'a>(
     if let ProofRequest::Send(public_inputs) = request {
         if public_inputs.recipient_is_associated_token_account && token_id == 0 {
             return Err(ElusivError::InvalidRecipient.into());
+        }
+
+        // Enforce minimum-send-amount for Lamports (zero-amount is always allowed for merges)
+        if token_id == 0 && public_inputs.join_split.amount != 0 {
+            guard!(
+                public_inputs.join_split.amount >= system_program_account_rent()?.0,
+                ElusivError::InvalidAmount
+            );
         }
 
         // If the sender wants to send to an associated token account, enough Lamports (and the correct amount of tokens) need to be reserved for renting it
