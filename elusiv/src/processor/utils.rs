@@ -197,6 +197,18 @@ pub fn verify_program_token_account(
     Ok(())
 }
 
+pub fn system_program_account_rent() -> Result<Lamports, ProgramError> {
+    #[cfg(test)]
+    {
+        Ok(Lamports(0))
+    }
+
+    #[cfg(not(test))]
+    {
+        Ok(Lamports(Rent::get()?.minimum_balance(0)))
+    }
+}
+
 pub fn spl_token_account_rent() -> Result<Lamports, ProgramError> {
     Ok(Lamports(
         Rent::get()?.minimum_balance(spl_token::state::Account::LEN),

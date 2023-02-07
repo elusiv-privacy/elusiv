@@ -550,20 +550,51 @@ async fn test_init_proof_lamports() {
         .await;
     test.airdrop_lamports(&fee_collector, subvention.0).await;
 
-    test.ix_should_succeed(
-        ElusivInstruction::init_verification_transfer_fee_instruction(
-            0,
-            WritableSignerAccount(warden.pubkey),
-            WritableUserAccount(warden.pubkey),
-            WritableUserAccount(pool),
-            WritableUserAccount(fee_collector),
-            UserAccount(system_program::id()),
-            UserAccount(system_program::id()),
-            UserAccount(system_program::id()),
-        ),
-        &[&warden.keypair],
+    // Failure because of invalid amount (recipient always has to exist)
+    let rent_exemption = test.rent(0).await;
+    test.set_pda_account::<VerificationAccount, _>(
+        &elusiv::id(),
+        Some(warden.pubkey),
+        Some(0),
+        |data| {
+            let mut verification_account = VerificationAccount::new(data).unwrap();
+            let mut request = verification_account.get_request();
+            if let ProofRequest::Send(public_inputs) = &mut request {
+                public_inputs.join_split.amount = rent_exemption.0 - 1;
+            }
+            verification_account.set_request(&request);
+        },
     )
     .await;
+
+    let transfer_fee_instruction = ElusivInstruction::init_verification_transfer_fee_instruction(
+        0,
+        WritableSignerAccount(warden.pubkey),
+        WritableUserAccount(warden.pubkey),
+        WritableUserAccount(pool),
+        WritableUserAccount(fee_collector),
+        UserAccount(system_program::id()),
+        UserAccount(system_program::id()),
+        UserAccount(system_program::id()),
+    );
+
+    test.ix_should_fail(transfer_fee_instruction.clone(), &[&warden.keypair])
+        .await;
+
+    // Reset request
+    test.set_pda_account::<VerificationAccount, _>(
+        &elusiv::id(),
+        Some(warden.pubkey),
+        Some(0),
+        |data| {
+            let mut verification_account = VerificationAccount::new(data).unwrap();
+            verification_account.set_request(&ProofRequest::Send(request.public_inputs));
+        },
+    )
+    .await;
+
+    test.ix_should_succeed(transfer_fee_instruction, &[&warden.keypair])
+        .await;
 
     assert_eq!(0, warden.lamports(&mut test).await);
     assert_eq!(
