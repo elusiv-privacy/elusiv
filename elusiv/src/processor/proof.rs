@@ -2,7 +2,7 @@ use super::utils::{DefaultInstructionsSysvar, InstructionsSysvar};
 use super::CommitmentHashRequest;
 use crate::bytes::{usize_as_u32_safe, BorshSerDeSized, ElusivOption};
 use crate::error::ElusivError::{
-    ComputationIsAlreadyFinished, ComputationIsNotYetFinished, CouldNotInsertNullifier,
+    self, ComputationIsAlreadyFinished, ComputationIsNotYetFinished, CouldNotInsertNullifier,
     FeatureNotAvailable, InputsMismatch, InvalidAccount, InvalidAccountState, InvalidFeeVersion,
     InvalidInstructionData, InvalidMerkleRoot, InvalidOtherInstruction, InvalidPublicInputs,
 };
@@ -25,9 +25,7 @@ use crate::proof::{
 use crate::state::governor::{FeeCollectorAccount, PoolAccount};
 use crate::state::queue::{CommitmentQueue, CommitmentQueueAccount, Queue, RingQueue};
 use crate::state::MT_COMMITMENT_COUNT;
-use crate::state::{
-    governor::GovernorAccount, program_account::ProgramAccount, NullifierAccount, StorageAccount,
-};
+use crate::state::{governor::GovernorAccount, NullifierAccount, StorageAccount};
 use crate::token::{
     elusiv_token, verify_associated_token_account, verify_token_account, Lamports, Token,
     TokenPrice,
@@ -277,7 +275,7 @@ pub fn init_verification_transfer_fee<'a>(
 
     let fee =
         (((commitment_hash_fee_token + proof_verification_fee)? + network_fee)? - subvention)?;
-    guard!(join_split.fee >= fee.amount(), InvalidPublicInputs);
+    guard!(join_split.fee >= fee.amount(), ElusivError::InvalidFee);
 
     verify_program_token_account(pool, pool_account, token_id)?;
     verify_program_token_account(fee_collector, fee_collector_account, token_id)?;
@@ -287,7 +285,7 @@ pub fn init_verification_transfer_fee<'a>(
 
     if let ProofRequest::Send(public_inputs) = request {
         if public_inputs.recipient_is_associated_token_account && token_id == 0 {
-            return Err(InvalidPublicInputs.into());
+            return Err(ElusivError::InvalidRecipient.into());
         }
 
         // If the sender wants to send to an associated token account, enough Lamports (and the correct amount of tokens) need to be reserved for renting it
@@ -299,7 +297,7 @@ pub fn init_verification_transfer_fee<'a>(
                 .amount();
             guard!(
                 public_inputs.join_split.amount >= associated_token_account_rent_token,
-                InvalidPublicInputs
+                ElusivError::InvalidAmount
             );
         }
     }
@@ -708,7 +706,7 @@ pub fn finalize_verification_transfer_lamports<'a>(
         if public_inputs.join_split.amount > 0 {
             guard!(
                 recipient.key.to_bytes() == data.recipient_wallet.option().unwrap().skip_mr(),
-                InvalidAccount
+                ElusivError::InvalidRecipient
             );
 
             if public_inputs.solana_pay_transfer {
@@ -877,7 +875,7 @@ pub fn finalize_verification_transfer_token<'a>(
                 // Any token account
                 guard!(
                     recipient.key.to_bytes() == recipient_address,
-                    InvalidAccount
+                    ElusivError::InvalidRecipient
                 );
 
                 // Invalid recipient token account -> funds flow to `fee_collector` instead
@@ -888,11 +886,11 @@ pub fn finalize_verification_transfer_token<'a>(
                 // Associated-token-account
                 guard!(
                     recipient_wallet.key.to_bytes() == recipient_address,
-                    InvalidAccount
+                    ElusivError::InvalidRecipient
                 );
                 guard!(
                     verify_associated_token_account(recipient_wallet.key, recipient.key, token_id)?,
-                    InvalidAccount
+                    ElusivError::InvalidRecipient
                 );
 
                 if recipient.lamports() == 0 {
@@ -1360,6 +1358,7 @@ mod tests {
     use assert_matches::assert_matches;
     use elusiv_computation::PartialComputation;
     use elusiv_types::tokens::Price;
+    use elusiv_types::ProgramAccount;
     use solana_program::native_token::LAMPORTS_PER_SOL;
     use solana_program::pubkey::Pubkey;
     use solana_program::system_program;

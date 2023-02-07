@@ -11,6 +11,7 @@ pub enum ElusivError {
     InvalidAmount,
     InsufficientFunds,
     InvalidAccount,
+    InvalidRecipient,
     InvalidAccountState,
     NonScalarValue,
     MissingSubAccount,
