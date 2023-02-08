@@ -1,6 +1,6 @@
 use crate::{
     network::ApaWardenNetworkAccount,
-    warden::{ApaWardenRegistrationAccount, BasicWardenMapAccount, RAQuote},
+    warden::{ApaWardenRegistrationAccount, BasicWardenMapAccount, ElusivWardenID, RAQuote},
 };
 use elusiv_utils::{open_pda_account_with_offset, pda_account};
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
@@ -11,6 +11,7 @@ pub fn apply_apa_genesis_warden<'a>(
     apa_warden_account: &AccountInfo<'a>,
     apa_network_account: &mut ApaWardenNetworkAccount,
 
+    _warden_id: ElusivWardenID,
     quote: RAQuote,
 ) -> ProgramResult {
     let warden_id = warden_map_account.get_warden_id();

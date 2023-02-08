@@ -62,9 +62,10 @@ pub enum ElusivWardenNetworkInstruction {
     // -------- APA Warden --------
     #[acc(warden, { signer })]
     #[pda(warden_map_account, BasicWardenMapAccount, pda_pubkey = warden.pubkey())]
-    #[acc(apa_warden_account, { writable })]
+    #[acc(apa_warden_account, ApaWardenRegistrationAccount, pda_offset = Some(warden_id), { writable })]
     #[pda(apa_network, ApaWardenNetworkAccount, { writable })]
     ApplyApaGenesisWarden {
+        warden_id: ElusivWardenID,
         quote: RAQuote,
     },
 
