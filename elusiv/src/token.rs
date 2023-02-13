@@ -189,7 +189,13 @@ mod tests {
         account_info!(usdc_account, Pubkey::new_unique(), data.clone());
         assert!(!verify_token_account(&usdc_account, 1).unwrap());
 
-        account_info!(usdc_account, Pubkey::new_unique(), data, spl_token::id());
+        account_info!(
+            usdc_account,
+            Pubkey::new_unique(),
+            data,
+            spl_token::id(),
+            false
+        );
         assert!(verify_token_account(&usdc_account, 1).unwrap());
         assert!(!verify_token_account(&usdc_account, 0).unwrap());
         assert!(!verify_token_account(&usdc_account, 2).unwrap());

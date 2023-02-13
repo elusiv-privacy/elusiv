@@ -1322,19 +1322,35 @@ macro_rules! vkey_account {
         let mut source = <$vkey as crate::proof::vkey::VerifyingKeyInfo>::verifying_key_source();
         source.insert(0, 0);
 
-        let pk = solana_program::pubkey::Pubkey::new_unique();
-        crate::macros::account_info!(sub_account, pk, source);
+        crate::macros::account_info!(
+            vkey_account,
+            solana_program::pubkey::Pubkey::new_unique(),
+            source
+        );
+
+        let mut source = <$vkey as crate::proof::vkey::VerifyingKeyInfo>::verifying_key_source();
+        source.insert(0, 0);
+
+        crate::macros::account_info!(
+            vkey_account1,
+            solana_program::pubkey::Pubkey::new_unique(),
+            source
+        );
 
         let mut data = vec![0; <VKeyAccount as elusiv_types::accounts::SizedAccount>::SIZE];
         let mut $id =
             <VKeyAccount as elusiv_types::accounts::ParentAccount>::new_with_child_accounts(
                 &mut data,
-                vec![Some(&sub_account)],
+                vec![Some(&vkey_account), Some(&vkey_account1)],
             )
             .unwrap();
+
         $id.set_public_inputs_count(
             &<$vkey as crate::proof::vkey::VerifyingKeyInfo>::PUBLIC_INPUTS_COUNT,
         );
+
+        $id.set_child_pubkey(0, Some(*vkey_account.key).into());
+        $id.set_child_pubkey(0, Some(*vkey_account1.key).into());
     };
 }
 #[cfg(test)]
@@ -1977,13 +1993,15 @@ mod tests {
             token_acc,
             Pubkey::new_unique(),
             spl_token_account_data(USDC_TOKEN_ID),
-            spl_token::id()
+            spl_token::id(),
+            false
         );
         account_info!(
             wrong_token_acc,
             Pubkey::new_unique(),
             spl_token_account_data(USDT_TOKEN_ID),
-            spl_token::id()
+            spl_token::id(),
+            false
         );
 
         test_pda_account_info!(pool, PoolAccount, None);
@@ -2995,7 +3013,7 @@ mod tests {
                 .skip_mr(),
         );
         account_info!(f, fee_payer, vec![]); // fee_payer
-        account_info!(f_token, fee_payer, vec![], spl_token::id()); // fee_payer
+        account_info!(f_token, fee_payer, vec![], spl_token::id(), false); // fee_payer
 
         test_pda_account_info!(pool, PoolAccount, None);
         test_pda_account_info!(fee_c, FeeCollectorAccount, None);
@@ -3182,7 +3200,7 @@ mod tests {
                 .skip_mr(),
         );
         account_info!(f, fee_payer, vec![]); // fee_payer
-        account_info!(f_token, fee_payer, vec![], spl_token::id()); // fee_payer
+        account_info!(f_token, fee_payer, vec![], spl_token::id(), false); // fee_payer
 
         test_pda_account_info!(pool, PoolAccount, None);
         test_pda_account_info!(fee_c, FeeCollectorAccount, None);

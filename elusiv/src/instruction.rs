@@ -12,17 +12,16 @@ use crate::proof::{
     vkey::{VKeyAccount, VKeyAccountManangerAccount},
     VerificationAccount,
 };
-use crate::state::fee::ProgramFee;
-use crate::state::queue::CommitmentQueueAccount;
 use crate::state::{
-    fee::FeeAccount,
+    fee::{FeeAccount, ProgramFee},
     governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
+    queue::CommitmentQueueAccount,
     NullifierAccount, StorageAccount,
 };
-use crate::types::{Proof, U256};
+use crate::types::Proof;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::{AccountRepr, ElusivOption};
-use solana_program::{system_program, sysvar::instructions};
+use solana_program::{pubkey::Pubkey, system_program, sysvar::instructions};
 
 #[cfg(feature = "elusiv-client")]
 pub use elusiv_types::accounts::{
@@ -213,17 +212,31 @@ pub enum ElusivInstruction {
     #[acc(signer, { writable, signer })]
     #[pda(vkey_manager, VKeyAccountManangerAccount, { writable })]
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, account_info, find_pda })]
-    #[acc(vkey_binary_data_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     CreateVkeyAccount {
         vkey_id: u32,
         public_inputs_count: u32,
-        deploy_authority: ElusivOption<U256>,
+        deploy_authority: ElusivOption<Pubkey>,
+    },
+
+    #[acc(signer, { signer, writable })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, include_child_accounts })]
+    #[acc(vkey_binary_data_account, { writable })]
+    CreateNewVkeyVersion {
+        vkey_id: u32,
+    },
+
+    #[acc(signer, { signer, writable })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, include_child_accounts })]
+    #[acc(old_vkey_binary_data_account, { writable })]
+    #[sys(system_program, key = system_program::ID)]
+    UpdateVkeyVersion {
+        vkey_id: u32,
     },
 
     #[acc(signer, { signer })]
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, include_child_accounts })]
-    SetVkeyAccountData {
+    SetVkeyData {
         vkey_id: u32,
         data_position: u32,
         packet: VKeyAccountDataPacket,
@@ -231,8 +244,15 @@ pub enum ElusivInstruction {
 
     #[acc(signer, { signer })]
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable })]
-    FreezeVkeyAccount {
+    FreezeVkey {
         vkey_id: u32,
+    },
+
+    #[acc(signer, { signer })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable })]
+    ChangeVkeyAuthority {
+        vkey_id: u32,
+        authority: Pubkey,
     },
 
     // -------- MT management --------
@@ -324,8 +344,6 @@ pub enum ElusivInstruction {
 
 #[cfg(feature = "elusiv-client")]
 use elusiv_types::accounts::PDAAccount;
-#[cfg(feature = "elusiv-client")]
-use solana_program::pubkey::Pubkey;
 
 #[cfg(feature = "elusiv-client")]
 impl ElusivInstruction {

@@ -21,30 +21,34 @@ macro_rules! pyth_price_account_info {
 /// # Usage
 ///
 /// - `account_info!($id: ident, $pubkey: expr)`
+/// - `account_info!($id: ident, $pubkey: expr, $is_signer: literal)`
 /// - `account_info!($id: ident, $pubkey: expr, $data: expr)`
-/// - `account_info!($id: ident, $pubkey: expr, $data: expr, $owner: expr)`
-/// - `account_info!($id: ident, $pubkey: expr, $data_id: ident, $data: expr, $owner: expr)`
+/// - `account_info!($id: ident, $pubkey: expr, $data: expr, $owner: expr, $is_signer: literal)`
+/// - `account_info!($id: ident, $pubkey: expr, $data_id: ident, $data: expr, $owner: expr, $is_signer: literal)`
 #[cfg(test)]
 macro_rules! account_info {
     ($id: ident, $pubkey: expr) => {
+        crate::macros::account_info!($id, $pubkey, false);
+    };
+    ($id: ident, $pubkey: expr, $is_signer: literal) => {
         let pubkey = $pubkey;
-        crate::macros::account_info!($id, pubkey, data, vec![], crate::id());
+        crate::macros::account_info!($id, pubkey, data, vec![], crate::id(), $is_signer);
     };
     ($id: ident, $pubkey: expr, $data: expr) => {
         let pubkey = $pubkey;
-        crate::macros::account_info!($id, pubkey, data, $data, crate::id());
+        crate::macros::account_info!($id, pubkey, data, $data, crate::id(), false);
     };
-    ($id: ident, $pubkey: expr, $data: expr, $owner: expr) => {
+    ($id: ident, $pubkey: expr, $data: expr, $owner: expr, $is_signer: literal) => {
         let pubkey = $pubkey;
-        crate::macros::account_info!($id, pubkey, data, $data, $owner);
+        crate::macros::account_info!($id, pubkey, data, $data, $owner, $is_signer);
     };
-    ($id: ident, $pubkey: expr, $data_id: ident, $data: expr, $owner: expr) => {
+    ($id: ident, $pubkey: expr, $data_id: ident, $data: expr, $owner: expr, $is_signer: literal) => {
         let mut lamports = u32::MAX as u64;
         let mut $data_id = $data;
         let owner = $owner;
         let $id = solana_program::account_info::AccountInfo::new(
             &$pubkey,
-            false,
+            $is_signer,
             false,
             &mut lamports,
             &mut $data_id,
@@ -74,7 +78,20 @@ macro_rules! test_account_info {
     };
     ($id: ident, $data_size: expr, $owner: expr) => {
         let pk = solana_program::pubkey::Pubkey::new_unique();
-        crate::macros::account_info!($id, pk, vec![0; $data_size], $owner)
+        crate::macros::account_info!($id, pk, vec![0; $data_size], $owner, false)
+    };
+}
+
+/// Creates a signing [`solana_program::account_info::AccountInfo`] for testing
+///
+/// # Usage
+///
+/// - `test_account_info!($id: ident)`
+#[cfg(test)]
+macro_rules! signing_test_account_info {
+    ($id: ident) => {
+        let pk = solana_program::pubkey::Pubkey::new_unique();
+        crate::macros::account_info!($id, pk, vec![], crate::id(), true)
     };
 }
 
@@ -103,7 +120,7 @@ macro_rules! program_token_account_info {
     ($id: ident, $pda_ty: ty, $token_id: expr) => {
         let pk =
             crate::processor::program_token_account_address::<$pda_ty>($token_id, None).unwrap();
-        crate::macros::account_info!($id, pk, vec![], spl_token::id())
+        crate::macros::account_info!($id, pk, vec![], spl_token::id(), false)
     };
 }
 
@@ -168,6 +185,8 @@ pub(crate) use parent_account;
 pub(crate) use program_token_account_info;
 #[cfg(test)]
 pub(crate) use pyth_price_account_info;
+#[cfg(test)]
+pub(crate) use signing_test_account_info;
 #[cfg(test)]
 pub(crate) use test_account_info;
 #[cfg(test)]

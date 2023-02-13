@@ -1,7 +1,4 @@
-use crate::{
-    fields::{Wrap, G1A, G2A},
-    types::U256,
-};
+use crate::fields::{Wrap, G1A, G2A};
 use ark_bn254::{Fq12, Fq2, G1Affine, G1Projective};
 use ark_ec::AffineCurve;
 use ark_ff::Zero;
@@ -23,14 +20,15 @@ impl ChildAccount for VKeyChildAccount {
 }
 
 /// Account used for storing a single immutable [`VerifyingKey`]
-#[elusiv_account(parent_account: { child_account_count: 1, child_account: VKeyChildAccount }, eager_type: true)]
+#[elusiv_account(parent_account: { child_account_count: 2, child_account: VKeyChildAccount }, eager_type: true)]
 pub struct VKeyAccount {
     pda_data: PDAAccountData,
-    pubkeys: [ElusivOption<Pubkey>; 1],
+    pubkeys: [ElusivOption<Pubkey>; 2],
 
     pub public_inputs_count: u32,
+    pub authority: ElusivOption<Pubkey>,
     pub is_frozen: bool,
-    pub deploy_authority: ElusivOption<U256>,
+    pub version: u32,
 }
 
 pub trait VerifyingKeyInfo {

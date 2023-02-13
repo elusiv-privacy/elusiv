@@ -334,10 +334,11 @@ async fn setup_vkey_account<VKey: VerifyingKeyInfo>(
             bump_seed: bump,
             version: 0,
         },
-        pubkeys: [ElusivOption::Some(sub_account_pubkey)],
+        pubkeys: [Some(sub_account_pubkey).into(), None.into()],
         public_inputs_count: VKey::PUBLIC_INPUTS_COUNT,
         is_frozen: true,
-        deploy_authority: ElusivOption::None,
+        authority: ElusivOption::None,
+        version: 1,
     }
     .try_to_vec()
     .unwrap();

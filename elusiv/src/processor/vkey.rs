@@ -2,16 +2,19 @@ use crate::{
     error::ElusivError,
     processor::setup_child_account,
     proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey},
-    types::U256,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
-use elusiv_types::{
-    BorshSerDeSized, ChildAccountConfig, ElusivOption, ParentAccount, ProgramAccount,
+use elusiv_types::{BorshSerDeSized, ChildAccountConfig, ElusivOption, ParentAccount};
+use elusiv_utils::{
+    guard, open_pda_account_with_offset, pda_account, transfer_with_system_program,
 };
-use elusiv_utils::{guard, open_pda_account_with_offset};
-use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
+use solana_program::{
+    account_info::AccountInfo, entrypoint::ProgramResult, program_error::ProgramError,
+    pubkey::Pubkey,
+};
 
 pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 964;
+const MAX_NUMBER_OF_VKEYS: u32 = 2;
 
 /// A binary data packet containing [`VKEY_ACCOUNT_DATA_PACKET_SIZE`] bytes
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -26,41 +29,58 @@ pub fn create_vkey_account<'a>(
     signer: &AccountInfo<'a>,
     vkey_manager: &mut VKeyAccountManangerAccount,
     vkey_account: &AccountInfo<'a>,
-    vkey_binary_data_account: &AccountInfo<'a>,
 
     vkey_id: u32,
     public_inputs_count: u32,
-    deploy_authority: ElusivOption<U256>,
+    authority: ElusivOption<Pubkey>,
 ) -> ProgramResult {
     let vkey_count = vkey_manager.get_active_vkey_count();
     guard!(vkey_count < u32::MAX, ElusivError::InvalidAccountState);
-    guard!(vkey_id == vkey_count, ElusivError::InvalidPublicInputs);
-
-    // TODO: require specific authority as signer in mainnet
+    guard!(vkey_id == vkey_count, ElusivError::InvalidInstructionData);
+    guard!(
+        vkey_id < MAX_NUMBER_OF_VKEYS,
+        ElusivError::InvalidAccountState
+    );
 
     open_pda_account_with_offset::<VKeyAccount>(&crate::id(), signer, vkey_account, vkey_id, None)?;
 
-    let data = &mut vkey_account.data.borrow_mut()[..];
-    let mut vkey_account = VKeyAccount::new(data)?;
-
-    vkey_account.set_deploy_authority(&deploy_authority);
+    pda_account!(mut vkey_account, VKeyAccount, vkey_account);
+    vkey_account.set_authority(&authority);
     vkey_account.set_public_inputs_count(&public_inputs_count);
 
+    Ok(())
+}
+
+pub fn create_new_vkey_version(
+    signer: &AccountInfo,
+    vkey_account: &mut VKeyAccount,
+    vkey_binary_data_account: &AccountInfo,
+
+    _vkey_id: u32,
+) -> ProgramResult {
+    verify_vkey_modification(signer, vkey_account)?;
+
+    guard!(
+        vkey_account.get_child_pubkey(1).is_none(),
+        ElusivError::InvalidAccountState
+    );
+
+    let public_inputs_count = vkey_account.get_public_inputs_count() as usize;
     let binary_data_account_size =
-        VerifyingKey::source_size(public_inputs_count as usize) + ChildAccountConfig::SIZE;
+        VerifyingKey::source_size(public_inputs_count) + ChildAccountConfig::SIZE;
+
     setup_child_account(
-        &mut vkey_account,
+        vkey_account,
         vkey_binary_data_account,
-        0,
-        false, // don't care about zeroness, signer can submit any data
+        1,
+        false, // don't care about zeroness, authority is allowed to submit any data
         Some(binary_data_account_size),
     )?;
 
     Ok(())
 }
 
-/// Sets the bytes of a [`VKeyAccount`] `binary_data_account`
-pub fn set_vkey_account_data(
+pub fn set_vkey_data(
     signer: &AccountInfo,
     vkey_account: &mut VKeyAccount,
 
@@ -68,17 +88,7 @@ pub fn set_vkey_account_data(
     data_position: u32,
     packet: VKeyAccountDataPacket,
 ) -> ProgramResult {
-    guard!(
-        !vkey_account.get_is_frozen(),
-        ElusivError::InvalidAccountState
-    );
-
-    if let Some(deploy_authority) = vkey_account.get_deploy_authority().option() {
-        guard!(
-            signer.key.to_bytes() == deploy_authority,
-            ElusivError::InvalidAccount
-        );
-    }
+    verify_vkey_modification(signer, vkey_account)?;
 
     let public_inputs_count = vkey_account.get_public_inputs_count();
     let len = VerifyingKey::source_size(public_inputs_count as usize);
@@ -86,9 +96,9 @@ pub fn set_vkey_account_data(
     let end = start + VKEY_ACCOUNT_DATA_PACKET_SIZE;
     let cutoff = if end > len { end - len } else { 0 };
 
-    guard!(start < len, ElusivError::InvalidPublicInputs);
+    guard!(start < len, ElusivError::InvalidInstructionData);
 
-    vkey_account.execute_on_child_account_mut(0, |data| {
+    vkey_account.execute_on_child_account_mut(1, |data| {
         data[start..end - cutoff]
             .copy_from_slice(&packet.0[..VKEY_ACCOUNT_DATA_PACKET_SIZE - cutoff])
     })?;
@@ -96,26 +106,94 @@ pub fn set_vkey_account_data(
     Ok(())
 }
 
+/// Updates a [`VKeyAccount`]
+pub fn update_vkey_version<'a>(
+    signer: &AccountInfo<'a>,
+    vkey_account: &mut VKeyAccount,
+    old_vkey_binary_data_account: &AccountInfo<'a>,
+    system_program: &AccountInfo<'a>,
+
+    _vkey_id: u32,
+) -> ProgramResult {
+    verify_vkey_modification(signer, vkey_account)?;
+
+    guard!(
+        vkey_account.get_child_pubkey(1).is_some(),
+        ElusivError::InvalidAccountState
+    );
+
+    // Close old vkey account
+    if let Some(old_vkey_account) = vkey_account.get_child_pubkey(0) {
+        guard!(
+            old_vkey_account == *old_vkey_binary_data_account.key,
+            ElusivError::InvalidAccount
+        );
+
+        transfer_with_system_program(
+            old_vkey_binary_data_account,
+            signer,
+            system_program,
+            old_vkey_binary_data_account.lamports(),
+        )?;
+    }
+
+    // Swap child accounts
+    vkey_account.set_child_pubkey(0, vkey_account.get_child_pubkey(1).into());
+    vkey_account.set_child_pubkey(1, None.into());
+
+    // Inc version
+    let version = vkey_account.get_version();
+    vkey_account.set_version(
+        &version
+            .checked_add(1)
+            .ok_or(ElusivError::InvalidAccountState)?,
+    );
+
+    Ok(())
+}
+
 /// Freezes a [`VKeyAccount`]
-pub fn freeze_vkey_account(
+pub fn freeze_vkey(
     signer: &AccountInfo,
     vkey_account: &mut VKeyAccount,
 
     _vkey_id: u32,
 ) -> ProgramResult {
+    verify_vkey_modification(signer, vkey_account)?;
+    vkey_account.set_is_frozen(&true);
+
+    Ok(())
+}
+
+/// Changes the modification authority of a [`VKeyAccount`]
+pub fn change_vkey_authority(
+    signer: &AccountInfo,
+    vkey_account: &mut VKeyAccount,
+
+    _vkey_id: u32,
+    authority: Pubkey,
+) -> ProgramResult {
+    verify_vkey_modification(signer, vkey_account)?;
+    vkey_account.set_authority(&Some(authority).into());
+
+    Ok(())
+}
+
+fn verify_vkey_modification(signer: &AccountInfo, vkey_account: &VKeyAccount) -> ProgramResult {
     guard!(
         !vkey_account.get_is_frozen(),
         ElusivError::InvalidAccountState
     );
 
-    if let Some(deploy_authority) = vkey_account.get_deploy_authority().option() {
+    if let Some(authority) = vkey_account.get_authority().option() {
         guard!(
-            signer.key.to_bytes() == deploy_authority,
+            *signer
+                .signer_key()
+                .ok_or(ProgramError::MissingRequiredSignature)?
+                == authority,
             ElusivError::InvalidAccount
         );
     }
-
-    vkey_account.set_is_frozen(&true);
 
     Ok(())
 }
@@ -125,20 +203,87 @@ mod test {
     use super::*;
     use crate::{
         bytes::div_ceiling_usize,
-        macros::test_account_info,
+        macros::{signing_test_account_info, test_account_info},
         processor::vkey_account,
         proof::vkey::{TestVKey, VerifyingKeyInfo},
     };
     use assert_matches::assert_matches;
 
     #[test]
-    fn test_set_vkey_account_data() {
+    fn test_create_new_vkey_version() {
+        vkey_account!(vkey_account, TestVKey);
+        signing_test_account_info!(signer);
+
+        let public_inputs_count = vkey_account.get_public_inputs_count() as usize;
+        let binary_data_account_size =
+            VerifyingKey::source_size(public_inputs_count) + ChildAccountConfig::SIZE;
+
+        test_account_info!(valid_vkey_binary_data_account, binary_data_account_size);
+        test_account_info!(
+            invalid_vkey_binary_data_account,
+            binary_data_account_size - 1
+        );
+
+        vkey_account.set_child_pubkey(1, Some(*valid_vkey_binary_data_account.key).into());
+
+        // Child already exists
+        assert_matches!(
+            create_new_vkey_version(
+                &signer,
+                &mut vkey_account,
+                &valid_vkey_binary_data_account,
+                0
+            ),
+            Err(_)
+        );
+
+        vkey_account.set_child_pubkey(1, None.into());
+
+        // Invalid size
+        assert_matches!(
+            create_new_vkey_version(
+                &signer,
+                &mut vkey_account,
+                &invalid_vkey_binary_data_account,
+                0
+            ),
+            Err(_)
+        );
+
+        // Child account already in use
+        test_account_info!(invalid_vkey_binary_data_account, binary_data_account_size);
+        invalid_vkey_binary_data_account.data.borrow_mut()[0] = 1;
+        assert_matches!(
+            create_new_vkey_version(
+                &signer,
+                &mut vkey_account,
+                &invalid_vkey_binary_data_account,
+                0
+            ),
+            Err(_)
+        );
+
+        vkey_account!(vkey_account, TestVKey);
+
+        assert_matches!(
+            create_new_vkey_version(
+                &signer,
+                &mut vkey_account,
+                &valid_vkey_binary_data_account,
+                0
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn test_set_vkey_data() {
         let data = TestVKey::verifying_key_source();
         vkey_account!(vkey_account, TestVKey);
-        test_account_info!(signer);
+        signing_test_account_info!(signer);
 
         vkey_account
-            .execute_on_child_account_mut(0, |d| {
+            .execute_on_child_account_mut(1, |d| {
                 for b in d.iter_mut() {
                     *b = 0;
                 }
@@ -152,7 +297,7 @@ mod test {
         for i in 0..positions {
             let slice = &data[i * VKEY_ACCOUNT_DATA_PACKET_SIZE
                 ..std::cmp::min((i + 1) * VKEY_ACCOUNT_DATA_PACKET_SIZE, data.len())];
-            set_vkey_account_data(
+            set_vkey_data(
                 &signer,
                 &mut vkey_account,
                 0,
@@ -163,16 +308,47 @@ mod test {
         }
 
         vkey_account
-            .execute_on_child_account(0, |d| {
+            .execute_on_child_account(1, |d| {
                 assert_eq!(d, data);
             })
             .unwrap();
     }
 
     #[test]
-    fn test_freeze_vkey_account() {
+    fn test_update_vkey_account() {
         vkey_account!(vkey_account, TestVKey);
-        test_account_info!(signer);
+        signing_test_account_info!(signer);
+        test_account_info!(acc);
+        test_account_info!(vkey_binary_data_account);
+
+        assert_eq!(vkey_account.get_version(), 0);
+        vkey_account.set_authority(&Some(*signer.key).into());
+
+        assert_matches!(
+            update_vkey_version(&signer, &mut vkey_account, &acc, &acc, 0),
+            Err(_)
+        );
+
+        vkey_account.set_child_pubkey(0, None.into());
+        vkey_account.set_child_pubkey(1, Some(*vkey_binary_data_account.key).into());
+
+        assert_matches!(
+            update_vkey_version(&signer, &mut vkey_account, &acc, &acc, 0),
+            Ok(())
+        );
+
+        assert_eq!(vkey_account.get_version(), 1);
+        assert_eq!(
+            vkey_account.get_child_pubkey(0).unwrap(),
+            *vkey_binary_data_account.key
+        );
+        assert!(vkey_account.get_child_pubkey(1).is_none());
+    }
+
+    #[test]
+    fn test_freeze_vkey() {
+        vkey_account!(vkey_account, TestVKey);
+        signing_test_account_info!(signer);
 
         vkey_account.set_public_inputs_count(&TestVKey::PUBLIC_INPUTS_COUNT);
         vkey_account
@@ -181,9 +357,71 @@ mod test {
             })
             .unwrap();
 
-        freeze_vkey_account(&signer, &mut vkey_account, 0).unwrap();
+        freeze_vkey(&signer, &mut vkey_account, 0).unwrap();
 
         assert!(vkey_account.get_is_frozen());
-        assert_matches!(freeze_vkey_account(&signer, &mut vkey_account, 0), Err(_));
+        assert_matches!(freeze_vkey(&signer, &mut vkey_account, 0), Err(_));
+    }
+
+    #[test]
+    fn test_change_vkey_authority() {
+        vkey_account!(vkey_account, TestVKey);
+        signing_test_account_info!(signer);
+        signing_test_account_info!(signer2);
+
+        assert_matches!(
+            change_vkey_authority(&signer, &mut vkey_account, 0, *signer.key),
+            Ok(())
+        );
+
+        assert_matches!(
+            change_vkey_authority(&signer2, &mut vkey_account, 0, *signer.key),
+            Err(_)
+        );
+
+        assert_matches!(
+            change_vkey_authority(&signer, &mut vkey_account, 0, *signer2.key),
+            Ok(())
+        );
+
+        assert_matches!(
+            change_vkey_authority(&signer, &mut vkey_account, 0, *signer.key),
+            Err(_)
+        );
+    }
+
+    #[test]
+    fn test_verify_vkey_modification() {
+        vkey_account!(vkey_account, TestVKey);
+        signing_test_account_info!(signer);
+        signing_test_account_info!(invalid_signer);
+
+        // Any signer allowed
+        assert_matches!(
+            verify_vkey_modification(&invalid_signer, &vkey_account),
+            Ok(())
+        );
+
+        vkey_account.set_authority(&Some(*signer.key).into());
+
+        // Valid signer
+        assert_matches!(verify_vkey_modification(&signer, &vkey_account), Ok(()));
+
+        // Invalid authority
+        assert_matches!(
+            verify_vkey_modification(&invalid_signer, &vkey_account),
+            Err(_)
+        );
+
+        vkey_account.set_is_frozen(&true);
+
+        // Frozen account
+        assert_matches!(verify_vkey_modification(&signer, &vkey_account), Err(_));
+
+        // Valid account is not signer
+        vkey_account!(vkey_account, TestVKey);
+        test_account_info!(signer);
+        vkey_account.set_authority(&Some(*signer.key).into());
+        assert_matches!(verify_vkey_modification(&signer, &vkey_account), Err(_));
     }
 }
