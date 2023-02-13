@@ -7,9 +7,9 @@ use crate::network::{ApaWardenNetworkAccount, BasicWardenNetworkAccount};
 use crate::operator::WardenOperatorAccount;
 use crate::processor;
 use crate::warden::{
-    ApaWardenRegistrationAccount, BasicWardenAccount, BasicWardenAttesterMapAccount,
-    BasicWardenMapAccount, BasicWardenStatsAccount, ElusivBasicWardenConfig, ElusivWardenID,
-    Identifier, RAQuote, Timezone, WardenRegion, WardensAccount,
+    ApaWardenAccount, BasicWardenAccount, BasicWardenAttesterMapAccount, BasicWardenMapAccount,
+    BasicWardenStatsAccount, ElusivBasicWardenConfig, ElusivWardenID, Identifier, Quote, Timezone,
+    WardenRegion, WardensAccount,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::AccountRepr;
@@ -62,19 +62,19 @@ pub enum ElusivWardenNetworkInstruction {
     // -------- APA Warden --------
     #[acc(warden, { signer })]
     #[pda(warden_map_account, BasicWardenMapAccount, pda_pubkey = warden.pubkey())]
-    #[pda(apa_warden_account, ApaWardenRegistrationAccount, pda_offset = Some(warden_id), { writable, account_info })]
+    #[pda(apa_warden_account, ApaWardenAccount, pda_offset = Some(warden_id), { writable, find_pda, account_info })]
     #[pda(apa_network, ApaWardenNetworkAccount, { writable })]
     ApplyApaGenesisWarden {
         warden_id: ElusivWardenID,
-        quote: RAQuote,
+        quote: Quote,
     },
 
-    #[acc(warden, { signer, ignore })]
-    #[pda(warden_map_account, BasicWardenMapAccount, pda_pubkey = warden.pubkey())]
+    #[acc(exchange_key, { signer })]
+    #[pda(apa_warden_account, ApaWardenAccount, pda_offset = Some(warden_id))]
     #[pda(apa_network, ApaWardenNetworkAccount, { writable })]
     ConfirmApaGenesisNetwork {
-        member_index: u32,
-        confirm: bool,
+        warden_id: ElusivWardenID,
+        confirmation_message: [u8; 32],
     },
 
     CompleteApaGenesisNetwork,

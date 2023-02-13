@@ -201,12 +201,11 @@ pub struct BasicWardenStatsAccount {
     pda_data: PDAAccountData,
 
     pub year: u16,
+    pub last_activity_timestamp: u64,
 
     pub store: WardenStatistics,
     pub send: WardenStatistics,
     pub migrate: WardenStatistics,
-
-    pub last_activity_timestamp: u64,
 }
 
 /// An account associated with a single [`ElusivBasicWarden`]
@@ -216,11 +215,22 @@ pub struct BasicWardenAttesterMapAccount {
     pub warden_id: ElusivWardenID,
 }
 
-pub type RAQuote = [u8; 1116];
+// TODO: import the https://github.com/elusiv-privacy/rust-sgx-remote-attestation/blob/master/ra-common/src/quote.rs types
+
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+pub struct Quote([u8; 1116]);
+
+impl Quote {
+    pub fn user_data_bytes(&self) -> [u8; 32] {
+        self.0[368 + 32..368 + 64].try_into().unwrap()
+    }
+}
 
 #[elusiv_account]
-pub struct ApaWardenRegistrationAccount {
+pub struct ApaWardenAccount {
     pda_data: PDAAccountData,
+
     pub warden_id: ElusivWardenID,
-    pub quote: RAQuote,
+    pub network_member_index: u32,
+    pub latest_quote: Quote,
 }

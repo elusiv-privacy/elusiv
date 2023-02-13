@@ -1,6 +1,6 @@
 use crate::{
     network::ApaWardenNetworkAccount,
-    warden::{ApaWardenRegistrationAccount, BasicWardenMapAccount, ElusivWardenID, RAQuote},
+    warden::{ApaWardenAccount, BasicWardenMapAccount, ElusivWardenID, Quote},
 };
 use elusiv_utils::{open_pda_account_with_offset, pda_account};
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
@@ -12,40 +12,40 @@ pub fn apply_apa_genesis_warden<'a>(
     apa_network_account: &mut ApaWardenNetworkAccount,
 
     _warden_id: ElusivWardenID,
-    quote: RAQuote,
+    quote: Quote,
 ) -> ProgramResult {
     let warden_id = warden_map_account.get_warden_id();
-    apa_network_account.apply(warden_id)?;
+    let network_member_index = apa_network_account.apply(warden_id, &quote)?;
 
-    open_pda_account_with_offset::<ApaWardenRegistrationAccount>(
+    open_pda_account_with_offset::<ApaWardenAccount>(
         &crate::id(),
         warden,
         apa_warden_account,
-        warden_id,
+        warden_id, // this enforces equality between the two client supplied warden_id's
         None,
     )?;
 
-    pda_account!(
-        mut full_warden_account,
-        ApaWardenRegistrationAccount,
-        apa_warden_account
-    );
-    full_warden_account.set_quote(&quote);
-    full_warden_account.set_warden_id(&warden_id);
+    pda_account!(mut apa_warden_account, ApaWardenAccount, apa_warden_account);
+    apa_warden_account.set_warden_id(&warden_id);
+    apa_warden_account.set_network_member_index(&network_member_index);
+    apa_warden_account.set_latest_quote(&quote);
 
     Ok(())
 }
 
 pub fn confirm_apa_genesis_network(
-    warden_map_account: &BasicWardenMapAccount,
+    exchange_key_account: &AccountInfo,
+    apa_warden_account: &ApaWardenAccount,
     apa_network_account: &mut ApaWardenNetworkAccount,
 
-    member_index: u32,
-    confirm: bool,
+    _warden_id: ElusivWardenID,
+    confirmation_message: [u8; 32],
 ) -> ProgramResult {
-    let warden_id = warden_map_account.get_warden_id();
-
-    apa_network_account.confirm_others(warden_id, member_index as usize, confirm)
+    apa_network_account.confirm_others(
+        apa_warden_account.get_network_member_index() as usize,
+        exchange_key_account.key,
+        &confirmation_message,
+    )
 }
 
 pub fn complete_apa_genesis_network() -> ProgramResult {

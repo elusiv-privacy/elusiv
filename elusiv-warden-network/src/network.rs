@@ -1,9 +1,10 @@
-use crate::warden::{ElusivWardenID, WardenRegion};
+use crate::warden::{ElusivWardenID, Quote, WardenRegion};
 use crate::{error::ElusivWardenNetworkError, warden::BasicWardenFeatures};
 use elusiv_proc_macros::elusiv_account;
 use elusiv_types::{ElusivOption, PDAAccountData, TOKENS};
 use elusiv_utils::guard;
 use solana_program::entrypoint::ProgramResult;
+use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 
 pub trait WardenNetwork {
@@ -94,43 +95,63 @@ pub struct ApaWardenNetworkAccount {
     pda_data: PDAAccountData,
 
     members_count: u32,
-    members: [ElusivWardenID; ElusivApaWardenNetwork::SIZE.max()],
-    approvals: [bool; ElusivApaWardenNetwork::SIZE.max()],
-
     apa_key: ElusivOption<Pubkey>,
+
+    members: [ElusivWardenID; ElusivApaWardenNetwork::SIZE.max()],
+    quotes: [Quote; ElusivApaWardenNetwork::SIZE.max()],
+    exchange_keys: [Pubkey; ElusivApaWardenNetwork::SIZE.max()],
+    confirmations: [bool; ElusivApaWardenNetwork::SIZE.max()],
 }
 
 impl<'a> ApaWardenNetworkAccount<'a> {
-    pub fn apply(&mut self, warden_id: ElusivWardenID) -> ProgramResult {
-        let members_count = self.get_members_count();
+    pub fn is_application_phase(&self) -> bool {
+        self.get_members_count() as usize == ElusivApaWardenNetwork::SIZE.max()
+    }
+
+    pub fn apply(&mut self, warden_id: ElusivWardenID, quote: &Quote) -> Result<u32, ProgramError> {
         guard!(
-            (members_count as usize) < ElusivApaWardenNetwork::SIZE.max(),
+            self.is_application_phase(),
             ElusivWardenNetworkError::WardenRegistrationError
         );
 
-        self.set_members(members_count as usize, &warden_id);
+        let members_count = self.get_members_count();
         self.set_members_count(&(members_count + 1));
 
-        Ok(())
+        self.set_members(members_count as usize, &warden_id);
+        self.set_quotes(members_count as usize, quote);
+        self.set_exchange_keys(
+            members_count as usize,
+            &Pubkey::new_from_array(quote.user_data_bytes()),
+        );
+
+        Ok(members_count)
+    }
+
+    pub fn confirmation_message(&self) -> [u8; 32] {
+        let hash = solana_program::hash::hash(self.quotes);
+        hash.to_bytes()
     }
 
     pub fn confirm_others(
         &mut self,
-        warden_id: ElusivWardenID,
         member_index: usize,
-        confirm: bool,
+        signer: &Pubkey,
+        confirmation_message: &[u8],
     ) -> ProgramResult {
         guard!(
-            (self.get_members_count() as usize) == ElusivApaWardenNetwork::SIZE.max(),
+            !self.is_application_phase(),
             ElusivWardenNetworkError::WardenRegistrationError
         );
-
         guard!(
-            self.get_members(member_index) == warden_id,
-            ElusivWardenNetworkError::InvalidInstructionData
+            self.get_exchange_keys(member_index) == *signer,
+            ElusivWardenNetworkError::InvalidSigner
+        );
+        guard!(
+            self.confirmation_message() == confirmation_message,
+            ElusivWardenNetworkError::InvalidSignature
         );
 
-        self.set_approvals(member_index, &confirm);
+        self.set_confirmations(member_index, &true);
 
         Ok(())
     }
