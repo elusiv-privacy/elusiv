@@ -127,6 +127,13 @@ impl<'a> ApaWardenNetworkAccount<'a> {
         Ok(members_count)
     }
 
+    #[cfg(feature = "elusiv-client")]
+    pub fn get_all_quotes(&self) -> Vec<Quote> {
+        (0..self.get_members_count() as usize)
+            .map(|i| self.get_quotes(i))
+            .collect()
+    }
+
     pub fn confirmation_message(&self) -> [u8; 32] {
         let hash = solana_program::hash::hash(self.quotes);
         hash.to_bytes()
