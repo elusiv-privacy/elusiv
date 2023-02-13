@@ -1448,7 +1448,7 @@ mod tests {
         let mut data = vec![0; VKeyAccount::SIZE];
         let mut vkey = VKeyAccount::new(&mut data).unwrap();
         vkey.set_public_inputs_count(&SendQuadraVKey::PUBLIC_INPUTS_COUNT);
-        vkey.set_is_frozen(&true);
+        vkey.set_version(&1);
 
         // TODO: test skip nullifier pda
         // TODO: wrong vkey-id
@@ -2309,7 +2309,7 @@ mod tests {
     fn test_compute_verification() {
         zero_program_account!(mut verification_account, VerificationAccount);
         vkey_account!(vkey, SendQuadraVKey);
-        vkey.set_is_frozen(&true);
+        vkey.set_version(&1);
         test_account_info!(any, 0);
 
         // Setup

@@ -41,6 +41,8 @@ impl ChildAccount for StorageChildAccount {
 // - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
 #[elusiv_account(parent_account: { child_account_count: ACCOUNTS_COUNT, child_account: StorageChildAccount }, eager_type: true)]
 pub struct StorageAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
     pubkeys: [ElusivOption<Pubkey>; ACCOUNTS_COUNT],
 

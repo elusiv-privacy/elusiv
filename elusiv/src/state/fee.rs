@@ -105,6 +105,8 @@ impl ProgramFee {
 /// - each one has it's own version as its pda-offset
 /// - the `GovernorAccount` defines the most-recent version
 pub struct FeeAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
     pub program_fee: ProgramFee,
 }

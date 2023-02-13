@@ -41,7 +41,6 @@ pub const fn u64_as_usize_safe(u: u64) -> usize {
     u64_as_u32_safe(u) as usize
 }
 
-// TODO: optimize find and contains with byte alignment
 pub fn contains<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8]) -> bool {
     let length = data.len() / N::SIZE;
     find(v, data, length).is_some()
@@ -59,6 +58,8 @@ pub fn find<N: BorshSerialize + BorshSerDeSized>(
 
     assert!(data.len() >= length);
 
+    // TODO: optimize with byte alignment
+
     let mut offset = 0;
     for i in 0..length {
         if data[offset] == bytes[0] {
@@ -66,9 +67,11 @@ pub fn find<N: BorshSerialize + BorshSerDeSized>(
                 if data[offset + j] != bytes[j] {
                     break;
                 }
-            }
 
-            return Some(i);
+                if j == N::SIZE {
+                    return Some(i);
+                }
+            }
         }
 
         offset += N::SIZE;

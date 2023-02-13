@@ -31,6 +31,8 @@ const_assert_eq!(BaseCommitmentHashComputation::TX_COUNT, 2);
 /// - multiple of these accounts can exist
 #[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct BaseCommitmentHashingAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     pub instruction: u32,
@@ -194,6 +196,8 @@ const_assert_eq!(MAX_HT_COMMITMENTS, 16);
 /// - only one of these accounts can exist per MT
 #[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct CommitmentHashingAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     pub instruction: u32,

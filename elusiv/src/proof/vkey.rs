@@ -9,6 +9,8 @@ use solana_program::pubkey::Pubkey;
 
 #[elusiv_account(eager_type: true)]
 pub struct VKeyAccountManangerAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
     pub active_vkey_count: u32,
 }
@@ -22,6 +24,8 @@ impl ChildAccount for VKeyChildAccount {
 /// Account used for storing a single immutable [`VerifyingKey`]
 #[elusiv_account(parent_account: { child_account_count: 2, child_account: VKeyChildAccount }, eager_type: true)]
 pub struct VKeyAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
     pubkeys: [ElusivOption<Pubkey>; 2],
 

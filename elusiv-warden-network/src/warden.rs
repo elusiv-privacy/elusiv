@@ -14,6 +14,8 @@ pub type ElusivWardenID = u32;
 /// The [`ElusivWardensAccount`] assigns each new Warden it's [`ElusivWardenID`]
 #[elusiv_account(eager_type: true)]
 pub struct WardensAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     pub next_warden_id: ElusivWardenID,
@@ -162,14 +164,20 @@ pub struct ElusivBasicWarden {
 /// An account associated with a single [`ElusivBasicWarden`]
 #[elusiv_account(eager_type: true)]
 pub struct BasicWardenAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
+
     pub warden: ElusivBasicWarden,
 }
 
 /// An account associated with a single [`ElusivBasicWarden`]
 #[elusiv_account(eager_type: true)]
 pub struct BasicWardenMapAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
+
     pub warden_id: ElusivWardenID,
 }
 
@@ -198,6 +206,8 @@ impl WardenStatistics {
 /// An account associated with a single [`ElusivBasicWarden`] storing activity statistics for a single year
 #[elusiv_account(eager_type: true)]
 pub struct BasicWardenStatsAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     pub year: u16,
@@ -211,7 +221,10 @@ pub struct BasicWardenStatsAccount {
 /// An account associated with a single [`ElusivBasicWarden`]
 #[elusiv_account]
 pub struct BasicWardenAttesterMapAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
+
     pub warden_id: ElusivWardenID,
 }
 
@@ -228,6 +241,8 @@ impl Quote {
 
 #[elusiv_account]
 pub struct ApaWardenAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     pub warden_id: ElusivWardenID,
