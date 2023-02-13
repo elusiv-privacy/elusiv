@@ -118,7 +118,9 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
 ) -> ProgramResult {
     let raw_public_inputs = proof_request!(&request, public_inputs, public_inputs.public_signals());
 
-    guard!(vkey_account.get_is_frozen(), InvalidAccount);
+    // Verify that an immutable vkey is setup
+    guard!(vkey_account.get_version() != 0, InvalidAccount);
+
     guard!(vkey_id == request.vkey_id(), InvalidAccount);
     guard!(
         verification_account_index < RESERVED_VACCS_PER_FEE_PAYER,
@@ -403,7 +405,9 @@ pub fn compute_verification(
     _verification_account_index: u32,
     vkey_id: u32,
 ) -> ProgramResult {
-    guard!(vkey_account.get_is_frozen(), InvalidAccount);
+    // Verify that an immutable vkey is setup
+    guard!(vkey_account.get_version() != 0, InvalidAccount);
+
     guard!(
         verification_account.get_vkey_id() == vkey_id,
         InvalidAccount
