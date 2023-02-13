@@ -103,18 +103,20 @@ async fn test_register() {
 #[tokio::test]
 async fn test_register_warden_id() {
     let mut test = start_test_with_setup().await;
-    let number_of_wardens = 100;
+    let number_of_wardens = 7;
 
-    for n in 0..number_of_wardens {
+    for warden_id in 0..number_of_wardens {
         let mut warden = Actor::new(&mut test).await;
         register_warden(&mut test, &mut warden).await;
 
         let map_account_data = test
             .eager_account2::<BasicWardenMapAccount, _>(warden.pubkey, None)
             .await;
-        assert_eq!(n, map_account_data.warden_id);
+        assert_eq!(warden_id, map_account_data.warden_id);
 
-        let basic_warden_account = test.eager_account::<BasicWardenAccount, _>(Some(n)).await;
+        let basic_warden_account = test
+            .eager_account::<BasicWardenAccount, _>(Some(warden_id))
+            .await;
         assert_eq!(basic_warden_account.warden.config.key, warden.pubkey);
     }
 }

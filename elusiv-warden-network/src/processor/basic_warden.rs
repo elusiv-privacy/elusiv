@@ -33,6 +33,7 @@ pub fn register_basic_warden<'a>(
     basic_network_account.try_add_member(
         warden_id,
         &config.basic_warden_features,
+        &config.region,
         &config.tokens,
     )?;
 
@@ -191,9 +192,11 @@ pub fn attest_basic_warden_metadata(
     attester: &AccountInfo,
     attester_warden_account: &BasicWardenAccount,
     warden_account: &mut BasicWardenAccount,
+    basic_network_account: &mut BasicWardenNetworkAccount,
 
     _attester_warden_id: ElusivWardenID,
-    _warden_id: ElusivWardenID,
+    warden_id: ElusivWardenID,
+    member_index: u32,
     asn: Option<u32>,
     timezone: Timezone,
     region: WardenRegion,
@@ -220,7 +223,7 @@ pub fn attest_basic_warden_metadata(
     warden.config.region = region;
     warden.is_metadata_valid = Some(!warden_supplied_invalid_data).into();
 
-    // TODO: Move Warden to according timezone account
+    basic_network_account.update_region(warden_id, member_index as usize, &region)?;
 
     Ok(())
 }

@@ -1,13 +1,14 @@
 #![allow(clippy::large_enum_variant)]
+#![allow(clippy::too_many_arguments)]
 
 use crate::apa::{ApaProposal, ApaProposalAccount, ApaProposalsAccount, ApaTargetMapAccount};
 use crate::macros::ElusivInstruction;
-use crate::network::BasicWardenNetworkAccount;
+use crate::network::{ApaWardenNetworkAccount, BasicWardenNetworkAccount};
 use crate::operator::WardenOperatorAccount;
 use crate::processor;
 use crate::warden::{
-    BasicWardenAccount, BasicWardenAttesterMapAccount, BasicWardenMapAccount,
-    BasicWardenStatsAccount, ElusivBasicWardenConfig, ElusivWardenID, Identifier, Timezone,
+    ApaWardenAccount, BasicWardenAccount, BasicWardenAttesterMapAccount, BasicWardenMapAccount,
+    BasicWardenStatsAccount, ElusivBasicWardenConfig, ElusivWardenID, Identifier, Quote, Timezone,
     WardenRegion, WardensAccount,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -27,14 +28,10 @@ pub enum ElusivWardenNetworkInstruction {
     #[acc(payer, { signer, writable })]
     #[pda(wardens, WardensAccount, { writable, find_pda, account_info })]
     #[pda(basic_network, BasicWardenNetworkAccount, { writable, find_pda, account_info })]
+    #[pda(apa_network, ApaWardenNetworkAccount, { writable, find_pda, account_info })]
     #[pda(proposals_account, ApaProposalsAccount, { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     Init,
-
-    #[acc(payer, { signer, writable })]
-    #[pda(basic_network, BasicWardenNetworkAccount, pda_offset = Some(region.pda_offset()), { writable, find_pda, account_info })]
-    #[sys(system_program, key = system_program::ID, { ignore })]
-    InitRegionAccount { region: WardenRegion },
 
     // -------- Basic Warden --------
     #[acc(warden, { signer, writable })]
@@ -55,12 +52,33 @@ pub enum ElusivWardenNetworkInstruction {
         is_active: bool,
     },
 
-    // UpdateBasicWardenFeatures {
-    // },
     #[acc(warden, { signer })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
     #[acc(lut_account)]
-    UpdateBasicWardenLut { warden_id: ElusivWardenID },
+    UpdateBasicWardenLut {
+        warden_id: ElusivWardenID,
+    },
+
+    // -------- APA Warden --------
+    #[acc(warden, { signer, writable })]
+    #[pda(warden_map_account, BasicWardenMapAccount, pda_pubkey = warden.pubkey())]
+    #[pda(apa_warden_account, ApaWardenAccount, pda_offset = Some(warden_id), { writable, find_pda, account_info })]
+    #[pda(apa_network, ApaWardenNetworkAccount, { writable })]
+    #[sys(system_program, key = system_program::ID, { ignore })]
+    ApplyApaGenesisWarden {
+        warden_id: ElusivWardenID,
+        quote: Quote,
+    },
+
+    #[acc(exchange_key, { signer })]
+    #[pda(apa_warden_account, ApaWardenAccount, pda_offset = Some(warden_id))]
+    #[pda(apa_network, ApaWardenNetworkAccount, { writable })]
+    ConfirmApaGenesisNetwork {
+        warden_id: ElusivWardenID,
+        confirmation_message: [u8; 32],
+    },
+
+    CompleteApaGenesisNetwork,
 
     // -------- Warden operator --------
     #[acc(operator, { signer, writable })]
@@ -74,19 +92,26 @@ pub enum ElusivWardenNetworkInstruction {
 
     #[acc(operator, { signer })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
-    ConfirmBasicWardenOperation { warden_id: ElusivWardenID },
+    ConfirmBasicWardenOperation {
+        warden_id: ElusivWardenID,
+    },
 
     // -------- Basic Warden statistics --------
     #[acc(warden)]
     #[acc(payer, { signer, writable })]
     #[pda(stats_account, BasicWardenStatsAccount, pda_pubkey = warden.pubkey(), pda_offset = Some(year.into()), { writable, find_pda, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
-    OpenBasicWardenStatsAccount { year: u16 },
+    OpenBasicWardenStatsAccount {
+        year: u16,
+    },
 
     #[acc(warden)]
     #[pda(stats_account, BasicWardenStatsAccount, pda_pubkey = warden.pubkey(), pda_offset = Some(year.into()), { writable })]
     #[sys(instructions, key = instructions::ID)]
-    TrackBasicWardenStats { year: u16, can_fail: bool },
+    TrackBasicWardenStats {
+        year: u16,
+        can_fail: bool,
+    },
 
     // -------- APA --------
     #[acc(proponent, { signer, writable })]
@@ -106,21 +131,27 @@ pub enum ElusivWardenNetworkInstruction {
     #[pda(attester_account, BasicWardenAttesterMapAccount, pda_pubkey = attester.pubkey(), { writable, find_pda, account_info })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
-    AddMetadataAttester { warden_id: ElusivWardenID },
+    AddMetadataAttester {
+        warden_id: ElusivWardenID,
+    },
 
     #[acc(signer, { signer, writable })]
     #[acc(attester)]
     #[pda(attester_account, BasicWardenAttesterMapAccount, pda_pubkey = attester.pubkey(), { writable, account_info })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
-    RevokeMetadataAttester { warden_id: ElusivWardenID },
+    RevokeMetadataAttester {
+        warden_id: ElusivWardenID,
+    },
 
     #[acc(attester, { signer })]
     #[pda(attester_warden_account, BasicWardenAccount, pda_offset = Some(attester_warden_id))]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
+    #[pda(basic_network, BasicWardenNetworkAccount, { writable })]
     AttestBasicWardenMetadata {
         attester_warden_id: ElusivWardenID,
         warden_id: ElusivWardenID,
+        member_index: u32,
         asn: Option<u32>,
         timezone: Timezone,
         region: WardenRegion,

@@ -1,20 +1,32 @@
 #![allow(dead_code)]
 #![allow(unused_macros)]
 
-use elusiv_types::{PDAOffset, ParentAccount, SizedAccount, PDAAccount, UserAccount, WritableUserAccount, EagerAccount, EagerAccountRepr};
-use spl_associated_token_account::instruction::create_associated_token_account;
-use std::{collections::HashMap, str::FromStr, process::Command};
-use elusiv_types::tokens::{Price, TOKENS, pyth_price_account_data, Token, Lamports, SPLToken, elusiv_token};
+use assert_matches::assert_matches;
+use elusiv_types::tokens::{
+    elusiv_token, pyth_price_account_data, Lamports, Price, SPLToken, Token, TOKENS,
+};
+use elusiv_types::{
+    EagerAccount, EagerAccountRepr, PDAAccount, PDAOffset, ParentAccount, SizedAccount,
+    UserAccount, WritableUserAccount,
+};
+use solana_program::program_pack::Pack;
 use solana_program::{
+    instruction::{AccountMeta, Instruction, InstructionError},
+    native_token::LAMPORTS_PER_SOL,
+    program_option::COption,
     pubkey::Pubkey,
-    instruction::{Instruction, AccountMeta, InstructionError}, system_instruction, native_token::LAMPORTS_PER_SOL, program_option::COption,
+    system_instruction,
 };
 use solana_program_test::*;
-use solana_program::program_pack::Pack;
-use solana_sdk::{signature::Keypair, transaction::Transaction, signer::Signer, account::AccountSharedData, compute_budget::ComputeBudgetInstruction};
-use assert_matches::assert_matches;
+use solana_sdk::{
+    account::AccountSharedData, compute_budget::ComputeBudgetInstruction, signature::Keypair,
+    signer::Signer, transaction::Transaction,
+};
+use spl_associated_token_account::instruction::create_associated_token_account;
+use std::{collections::HashMap, process::Command, str::FromStr};
 
-pub type ProcessInstructionWithContext = fn(usize, &[u8], &mut InvokeContext) -> Result<(), InstructionError>;
+pub type ProcessInstructionWithContext =
+    fn(usize, &[u8], &mut InvokeContext) -> Result<(), InstructionError>;
 pub type Program = (String, Pubkey, Option<ProcessInstructionWithContext>);
 
 pub struct ElusivProgramTest {
@@ -42,7 +54,13 @@ impl ElusivProgramTest {
         let mut n = Self::start(&self.programs).await;
 
         for account in accounts {
-            if let Some(a) = self.context.banks_client.get_account(*account).await.unwrap() {
+            if let Some(a) = self
+                .context
+                .banks_client
+                .get_account(*account)
+                .await
+                .unwrap()
+            {
                 n.context.set_account(account, &a.into());
             }
         }
@@ -55,9 +73,11 @@ impl ElusivProgramTest {
     }
 
     pub async fn fork_for_instructions(&mut self, ixs: &[Instruction]) -> Self {
-        let accounts = ixs.iter()
+        let accounts = ixs
+            .iter()
             .map(|ix| {
-                ix.accounts.iter()
+                ix.accounts
+                    .iter()
                     .map(|a| a.pubkey)
                     .collect::<Vec<Pubkey>>()
             })
@@ -66,8 +86,8 @@ impl ElusivProgramTest {
                 acc.extend(x);
                 acc
             });
-        
-            self.fork(&accounts).await
+
+        self.fork(&accounts).await
     }
 
     pub async fn new_actor(&mut self) -> Actor {
@@ -96,7 +116,8 @@ impl ElusivProgramTest {
     ) -> Result<(), BanksClientError> {
         let mut instructions = instructions.to_vec();
         instructions[0] = nonce_instruction(instructions[0].clone());
-        self.process_transaction(&instructions, signing_keypairs).await
+        self.process_transaction(&instructions, signing_keypairs)
+            .await
     }
 
     pub fn context(&mut self) -> &mut ProgramTestContext {
@@ -108,7 +129,14 @@ impl ElusivProgramTest {
     }
 
     pub async fn account_does_exist(&mut self, address: &Pubkey) -> bool {
-        matches!(self.context.banks_client.get_account(*address).await.unwrap(), Some(_))
+        matches!(
+            self.context
+                .banks_client
+                .get_account(*address)
+                .await
+                .unwrap(),
+            Some(_)
+        )
     }
 
     pub async fn account_does_not_exist(&mut self, address: &Pubkey) -> bool {
@@ -117,7 +145,13 @@ impl ElusivProgramTest {
 
     pub async fn lamports(&mut self, address: &Pubkey) -> Lamports {
         Lamports(
-            self.context.banks_client.get_account(*address).await.unwrap().unwrap().lamports
+            self.context
+                .banks_client
+                .get_account(*address)
+                .await
+                .unwrap()
+                .unwrap()
+                .lamports,
         )
     }
 
@@ -134,7 +168,13 @@ impl ElusivProgramTest {
     }
 
     pub async fn data(&mut self, address: &Pubkey) -> Vec<u8> {
-        self.context.banks_client.get_account(*address).await.unwrap().unwrap().data
+        self.context
+            .banks_client
+            .get_account(*address)
+            .await
+            .unwrap()
+            .unwrap()
+            .data
     }
 
     pub async fn rent(&mut self, data_len: usize) -> Lamports {
@@ -145,7 +185,13 @@ impl ElusivProgramTest {
     #[allow(deprecated)]
     pub async fn lamports_per_signature(&mut self) -> Lamports {
         Lamports(
-            self.context.banks_client.get_fees().await.unwrap().0.lamports_per_signature
+            self.context
+                .banks_client
+                .get_fees()
+                .await
+                .unwrap()
+                .0
+                .lamports_per_signature,
         )
     }
 
@@ -165,36 +211,27 @@ impl ElusivProgramTest {
 
         let mut data = vec![0; spl_token::state::Mint::LEN];
         mint.pack_into_slice(&mut data[..]);
-        self.set_account_rent_exempt(&token.mint, &data[..], &spl_token::id()).await;
+        self.set_account_rent_exempt(&token.mint, &data[..], &spl_token::id())
+            .await;
         self.spl_tokens.push(token_id);
     }
 
-    pub async fn set_token_to_usd_price_pyth(
-        &mut self,
-        token_id: u16,
-        price: Price,
-    ) {
-        let token = TOKENS[token_id as usize]; 
+    pub async fn set_token_to_usd_price_pyth(&mut self, token_id: u16, price: Price) {
+        let token = TOKENS[token_id as usize];
         let price_key = token.pyth_usd_price_key;
         let data = pyth_price_account_data(&price).unwrap();
-        self.set_account_rent_exempt(&price_key, &data[..], &pyth_oracle_program()).await;
+        self.set_account_rent_exempt(&price_key, &data[..], &pyth_oracle_program())
+            .await;
     }
 
-    pub fn token_to_usd_price_pyth_account(
-        &mut self,
-        token_id: u16,
-    ) -> Pubkey {
+    pub fn token_to_usd_price_pyth_account(&mut self, token_id: u16) -> Pubkey {
         TOKENS[token_id as usize].pyth_usd_price_key
     }
 
-    pub async fn create_spl_token_account(
-        &mut self,
-        authority: &Pubkey,
-        token_id: u16,
-    ) -> Pubkey {
+    pub async fn create_spl_token_account(&mut self, authority: &Pubkey, token_id: u16) -> Pubkey {
         assert!(token_id != 0);
         let token = TOKENS[token_id as usize];
-    
+
         let token_account_keypair = Keypair::new();
         let rent = self.rent(spl_token::state::Account::LEN).await;
         let create_account_instruction = system_instruction::create_account(
@@ -204,21 +241,21 @@ impl ElusivProgramTest {
             spl_token::state::Account::LEN as u64,
             &spl_token::id(),
         );
-    
+
         let initialize_account_instruction = spl_token::instruction::initialize_account(
             &spl_token::id(),
             &token_account_keypair.pubkey(),
             &token.mint,
             authority,
-        ).unwrap();
-    
+        )
+        .unwrap();
+
         self.process_transaction(
-            &[
-                create_account_instruction,
-                initialize_account_instruction,
-            ],
+            &[create_account_instruction, initialize_account_instruction],
             &[&token_account_keypair],
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         token_account_keypair.pubkey()
     }
@@ -235,20 +272,14 @@ impl ElusivProgramTest {
     }
 
     pub async fn airdrop_lamports(&mut self, address: &Pubkey, lamports: u64) {
-        let instruction = system_instruction::transfer(
-            &self.context.payer.pubkey(),
-            address,
-            lamports,
-        );
-        self.process_transaction_nonced(&[instruction], &[]).await.unwrap();
+        let instruction =
+            system_instruction::transfer(&self.context.payer.pubkey(), address, lamports);
+        self.process_transaction_nonced(&[instruction], &[])
+            .await
+            .unwrap();
     }
 
-    pub async fn mint_spl_token(
-        &mut self,
-        address: &Pubkey,
-        amount: u64,
-        token_id: u16,
-    ) {
+    pub async fn mint_spl_token(&mut self, address: &Pubkey, amount: u64, token_id: u16) {
         let token = TOKENS[token_id as usize];
 
         let mint_instruction = spl_token::instruction::mint_to(
@@ -258,9 +289,12 @@ impl ElusivProgramTest {
             &self.context.payer.pubkey(),
             &[],
             amount,
-        ).unwrap();
+        )
+        .unwrap();
 
-        self.process_transaction(&[mint_instruction], &[]).await.unwrap();
+        self.process_transaction(&[mint_instruction], &[])
+            .await
+            .unwrap();
     }
 
     pub async fn set_account(
@@ -270,11 +304,7 @@ impl ElusivProgramTest {
         lamports: Lamports,
         owner: &Pubkey,
     ) {
-        let mut account_shared_data = AccountSharedData::new(
-            lamports.0,
-            data.len(),
-            owner,
-        );
+        let mut account_shared_data = AccountSharedData::new(lamports.0, data.len(), owner);
 
         account_shared_data.set_data(data.to_vec());
         self.context.set_account(address, &account_shared_data);
@@ -290,12 +320,7 @@ impl ElusivProgramTest {
         self.set_account(address, data, lamports, program_id).await
     }
 
-    pub async fn set_account_rent_exempt(
-        &mut self,
-        address: &Pubkey,
-        data: &[u8],
-        owner: &Pubkey,
-    ) {
+    pub async fn set_account_rent_exempt(&mut self, address: &Pubkey, data: &[u8], owner: &Pubkey) {
         let rent = self.rent(data.len()).await;
         self.set_account(address, data, rent, owner).await;
     }
@@ -306,9 +331,10 @@ impl ElusivProgramTest {
         address: &Pubkey,
         data: &[u8],
     ) {
-        self.set_account_rent_exempt(address, data, program_id).await
+        self.set_account_rent_exempt(address, data, program_id)
+            .await
     }
-    
+
     pub async fn create_account(
         &mut self,
         space: u64,
@@ -323,12 +349,13 @@ impl ElusivProgramTest {
             space,
             owner,
         );
-    
+
         assert_matches!(
-            self.process_transaction(&[ix], &[&new_account_keypair]).await,
+            self.process_transaction(&[ix], &[&new_account_keypair])
+                .await,
             Ok(())
         );
-    
+
         new_account_keypair
     }
 
@@ -341,10 +368,7 @@ impl ElusivProgramTest {
         self.create_account(data_len as u64, rent, program_id).await
     }
 
-    pub async fn create_program_account_empty(
-        &mut self,
-        program_id: &Pubkey,
-    ) -> Keypair {
+    pub async fn create_program_account_empty(&mut self, program_id: &Pubkey) -> Keypair {
         self.create_account(0, Lamports(0), program_id).await
     }
 
@@ -353,62 +377,43 @@ impl ElusivProgramTest {
         program_id: &Pubkey,
     ) -> Vec<Pubkey> {
         let mut result = Vec::new();
-    
+
         for _ in 0..T::COUNT {
-            let pk = self.create_program_account_rent_exempt(program_id, T::Child::SIZE).await.pubkey();
+            let pk = self
+                .create_program_account_rent_exempt(program_id, T::Child::SIZE)
+                .await
+                .pubkey();
             result.push(pk);
         }
-    
+
         result
     }
 
-    pub async fn tx_should_succeed(
-        &mut self,
-        ixs: &[Instruction],
-        signers: &[&Keypair],
-    ) {
-        assert_matches!(
-            self.process_transaction_nonced(ixs, signers).await,
-            Ok(())
-        );
+    pub async fn tx_should_succeed(&mut self, ixs: &[Instruction], signers: &[&Keypair]) {
+        assert_matches!(self.process_transaction_nonced(ixs, signers).await, Ok(()));
     }
 
     pub async fn tx_should_succeed_simple(&mut self, ixs: &[Instruction]) {
         assert_matches!(self.process_transaction_nonced(ixs, &[]).await, Ok(()));
     }
-    
-    pub async fn ix_should_succeed(
-        &mut self,
-        ix: Instruction,
-        signers: &[&Keypair],
-    ) {
+
+    pub async fn ix_should_succeed(&mut self, ix: Instruction, signers: &[&Keypair]) {
         self.tx_should_succeed(&[ix], signers).await
     }
 
     pub async fn ix_should_succeed_simple(&mut self, ix: Instruction) {
         assert_matches!(self.process_transaction_nonced(&[ix], &[]).await, Ok(()));
     }
-    
-    pub async fn tx_should_fail(
-        &mut self,
-        ixs: &[Instruction],
-        signers: &[&Keypair],
-    ) {
-        assert_matches!(
-            self.process_transaction_nonced(ixs, signers).await,
-            Err(_)
-        );
+
+    pub async fn tx_should_fail(&mut self, ixs: &[Instruction], signers: &[&Keypair]) {
+        assert_matches!(self.process_transaction_nonced(ixs, signers).await, Err(_));
     }
 
     pub async fn tx_should_fail_simple(&mut self, ixs: &[Instruction]) {
         assert_matches!(self.process_transaction_nonced(ixs, &[]).await, Err(_));
     }
-    
-    pub async fn ix_should_fail(
-        &mut self,
-        ix: Instruction,
-        signers: &[&Keypair],
-    ) {
+
+    pub async fn ix_should_fail(&mut self, ix: Instruction, signers: &[&Keypair]) {
         self.tx_should_fail(&[ix], signers).await
     }
 
@@ -425,20 +430,40 @@ impl ElusivProgramTest {
     ) -> Vec<(Instruction, Actor)> {
         let mut result = Vec::new();
         for (i, acc) in ix.accounts.iter().enumerate() {
-            let signer = if !acc.is_signer { (*original_signer).clone() } else { Actor::new(self).await };
+            let signer = if !acc.is_signer {
+                (*original_signer).clone()
+            } else {
+                Actor::new(self).await
+            };
             let mut ix = ix.clone();
 
             // Clone data and lamports
             let address = acc.pubkey;
             let accounts_exists = self.account_does_exist(&address).await;
-            let data = if accounts_exists { self.data(&address).await } else { vec![] };
-            let lamports = if accounts_exists { self.lamports(&address).await } else { Lamports(100_000) };
+            let data = if accounts_exists {
+                self.data(&address).await
+            } else {
+                vec![]
+            };
+            let lamports = if accounts_exists {
+                self.lamports(&address).await
+            } else {
+                Lamports(100_000)
+            };
             let new_pubkey = Pubkey::new_unique();
 
             // TODO: owner fuzzing
 
-            let owner = self.context.banks_client.get_account(address).await.unwrap().unwrap().owner;
-            self.set_account(&new_pubkey, &data[..], lamports, &owner).await;
+            let owner = self
+                .context
+                .banks_client
+                .get_account(address)
+                .await
+                .unwrap()
+                .unwrap()
+                .owner;
+            self.set_account(&new_pubkey, &data[..], lamports, &owner)
+                .await;
 
             if acc.is_writable {
                 ix.accounts[i] = AccountMeta::new(new_pubkey, false);
@@ -459,10 +484,7 @@ impl ElusivProgramTest {
         valid_ix: Instruction,
         signer: &mut Actor,
     ) {
-        let invalid_instructions = self.invalid_accounts_fuzzing(
-            &valid_ix,
-            signer,
-        ).await;
+        let invalid_instructions = self.invalid_accounts_fuzzing(&valid_ix, signer).await;
 
         for (ix, signer) in invalid_instructions {
             let mut ixs = prefix_ixs.to_vec();
@@ -483,28 +505,51 @@ impl ElusivProgramTest {
         pda_pubkey: Option<Pubkey>,
         pda_offset: PDAOffset,
         setup: F,
-    ) where F: FnOnce(&mut [u8]) {
+    ) where
+        F: FnOnce(&mut [u8]),
+    {
         let data_len = A::SIZE;
         let address = A::find_with_pubkey_optional(pda_pubkey, pda_offset).0;
         let mut data = self.data(&address).await;
-    
+
         setup(&mut data);
-    
+
         let rent_exemption = self.rent(data_len).await;
-        self.set_program_account(program_id, &address, &data, rent_exemption).await;
+        self.set_program_account(program_id, &address, &data, rent_exemption)
+            .await;
     }
 
-    pub async fn child_accounts<'a, P: ParentAccount<'a, 'a, 'a> + PDAAccount>(&mut self, data: &'a mut [u8]) -> Vec<Pubkey> {
+    pub async fn child_accounts<'a, P: ParentAccount<'a, 'a, 'a> + PDAAccount>(
+        &mut self,
+        data: &'a mut [u8],
+    ) -> Vec<Pubkey> {
         let parent = P::new(data).unwrap();
-        (0..P::COUNT).map(|i| parent.get_child_pubkey(i).unwrap()).collect()
+        (0..P::COUNT)
+            .map(|i| parent.get_child_pubkey(i).unwrap())
+            .collect()
     }
 
-    pub async fn eager_account<'a, A: EagerAccount<'a, Repr = B> + PDAAccount, B: EagerAccountRepr>(&mut self, offset: PDAOffset) -> B {
+    pub async fn eager_account<
+        'a,
+        A: EagerAccount<'a, Repr = B> + PDAAccount,
+        B: EagerAccountRepr,
+    >(
+        &mut self,
+        offset: PDAOffset,
+    ) -> B {
         let data = self.data(&A::find(offset).0).await;
         B::new(data).unwrap()
     }
 
-    pub async fn eager_account2<'a, A: EagerAccount<'a, Repr = B> + PDAAccount, B: EagerAccountRepr>(&mut self, pubkey: Pubkey, offset: PDAOffset) -> B {
+    pub async fn eager_account2<
+        'a,
+        A: EagerAccount<'a, Repr = B> + PDAAccount,
+        B: EagerAccountRepr,
+    >(
+        &mut self,
+        pubkey: Pubkey,
+        offset: PDAOffset,
+    ) -> B {
         let data = self.data(&A::find_with_pubkey(pubkey, offset).0).await;
         B::new(data).unwrap()
     }
@@ -563,7 +608,8 @@ impl Actor {
     ) {
         let account = test.create_spl_token_account(&self.pubkey, token_id).await;
         if amount > 0 {
-            test.airdrop(&account, Token::new_checked(token_id, amount).unwrap()).await;
+            test.airdrop(&account, Token::new_checked(token_id, amount).unwrap())
+                .await;
         }
         self.token_accounts.insert(token_id, account);
     }
@@ -635,11 +681,15 @@ pub async fn enable_program_token_account<A: PDAAccount>(
 
 pub fn compile_mock_program() {
     if std::path::Path::new("../lib/mock_program.so").exists() {
-        return
+        return;
     }
 
     Command::new("cargo")
-        .args(["build-bpf", "--manifest-path=./shared/elusiv-test/mock-program/Cargo.toml", "--bpf-out-dir=../lib"])
+        .args([
+            "build-bpf",
+            "--manifest-path=./shared/elusiv-test/mock-program/Cargo.toml",
+            "--bpf-out-dir=../lib",
+        ])
         .spawn()
         .unwrap()
         .wait()
