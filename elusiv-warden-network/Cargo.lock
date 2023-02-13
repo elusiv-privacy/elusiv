@@ -1018,6 +1018,7 @@ dependencies = [
  "mock-program",
  "solana-program",
  "solana-program-test",
+ "solana-sdk",
  "spl-token",
 ]
 

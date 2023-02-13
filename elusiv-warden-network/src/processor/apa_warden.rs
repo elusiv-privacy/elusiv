@@ -28,7 +28,7 @@ pub fn apply_apa_genesis_warden<'a>(
     pda_account!(mut apa_warden_account, ApaWardenAccount, apa_warden_account);
     apa_warden_account.set_warden_id(&warden_id);
     apa_warden_account.set_network_member_index(&network_member_index);
-    apa_warden_account.set_latest_quote(&quote);
+    // apa_warden_account.set_latest_quote(&quote);
 
     Ok(())
 }

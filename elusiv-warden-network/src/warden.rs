@@ -218,7 +218,7 @@ pub struct BasicWardenAttesterMapAccount {
 // TODO: import the https://github.com/elusiv-privacy/rust-sgx-remote-attestation/blob/master/ra-common/src/quote.rs types
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
-pub struct Quote([u8; 1116]);
+pub struct Quote(pub [u8; 1116]);
 
 impl Quote {
     pub fn user_data_bytes(&self) -> [u8; 32] {
@@ -232,5 +232,5 @@ pub struct ApaWardenAccount {
 
     pub warden_id: ElusivWardenID,
     pub network_member_index: u32,
-    pub latest_quote: Quote,
+    // pub latest_quote: Quote,
 }

@@ -45,7 +45,7 @@ pub struct BasicWardenNetworkAccount {
     members: [ElusivWardenID; ElusivBasicWardenNetwork::SIZE.max()],
     features: [BasicWardenFeatures; ElusivBasicWardenNetwork::SIZE.max()],
     tokens: [[bool; TOKENS.len()]; ElusivBasicWardenNetwork::SIZE.max()],
-    region: [WardenRegion; ElusivApaWardenNetwork::SIZE.max()],
+    region: [WardenRegion; ElusivBasicWardenNetwork::SIZE.max()],
 }
 
 impl<'a> BasicWardenNetworkAccount<'a> {
@@ -105,7 +105,15 @@ pub struct ApaWardenNetworkAccount {
 
 impl<'a> ApaWardenNetworkAccount<'a> {
     pub fn is_application_phase(&self) -> bool {
-        self.get_members_count() as usize == ElusivApaWardenNetwork::SIZE.max()
+        (self.get_members_count() as usize) < ElusivApaWardenNetwork::SIZE.max()
+    }
+
+    pub fn is_confirmed(&self) -> bool {
+        if self.is_application_phase() {
+            return false;
+        }
+
+        (0..self.get_members_count() as usize).all(|i| self.get_confirmations(i))
     }
 
     pub fn apply(&mut self, warden_id: ElusivWardenID, quote: &Quote) -> Result<u32, ProgramError> {
@@ -156,6 +164,10 @@ impl<'a> ApaWardenNetworkAccount<'a> {
         guard!(
             self.confirmation_message() == confirmation_message,
             ElusivWardenNetworkError::InvalidSignature
+        );
+        guard!(
+            !self.get_confirmations(member_index),
+            ElusivWardenNetworkError::WardenRegistrationError
         );
 
         self.set_confirmations(member_index, &true);

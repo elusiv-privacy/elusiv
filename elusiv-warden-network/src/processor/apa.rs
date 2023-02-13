@@ -13,7 +13,6 @@ use solana_program::program_pack::Pack;
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
 /// Processes an [`ApaProposal`]
-#[allow(clippy::too_many_arguments)]
 pub fn propose_apa_proposal<'a>(
     proponent: &AccountInfo<'a>,
     proposal_account: &AccountInfo<'a>,
