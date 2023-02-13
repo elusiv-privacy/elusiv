@@ -58,17 +58,22 @@ pub fn find<N: BorshSerialize + BorshSerDeSized>(
     };
 
     assert!(data.len() >= length);
-    'A: for i in 0..length {
-        let index = i * N::SIZE;
-        if data[index] == bytes[0] {
+
+    let mut offset = 0;
+    for i in 0..length {
+        if data[offset] == bytes[0] {
             for j in 1..N::SIZE {
-                if data[index + j] != bytes[j] {
-                    continue 'A;
+                if data[offset + j] != bytes[j] {
+                    break;
                 }
             }
+
             return Some(i);
         }
+
+        offset += N::SIZE;
     }
+
     None
 }
 

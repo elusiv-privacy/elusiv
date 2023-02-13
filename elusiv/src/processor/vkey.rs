@@ -14,7 +14,7 @@ use solana_program::{
 };
 
 pub const VKEY_ACCOUNT_DATA_PACKET_SIZE: usize = 964;
-const MAX_NUMBER_OF_VKEYS: u32 = 2;
+const MAX_NUMBER_OF_VKEYS: u32 = 1;
 
 /// A binary data packet containing [`VKEY_ACCOUNT_DATA_PACKET_SIZE`] bytes
 #[derive(BorshSerialize, BorshDeserialize)]

@@ -4,7 +4,7 @@ pub mod poseidon_hash;
 mod poseidon_constants;
 
 use self::poseidon_hash::BinarySpongeHashingState;
-use crate::bytes::usize_as_u32_safe;
+use crate::bytes::{contains, usize_as_u32_safe};
 use crate::commitment::poseidon_hash::{binary_poseidon_hash_partial, TOTAL_POSEIDON_ROUNDS};
 use crate::error::ElusivError;
 use crate::error::ElusivError::ComputationIsAlreadyFinished;
@@ -115,8 +115,8 @@ pub const MAX_COMMITMENT_BATCHING_RATE: usize = 4;
 /// - batch sizes range: `[0; MAX_COMMITMENT_BATCHING_RATE]`
 struct CommitmentHashComputation<const BATCHING_RATE: usize>;
 
-/// Generates a `CommitmentHashComputation` with a specific `BATCHING_RATE`
-/// - the macro also verifies that `$hash_count$ is valid
+/// Generates a [`CommitmentHashComputation`] with a specific `BATCHING_RATE`
+/// - the macro also verifies that `$hash_count` is valid
 macro_rules! commitment_batch_hashing {
     ($batching_rate: literal, $hash_count: literal, $instruction_count: literal) => {
         elusiv_hash_compute_units!(CommitmentHashComputation<$batching_rate>, $hash_count);
@@ -430,6 +430,35 @@ impl<'a> CommitmentHashingAccount<'a> {
         }
     }
 }
+
+macro_rules! buffer_account {
+    ($ident: ident, $ty: ty, $size: expr) => {
+        #[allow(dead_code)]
+        #[elusiv_account]
+        pub struct $ident {
+            #[no_getter]
+            #[no_setter]
+            pda_data: PDAAccountData,
+
+            #[no_getter]
+            #[no_setter]
+            values: [$ty; $size],
+            ptr: u32,
+        }
+
+        impl<'a> $ident<'a> {
+            pub fn contains(&self, value: $ty) -> bool {
+                let len = std::cmp::min(self.get_ptr() as usize, $size);
+                let data = &self.values[..len * 32];
+                contains(value, data)
+            }
+        }
+    };
+}
+
+buffer_account!(BaseCommitmentBufferAccount, U256, 128);
+
+buffer_account!(CommitmentBufferAccount, U256, 128);
 
 #[cfg(test)]
 pub fn base_commitment_request(
