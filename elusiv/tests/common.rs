@@ -2,15 +2,12 @@
 #![allow(dead_code)]
 
 use elusiv::{
-    commitment::CommitmentHashingAccount,
     fields::fr_to_u256_le,
     instruction::ElusivInstruction,
-    processor::{MultiInstancePDAAccountKind, SingleInstancePDAAccountKind},
-    proof::{vkey::VKeyAccountManangerAccount, CombinedMillerLoop, FinalExponentiation},
+    proof::{CombinedMillerLoop, FinalExponentiation},
     state::{
         fee::{BasisPointFee, ProgramFee},
-        governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
-        queue::CommitmentQueueAccount,
+        governor::GovernorAccount,
         NullifierAccount, StorageAccount,
     },
     types::U256,
@@ -66,31 +63,7 @@ pub fn initial_single_instance_pdas(payer: Pubkey) -> Vec<Instruction> {
             WritableSignerAccount(payer),
             WritableUserAccount(GovernorAccount::find(None).0),
         ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::PoolAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(PoolAccount::find(None).0),
-        ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::FeeCollectorAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(FeeCollectorAccount::find(None).0),
-        ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::CommitmentHashingAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(CommitmentHashingAccount::find(None).0),
-        ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::CommitmentQueueAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(CommitmentQueueAccount::find(None).0),
-        ),
-        ElusivInstruction::open_single_instance_account_instruction(
-            SingleInstancePDAAccountKind::VKeyAccountManangerAccount,
-            WritableSignerAccount(payer),
-            WritableUserAccount(VKeyAccountManangerAccount::find(None).0),
-        ),
+        ElusivInstruction::open_single_instance_accounts_instruction(WritableSignerAccount(payer)),
     ]
 }
 
@@ -104,13 +77,6 @@ pub async fn setup_fee(test: &mut ElusivProgramTest, fee_version: u32, program_f
 }
 
 pub async fn setup_storage_account(test: &mut ElusivProgramTest) -> Vec<Pubkey> {
-    test.ix_should_succeed_simple(ElusivInstruction::open_single_instance_account_instruction(
-        SingleInstancePDAAccountKind::StorageAccount,
-        WritableSignerAccount(test.payer()),
-        WritableUserAccount(StorageAccount::find(None).0),
-    ))
-    .await;
-
     let mut instructions = Vec::new();
     let pubkeys = test
         .create_parent_account::<StorageAccount>(&elusiv::id())
@@ -127,11 +93,9 @@ pub async fn setup_storage_account(test: &mut ElusivProgramTest) -> Vec<Pubkey> 
 }
 
 pub async fn create_merkle_tree(test: &mut ElusivProgramTest, mt_index: u32) -> Vec<Pubkey> {
-    let mut instructions = vec![ElusivInstruction::open_multi_instance_account_instruction(
-        MultiInstancePDAAccountKind::NullifierAccount,
+    let mut instructions = vec![ElusivInstruction::open_nullifier_account_instruction(
         mt_index,
         WritableSignerAccount(test.payer()),
-        WritableUserAccount(NullifierAccount::find(Some(mt_index)).0),
     )];
 
     let pubkeys = test

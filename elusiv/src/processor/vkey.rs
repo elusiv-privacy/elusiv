@@ -1,7 +1,7 @@
 use crate::{
     error::ElusivError,
     processor::setup_child_account,
-    proof::vkey::{VKeyAccount, VKeyAccountManangerAccount, VerifyingKey},
+    proof::vkey::{VKeyAccount, VerifyingKey},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::{BorshSerDeSized, ChildAccountConfig, ElusivOption, ParentAccount};
@@ -27,16 +27,12 @@ impl elusiv_types::BorshSerDeSized for VKeyAccountDataPacket {
 /// Creates a new [`VKeyAccount`]
 pub fn create_vkey_account<'a>(
     signer: &AccountInfo<'a>,
-    vkey_manager: &mut VKeyAccountManangerAccount,
     vkey_account: &AccountInfo<'a>,
 
     vkey_id: u32,
     public_inputs_count: u32,
     authority: ElusivOption<Pubkey>,
 ) -> ProgramResult {
-    let vkey_count = vkey_manager.get_active_vkey_count();
-    guard!(vkey_count < u32::MAX, ElusivError::InvalidAccountState);
-    guard!(vkey_id == vkey_count, ElusivError::InvalidInstructionData);
     guard!(
         vkey_id < MAX_NUMBER_OF_VKEYS,
         ElusivError::InvalidAccountState

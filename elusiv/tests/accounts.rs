@@ -4,12 +4,9 @@ mod common;
 
 use borsh::BorshSerialize;
 use common::*;
-use elusiv::commitment::CommitmentHashingAccount;
+use elusiv::commitment::{BaseCommitmentBufferAccount, CommitmentHashingAccount};
 use elusiv::instruction::*;
-use elusiv::processor::{
-    CommitmentHashRequest, MultiInstancePDAAccountKind, SingleInstancePDAAccountKind,
-};
-use elusiv::proof::vkey::VKeyAccountManangerAccount;
+use elusiv::processor::CommitmentHashRequest;
 use elusiv::state::program_account::PDAOffset;
 use elusiv::state::queue::{CommitmentQueue, Queue, RingQueue};
 use elusiv::state::{
@@ -19,13 +16,10 @@ use elusiv::state::{
     queue::CommitmentQueueAccount,
     NullifierAccount,
 };
-use elusiv::state::{
-    NullifierChildAccount, StorageAccount, StorageChildAccount, MT_COMMITMENT_COUNT,
-};
+use elusiv::state::{NullifierChildAccount, StorageAccount, MT_COMMITMENT_COUNT};
 use elusiv::token::SPL_TOKEN_COUNT;
 use elusiv_types::split_child_account_data_mut;
 use solana_program::instruction::{AccountMeta, Instruction};
-use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use solana_sdk::signer::Signer;
 
@@ -55,9 +49,12 @@ async fn test_setup_initial_accounts() {
     assert_account::<GovernorAccount>(&mut test, None).await;
     assert_account::<PoolAccount>(&mut test, None).await;
     assert_account::<FeeCollectorAccount>(&mut test, None).await;
-    assert_account::<VKeyAccountManangerAccount>(&mut test, None).await;
+
     assert_account::<CommitmentHashingAccount>(&mut test, None).await;
     assert_account::<CommitmentQueueAccount>(&mut test, None).await;
+    assert_account::<BaseCommitmentBufferAccount>(&mut test, None).await;
+
+    assert_account::<StorageAccount>(&mut test, None).await;
 }
 
 #[tokio::test]
@@ -142,44 +139,12 @@ async fn test_setup_fee_account() {
 async fn test_setup_pda_accounts_invalid_pda() {
     let mut test = start_test().await;
 
-    test.ix_should_fail_simple(ElusivInstruction::open_single_instance_account_instruction(
-        SingleInstancePDAAccountKind::CommitmentQueueAccount,
+    let mut instruction = ElusivInstruction::open_single_instance_accounts_instruction(
         WritableSignerAccount(test.payer()),
-        WritableUserAccount(FeeAccount::find(None).0),
-    ))
-    .await;
-}
+    );
+    instruction.accounts[3].pubkey = GovernorAccount::find(None).0;
 
-#[tokio::test]
-async fn test_setup_storage_account() {
-    let mut test = start_test().await;
-    let keys = setup_storage_account(&mut test).await;
-
-    assert_eq!(keys, storage_accounts(&mut test).await);
-}
-
-#[tokio::test]
-async fn test_setup_storage_account_duplicate() {
-    let mut test = start_test().await;
-    setup_storage_account(&mut test).await;
-
-    // Cannot set a child-account twice
-    let k = test
-        .create_program_account_rent_exempt(&elusiv::id(), StorageChildAccount::SIZE)
-        .await;
-    test.ix_should_fail_simple(ElusivInstruction::enable_storage_child_account_instruction(
-        1,
-        WritableUserAccount(k.pubkey()),
-    ))
-    .await;
-
-    // Cannot init storage PDA twice
-    test.ix_should_fail_simple(ElusivInstruction::open_single_instance_account_instruction(
-        SingleInstancePDAAccountKind::StorageAccount,
-        WritableSignerAccount(test.payer()),
-        WritableUserAccount(StorageAccount::find(None).0),
-    ))
-    .await;
+    test.ix_should_fail_simple(instruction).await;
 }
 
 #[tokio::test]
@@ -199,11 +164,9 @@ async fn test_open_new_merkle_tree_duplicate() {
     create_merkle_tree(&mut test, 0).await;
 
     // Cannot init MT twice
-    test.ix_should_fail_simple(ElusivInstruction::open_multi_instance_account_instruction(
-        MultiInstancePDAAccountKind::NullifierAccount,
+    test.ix_should_fail_simple(ElusivInstruction::open_nullifier_account_instruction(
         0,
         WritableSignerAccount(test.payer()),
-        WritableUserAccount(StorageAccount::find(Some(0)).0),
     ))
     .await;
 
@@ -342,37 +305,28 @@ async fn test_reset_active_mt() {
 }
 
 #[tokio::test]
-async fn test_global_sub_account_duplicates() {
+async fn test_global_child_account_duplicates() {
     let mut test = start_test().await;
     setup_initial_pdas(&mut test).await;
 
-    // Open storage account
-    test.ix_should_succeed_simple(ElusivInstruction::open_single_instance_account_instruction(
-        SingleInstancePDAAccountKind::StorageAccount,
+    // Open two MTs
+    test.ix_should_succeed_simple(ElusivInstruction::open_nullifier_account_instruction(
+        0,
         WritableSignerAccount(test.payer()),
-        WritableUserAccount(StorageAccount::find(None).0),
     ))
     .await;
 
-    fn open_mt(mt_index: u32, pk: Pubkey) -> Instruction {
-        ElusivInstruction::open_multi_instance_account_instruction(
-            MultiInstancePDAAccountKind::NullifierAccount,
-            mt_index,
-            WritableSignerAccount(pk),
-            WritableUserAccount(NullifierAccount::find(Some(mt_index)).0),
-        )
-    }
-
-    // Open two MTs
-    test.ix_should_succeed_simple(open_mt(0, test.payer()))
-        .await;
-    test.ix_should_succeed_simple(open_mt(1, test.payer()))
-        .await;
+    test.ix_should_succeed_simple(ElusivInstruction::open_nullifier_account_instruction(
+        1,
+        WritableSignerAccount(test.payer()),
+    ))
+    .await;
 
     // Setting in first MT should succeed
     let account = test
         .create_program_account_rent_exempt(&elusiv::id(), NullifierChildAccount::SIZE)
         .await;
+
     test.ix_should_succeed_simple(
         ElusivInstruction::enable_nullifier_child_account_instruction(
             0,

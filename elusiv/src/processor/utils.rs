@@ -1,4 +1,4 @@
-use crate::error::ElusivError::InvalidAccount;
+use crate::error::ElusivError;
 use crate::macros::guard;
 use crate::state::program_account::{PDAAccount, PDAOffset};
 use crate::token::{elusiv_token, Lamports, SPLToken, Token};
@@ -76,7 +76,7 @@ pub fn transfer_token_from_pda<'a, T: PDAAccount>(
     pda_pubkey: Option<Pubkey>,
     pda_offset: PDAOffset,
 ) -> ProgramResult {
-    guard!(*source.owner == crate::ID, InvalidAccount);
+    guard!(*source.owner == crate::ID, ElusivError::InvalidAccount);
 
     match token {
         Token::Lamports(lamports) => {
@@ -107,12 +107,18 @@ fn transfer_with_token_program<'a>(
     amount: u64,
     signers_seeds: Option<&[&[&[u8]]]>,
 ) -> ProgramResult {
-    guard!(*token_program.key == spl_token::ID, InvalidAccount);
+    guard!(
+        *token_program.key == spl_token::ID,
+        ElusivError::InvalidAccount
+    );
 
-    guard!(*source_token_account.owner == spl_token::ID, InvalidAccount); // redundant
+    guard!(
+        *source_token_account.owner == spl_token::ID,
+        ElusivError::InvalidAccount
+    ); // redundant
     guard!(
         *destination_token_account.owner == spl_token::ID,
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
 
     let instruction = spl_token::instruction::transfer(
@@ -188,10 +194,13 @@ pub fn verify_program_token_account(
     token_id: u16,
 ) -> ProgramResult {
     if token_id == 0 {
-        guard!(owner_pda.key == token_account.key, InvalidAccount);
+        guard!(
+            owner_pda.key == token_account.key,
+            ElusivError::InvalidAccount
+        );
     } else {
         let pubkey = get_associated_token_address(owner_pda.key, &elusiv_token(token_id)?.mint);
-        guard!(pubkey == *token_account.key, InvalidAccount);
+        guard!(pubkey == *token_account.key, ElusivError::InvalidAccount);
     }
 
     Ok(())

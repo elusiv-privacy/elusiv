@@ -60,6 +60,7 @@ pub fn find<N: BorshSerialize + BorshSerDeSized>(
 
     // TODO: optimize with byte alignment
 
+    let last_index = N::SIZE - 1;
     let mut offset = 0;
     for i in 0..length {
         if data[offset] == bytes[0] {
@@ -68,7 +69,7 @@ pub fn find<N: BorshSerialize + BorshSerDeSized>(
                     break;
                 }
 
-                if j == N::SIZE {
+                if j == last_index {
                     return Some(i);
                 }
             }
