@@ -39,6 +39,8 @@ warden_network!(ElusivBasicWardenNetwork, NetworkSize::Dynamic(0, 512));
 
 #[elusiv_account]
 pub struct BasicWardenNetworkAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     members_count: u32,
@@ -92,6 +94,8 @@ warden_network!(ElusivApaWardenNetwork, NetworkSize::Fixed(6));
 
 #[elusiv_account]
 pub struct ApaWardenNetworkAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     members_count: u32,

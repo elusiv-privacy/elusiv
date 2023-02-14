@@ -49,6 +49,8 @@ pub enum VerificationState {
 /// - exists only for verifying a single proof, closed afterwards
 #[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct VerificationAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     instruction: u32,
@@ -310,6 +312,8 @@ where
 
 #[elusiv_account]
 pub struct NullifierDuplicateAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 }
 

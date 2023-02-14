@@ -45,6 +45,8 @@ pub struct ApaProposal {
 
 #[elusiv_account(eager_type: true)]
 pub struct ApaProposalAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
     pub proposal: ApaProposal,
 }
@@ -57,12 +59,16 @@ pub struct ApaProposalAccount {
 /// If there are multiple proposals, the successfull one is used.
 #[elusiv_account(eager_type: true)]
 pub struct ApaTargetMapAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
     pub proposal_id: ElusivOption<u32>,
 }
 
 #[elusiv_account(eager_type: true)]
 pub struct ApaProposalsAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
     pub number_of_proposals: u32,
 }

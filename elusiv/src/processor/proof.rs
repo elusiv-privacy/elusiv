@@ -1,11 +1,7 @@
 use super::utils::{DefaultInstructionsSysvar, InstructionsSysvar};
 use super::CommitmentHashRequest;
 use crate::bytes::{usize_as_u32_safe, BorshSerDeSized, ElusivOption};
-use crate::error::ElusivError::{
-    self, ComputationIsAlreadyFinished, ComputationIsNotYetFinished, CouldNotInsertNullifier,
-    FeatureNotAvailable, InputsMismatch, InvalidAccount, InvalidAccountState, InvalidFeeVersion,
-    InvalidInstructionData, InvalidMerkleRoot, InvalidOtherInstruction, InvalidPublicInputs,
-};
+use crate::error::ElusivError;
 use crate::instruction::ElusivInstruction;
 use crate::macros::{guard, pda_account, BorshSerDeSized, EnumVariantIndex};
 use crate::processor::utils::{
@@ -119,12 +115,12 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     let raw_public_inputs = proof_request!(&request, public_inputs, public_inputs.public_signals());
 
     // Verify that an immutable vkey is setup
-    guard!(vkey_account.get_version() != 0, InvalidAccount);
+    guard!(vkey_account.get_version() != 0, ElusivError::InvalidAccount);
 
-    guard!(vkey_id == request.vkey_id(), InvalidAccount);
+    guard!(vkey_id == request.vkey_id(), ElusivError::InvalidAccount);
     guard!(
         verification_account_index < RESERVED_VACCS_PER_FEE_PAYER,
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
 
     let instructions = prepare_public_inputs_instructions(
@@ -144,7 +140,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         ProofRequest::Send(public_inputs) => {
             guard!(
                 public_inputs.verify_additional_constraints(),
-                InvalidPublicInputs
+                ElusivError::InvalidPublicInputs
             );
 
             if !cfg!(test) {
@@ -152,7 +148,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
                 let current_timestamp: u64 = clock.unix_timestamp.try_into().unwrap();
                 guard!(
                     is_timestamp_valid(public_inputs.current_time, current_timestamp),
-                    InvalidInstructionData
+                    ElusivError::InvalidInstructionData
                 );
             }
 
@@ -160,7 +156,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         }
         ProofRequest::Migrate(_) => {
             // Migrate from archived MTs not implemented yet
-            return Err(FeatureNotAvailable.into());
+            return Err(ElusivError::FeatureNotAvailable.into());
         }
     };
 
@@ -178,12 +174,12 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         guard!(
             *nullifier_duplicate_account.key
                 == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?,
-            InvalidAccount
+            ElusivError::InvalidAccount
         );
 
         // TODO: add duplicate PDA verification
         if nullifier_duplicate_account.lamports() == 0 {
-            return Err(InvalidInstructionData.into());
+            return Err(ElusivError::InvalidInstructionData.into());
         }
     } else {
         open_pda_account_with_associated_pubkey::<NullifierDuplicateAccount>(
@@ -245,13 +241,13 @@ pub fn init_verification_transfer_fee<'a>(
 ) -> ProgramResult {
     guard!(
         matches!(verification_account.get_state(), VerificationState::None),
-        InvalidAccountState
+        ElusivError::InvalidAccountState
     );
 
     let other_data = verification_account.get_other_data();
     guard!(
         other_data.fee_payer.skip_mr() == fee_payer.key.to_bytes(),
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
 
     let request = verification_account.get_request();
@@ -259,7 +255,7 @@ pub fn init_verification_transfer_fee<'a>(
 
     guard!(
         request.fee_version() == governor.get_fee_version(),
-        InvalidFeeVersion
+        ElusivError::InvalidFeeVersion
     );
     let token_id = join_split.token_id;
     let price = TokenPrice::new(sol_usd_price_account, token_usd_price_account, token_id)?;
@@ -335,7 +331,7 @@ pub fn init_verification_transfer_fee<'a>(
     // TODO: switch fee_payer_token_account to associated-token-account
     guard!(
         verify_token_account(fee_payer_token_account, token_id)?,
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
 
     verification_account.set_other_data(&VerificationAccountData {
@@ -374,15 +370,15 @@ pub fn init_verification_proof(
             verification_account.get_state(),
             VerificationState::FeeTransferred
         ),
-        InvalidAccountState
+        ElusivError::InvalidAccountState
     );
     guard!(
         verification_account.get_is_verified().option().is_none(),
-        ComputationIsAlreadyFinished
+        ElusivError::ComputationIsAlreadyFinished
     );
     guard!(
         verification_account.get_other_data().fee_payer.skip_mr() == fee_payer.key.to_bytes(),
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
 
     verification_account.a.set(&proof.a);
@@ -406,22 +402,22 @@ pub fn compute_verification(
     vkey_id: u32,
 ) -> ProgramResult {
     // Verify that an immutable vkey is setup
-    guard!(vkey_account.get_version() != 0, InvalidAccount);
+    guard!(vkey_account.get_version() != 0, ElusivError::InvalidAccount);
 
     guard!(
         verification_account.get_vkey_id() == vkey_id,
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
     guard!(
         verification_account.get_is_verified().option().is_none(),
-        ComputationIsAlreadyFinished
+        ElusivError::ComputationIsAlreadyFinished
     );
     guard!(
         matches!(
             verification_account.get_state(),
             VerificationState::None | VerificationState::ProofSetup
         ),
-        InvalidAccountState
+        ElusivError::InvalidAccountState
     );
 
     // instruction_index is used to allow a uniform number of ixs per tx
@@ -433,7 +429,7 @@ pub fn compute_verification(
 
     let result = vkey_account.execute_on_child_account_mut(0, |data| {
         let vkey = VerifyingKey::new(data, vkey_account.get_public_inputs_count() as usize)
-            .ok_or(InvalidAccountState)?;
+            .ok_or(ElusivError::InvalidAccountState)?;
 
         verify_partial(verification_account, &vkey, instruction_index)
     })?;
@@ -449,7 +445,7 @@ pub fn compute_verification(
         }
         Err(e) => {
             match e {
-                InvalidAccountState => Err(e.into()),
+                ElusivError::InvalidAccountState => Err(e.into()),
                 _ => {
                     // An error (!= InvalidAccountState) can only happen with flawed inputs -> cancel verification
                     verification_account.set_is_verified(&ElusivOption::Some(false));
@@ -503,13 +499,13 @@ pub fn finalize_verification_send<'a>(
             verification_account.get_state(),
             VerificationState::ProofSetup
         ),
-        InvalidAccountState
+        ElusivError::InvalidAccountState
     );
 
     let request = verification_account.get_request();
     let public_inputs = match request {
         ProofRequest::Send(public_inputs) => public_inputs,
-        _ => return Err(FeatureNotAvailable.into()),
+        _ => return Err(ElusivError::FeatureNotAvailable.into()),
     };
 
     // Check spl-memo-instruction
@@ -536,7 +532,10 @@ pub fn finalize_verification_send<'a>(
         public_inputs.recipient_is_associated_token_account,
         &memo,
     );
-    guard!(hash == public_inputs.hashed_inputs, InputsMismatch);
+    guard!(
+        hash == public_inputs.hashed_inputs,
+        ElusivError::InputsMismatch
+    );
 
     // Set `recipient_wallet`
     verification_account.set_other_data(&mutate(&verification_account.get_other_data(), |data| {
@@ -544,7 +543,7 @@ pub fn finalize_verification_send<'a>(
     }));
 
     match verification_account.get_is_verified() {
-        ElusivOption::None => return Err(ComputationIsNotYetFinished.into()),
+        ElusivOption::None => return Err(ElusivError::ComputationIsNotYetFinished.into()),
         ElusivOption::Some(false) => {
             verification_account.set_state(&VerificationState::Finalized);
             return Ok(());
@@ -564,17 +563,23 @@ pub fn finalize_verification_send<'a>(
         storage_account.get_next_commitment_ptr(),
         CommitmentQueue::new(commitment_hash_queue).len(),
     );
-    guard!(data.timestamp == public_inputs.current_time, InputsMismatch);
+    guard!(
+        data.timestamp == public_inputs.current_time,
+        ElusivError::InputsMismatch
+    );
     guard!(
         data.total_amount == public_inputs.join_split.total_amount(),
-        InputsMismatch
+        ElusivError::InputsMismatch
     );
     guard!(
         data.token_id == public_inputs.join_split.token_id,
-        InputsMismatch
+        ElusivError::InputsMismatch
     );
-    guard!(data.commitment_index <= commitment_index, InputsMismatch);
-    guard!(data.mt_index == mt_index, InputsMismatch);
+    guard!(
+        data.commitment_index <= commitment_index,
+        ElusivError::InputsMismatch
+    );
+    guard!(data.mt_index == mt_index, ElusivError::InputsMismatch);
 
     verification_account.set_state(&VerificationState::InsertNullifiers);
 
@@ -595,13 +600,13 @@ pub fn finalize_verification_send_nullifier<'a, 'b, 'c>(
             verification_account.get_state(),
             VerificationState::InsertNullifiers
         ),
-        InvalidAccountState
+        ElusivError::InvalidAccountState
     );
 
     let request = verification_account.get_request();
     let public_inputs = match request {
         ProofRequest::Send(public_inputs) => public_inputs,
-        _ => return Err(FeatureNotAvailable.into()),
+        _ => return Err(ElusivError::FeatureNotAvailable.into()),
     };
 
     let input_commitment_index = input_commitment_index as usize;
@@ -630,7 +635,7 @@ pub fn finalize_verification_send_nullifier<'a, 'b, 'c>(
 
         if tree_index != 0 {
             // TODO: add support for arbitrary MTs
-            return Err(FeatureNotAvailable.into());
+            return Err(ElusivError::FeatureNotAvailable.into());
         }
 
         if index == input_commitment_index {
@@ -669,23 +674,23 @@ pub fn finalize_verification_transfer_lamports<'a>(
     let request = verification_account.get_request();
     let join_split = proof_request!(&request, public_inputs, public_inputs.join_split_inputs());
 
-    guard!(join_split.token_id == 0, InvalidAccountState);
+    guard!(join_split.token_id == 0, ElusivError::InvalidAccountState);
 
     guard!(
         matches!(
             verification_account.get_state(),
             VerificationState::Finalized
         ),
-        InvalidAccountState
+        ElusivError::InvalidAccountState
     );
     guard!(
         original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(),
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
     guard!(
         *nullifier_duplicate_account.key
             == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?,
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
 
     // Invalid proof
@@ -812,27 +817,27 @@ pub fn finalize_verification_transfer_token<'a>(
     let recipient_address = data.recipient_wallet.option().unwrap().skip_mr();
 
     let token_id = join_split.token_id;
-    guard!(token_id > 0, InvalidAccountState);
+    guard!(token_id > 0, ElusivError::InvalidAccountState);
 
     guard!(
         matches!(
             verification_account.get_state(),
             VerificationState::Finalized
         ),
-        InvalidAccountState
+        ElusivError::InvalidAccountState
     );
     guard!(
         original_fee_payer.key.to_bytes() == data.fee_payer.skip_mr(),
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
     guard!(
         original_fee_payer_account.key.to_bytes() == data.fee_payer_account.skip_mr(),
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
     guard!(
         *nullifier_duplicate_account.key
             == join_split.create_nullifier_duplicate_pda(nullifier_duplicate_account)?,
-        InvalidAccount
+        ElusivError::InvalidAccount
     );
 
     verify_program_token_account(pool, pool_account, token_id)?;
@@ -909,7 +914,7 @@ pub fn finalize_verification_transfer_token<'a>(
                     // Check if associated token accounts exists
                     guard!(
                         *mint_account.key == elusiv_token(token_id)?.mint,
-                        InvalidAccount
+                        ElusivError::InvalidAccount
                     );
 
                     // We use signer (since it's an available system account) to sign the creation of the associated token account (refunded at the end)
@@ -1070,15 +1075,15 @@ fn check_join_split_public_inputs(
     // Check that the resulting commitment is not the zero-commitment
     guard!(
         public_inputs.output_commitment.skip_mr() != ZERO_COMMITMENT_RAW,
-        InvalidPublicInputs
+        ElusivError::InvalidPublicInputs
     );
     guard!(
         public_inputs.input_commitments[0].root.is_some(),
-        InvalidPublicInputs
+        ElusivError::InvalidPublicInputs
     );
     guard!(
         public_inputs.input_commitments.len() <= JOIN_SPLIT_MAX_N_ARITY,
-        InvalidPublicInputs
+        ElusivError::InvalidPublicInputs
     );
 
     let active_tree_index = storage_account.get_trees_count();
@@ -1103,14 +1108,14 @@ fn check_join_split_public_inputs(
                 if tree_indices[index] == active_tree_index {
                     // Active tree
                     guard!(
-                        storage_account.is_root_valid(root.reduce()),
-                        InvalidMerkleRoot
+                        storage_account.is_root_valid(&root.reduce()),
+                        ElusivError::InvalidMerkleRoot
                     );
                 } else {
                     // Closed tree
                     guard!(
                         root.reduce() == nullifier_accounts[index].get_root(),
-                        InvalidMerkleRoot
+                        ElusivError::InvalidMerkleRoot
                     );
                 }
             }
@@ -1122,15 +1127,18 @@ fn check_join_split_public_inputs(
     }
     guard!(
         !roots.is_empty() && roots.len() <= MAX_MT_COUNT,
-        InvalidPublicInputs
+        ElusivError::InvalidPublicInputs
     );
-    guard!(tree_indices.len() >= roots.len(), InvalidPublicInputs);
+    guard!(
+        tree_indices.len() >= roots.len(),
+        ElusivError::InvalidPublicInputs
+    );
 
     // All supplied MTs (storage/nullifier-accounts) are pairwise different
     if roots.len() > 1 {
         guard!(
             is_vec_duplicate_free(&tree_indices.to_vec()),
-            InvalidInstructionData
+            ElusivError::InvalidInstructionData
         );
     }
 
@@ -1143,7 +1151,10 @@ fn check_join_split_public_inputs(
 
             if input_commitment.nullifier_hash == public_inputs.input_commitments[j].nullifier_hash
             {
-                guard!(tree_index[i] != tree_index[j], InvalidPublicInputs);
+                guard!(
+                    tree_index[i] != tree_index[j],
+                    ElusivError::InvalidPublicInputs
+                );
             }
         }
 
@@ -1152,7 +1163,7 @@ fn check_join_split_public_inputs(
         guard!(
             nullifier_accounts[tree_index[i]]
                 .can_insert_nullifier_hash(input_commitment.nullifier_hash.reduce())?,
-            CouldNotInsertNullifier
+            ElusivError::CouldNotInsertNullifier
         );
     }
 
@@ -1167,7 +1178,7 @@ fn enforce_instruction_siblings<I: InstructionsSysvar>(
 ) -> Result<(), ProgramError> {
     guard!(
         current_sibling_index < instructions.len(),
-        InvalidOtherInstruction
+        ElusivError::InvalidOtherInstruction
     );
 
     fn get_elusiv_ix_index<I: InstructionsSysvar>(
@@ -1175,14 +1186,14 @@ fn enforce_instruction_siblings<I: InstructionsSysvar>(
         instruction_sysvar: &I,
     ) -> Result<u8, ProgramError> {
         let ix = instruction_sysvar.instruction_at_index(ix_index)?;
-        guard!(ix.program_id == crate::id(), InvalidAccount);
+        guard!(ix.program_id == crate::id(), ElusivError::InvalidAccount);
         Ok(ix.data[0])
     }
 
     let ix_index = instruction_sysvar.current_index()? as usize;
     guard!(
         instructions[current_sibling_index] == get_elusiv_ix_index(ix_index, instruction_sysvar)?,
-        InvalidOtherInstruction
+        ElusivError::InvalidOtherInstruction
     );
     let zero_ix_index = ix_index
         .checked_sub(current_sibling_index)
@@ -1191,13 +1202,13 @@ fn enforce_instruction_siblings<I: InstructionsSysvar>(
     for (i, instruction) in instructions.iter().enumerate().take(current_sibling_index) {
         guard!(
             *instruction == get_elusiv_ix_index(zero_ix_index + i, instruction_sysvar)?,
-            InvalidOtherInstruction
+            ElusivError::InvalidOtherInstruction
         );
     }
     for (i, instruction) in instructions.iter().skip(current_sibling_index).enumerate() {
         guard!(
             *instruction == get_elusiv_ix_index(ix_index + i, instruction_sysvar)?,
-            InvalidOtherInstruction
+            ElusivError::InvalidOtherInstruction
         );
     }
 
@@ -1261,25 +1272,34 @@ fn enforce_instruction<I: InstructionsSysvar>(
 
     guard!(
         instruction.program_id == expected.program_id,
-        InvalidOtherInstruction
+        ElusivError::InvalidOtherInstruction
     );
 
     if !ignore_data {
-        guard!(instruction.data == expected.data, InvalidOtherInstruction);
+        guard!(
+            instruction.data == expected.data,
+            ElusivError::InvalidOtherInstruction
+        );
     }
 
     for (i, account) in expected.accounts.iter().enumerate() {
         guard!(
             instruction.accounts[i].pubkey == account.pubkey,
-            InvalidOtherInstruction
+            ElusivError::InvalidOtherInstruction
         );
 
         if account.is_signer {
-            guard!(instruction.accounts[i].is_signer, InvalidOtherInstruction);
+            guard!(
+                instruction.accounts[i].is_signer,
+                ElusivError::InvalidOtherInstruction
+            );
         }
 
         if account.is_writable {
-            guard!(instruction.accounts[i].is_writable, InvalidOtherInstruction);
+            guard!(
+                instruction.accounts[i].is_writable,
+                ElusivError::InvalidOtherInstruction
+            );
         }
     }
 
@@ -1409,8 +1429,8 @@ mod tests {
     fn test_init_verification() {
         use ProofRequest::*;
 
-        parent_account!(s, StorageAccount);
-        parent_account!(mut n, NullifierAccount);
+        parent_account!(storage, StorageAccount);
+        parent_account!(mut nullifier, NullifierAccount);
         test_account_info!(fee_payer, 0);
         test_account_info!(identifier, 0);
         account_info!(
@@ -1448,7 +1468,7 @@ mod tests {
         let mut data = vec![0; VKeyAccount::SIZE];
         let mut vkey = VKeyAccount::new(&mut data).unwrap();
         vkey.set_public_inputs_count(&SendQuadraVKey::PUBLIC_INPUTS_COUNT);
-        vkey.set_is_frozen(&true);
+        vkey.set_version(&1);
 
         // TODO: test skip nullifier pda
         // TODO: wrong vkey-id
@@ -1462,9 +1482,9 @@ mod tests {
                 &vkey,
                 &n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 RESERVED_VACCS_PER_FEE_PAYER,
                 vkey_id,
                 [0, 1],
@@ -1482,9 +1502,9 @@ mod tests {
                 &vkey,
                 &n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [0, 1],
@@ -1504,9 +1524,9 @@ mod tests {
                 &vkey,
                 &n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [0, 1],
@@ -1527,9 +1547,9 @@ mod tests {
                 &vkey,
                 &n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [0, 1],
@@ -1549,9 +1569,9 @@ mod tests {
                 &vkey,
                 &n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [1, 0],
@@ -1569,9 +1589,9 @@ mod tests {
                 &vkey,
                 &n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [0, 1],
@@ -1584,12 +1604,13 @@ mod tests {
         );
 
         // Nullifier already exists
-        n.try_insert_nullifier_hash(
-            inputs.join_split.input_commitments[0]
-                .nullifier_hash
-                .reduce(),
-        )
-        .unwrap();
+        nullifier
+            .try_insert_nullifier_hash(
+                inputs.join_split.input_commitments[0]
+                    .nullifier_hash
+                    .reduce(),
+            )
+            .unwrap();
         assert_matches!(
             init_verification(
                 &fee_payer,
@@ -1597,9 +1618,9 @@ mod tests {
                 &vkey,
                 &n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [0, 1],
@@ -1610,7 +1631,7 @@ mod tests {
         );
 
         // Invalid nullifier_duplicate_account
-        parent_account!(n, NullifierAccount);
+        parent_account!(nullifier, NullifierAccount);
         account_info!(
             invalid_n_duplicate_acc,
             VerificationAccount::find_with_pubkey(*fee_payer.key, Some(0)).0,
@@ -1623,9 +1644,9 @@ mod tests {
                 &vkey,
                 &invalid_n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [0, 1],
@@ -1643,9 +1664,9 @@ mod tests {
                 &vkey,
                 &invalid_n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [0, 1],
@@ -1663,9 +1684,9 @@ mod tests {
                 &vkey,
                 &n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [0, 1],
@@ -1686,9 +1707,9 @@ mod tests {
                 &vkey,
                 &n_duplicate_acc,
                 &identifier,
-                &s,
-                &n,
-                &n,
+                &storage,
+                &nullifier,
+                &nullifier,
                 0,
                 vkey_id,
                 [0, 1],
@@ -1702,8 +1723,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_init_verification_commitment_count_too_high() {
-        parent_account!(s, StorageAccount);
-        parent_account!(n, NullifierAccount);
+        parent_account!(storage, StorageAccount);
+        parent_account!(nullifier, NullifierAccount);
         test_account_info!(fee_payer, 0);
         test_account_info!(identifier, 0);
         account_info!(
@@ -1755,9 +1776,9 @@ mod tests {
             &vkey,
             &n_duplicate_acc,
             &identifier,
-            &s,
-            &n,
-            &n,
+            &storage,
+            &nullifier,
+            &nullifier,
             0,
             0,
             [0, 1],
@@ -1768,14 +1789,14 @@ mod tests {
 
     #[test]
     fn test_init_verification_transfer_fee_lamports() {
-        test_account_info!(f, 0); // fee_payer
+        test_account_info!(fee_payer, 0);
         test_account_info!(pool, 0);
-        test_account_info!(fee_c, 0); // fee_collector
+        test_account_info!(fee_collector, 0);
         test_account_info!(any, 0);
         account_info!(sys, system_program::id());
         account_info!(spl, spl_token::id());
-        zero_program_account!(mut g, GovernorAccount);
-        g.set_program_fee(&fee());
+        zero_program_account!(mut governor, GovernorAccount);
+        governor.set_program_fee(&fee());
 
         let mut inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
@@ -1804,25 +1825,25 @@ mod tests {
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
         verification_acc.set_prepare_inputs_instructions_count(&(instructions.len() as u32));
         verification_acc.set_other_data(&VerificationAccountData {
-            fee_payer: RawU256::new(f.key.to_bytes()),
+            fee_payer: RawU256::new(fee_payer.key.to_bytes()),
             ..Default::default()
         });
 
         // TODO: Associated token-account with lamports is invalid
 
         // Invalid fee_payer
-        test_account_info!(f2, 0);
+        test_account_info!(fee_payer2, 0);
         assert_matches!(
             init_verification_transfer_fee(
-                &f2,
-                &f,
+                &fee_payer2,
+                &fee_payer,
                 &pool,
                 &pool,
-                &fee_c,
-                &fee_c,
+                &fee_collector,
+                &fee_collector,
                 &any,
                 &any,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &sys,
                 &sys,
@@ -1835,15 +1856,15 @@ mod tests {
         verification_acc.set_state(&VerificationState::FeeTransferred);
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
-                &f,
+                &fee_payer,
+                &fee_payer,
                 &pool,
                 &pool,
-                &fee_c,
-                &fee_c,
+                &fee_collector,
+                &fee_collector,
                 &any,
                 &any,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &sys,
                 &sys,
@@ -1854,18 +1875,18 @@ mod tests {
 
         // Invalid fee_version
         verification_acc.set_state(&VerificationState::None);
-        g.set_fee_version(&1);
+        governor.set_fee_version(&1);
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
-                &f,
+                &fee_payer,
+                &fee_payer,
                 &pool,
                 &pool,
-                &fee_c,
-                &fee_c,
+                &fee_collector,
+                &fee_collector,
                 &any,
                 &any,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &sys,
                 &sys,
@@ -1875,20 +1896,20 @@ mod tests {
         );
 
         // Invalid fee (fee too low, since too high is allowed)
-        g.set_fee_version(&0);
+        governor.set_fee_version(&0);
         inputs.join_split.fee -= 1;
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
-                &f,
+                &fee_payer,
+                &fee_payer,
                 &pool,
                 &pool,
-                &fee_c,
-                &fee_c,
+                &fee_collector,
+                &fee_collector,
                 &any,
                 &any,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &sys,
                 &sys,
@@ -1903,15 +1924,15 @@ mod tests {
         verification_acc.set_request(&ProofRequest::Send(inputs));
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
-                &f,
+                &fee_payer,
+                &fee_payer,
                 &pool,
                 &pool,
-                &fee_c,
-                &fee_c,
+                &fee_collector,
+                &fee_collector,
                 &any,
                 &any,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &sys,
                 &spl,
@@ -1923,15 +1944,15 @@ mod tests {
         // Invalid pool_account
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
-                &f,
+                &fee_payer,
+                &fee_payer,
                 &pool,
                 &any,
-                &fee_c,
-                &fee_c,
+                &fee_collector,
+                &fee_collector,
                 &any,
                 &any,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &sys,
                 &sys,
@@ -1943,15 +1964,15 @@ mod tests {
         // Invalid fee_collector_account
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
-                &f,
+                &fee_payer,
+                &fee_payer,
                 &pool,
                 &pool,
-                &fee_c,
+                &fee_collector,
                 &any,
                 &any,
                 &any,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &sys,
                 &sys,
@@ -1962,15 +1983,15 @@ mod tests {
 
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
-                &f,
+                &fee_payer,
+                &fee_payer,
                 &pool,
                 &pool,
-                &fee_c,
-                &fee_c,
+                &fee_collector,
+                &fee_collector,
                 &any,
                 &any,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &sys,
                 &sys,
@@ -1987,11 +2008,11 @@ mod tests {
 
     #[test]
     fn test_init_verification_transfer_fee_token() {
-        test_account_info!(f, 0); // fee_payer
+        test_account_info!(fee_payer, 0);
         account_info!(sys, system_program::id());
         account_info!(spl, spl_token::id());
-        zero_program_account!(mut g, GovernorAccount);
-        g.set_program_fee(&fee());
+        zero_program_account!(mut governor, GovernorAccount);
+        governor.set_program_fee(&fee());
 
         account_info!(
             token_acc,
@@ -2009,9 +2030,9 @@ mod tests {
         );
 
         test_pda_account_info!(pool, PoolAccount, None);
-        test_pda_account_info!(fee_c, FeeCollectorAccount, None);
+        test_pda_account_info!(fee_collector, FeeCollectorAccount, None);
         program_token_account_info!(pool_token, PoolAccount, USDC_TOKEN_ID);
-        program_token_account_info!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+        program_token_account_info!(fee_collector_token, FeeCollectorAccount, USDC_TOKEN_ID);
 
         let sol_usd = Price {
             price: 39,
@@ -2054,7 +2075,7 @@ mod tests {
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
         verification_acc.set_prepare_inputs_instructions_count(&(instructions.len() as u32));
         verification_acc.set_other_data(&VerificationAccountData {
-            fee_payer: RawU256::new(f.key.to_bytes()),
+            fee_payer: RawU256::new(fee_payer.key.to_bytes()),
             ..Default::default()
         });
 
@@ -2063,15 +2084,15 @@ mod tests {
         verification_acc.set_request(&ProofRequest::Send(inputs.clone()));
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
+                &fee_payer,
                 &token_acc,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &sol,
                 &usdc,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &spl,
                 &sys,
@@ -2087,15 +2108,15 @@ mod tests {
         // Invalid system_program
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
+                &fee_payer,
                 &token_acc,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &sol,
                 &usdc,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &spl,
                 &spl,
@@ -2107,15 +2128,15 @@ mod tests {
         // Invalid token_program
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
+                &fee_payer,
                 &token_acc,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &sol,
                 &usdc,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &sys,
                 &sys,
@@ -2127,15 +2148,15 @@ mod tests {
         // Invalid fee_payer_account
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
+                &fee_payer,
                 &wrong_token_acc,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &sol,
                 &usdc,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &spl,
                 &sys,
@@ -2147,15 +2168,15 @@ mod tests {
         // Invalid pool_account
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
+                &fee_payer,
                 &token_acc,
                 &pool,
-                &fee_c_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector_token,
+                &fee_collector,
+                &fee_collector_token,
                 &sol,
                 &usdc,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &spl,
                 &sys,
@@ -2167,15 +2188,15 @@ mod tests {
         // Invalid fee_collector_account
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
+                &fee_payer,
                 &token_acc,
                 &pool,
                 &pool_token,
-                &fee_c,
+                &fee_collector,
                 &pool_token,
                 &sol,
                 &usdc,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &spl,
                 &sys,
@@ -2187,15 +2208,15 @@ mod tests {
         // Invalid sol_usd_price_account
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
+                &fee_payer,
                 &token_acc,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &usdc,
                 &usdc,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &spl,
                 &sys,
@@ -2207,15 +2228,15 @@ mod tests {
         // Invalid token_usd_price_account
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
+                &fee_payer,
                 &token_acc,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &sol,
                 &sol,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &spl,
                 &sys,
@@ -2226,15 +2247,15 @@ mod tests {
 
         assert_matches!(
             init_verification_transfer_fee(
-                &f,
+                &fee_payer,
                 &token_acc,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &sol,
                 &usdc,
-                &g,
+                &governor,
                 &mut verification_acc,
                 &spl,
                 &sys,
@@ -2309,7 +2330,7 @@ mod tests {
     fn test_compute_verification() {
         zero_program_account!(mut verification_account, VerificationAccount);
         vkey_account!(vkey, SendQuadraVKey);
-        vkey.set_is_frozen(&true);
+        vkey.set_version(&1);
         test_account_info!(any, 0);
 
         // Setup
@@ -2823,16 +2844,16 @@ mod tests {
         );
 
         account_info!(recipient, Pubkey::new_from_array(recipient_bytes));
-        let fee_payer = Pubkey::new(
+        let fee_payer_pk = Pubkey::new(
             &VerificationAccount::new(&mut verification_acc_data)
                 .unwrap()
                 .get_other_data()
                 .fee_payer
                 .skip_mr(),
         );
-        account_info!(f, fee_payer); // fee_payer
+        account_info!(f, fee_payer_pk); // fee_payer
         test_account_info!(pool, 0);
-        test_account_info!(fee_c, 0);
+        test_account_info!(fee_collector, 0);
         test_account_info!(any, 0);
         test_pda_account_info!(
             n_pda,
@@ -2855,7 +2876,15 @@ mod tests {
         // Invalid state
         assert_matches!(
             finalize_verification_transfer_lamports(
-                &f, &recipient, &pool, &fee_c, &mut queue, &v_acc, &n_pda, &any, 0
+                &f,
+                &recipient,
+                &pool,
+                &fee_collector,
+                &mut queue,
+                &v_acc,
+                &n_pda,
+                &any,
+                0
             ),
             Err(_)
         );
@@ -2876,7 +2905,7 @@ mod tests {
                 &f,
                 &recipient,
                 &pool,
-                &fee_c,
+                &fee_collector,
                 &mut queue,
                 &v_acc,
                 &invalid_n_pda,
@@ -2889,7 +2918,15 @@ mod tests {
         // Invalid original_fee_payer
         assert_matches!(
             finalize_verification_transfer_lamports(
-                &any, &recipient, &pool, &fee_c, &mut queue, &v_acc, &n_pda, &any, 0
+                &any,
+                &recipient,
+                &pool,
+                &fee_collector,
+                &mut queue,
+                &v_acc,
+                &n_pda,
+                &any,
+                0
             ),
             Err(_)
         );
@@ -2897,7 +2934,15 @@ mod tests {
         // Invalid recipient
         assert_matches!(
             finalize_verification_transfer_lamports(
-                &f, &any, &pool, &fee_c, &mut queue, &v_acc, &n_pda, &any, 0
+                &f,
+                &any,
+                &pool,
+                &fee_collector,
+                &mut queue,
+                &v_acc,
+                &n_pda,
+                &any,
+                0
             ),
             Err(_)
         );
@@ -2917,7 +2962,15 @@ mod tests {
         }
         assert_matches!(
             finalize_verification_transfer_lamports(
-                &f, &recipient, &pool, &fee_c, &mut queue, &v_acc, &n_pda, &any, 0
+                &f,
+                &recipient,
+                &pool,
+                &fee_collector,
+                &mut queue,
+                &v_acc,
+                &n_pda,
+                &any,
+                0
             ),
             Err(_)
         );
@@ -2927,7 +2980,15 @@ mod tests {
 
         assert_matches!(
             finalize_verification_transfer_lamports(
-                &f, &recipient, &pool, &fee_c, &mut queue, &v_acc, &n_pda, &any, 0
+                &f,
+                &recipient,
+                &pool,
+                &fee_collector,
+                &mut queue,
+                &v_acc,
+                &n_pda,
+                &any,
+                0
             ),
             Ok(())
         );
@@ -2953,16 +3014,16 @@ mod tests {
             _f
         );
 
-        let fee_payer = Pubkey::new(
+        let fee_payer_pk = Pubkey::new(
             &VerificationAccount::new(&mut verification_acc_data)
                 .unwrap()
                 .get_other_data()
                 .fee_payer
                 .skip_mr(),
         );
-        account_info!(f, fee_payer); // fee_payer
+        account_info!(f, fee_payer_pk); // fee_payer
         test_account_info!(pool, 0);
-        test_account_info!(fee_c, 0);
+        test_account_info!(fee_collector, 0);
         test_account_info!(any, 0);
         test_pda_account_info!(
             n_pda,
@@ -2987,7 +3048,15 @@ mod tests {
         account_info!(recipient, Pubkey::new_unique());
         assert_matches!(
             finalize_verification_transfer_lamports(
-                &f, &recipient, &pool, &fee_c, &mut queue, &v_acc, &n_pda, &any, 0
+                &f,
+                &recipient,
+                &pool,
+                &fee_collector,
+                &mut queue,
+                &v_acc,
+                &n_pda,
+                &any,
+                0
             ),
             Ok(())
         );
@@ -3009,20 +3078,26 @@ mod tests {
         );
 
         account_info!(r, Pubkey::new_from_array(recipient_bytes));
-        let fee_payer = Pubkey::new(
+        let fee_payer_pk = Pubkey::new(
             &VerificationAccount::new(&mut verification_acc_data)
                 .unwrap()
                 .get_other_data()
                 .fee_payer
                 .skip_mr(),
         );
-        account_info!(f, fee_payer, vec![]); // fee_payer
-        account_info!(f_token, fee_payer, vec![], spl_token::id(), false); // fee_payer
+        account_info!(fee_payer, fee_payer_pk, vec![]);
+        account_info!(
+            fee_payer_token,
+            fee_payer_pk,
+            vec![],
+            spl_token::id(),
+            false
+        );
 
         test_pda_account_info!(pool, PoolAccount, None);
-        test_pda_account_info!(fee_c, FeeCollectorAccount, None);
+        test_pda_account_info!(fee_collector, FeeCollectorAccount, None);
         program_token_account_info!(pool_token, PoolAccount, USDC_TOKEN_ID);
-        program_token_account_info!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+        program_token_account_info!(fee_collector_token, FeeCollectorAccount, USDC_TOKEN_ID);
 
         test_account_info!(any, 0);
         account_info!(spl, spl_token::id(), vec![]);
@@ -3047,14 +3122,14 @@ mod tests {
         // Invalid pool_account
         assert_matches!(
             finalize_verification_transfer_token(
-                &f,
-                &f_token,
+                &fee_payer,
+                &fee_payer_token,
                 &r,
                 &r,
                 &pool,
-                &fee_c_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector_token,
+                &fee_collector,
+                &fee_collector_token,
                 &mut queue,
                 &v_acc,
                 &n_pda,
@@ -3069,13 +3144,13 @@ mod tests {
         // Invalid fee_collector_account
         assert_matches!(
             finalize_verification_transfer_token(
-                &f,
-                &f_token,
+                &fee_payer,
+                &fee_payer_token,
                 &r,
                 &r,
                 &pool,
                 &pool_token,
-                &fee_c,
+                &fee_collector,
                 &pool_token,
                 &mut queue,
                 &v_acc,
@@ -3091,14 +3166,14 @@ mod tests {
         // Invalid token_program
         assert_matches!(
             finalize_verification_transfer_token(
-                &f,
-                &f_token,
+                &fee_payer,
+                &fee_payer_token,
                 &r,
                 &r,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &mut queue,
                 &v_acc,
                 &n_pda,
@@ -3114,13 +3189,13 @@ mod tests {
         assert_matches!(
             finalize_verification_transfer_token(
                 &any,
-                &f_token,
+                &fee_payer_token,
                 &r,
                 &r,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &mut queue,
                 &v_acc,
                 &n_pda,
@@ -3135,14 +3210,14 @@ mod tests {
         // Invalid recipient
         assert_matches!(
             finalize_verification_transfer_token(
-                &f,
-                &f_token,
+                &fee_payer,
+                &fee_payer_token,
                 &any,
                 &r,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &mut queue,
                 &v_acc,
                 &n_pda,
@@ -3156,14 +3231,14 @@ mod tests {
 
         assert_matches!(
             finalize_verification_transfer_token(
-                &f,
-                &f_token,
+                &fee_payer,
+                &fee_payer_token,
                 &r,
                 &r,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &mut queue,
                 &v_acc,
                 &n_pda,
@@ -3196,20 +3271,26 @@ mod tests {
             _f
         );
 
-        let fee_payer = Pubkey::new(
+        let fee_payer_pk = Pubkey::new(
             &VerificationAccount::new(&mut verification_acc_data)
                 .unwrap()
                 .get_other_data()
                 .fee_payer
                 .skip_mr(),
         );
-        account_info!(f, fee_payer, vec![]); // fee_payer
-        account_info!(f_token, fee_payer, vec![], spl_token::id(), false); // fee_payer
+        account_info!(fee_payer, fee_payer_pk, vec![]);
+        account_info!(
+            fee_payer_token,
+            fee_payer_pk,
+            vec![],
+            spl_token::id(),
+            false
+        );
 
         test_pda_account_info!(pool, PoolAccount, None);
-        test_pda_account_info!(fee_c, FeeCollectorAccount, None);
+        test_pda_account_info!(fee_collector, FeeCollectorAccount, None);
         program_token_account_info!(pool_token, PoolAccount, USDC_TOKEN_ID);
-        program_token_account_info!(fee_c_token, FeeCollectorAccount, USDC_TOKEN_ID);
+        program_token_account_info!(fee_collector_token, FeeCollectorAccount, USDC_TOKEN_ID);
 
         test_account_info!(any, 0);
         account_info!(spl, spl_token::id(), vec![]);
@@ -3235,14 +3316,14 @@ mod tests {
         account_info!(r, Pubkey::new_unique());
         assert_matches!(
             finalize_verification_transfer_token(
-                &f,
-                &f_token,
+                &fee_payer,
+                &fee_payer_token,
                 &r,
                 &r,
                 &pool,
                 &pool_token,
-                &fee_c,
-                &fee_c_token,
+                &fee_collector,
+                &fee_collector_token,
                 &mut queue,
                 &v_acc,
                 &n_pda,

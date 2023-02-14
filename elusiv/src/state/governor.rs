@@ -3,6 +3,8 @@ use crate::macros::elusiv_account;
 
 #[elusiv_account(eager_type: true)]
 pub struct GovernorAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     /// The current fee-version (new requests are forced to use this version)
@@ -19,10 +21,14 @@ pub struct GovernorAccount {
 
 #[elusiv_account(eager_type: true)]
 pub struct PoolAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 }
 
 #[elusiv_account(eager_type: true)]
 pub struct FeeCollectorAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 }

@@ -4,7 +4,7 @@ pub mod poseidon_hash;
 mod poseidon_constants;
 
 use self::poseidon_hash::BinarySpongeHashingState;
-use crate::bytes::usize_as_u32_safe;
+use crate::bytes::{contains, usize_as_u32_safe};
 use crate::commitment::poseidon_hash::{binary_poseidon_hash_partial, TOTAL_POSEIDON_ROUNDS};
 use crate::error::ElusivError;
 use crate::error::ElusivError::ComputationIsAlreadyFinished;
@@ -31,6 +31,8 @@ const_assert_eq!(BaseCommitmentHashComputation::TX_COUNT, 2);
 /// - multiple of these accounts can exist
 #[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct BaseCommitmentHashingAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     pub instruction: u32,
@@ -115,8 +117,8 @@ pub const MAX_COMMITMENT_BATCHING_RATE: usize = 4;
 /// - batch sizes range: `[0; MAX_COMMITMENT_BATCHING_RATE]`
 struct CommitmentHashComputation<const BATCHING_RATE: usize>;
 
-/// Generates a `CommitmentHashComputation` with a specific `BATCHING_RATE`
-/// - the macro also verifies that `$hash_count$ is valid
+/// Generates a [`CommitmentHashComputation`] with a specific `BATCHING_RATE`
+/// - the macro also verifies that `$hash_count` is valid
 macro_rules! commitment_batch_hashing {
     ($batching_rate: literal, $hash_count: literal, $instruction_count: literal) => {
         elusiv_hash_compute_units!(CommitmentHashComputation<$batching_rate>, $hash_count);
@@ -194,6 +196,8 @@ const_assert_eq!(MAX_HT_COMMITMENTS, 16);
 /// - only one of these accounts can exist per MT
 #[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct CommitmentHashingAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     pub instruction: u32,
@@ -431,6 +435,65 @@ impl<'a> CommitmentHashingAccount<'a> {
     }
 }
 
+macro_rules! buffer_account {
+    ($ident: ident, $ty: ty, $size: expr) => {
+        #[allow(dead_code)]
+        #[elusiv_account]
+        pub struct $ident {
+            #[no_getter]
+            #[no_setter]
+            pda_data: PDAAccountData,
+
+            #[no_getter]
+            values: [$ty; $size],
+            len: u32,
+            ptr: u32,
+        }
+
+        #[cfg(test)]
+        const_assert!($size < u32::MAX as usize);
+
+        impl<'a> $ident<'a> {
+            pub const CAPACITY: u32 = $size;
+
+            pub fn contains(&self, value: &$ty) -> bool {
+                let len = self.get_len() as usize;
+                if len == 0 {
+                    return false;
+                }
+
+                contains(
+                    value,
+                    &self.values[..len * <$ty as elusiv_types::bytes::BorshSerDeSized>::SIZE],
+                )
+            }
+
+            pub fn push(&mut self, value: &$ty) {
+                let ptr = self.get_ptr() % $size;
+                self.set_values(ptr as usize, value);
+                self.set_ptr(&((ptr + 1) % $size));
+
+                let len = self.get_len();
+                self.set_len(&std::cmp::min(len + 1, Self::CAPACITY))
+            }
+
+            pub fn try_insert(&mut self, value: &$ty) -> Result<(), ElusivError> {
+                if self.contains(value) {
+                    return Err(ElusivError::DuplicateValue);
+                }
+
+                self.push(value);
+
+                Ok(())
+            }
+        }
+    };
+}
+
+buffer_account!(BaseCommitmentBufferAccount, U256, 128);
+
+// buffer_account!(CommitmentBufferAccount, U256, 128);
+
 #[cfg(test)]
 pub fn base_commitment_request(
     bc: &str,
@@ -454,12 +517,9 @@ pub fn base_commitment_request(
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::max;
-    use std::str::FromStr;
-
     use super::*;
     use crate::fields::{u256_from_str, u64_to_scalar, u64_to_scalar_skip_mr, u64_to_u256_skip_mr};
-    use crate::macros::parent_account;
+    use crate::macros::{parent_account, zero_program_account};
     use crate::state::program_account::{ProgramAccount, SizedAccount};
     use crate::state::EMPTY_TREE;
     use crate::types::RawU256;
@@ -467,6 +527,8 @@ mod tests {
     use ark_ff::Zero;
     use assert_matches::assert_matches;
     use solana_program::native_token::LAMPORTS_PER_SOL;
+    use std::cmp::max;
+    use std::str::FromStr;
 
     fn u64_to_u256(v: u64) -> U256 {
         fr_to_u256_le(&u64_to_scalar(v))
@@ -868,5 +930,81 @@ mod tests {
         account
             .reset(batching_rate, fee_version, &commitments)
             .unwrap();
+    }
+
+    #[test]
+    fn test_base_commitment_buffer_account_contains() {
+        zero_program_account!(mut buffer, BaseCommitmentBufferAccount);
+
+        assert!(!buffer.contains(&[0; 32]));
+
+        buffer.set_len(&(BaseCommitmentBufferAccount::CAPACITY));
+        for i in 0..BaseCommitmentBufferAccount::CAPACITY {
+            buffer.set_values(i as usize, &u64_to_u256(i as u64));
+        }
+
+        for i in 0..BaseCommitmentBufferAccount::CAPACITY {
+            assert!(buffer.contains(&u64_to_u256(i as u64)));
+        }
+
+        assert!(!buffer.contains(&u64_to_u256(
+            BaseCommitmentBufferAccount::CAPACITY as u64 + 1
+        )));
+    }
+
+    #[test]
+    fn test_base_commitment_buffer_account_push() {
+        zero_program_account!(mut buffer, BaseCommitmentBufferAccount);
+
+        assert_eq!(buffer.get_len(), 0);
+        assert_eq!(buffer.get_ptr(), 0);
+
+        for i in 1..=BaseCommitmentBufferAccount::CAPACITY {
+            buffer.push(&u64_to_u256(i as u64));
+
+            assert_eq!(buffer.get_len(), i);
+            assert_eq!(buffer.get_ptr(), i % BaseCommitmentBufferAccount::CAPACITY);
+        }
+
+        buffer.push(&u64_to_u256(0));
+        assert_eq!(buffer.get_len(), BaseCommitmentBufferAccount::CAPACITY);
+        assert_eq!(buffer.get_ptr(), 1);
+    }
+
+    #[test]
+    fn test_base_commitment_buffer_account_try_insert() {
+        zero_program_account!(mut buffer, BaseCommitmentBufferAccount);
+
+        for i in 1..=BaseCommitmentBufferAccount::CAPACITY {
+            assert_matches!(buffer.try_insert(&u64_to_u256(i as u64)), Ok(()));
+
+            assert_eq!(buffer.get_len(), i);
+            assert_eq!(buffer.get_ptr(), i % BaseCommitmentBufferAccount::CAPACITY);
+        }
+
+        // Duplicates get rejected
+        let values = buffer.values.to_vec();
+        for i in 1..=BaseCommitmentBufferAccount::CAPACITY {
+            assert_matches!(buffer.try_insert(&u64_to_u256(i as u64)), Err(_));
+
+            assert_eq!(buffer.get_len(), BaseCommitmentBufferAccount::CAPACITY);
+            assert_eq!(buffer.get_ptr(), 0);
+            assert_eq!(buffer.values, values);
+        }
+
+        // FIFO
+        for i in 1..=BaseCommitmentBufferAccount::CAPACITY {
+            assert!(buffer.contains(&u64_to_u256(i as u64)));
+            assert_matches!(
+                buffer.try_insert(&u64_to_u256(
+                    (i + BaseCommitmentBufferAccount::CAPACITY) as u64
+                )),
+                Ok(())
+            );
+            assert!(!buffer.contains(&u64_to_u256(i as u64)));
+
+            assert_eq!(buffer.get_len(), BaseCommitmentBufferAccount::CAPACITY);
+            assert_eq!(buffer.get_ptr(), i % BaseCommitmentBufferAccount::CAPACITY);
+        }
     }
 }

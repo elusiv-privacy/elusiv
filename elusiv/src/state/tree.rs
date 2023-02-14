@@ -30,6 +30,8 @@ impl ChildAccount for NullifierChildAccount {
 /// - we use [`NullifierMap`]s to store the nullifiers
 #[elusiv_account(parent_account: { child_account_count: ACCOUNTS_COUNT, child_account: NullifierChildAccount }, eager_type: true)]
 pub struct NullifierAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
     pubkeys: [ElusivOption<Pubkey>; ACCOUNTS_COUNT],
 
@@ -40,6 +42,8 @@ pub struct NullifierAccount {
 /// Tree account after archiving (only a single collapsed N-SMT root)
 #[elusiv_account]
 pub struct ArchivedTreeAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
 
     commitment_root: U256,

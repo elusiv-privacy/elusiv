@@ -7,12 +7,6 @@ use elusiv_proc_macros::elusiv_account;
 use elusiv_types::{BorshSerDeSized, ChildAccount, ElusivOption, PDAAccountData};
 use solana_program::pubkey::Pubkey;
 
-#[elusiv_account(eager_type: true)]
-pub struct VKeyAccountManangerAccount {
-    pda_data: PDAAccountData,
-    pub active_vkey_count: u32,
-}
-
 pub struct VKeyChildAccount;
 
 impl ChildAccount for VKeyChildAccount {
@@ -22,6 +16,8 @@ impl ChildAccount for VKeyChildAccount {
 /// Account used for storing a single immutable [`VerifyingKey`]
 #[elusiv_account(parent_account: { child_account_count: 2, child_account: VKeyChildAccount }, eager_type: true)]
 pub struct VKeyAccount {
+    #[no_getter]
+    #[no_setter]
     pda_data: PDAAccountData,
     pubkeys: [ElusivOption<Pubkey>; 2],
 

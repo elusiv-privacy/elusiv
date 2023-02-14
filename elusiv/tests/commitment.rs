@@ -257,7 +257,7 @@ async fn test_base_commitment_lamports() {
         1,
     );
     let request1 = base_commitment_request(
-        "8337064132573119120838379738103457054645361649757131991036638108422638197362",
+        "8337064132573119120838379738103457054645361649757131991036638108422638197361",
         "21186803555845400161937398579081414146527572885637089779856221229551142844794",
         20 * LAMPORTS_PER_SOL,
         LAMPORTS_TOKEN_ID,
@@ -359,7 +359,7 @@ async fn test_base_commitment_lamports() {
     .await;
 
     // Correct batching rate and client has enough funds
-    test.ix_should_succeed(store_ix.clone(), &[&client.keypair, &warden_a.keypair])
+    test.ix_should_succeed(store_ix, &[&client.keypair, &warden_a.keypair])
         .await;
 
     pda_account!(
@@ -413,6 +413,18 @@ async fn test_base_commitment_lamports() {
             warden_a.pubkey,
         ),
         &[&client.keypair, &warden_a.keypair],
+    )
+    .await;
+
+    // Same request will fail due to a duplicate in the buffer
+    test.ix_should_fail(
+        ElusivInstruction::store_base_commitment_sol_instruction(
+            1,
+            request0.clone(),
+            client.pubkey,
+            warden_b.pubkey,
+        ),
+        &[&client.keypair, &warden_b.keypair],
     )
     .await;
 

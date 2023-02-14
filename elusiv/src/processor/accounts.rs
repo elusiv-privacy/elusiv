@@ -1,22 +1,18 @@
 use super::utils::*;
 use crate::bytes::{is_zero, BorshSerDeSized, ElusivOption};
-use crate::commitment::{CommitmentHashingAccount, DEFAULT_COMMITMENT_BATCHING_RATE};
-use crate::error::ElusivError::{
-    InvalidFeeVersion, InvalidInstructionData, MerkleTreeIsNotFullYet, SubAccountAlreadyExists,
+use crate::commitment::{
+    BaseCommitmentBufferAccount, CommitmentHashingAccount, DEFAULT_COMMITMENT_BATCHING_RATE,
 };
+use crate::error::ElusivError;
 use crate::macros::*;
-use crate::{bytes::usize_as_u32_safe, map::ElusivMap, processor::MATH_ERR};
-use crate::{
-    proof::vkey::VKeyAccountManangerAccount,
-    state::{
-        fee::{FeeAccount, ProgramFee},
-        governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
-        program_account::ProgramAccount,
-        queue::{CommitmentQueue, CommitmentQueueAccount, Queue},
-        NullifierAccount, NullifierChildAccount, StorageAccount, MT_COMMITMENT_COUNT,
-    },
+use crate::state::{
+    fee::{FeeAccount, ProgramFee},
+    governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
+    program_account::ProgramAccount,
+    queue::{CommitmentQueue, CommitmentQueueAccount, Queue},
+    NullifierAccount, NullifierChildAccount, StorageAccount, MT_COMMITMENT_COUNT,
 };
-use borsh::{BorshDeserialize, BorshSerialize};
+use crate::{bytes::usize_as_u32_safe, map::ElusivMap, processor::MATH_ERR};
 use elusiv_types::{
     split_child_account_data_mut, ChildAccount, ChildAccountConfig, ParentAccount, SizedAccount,
 };
@@ -25,91 +21,59 @@ use solana_program::{
     sysvar::Sysvar,
 };
 
-#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
-pub enum SingleInstancePDAAccountKind {
-    CommitmentHashingAccount,
-    CommitmentQueueAccount,
-    PoolAccount,
-    FeeCollectorAccount,
-    StorageAccount,
-    VKeyAccountManangerAccount,
-}
-
 /// Opens one single instance [`elusiv_types::PDAAccount`], as long this PDA does not already exist
-pub fn open_single_instance_account<'a>(
+pub fn open_single_instance_accounts<'a>(
     payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
-
-    kind: SingleInstancePDAAccountKind,
+    pool_account: &AccountInfo<'a>,
+    fee_collector_account: &AccountInfo<'a>,
+    commitment_hashing_account: &AccountInfo<'a>,
+    commitment_queue_account: &AccountInfo<'a>,
+    storage_account: &AccountInfo<'a>,
+    base_commitment_buffer_account: &AccountInfo<'a>,
 ) -> ProgramResult {
-    match kind {
-        SingleInstancePDAAccountKind::CommitmentHashingAccount => {
-            open_pda_account_without_offset::<CommitmentHashingAccount>(
-                &crate::id(),
-                payer,
-                pda_account,
-                None,
-            )
-        }
-        SingleInstancePDAAccountKind::CommitmentQueueAccount => {
-            open_pda_account_without_offset::<CommitmentQueueAccount>(
-                &crate::id(),
-                payer,
-                pda_account,
-                None,
-            )
-        }
-        SingleInstancePDAAccountKind::PoolAccount => {
-            open_pda_account_without_offset::<PoolAccount>(&crate::id(), payer, pda_account, None)
-        }
-        SingleInstancePDAAccountKind::FeeCollectorAccount => {
-            open_pda_account_without_offset::<FeeCollectorAccount>(
-                &crate::id(),
-                payer,
-                pda_account,
-                None,
-            )
-        }
-        SingleInstancePDAAccountKind::StorageAccount => open_pda_account_without_offset::<
-            StorageAccount,
-        >(
-            &crate::id(), payer, pda_account, None
-        ),
-        SingleInstancePDAAccountKind::VKeyAccountManangerAccount => {
-            open_pda_account_without_offset::<VKeyAccountManangerAccount>(
-                &crate::id(),
-                payer,
-                pda_account,
-                None,
-            )
-        }
-    }
+    open_pda_account_without_offset::<PoolAccount>(&crate::id(), payer, pool_account, None)?;
+    open_pda_account_without_offset::<FeeCollectorAccount>(
+        &crate::id(),
+        payer,
+        fee_collector_account,
+        None,
+    )?;
+    open_pda_account_without_offset::<CommitmentHashingAccount>(
+        &crate::id(),
+        payer,
+        commitment_hashing_account,
+        None,
+    )?;
+    open_pda_account_without_offset::<CommitmentQueueAccount>(
+        &crate::id(),
+        payer,
+        commitment_queue_account,
+        None,
+    )?;
+    open_pda_account_without_offset::<StorageAccount>(&crate::id(), payer, storage_account, None)?;
+    open_pda_account_without_offset::<BaseCommitmentBufferAccount>(
+        &crate::id(),
+        payer,
+        base_commitment_buffer_account,
+        None,
+    )?;
+
+    Ok(())
 }
 
-#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized)]
-pub enum MultiInstancePDAAccountKind {
-    NullifierAccount,
-}
-
-/// Opens one multi instance [`elusiv_types::PDAAccount`] with the offset [`Some(pda_offset)`], as long this PDA does not already exist
-pub fn open_multi_instance_account<'a>(
+pub fn open_nullifier_account<'a>(
     payer: &AccountInfo<'a>,
-    pda_account: &AccountInfo<'a>,
+    nullifier_account: &AccountInfo<'a>,
 
-    kind: MultiInstancePDAAccountKind,
-    pda_offset: u32,
+    mt_index: u32,
 ) -> ProgramResult {
-    match kind {
-        MultiInstancePDAAccountKind::NullifierAccount => {
-            open_pda_account_with_offset::<NullifierAccount>(
-                &crate::id(),
-                payer,
-                pda_account,
-                pda_offset,
-                None,
-            )
-        }
-    }
+    open_pda_account_with_offset::<NullifierAccount>(
+        &crate::id(),
+        payer,
+        nullifier_account,
+        mt_index,
+        None,
+    )
 }
 
 /// Enables the supplied child-account for the [`StorageAccount`]
@@ -130,8 +94,12 @@ pub fn enable_storage_child_account(
 }
 
 /// Enables the supplied child-account for a [`NullifierAccount`]
-/// - Note: requires a prior call to [`open_multi_instance_account`]
-/// - Note: the [`NullifierAccount`] will be useless until the MT with `index = merkle_tree_index - 1` is closed
+///
+/// # Notes
+///
+/// Requires a prior call to [`open_multi_instance_account`].
+///
+/// The [`NullifierAccount`] will be useless until the MT with `index = merkle_tree_index - 1` is closed.
 pub fn enable_nullifier_child_account(
     nullifier_account: &mut NullifierAccount,
     child_account: &AccountInfo,
@@ -167,11 +135,14 @@ pub fn reset_active_merkle_tree(
 ) -> ProgramResult {
     guard!(
         storage_account.get_trees_count() == active_merkle_tree_index,
-        InvalidInstructionData
+        ElusivError::InvalidInstructionData
     );
 
     let queue = CommitmentQueue::new(queue);
-    guard!(is_mt_full(storage_account, &queue)?, MerkleTreeIsNotFullYet);
+    guard!(
+        is_mt_full(storage_account, &queue)?,
+        ElusivError::MerkleTreeIsNotFullYet
+    );
 
     storage_account.set_trees_count(&(active_merkle_tree_index.checked_add(1).ok_or(MATH_ERR)?));
     active_nullifier_account.set_root(&storage_account.get_root()?);
@@ -208,7 +179,7 @@ pub fn archive_closed_merkle_tree<'a>(
 ) -> ProgramResult {
     guard!(
         storage_account.get_trees_count() > closed_merkle_tree_index,
-        InvalidInstructionData
+        ElusivError::InvalidInstructionData
     );
     panic!("N-SMT not implemented yet");
 }
@@ -259,8 +230,11 @@ pub fn init_new_fee_version<'a>(
     program_fee: ProgramFee,
 ) -> ProgramResult {
     // Note: we have no upgrade-authroity check here since with the current setup it's impossible to have a fee version higher than zero, so will be added once that changes
-    guard!(fee_version == governor.get_fee_version(), InvalidFeeVersion);
-    guard!(program_fee.is_valid(), InvalidInstructionData);
+    guard!(
+        fee_version == governor.get_fee_version(),
+        ElusivError::InvalidFeeVersion
+    );
+    guard!(program_fee.is_valid(), ElusivError::InvalidInstructionData);
     open_pda_account_with_offset::<FeeAccount>(&crate::id(), payer, new_fee, fee_version, None)?;
 
     let mut data = new_fee.data.borrow_mut();
@@ -302,7 +276,7 @@ pub fn setup_child_account<'a, 'b, 't, P: ParentAccount<'a, 'b, 't>>(
     size: Option<usize>,
 ) -> ProgramResult {
     if parent_account.get_child_pubkey(child_index).is_some() {
-        return Err(SubAccountAlreadyExists.into());
+        return Err(ElusivError::SubAccountAlreadyExists.into());
     }
 
     verify_extern_data_account(
@@ -331,11 +305,20 @@ fn verify_extern_data_account(
     data_len: usize,
     check_zeroness: bool,
 ) -> ProgramResult {
-    guard!(account.data_len() == data_len, InvalidInstructionData);
-    guard!(data_len >= ChildAccountConfig::SIZE, InvalidInstructionData);
+    guard!(
+        account.data_len() == data_len,
+        ElusivError::InvalidInstructionData
+    );
+    guard!(
+        data_len >= ChildAccountConfig::SIZE,
+        ElusivError::InvalidInstructionData
+    );
 
     if check_zeroness {
-        guard!(is_zero(&account.data.borrow()[..]), InvalidInstructionData);
+        guard!(
+            is_zero(&account.data.borrow()[..]),
+            ElusivError::InvalidInstructionData
+        );
     }
 
     // Check rent-exemption
@@ -343,17 +326,20 @@ fn verify_extern_data_account(
         // only unit-testing (since we have no ledger there)
         guard!(
             account.lamports() >= u32::MAX as u64,
-            InvalidInstructionData
+            ElusivError::InvalidInstructionData
         );
     } else {
         guard!(
             account.lamports() >= Rent::get()?.minimum_balance(data_len),
-            InvalidInstructionData
+            ElusivError::InvalidInstructionData
         );
     }
 
     // Check ownership
-    guard!(*account.owner == crate::id(), InvalidInstructionData);
+    guard!(
+        *account.owner == crate::id(),
+        ElusivError::InvalidInstructionData
+    );
 
     Ok(())
 }
@@ -365,7 +351,7 @@ mod tests {
         macros::account_info,
         processor::CommitmentHashRequest,
         state::{
-            program_account::{PDAAccount, ParentAccount, SizedAccount},
+            program_account::{ParentAccount, SizedAccount},
             queue::RingQueue,
             StorageChildAccount,
         },
@@ -373,69 +359,6 @@ mod tests {
     };
     use assert_matches::assert_matches;
     use solana_program::pubkey::Pubkey;
-
-    #[test]
-    fn test_open_single_instance_account() {
-        let valid_pda = PoolAccount::find(None).0;
-        let invalid_pda = PoolAccount::find(Some(0)).0;
-
-        let payer_pk = Pubkey::new_unique();
-        account_info!(payer, payer_pk, vec![]);
-
-        // Invalid PDA
-        account_info!(pda_account, invalid_pda, vec![]);
-        assert_matches!(
-            open_single_instance_account(
-                &payer,
-                &pda_account,
-                SingleInstancePDAAccountKind::PoolAccount
-            ),
-            Err(_)
-        );
-
-        // Valid PDA
-        account_info!(pda_account, valid_pda, vec![]);
-        assert_matches!(
-            open_single_instance_account(
-                &payer,
-                &pda_account,
-                SingleInstancePDAAccountKind::PoolAccount
-            ),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn test_open_multi_instance_account() {
-        let valid_pda = NullifierAccount::find(Some(0)).0;
-        account_info!(pda_account, valid_pda, vec![]);
-
-        let payer_pk = Pubkey::new_unique();
-        account_info!(payer, payer_pk, vec![]);
-
-        // Invalid offset
-        assert_matches!(
-            open_multi_instance_account(
-                &payer,
-                &pda_account,
-                MultiInstancePDAAccountKind::NullifierAccount,
-                1
-            ),
-            Err(_)
-        );
-
-        // Valid offset
-        account_info!(pda_account, valid_pda, vec![]);
-        assert_matches!(
-            open_multi_instance_account(
-                &payer,
-                &pda_account,
-                MultiInstancePDAAccountKind::NullifierAccount,
-                0
-            ),
-            Ok(_)
-        );
-    }
 
     #[test]
     fn test_enable_storage_child_account() {

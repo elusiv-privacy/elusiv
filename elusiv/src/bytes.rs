@@ -41,34 +41,43 @@ pub const fn u64_as_usize_safe(u: u64) -> usize {
     u64_as_u32_safe(u) as usize
 }
 
-// TODO: optimize find and contains with byte alignment
-pub fn contains<N: BorshSerialize + BorshSerDeSized>(v: N, data: &[u8]) -> bool {
+pub fn contains<N: BorshSerialize + BorshSerDeSized>(v: &N, data: &[u8]) -> bool {
     let length = data.len() / N::SIZE;
     find(v, data, length).is_some()
 }
 
 pub fn find<N: BorshSerialize + BorshSerDeSized>(
-    v: N,
+    v: &N,
     data: &[u8],
     length: usize,
 ) -> Option<usize> {
-    let bytes = match N::try_to_vec(&v) {
+    let bytes = match N::try_to_vec(v) {
         Ok(v) => v,
         Err(_) => return None,
     };
 
     assert!(data.len() >= length);
-    'A: for i in 0..length {
-        let index = i * N::SIZE;
-        if data[index] == bytes[0] {
+
+    // TODO: optimize with byte alignment
+
+    let last_index = N::SIZE - 1;
+    let mut offset = 0;
+    for i in 0..length {
+        if data[offset] == bytes[0] {
             for j in 1..N::SIZE {
-                if data[index + j] != bytes[j] {
-                    continue 'A;
+                if data[offset + j] != bytes[j] {
+                    break;
+                }
+
+                if j == last_index {
+                    return Some(i);
                 }
             }
-            return Some(i);
         }
+
+        offset += N::SIZE;
     }
+
     None
 }
 
@@ -200,13 +209,13 @@ mod tests {
             }
         }
 
-        for i in 0..length {
-            assert!(contains(i as u64, &data[..]));
-            assert_eq!(find(i as u64, &data[..], length).unwrap(), i);
+        for i in 0..length as u64 {
+            assert!(contains(&i, &data[..]));
+            assert_eq!(find(&i, &data[..], length).unwrap(), i as usize);
         }
-        for i in length..length + 20 {
-            assert!(!contains(i as u64, &data[..]));
-            assert!(matches!(find(i as u64, &data[..], length), None));
+        for i in length as u64..length as u64 + 20 {
+            assert!(!contains(&i, &data[..]));
+            assert!(matches!(find(&i, &data[..], length), None));
         }
     }
 
