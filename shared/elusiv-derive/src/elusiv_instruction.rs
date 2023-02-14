@@ -279,33 +279,39 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                         // PDA verification
                         let find_pda = contains_key(&sub_attrs, "find_pda"); // does not read the bump byte from the account data
 
+                        // Skips the PDA verification
+                        let skip_pda_verification =
+                            contains_key(&sub_attrs, "skip_pda_verification");
+
                         #[allow(clippy::collapsible_else_if)]
-                        let check_pda = if find_pda {
-                            if let Some(pda_pubkey) = pda_pubkey {
-                                quote! {
-                                    if <#ty as elusiv_types::accounts::PDAAccount>::find_with_pubkey(#pda_pubkey, #pda_offset).0 != *#account.key {
-                                        return Err(solana_program::program_error::ProgramError::InvalidArgument)
+                        if !skip_pda_verification {
+                            let check_pda = if find_pda {
+                                if let Some(pda_pubkey) = pda_pubkey {
+                                    quote! {
+                                        if <#ty as elusiv_types::accounts::PDAAccount>::find_with_pubkey(#pda_pubkey, #pda_offset).0 != *#account.key {
+                                            return Err(solana_program::program_error::ProgramError::InvalidArgument)
+                                        }
+                                    }
+                                } else {
+                                    quote! {
+                                        if <#ty as elusiv_types::accounts::PDAAccount>::find(#pda_offset).0 != *#account.key {
+                                            return Err(solana_program::program_error::ProgramError::InvalidArgument)
+                                        }
                                     }
                                 }
                             } else {
-                                quote! {
-                                    if <#ty as elusiv_types::accounts::PDAAccount>::find(#pda_offset).0 != *#account.key {
-                                        return Err(solana_program::program_error::ProgramError::InvalidArgument)
+                                if let Some(pda_pubkey) = pda_pubkey {
+                                    quote! {
+                                        <#ty as elusiv_types::accounts::PDAAccount>::verify_account_with_pubkey(&#account, #pda_pubkey, #pda_offset)?;
+                                    }
+                                } else {
+                                    quote! {
+                                        <#ty as elusiv_types::accounts::PDAAccount>::verify_account(&#account, #pda_offset)?;
                                     }
                                 }
-                            }
-                        } else {
-                            if let Some(pda_pubkey) = pda_pubkey {
-                                quote! {
-                                    <#ty as elusiv_types::accounts::PDAAccount>::verify_account_with_pubkey(&#account, #pda_pubkey, #pda_offset)?;
-                                }
-                            } else {
-                                quote! {
-                                    <#ty as elusiv_types::accounts::PDAAccount>::verify_account(&#account, #pda_offset)?;
-                                }
-                            }
-                        };
-                        accounts.extend(check_pda);
+                            };
+                            accounts.extend(check_pda);
+                        }
 
                         if include_child_accounts {
                             // ParentAccount with arbitrary number of child-accounts
@@ -355,6 +361,17 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                                 let #mut_token #account = <#ty as elusiv_types::accounts::ProgramAccount>::new(acc_data)?;
                             });
                             account = quote! { &#account };
+                        }
+
+                        if skip_pda_verification {
+                            assert!(
+                                as_account_info,
+                                "'skip_pda_verification' needs to be used with 'account_info'"
+                            );
+
+                            account = quote! {
+                                elusiv_types::accounts::UnverifiedAccountInfo::new(&#account)
+                            }
                         }
                     }
 

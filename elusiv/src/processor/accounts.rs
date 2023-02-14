@@ -8,13 +8,13 @@ use crate::macros::*;
 use crate::state::{
     fee::{FeeAccount, ProgramFee},
     governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
-    program_account::ProgramAccount,
     queue::{CommitmentQueue, CommitmentQueueAccount, Queue},
     NullifierAccount, NullifierChildAccount, StorageAccount, MT_COMMITMENT_COUNT,
 };
 use crate::{bytes::usize_as_u32_safe, map::ElusivMap, processor::MATH_ERR};
 use elusiv_types::{
     split_child_account_data_mut, ChildAccount, ChildAccountConfig, ParentAccount, SizedAccount,
+    UnverifiedAccountInfo,
 };
 use solana_program::{
     account_info::AccountInfo, entrypoint::ProgramResult, program_error::ProgramError, rent::Rent,
@@ -22,55 +22,65 @@ use solana_program::{
 };
 
 /// Opens one single instance [`elusiv_types::PDAAccount`], as long this PDA does not already exist
-pub fn open_single_instance_accounts<'a>(
-    payer: &AccountInfo<'a>,
-    pool_account: &AccountInfo<'a>,
-    fee_collector_account: &AccountInfo<'a>,
-    commitment_hashing_account: &AccountInfo<'a>,
-    commitment_queue_account: &AccountInfo<'a>,
-    storage_account: &AccountInfo<'a>,
-    base_commitment_buffer_account: &AccountInfo<'a>,
+pub fn open_single_instance_accounts<'a, 'b>(
+    payer: &AccountInfo<'b>,
+    pool_account: UnverifiedAccountInfo<'a, 'b>,
+    fee_collector_account: UnverifiedAccountInfo<'a, 'b>,
+    commitment_hashing_account: UnverifiedAccountInfo<'a, 'b>,
+    commitment_queue_account: UnverifiedAccountInfo<'a, 'b>,
+    storage_account: UnverifiedAccountInfo<'a, 'b>,
+    base_commitment_buffer_account: UnverifiedAccountInfo<'a, 'b>,
 ) -> ProgramResult {
-    open_pda_account_without_offset::<PoolAccount>(&crate::id(), payer, pool_account, None)?;
+    open_pda_account_without_offset::<PoolAccount>(
+        &crate::id(),
+        payer,
+        pool_account.get_unsafe(),
+        None,
+    )?;
     open_pda_account_without_offset::<FeeCollectorAccount>(
         &crate::id(),
         payer,
-        fee_collector_account,
+        fee_collector_account.get_unsafe(),
         None,
     )?;
     open_pda_account_without_offset::<CommitmentHashingAccount>(
         &crate::id(),
         payer,
-        commitment_hashing_account,
+        commitment_hashing_account.get_unsafe(),
         None,
     )?;
     open_pda_account_without_offset::<CommitmentQueueAccount>(
         &crate::id(),
         payer,
-        commitment_queue_account,
+        commitment_queue_account.get_unsafe(),
         None,
     )?;
-    open_pda_account_without_offset::<StorageAccount>(&crate::id(), payer, storage_account, None)?;
+    open_pda_account_without_offset::<StorageAccount>(
+        &crate::id(),
+        payer,
+        storage_account.get_unsafe(),
+        None,
+    )?;
     open_pda_account_without_offset::<BaseCommitmentBufferAccount>(
         &crate::id(),
         payer,
-        base_commitment_buffer_account,
+        base_commitment_buffer_account.get_unsafe(),
         None,
     )?;
 
     Ok(())
 }
 
-pub fn open_nullifier_account<'a>(
-    payer: &AccountInfo<'a>,
-    nullifier_account: &AccountInfo<'a>,
+pub fn open_nullifier_account<'a, 'b>(
+    payer: &AccountInfo<'b>,
+    nullifier_account: UnverifiedAccountInfo<'a, 'b>,
 
     mt_index: u32,
 ) -> ProgramResult {
     open_pda_account_with_offset::<NullifierAccount>(
         &crate::id(),
         payer,
-        nullifier_account,
+        nullifier_account.get_unsafe(),
         mt_index,
         None,
     )
@@ -123,7 +133,10 @@ pub fn enable_nullifier_child_account(
 }
 
 /// Closes the active MT and activates the next one
-/// - there are two scenarios in which this is required/allowed:
+///
+/// # Notes
+///
+/// There are two scenarios in which this is required/allowed:
 ///     1. the active MT is full
 ///     2. the active MT is not full but the remaining places in the MT are < than the batching rate of the next commitment in the commitment queue
 pub fn reset_active_merkle_tree(
@@ -185,21 +198,22 @@ pub fn archive_closed_merkle_tree<'a>(
 }
 
 /// Setup the [`GovernorAccount`] with the default values
-/// - Note: there is no way of upgrading it atm
-pub fn setup_governor_account<'a>(
-    payer: &AccountInfo<'a>,
-    governor_account: &AccountInfo<'a>,
+///
+/// # Note
+///
+/// There is no way of upgrading it atm.
+pub fn setup_governor_account<'a, 'b>(
+    payer: &AccountInfo<'b>,
+    governor_account: UnverifiedAccountInfo<'a, 'b>,
 ) -> ProgramResult {
     open_pda_account_without_offset::<GovernorAccount>(
         &crate::id(),
         payer,
-        governor_account,
+        governor_account.get_unsafe(),
         None,
     )?;
 
-    let data = &mut governor_account.data.borrow_mut()[..];
-    let mut governor = GovernorAccount::new(data)?;
-
+    pda_account!(mut governor, GovernorAccount, governor_account.get_unsafe());
     governor.set_commitment_batching_rate(&usize_as_u32_safe(DEFAULT_COMMITMENT_BATCHING_RATE));
 
     Ok(())
@@ -220,11 +234,14 @@ pub fn upgrade_governor_state(
 }
 
 /// Setup a new [`FeeAccount`]
-/// - Note: there is no way of upgrading the program fees atm
-pub fn init_new_fee_version<'a>(
-    payer: &AccountInfo<'a>,
+///
+/// # Note
+///
+/// There is no way of upgrading the program fees atm.
+pub fn init_new_fee_version<'a, 'b>(
+    payer: &AccountInfo<'b>,
     governor: &mut GovernorAccount,
-    new_fee: &AccountInfo<'a>,
+    new_fee_account: UnverifiedAccountInfo<'a, 'b>,
 
     fee_version: u32,
     program_fee: ProgramFee,
@@ -235,10 +252,16 @@ pub fn init_new_fee_version<'a>(
         ElusivError::InvalidFeeVersion
     );
     guard!(program_fee.is_valid(), ElusivError::InvalidInstructionData);
-    open_pda_account_with_offset::<FeeAccount>(&crate::id(), payer, new_fee, fee_version, None)?;
 
-    let mut data = new_fee.data.borrow_mut();
-    let mut fee = FeeAccount::new(&mut data[..])?;
+    open_pda_account_with_offset::<FeeAccount>(
+        &crate::id(),
+        payer,
+        new_fee_account.get_unsafe(),
+        fee_version,
+        None,
+    )?;
+
+    pda_account!(mut fee, FeeAccount, new_fee_account.get_unsafe());
     fee.set_program_fee(&program_fee);
     governor.set_program_fee(&program_fee);
 
@@ -265,9 +288,9 @@ pub fn close_program_account<'a>(
 
 /// Verifies a single user-supplied [`ChildAccount`] and then saves it's pubkey in the `parent_account`
 ///
-/// # Notes
+/// # Note
 ///
-/// - If `size` is manually supplied (not the default [`C::SIZE`] is used) [`elusiv_types::ChildAccountConfig::SIZE`] needs to be contained in the size.
+/// If `size` is manually supplied (not the default [`C::SIZE`] is used) [`elusiv_types::ChildAccountConfig::SIZE`] needs to be contained in the size.
 pub fn setup_child_account<'a, 'b, 't, P: ParentAccount<'a, 'b, 't>>(
     parent_account: &mut P,
     child_account: &AccountInfo,
@@ -350,14 +373,11 @@ mod tests {
     use crate::{
         macros::account_info,
         processor::CommitmentHashRequest,
-        state::{
-            program_account::{ParentAccount, SizedAccount},
-            queue::RingQueue,
-            StorageChildAccount,
-        },
+        state::{program_account::SizedAccount, queue::RingQueue, StorageChildAccount},
         types::U256,
     };
     use assert_matches::assert_matches;
+    use elusiv_types::ProgramAccount;
     use solana_program::pubkey::Pubkey;
 
     #[test]

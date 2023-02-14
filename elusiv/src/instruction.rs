@@ -197,7 +197,7 @@ pub enum ElusivInstruction {
         deploy_authority: ElusivOption<Pubkey>,
     },
 
-    #[acc(signer, { signer, writable })]
+    #[acc(signer, { signer })]
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable })]
     #[acc(vkey_binary_data_account, { writable })]
     CreateNewVkeyVersion { vkey_id: u32 },
@@ -241,17 +241,17 @@ pub enum ElusivInstruction {
 
     // -------- Program state management --------
     #[acc(payer, { writable, signer })]
-    #[pda(pool_account, PoolAccount, { writable, find_pda, account_info })]
-    #[pda(fee_collector_account, FeeCollectorAccount, { writable, find_pda, account_info })]
-    #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable, find_pda, account_info })]
-    #[pda(commitment_queue_account, CommitmentQueueAccount, { writable, find_pda, account_info })]
-    #[pda(storage_account, StorageAccount, { writable, find_pda, account_info })]
-    #[pda(base_commitment_buffer_account, BaseCommitmentBufferAccount, { writable, find_pda, account_info })]
+    #[pda(pool_account, PoolAccount, { writable, skip_pda_verification, account_info })]
+    #[pda(fee_collector_account, FeeCollectorAccount, { writable, skip_pda_verification, account_info })]
+    #[pda(commitment_hashing_account, CommitmentHashingAccount, { writable, skip_pda_verification, account_info })]
+    #[pda(commitment_queue_account, CommitmentQueueAccount, { writable, skip_pda_verification, account_info })]
+    #[pda(storage_account, StorageAccount, { writable, skip_pda_verification, account_info })]
+    #[pda(base_commitment_buffer_account, BaseCommitmentBufferAccount, { writable, skip_pda_verification, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     OpenSingleInstanceAccounts,
 
     #[acc(payer, { writable, signer })]
-    #[pda(nullifier_account, NullifierAccount, pda_offset = Some(mt_index), { writable, find_pda, account_info })]
+    #[pda(nullifier_account, NullifierAccount, pda_offset = Some(mt_index), { writable, skip_pda_verification, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     OpenNullifierAccount { mt_index: u32 },
 
@@ -264,7 +264,7 @@ pub enum ElusivInstruction {
     EnableNullifierChildAccount { mt_index: u32, child_index: u32 },
 
     #[acc(payer, { writable, signer })]
-    #[acc(governor, { writable })]
+    #[pda(governor, GovernorAccount, { writable, skip_pda_verification, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     SetupGovernorAccount,
 
@@ -278,7 +278,7 @@ pub enum ElusivInstruction {
 
     #[acc(payer, { writable, signer })]
     #[pda(governor, GovernorAccount, { writable })]
-    #[pda(fee, FeeAccount, pda_offset = Some(fee_version), { writable, account_info, find_pda })]
+    #[pda(fee, FeeAccount, pda_offset = Some(fee_version), { writable, skip_pda_verification, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     InitNewFeeVersion {
         fee_version: u32,

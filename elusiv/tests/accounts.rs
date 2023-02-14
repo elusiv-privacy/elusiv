@@ -91,7 +91,6 @@ async fn test_setup_fee_account() {
 
     test.ix_should_succeed_simple(ElusivInstruction::setup_governor_account_instruction(
         WritableSignerAccount(payer),
-        WritableUserAccount(GovernorAccount::find(None).0),
     ))
     .await;
 

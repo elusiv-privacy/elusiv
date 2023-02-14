@@ -7,7 +7,6 @@ use elusiv::{
     proof::{CombinedMillerLoop, FinalExponentiation},
     state::{
         fee::{BasisPointFee, ProgramFee},
-        governor::GovernorAccount,
         NullifierAccount, StorageAccount,
     },
     types::U256,
@@ -59,10 +58,7 @@ pub async fn setup_initial_pdas(test: &mut ElusivProgramTest) {
 
 pub fn initial_single_instance_pdas(payer: Pubkey) -> Vec<Instruction> {
     vec![
-        ElusivInstruction::setup_governor_account_instruction(
-            WritableSignerAccount(payer),
-            WritableUserAccount(GovernorAccount::find(None).0),
-        ),
+        ElusivInstruction::setup_governor_account_instruction(WritableSignerAccount(payer)),
         ElusivInstruction::open_single_instance_accounts_instruction(WritableSignerAccount(payer)),
     ]
 }

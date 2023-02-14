@@ -382,6 +382,18 @@ impl<'a> AccountRepr for AccountInfo<'a> {
     }
 }
 
+pub struct UnverifiedAccountInfo<'a, 'b>(&'a AccountInfo<'b>);
+
+impl<'a, 'b> UnverifiedAccountInfo<'a, 'b> {
+    pub fn new(account_info: &'a AccountInfo<'b>) -> Self {
+        Self(account_info)
+    }
+
+    pub fn get_unsafe(&self) -> &'a AccountInfo<'b> {
+        self.0
+    }
+}
+
 macro_rules! impl_user_account {
     ($ty: ident) => {
         #[cfg(feature = "elusiv-client")]

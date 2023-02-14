@@ -23,11 +23,11 @@ macro_rules! two_pow {
 /// mut? $id: ident, $ty: ty, $account_info: ident
 #[macro_export]
 macro_rules! pda_account {
-    ($id: ident, $ty: ty, $account_info: ident) => {
+    ($id: ident, $ty: ty, $account_info: expr) => {
         let mut data = &mut $account_info.data.borrow_mut()[..];
         let $id = <$ty as elusiv_types::accounts::ProgramAccount>::new(&mut data)?;
     };
-    (mut $id: ident, $ty: ty, $account_info: ident) => {
+    (mut $id: ident, $ty: ty, $account_info: expr) => {
         let mut data = &mut $account_info.data.borrow_mut()[..];
         let mut $id = <$ty as elusiv_types::accounts::ProgramAccount>::new(&mut data)?;
     };
