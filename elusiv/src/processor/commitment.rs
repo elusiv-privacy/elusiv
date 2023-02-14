@@ -79,16 +79,16 @@ pub const ZERO_COMMITMENT_RAW: U256 = [
 ///
 /// # Notes
 ///
-/// Initializes the computation: `commitment = poseidon(base_commitment, amount + token_id * 2^64)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom)
+/// Initializes the computation: `commitment = poseidon(base_commitment, amount + token_id * 2^64)` (https://github.com/elusiv-privacy/circuits/blob/master/circuits/commitment.circom).
 ///
-/// Signatures of both `sender` and `fee_payer` are required
+/// Signatures of both `sender` and `fee_payer` are required.
 ///
-/// `sender`: wants to store the commitment (pays amount and fee)
+/// `sender`: wants to store the commitment (pays amount and fee).
 ///
 /// `fee_payer`:
-///     - opens a [`BaseCommitmentHashingAccount`] for the computation
-///     - performs the hash computation
-///     - swaps fee from token into lamports (for tx compensation of the commitment hash)
+///     - opens a [`BaseCommitmentHashingAccount`] for the computation,
+///     - performs the hash computation,
+///     - swaps fee from token into lamports (for tx compensation of the commitment hash).
 #[allow(clippy::too_many_arguments)]
 pub fn store_base_commitment<'a>(
     sender: &AccountInfo<'a>,

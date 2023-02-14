@@ -99,15 +99,13 @@ impl ProgramFee {
     }
 }
 
-#[elusiv_account]
 /// Specifies the program fees and compensation for wardens
-/// - multiple fee-accounts can exist
-/// - each one has it's own version as its pda-offset
-/// - the `GovernorAccount` defines the most-recent version
+#[elusiv_account]
 pub struct FeeAccount {
     #[no_getter]
     #[no_setter]
     pda_data: PDAAccountData,
+
     pub program_fee: ProgramFee,
 }
 
@@ -117,7 +115,12 @@ impl ProgramFee {
     }
 
     pub fn base_commitment_hash_computation_fee(&self) -> Lamports {
-        Lamports(BaseCommitmentHashComputation::TX_COUNT as u64 * self.hash_tx_compensation().0)
+        // extra `lamports_per_tx` for the second signature, paid for by the fee-payer
+
+        Lamports(
+            BaseCommitmentHashComputation::TX_COUNT as u64 * self.hash_tx_compensation().0
+                + self.lamports_per_tx.0,
+        )
     }
 
     pub fn commitment_hash_computation_fee(&self, min_batching_rate: u32) -> Lamports {
