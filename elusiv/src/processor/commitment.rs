@@ -141,8 +141,6 @@ pub fn store_base_commitment<'a>(
         ElusivError::InvalidBatchingRate
     );
 
-    // TODO: Buffer duplicate check and insertion
-
     let fee = governor.get_program_fee();
     let subvention = fee
         .base_commitment_subvention
@@ -201,6 +199,9 @@ pub fn store_base_commitment<'a>(
         None,
         None,
     )?;
+
+    // Buffer duplicate check and insertion
+    base_commitment_buffer.try_insert(&request.base_commitment.skip_mr())?;
 
     // `hashing_account` setup
     pda_account!(
@@ -714,9 +715,34 @@ mod tests {
                 &sys,
                 0,
                 bump,
-                request
+                request.clone()
             ),
             Ok(())
+        );
+
+        // Immediate uplicate insertion will fail
+        assert_matches!(
+            store_base_commitment(
+                &sender,
+                &sender,
+                &fee_payer,
+                &fee_payer,
+                &pool,
+                &pool,
+                &fee_collector,
+                &fee_collector,
+                &any,
+                &any,
+                &governor,
+                &hashing_acc,
+                &mut buffer,
+                &sys,
+                &sys,
+                0,
+                bump,
+                request
+            ),
+            Err(_)
         );
     }
 
@@ -1016,9 +1042,34 @@ mod tests {
                 &sys,
                 0,
                 bump,
-                request
+                request.clone()
             ),
             Ok(())
+        );
+
+        // Immediate uplicate insertion will fail
+        assert_matches!(
+            store_base_commitment(
+                &sender,
+                &sender_token,
+                &fee_payer,
+                &fee_payer_token,
+                &pool,
+                &pool_token,
+                &fee_c,
+                &fee_c_token,
+                &sol,
+                &usdc,
+                &governor,
+                &hashing_acc,
+                &mut buffer,
+                &spl,
+                &sys,
+                0,
+                bump,
+                request
+            ),
+            Err(_)
         );
     }
 

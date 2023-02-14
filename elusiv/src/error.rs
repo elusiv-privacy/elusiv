@@ -18,6 +18,7 @@ pub enum ElusivError {
     FeatureNotAvailable,
     UnsupportedToken,
     OracleError,
+    DuplicateValue,
 
     // Merkle tree
     InvalidMerkleRoot,

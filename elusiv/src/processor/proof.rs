@@ -1108,7 +1108,7 @@ fn check_join_split_public_inputs(
                 if tree_indices[index] == active_tree_index {
                     // Active tree
                     guard!(
-                        storage_account.is_root_valid(root.reduce()),
+                        storage_account.is_root_valid(&root.reduce()),
                         ElusivError::InvalidMerkleRoot
                     );
                 } else {

@@ -122,13 +122,13 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     }
 
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
-    pub fn is_root_valid(&self, root: U256) -> bool {
+    pub fn is_root_valid(&self, root: &U256) -> bool {
         let max_history_roots =
             std::cmp::min(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
 
         // TODO: remove this, has become redundant
         if let Ok(current_root) = self.get_root() {
-            return root == current_root;
+            return *root == current_root;
         }
 
         max_history_roots > 0
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn test_is_root_valid() {
         parent_account!(storage_account, StorageAccount);
-        assert!(storage_account.is_root_valid(EMPTY_TREE[MT_HEIGHT as usize]));
-        assert!(!storage_account.is_root_valid([0; 32]));
+        assert!(storage_account.is_root_valid(&EMPTY_TREE[MT_HEIGHT as usize]));
+        assert!(!storage_account.is_root_valid(&[0; 32]));
     }
 }
