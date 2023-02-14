@@ -198,12 +198,12 @@ pub enum ElusivInstruction {
     },
 
     #[acc(signer, { signer, writable })]
-    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, include_child_accounts })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable })]
     #[acc(vkey_binary_data_account, { writable })]
     CreateNewVkeyVersion { vkey_id: u32 },
 
     #[acc(signer, { signer, writable })]
-    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable, include_child_accounts })]
+    #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { writable })]
     #[acc(old_vkey_binary_data_account, { writable })]
     #[sys(system_program, key = system_program::ID)]
     UpdateVkeyVersion { vkey_id: u32 },
