@@ -82,6 +82,15 @@ impl<N> From<Option<N>> for ElusivOption<N> {
     }
 }
 
+impl <N: Sized> Into<Option<N>> for ElusivOption<N> {
+    fn into(self) -> Option<N> {
+        match self {
+            ElusivOption::Some(v) => Some(v),
+            ElusivOption::None => None,
+        }
+    }
+}
+
 impl<N: Clone> ElusivOption<N> {
     pub fn option(&self) -> Option<N> {
         match self {

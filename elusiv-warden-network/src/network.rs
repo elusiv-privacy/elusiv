@@ -1,4 +1,4 @@
-use crate::warden::{ElusivWardenID, Quote, WardenRegion};
+use crate::warden::{ElusivWardenID, Quote, QuoteEnd, QuoteStart, WardenRegion};
 use crate::{error::ElusivWardenNetworkError, warden::BasicWardenFeatures};
 use elusiv_proc_macros::elusiv_account;
 use elusiv_types::{ElusivOption, PDAAccountData, TOKENS};
@@ -102,14 +102,24 @@ pub struct ApaWardenNetworkAccount {
     apa_key: ElusivOption<Pubkey>,
 
     members: [ElusivWardenID; ElusivApaWardenNetwork::SIZE.max()],
-    quotes: [Quote; ElusivApaWardenNetwork::SIZE.max()],
+    quote_starts: [QuoteStart; ElusivApaWardenNetwork::SIZE.max()],
+    quote_ends: [ElusivOption<QuoteEnd>; ElusivApaWardenNetwork::SIZE.max()],
     exchange_keys: [Pubkey; ElusivApaWardenNetwork::SIZE.max()],
     confirmations: [bool; ElusivApaWardenNetwork::SIZE.max()],
 }
 
 impl<'a> ApaWardenNetworkAccount<'a> {
     pub fn is_application_phase(&self) -> bool {
-        (self.get_members_count() as usize) < ElusivApaWardenNetwork::SIZE.max()
+        !(0..ElusivApaWardenNetwork::SIZE.max())
+            .all(|i| {
+                let opt: Option<QuoteEnd> = self.get_quote_ends(i).into();
+                opt.is_some()
+            })
+    }
+
+    pub fn is_confirmation_phase(&self) -> bool {
+        !self.is_application_phase()
+            && !self.is_confirmed()
     }
 
     pub fn is_confirmed(&self) -> bool {
@@ -120,7 +130,7 @@ impl<'a> ApaWardenNetworkAccount<'a> {
         (0..self.get_members_count() as usize).all(|i| self.get_confirmations(i))
     }
 
-    pub fn apply(&mut self, warden_id: ElusivWardenID, quote: &Quote) -> Result<u32, ProgramError> {
+    pub fn start_application(&mut self, warden_id: ElusivWardenID, quote_start: &QuoteStart) -> Result<u32, ProgramError> {
         guard!(
             self.is_application_phase(),
             ElusivWardenNetworkError::WardenRegistrationError
@@ -130,24 +140,50 @@ impl<'a> ApaWardenNetworkAccount<'a> {
         self.set_members_count(&(members_count + 1));
 
         self.set_members(members_count as usize, &warden_id);
-        self.set_quotes(members_count as usize, quote);
+        self.set_quote_starts(members_count as usize, quote_start);
         self.set_exchange_keys(
             members_count as usize,
-            &Pubkey::new_from_array(quote.user_data_bytes()),
+            &Pubkey::new_from_array(quote_start.user_data_bytes()),
         );
 
         Ok(members_count)
     }
 
-    #[cfg(feature = "elusiv-client")]
+    pub fn complete_application(&mut self, warden_id: ElusivWardenID, quote_end: QuoteEnd) -> Result<(), ProgramError> {
+        guard!(
+            self.is_application_phase(),
+            ElusivWardenNetworkError::WardenRegistrationError
+        );
+
+        let member_index =
+            (0..self.get_members_count() as usize)
+                .map(|i| self.get_members(i))
+                .find(|member| member == &warden_id)
+                .ok_or(ElusivWardenNetworkError::WardenRegistrationError)?;
+        self.set_quote_ends(member_index as usize, &Some(quote_end).into());
+
+        Ok(())
+    }
+
     pub fn get_all_quotes(&self) -> Vec<Quote> {
         (0..self.get_members_count() as usize)
-            .map(|i| self.get_quotes(i))
+            .filter_map(|i| {
+                let start = self.get_quote_starts(i);
+                let end: Option<QuoteEnd> = self.get_quote_ends(i).into();
+
+                end
+                    .map(|end| start.join(&end))
+            })
             .collect()
     }
 
     pub fn confirmation_message(&self) -> [u8; 32] {
-        let hash = solana_program::hash::hash(self.quotes);
+        let quotes = self.get_all_quotes();
+        let quote_bytes = quotes
+            .iter()
+            .map(|quote| quote.as_slice())
+            .collect::<Vec<&[u8]>>();
+        let hash = solana_program::hash::hashv(&quote_bytes);
         hash.to_bytes()
     }
 
@@ -158,20 +194,20 @@ impl<'a> ApaWardenNetworkAccount<'a> {
         confirmation_message: &[u8],
     ) -> ProgramResult {
         guard!(
-            !self.is_application_phase(),
-            ElusivWardenNetworkError::WardenRegistrationError
+            self.is_confirmation_phase(),
+            ElusivWardenNetworkError::NotInConfirmationPhase
         );
         guard!(
             self.get_exchange_keys(member_index) == *signer,
-            ElusivWardenNetworkError::InvalidSigner
+            ElusivWardenNetworkError::SignerAndWardenIdMismatch
         );
         guard!(
             self.confirmation_message() == confirmation_message,
-            ElusivWardenNetworkError::InvalidSignature
+            ElusivWardenNetworkError::InvalidConfirmationMessage
         );
         guard!(
             !self.get_confirmations(member_index),
-            ElusivWardenNetworkError::WardenRegistrationError
+            ElusivWardenNetworkError::WardenAlreadyConfirmed
         );
 
         self.set_confirmations(member_index, &true);

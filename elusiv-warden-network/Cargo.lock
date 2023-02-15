@@ -1007,6 +1007,8 @@ dependencies = [
 name = "elusiv-warden-network"
 version = "0.1.0"
 dependencies = [
+ "assert_matches",
+ "async-trait",
  "borsh",
  "chrono",
  "elusiv-derive",
@@ -1016,6 +1018,7 @@ dependencies = [
  "elusiv-utils",
  "elusiv-warden-network",
  "mock-program",
+ "ra-common",
  "solana-program",
  "solana-program-test",
  "solana-sdk",
@@ -2445,6 +2448,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbe448f377a7d6961e30f5955f9b8d106c3f5e449d493ee1b125c1d43c2b5179"
 dependencies = [
  "proc-macro2 1.0.43",
+]
+
+[[package]]
+name = "ra-common"
+version = "0.1.0"
+source = "git+ssh://git@github.com/elusiv-privacy/rust-sgx-remote-attestation.git#28d6127c080dfd924e1c49650856e7101885b063"
+dependencies = [
+ "byteorder",
 ]
 
 [[package]]

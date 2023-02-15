@@ -405,15 +405,15 @@ impl ElusivProgramTest {
         assert_matches!(self.process_transaction_nonced(&[ix], &[]).await, Ok(()));
     }
 
-    pub async fn tx_should_fail(&mut self, ixs: &[Instruction], signers: &[&Keypair]) {
-        assert_matches!(self.process_transaction_nonced(ixs, signers).await, Err(_));
+    pub async fn tx_should_fail(&mut self, ixs: &[Instruction], signers: &[&Keypair]) -> BanksClientError {
+        assert_matches!(self.process_transaction_nonced(ixs, signers).await, Err(err) => err)
     }
 
     pub async fn tx_should_fail_simple(&mut self, ixs: &[Instruction]) {
         assert_matches!(self.process_transaction_nonced(ixs, &[]).await, Err(_));
     }
 
-    pub async fn ix_should_fail(&mut self, ix: Instruction, signers: &[&Keypair]) {
+    pub async fn ix_should_fail(&mut self, ix: Instruction, signers: &[&Keypair]) -> BanksClientError {
         self.tx_should_fail(&[ix], signers).await
     }
 
