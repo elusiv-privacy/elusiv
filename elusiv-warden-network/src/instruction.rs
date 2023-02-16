@@ -13,6 +13,7 @@ use crate::warden::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::AccountRepr;
+use solana_program::pubkey::Pubkey;
 use solana_program::system_program;
 use solana_program::sysvar::instructions;
 
@@ -26,17 +27,17 @@ pub use elusiv_types::accounts::{
 pub enum ElusivWardenNetworkInstruction {
     // -------- Program initialization --------
     #[acc(payer, { signer, writable })]
-    #[pda(wardens, WardensAccount, { writable, find_pda, account_info })]
-    #[pda(basic_network, BasicWardenNetworkAccount, { writable, find_pda, account_info })]
-    #[pda(apa_network, ApaWardenNetworkAccount, { writable, find_pda, account_info })]
-    #[pda(proposals_account, ApaProposalsAccount, { writable, find_pda, account_info })]
+    #[pda(wardens, WardensAccount, { writable, skip_pda_verification, account_info })]
+    #[pda(basic_network, BasicWardenNetworkAccount, { writable, skip_pda_verification, account_info })]
+    #[pda(apa_network, ApaWardenNetworkAccount, { writable, skip_pda_verification, account_info })]
+    #[pda(proposals_account, ApaProposalsAccount, { writable, skip_pda_verification, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     Init,
 
     // -------- Basic Warden --------
     #[acc(warden, { signer, writable })]
-    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable, find_pda, account_info })]
-    #[pda(warden_map_account, BasicWardenMapAccount, pda_pubkey = config.key, { writable, find_pda, account_info })]
+    #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable, skip_pda_verification, account_info })]
+    #[pda(warden_map_account, BasicWardenMapAccount, pda_pubkey = config.key, { writable, skip_pda_verification, account_info })]
     #[pda(wardens, WardensAccount, { writable })]
     #[pda(basic_network, BasicWardenNetworkAccount, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
@@ -62,7 +63,7 @@ pub enum ElusivWardenNetworkInstruction {
     // -------- APA Warden --------
     #[acc(warden, { signer, writable })]
     #[pda(warden_map_account, BasicWardenMapAccount, pda_pubkey = warden.pubkey())]
-    #[pda(apa_warden_account, ApaWardenAccount, pda_offset = Some(warden_id), { writable, find_pda, account_info })]
+    #[pda(apa_warden_account, ApaWardenAccount, pda_offset = Some(warden_id), { writable, skip_pda_verification, account_info })]
     #[pda(apa_network, ApaWardenNetworkAccount, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     ApplyApaGenesisWarden {
@@ -82,7 +83,7 @@ pub enum ElusivWardenNetworkInstruction {
 
     // -------- Warden operator --------
     #[acc(operator, { signer, writable })]
-    #[pda(operator_account, WardenOperatorAccount, pda_pubkey = operator.pubkey(), { writable, find_pda, account_info })]
+    #[pda(operator_account, WardenOperatorAccount, pda_pubkey = operator.pubkey(), { writable, skip_pda_verification, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     RegisterWardenOperator {
         ident: Identifier,
@@ -99,7 +100,7 @@ pub enum ElusivWardenNetworkInstruction {
     // -------- Basic Warden statistics --------
     #[acc(warden)]
     #[acc(payer, { signer, writable })]
-    #[pda(stats_account, BasicWardenStatsAccount, pda_pubkey = warden.pubkey(), pda_offset = Some(year.into()), { writable, find_pda, account_info })]
+    #[pda(stats_account, BasicWardenStatsAccount, pda_pubkey = warden.pubkey(), pda_offset = Some(year.into()), { writable, skip_pda_verification, account_info })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     OpenBasicWardenStatsAccount {
         year: u16,
@@ -115,7 +116,7 @@ pub enum ElusivWardenNetworkInstruction {
 
     // -------- APA --------
     #[acc(proponent, { signer, writable })]
-    #[pda(proposal_account, ApaProposalAccount, pda_offset = Some(proposal_id), { writable, find_pda, account_info })]
+    #[pda(proposal_account, ApaProposalAccount, pda_offset = Some(proposal_id), { writable, skip_pda_verification, account_info })]
     #[pda(proposals_account, ApaProposalsAccount, { writable })]
     #[pda(map_account, ApaTargetMapAccount, pda_pubkey = proposal.target, { writable, find_pda, account_info })]
     #[acc(token_mint)]
@@ -127,12 +128,12 @@ pub enum ElusivWardenNetworkInstruction {
 
     // -------- Metadata attestation --------
     #[acc(signer, { signer, writable })]
-    #[acc(attester)]
-    #[pda(attester_account, BasicWardenAttesterMapAccount, pda_pubkey = attester.pubkey(), { writable, find_pda, account_info })]
+    #[pda(attester_account, BasicWardenAttesterMapAccount, pda_pubkey = attester, { writable, skip_pda_verification, account_info })]
     #[pda(warden_account, BasicWardenAccount, pda_offset = Some(warden_id), { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     AddMetadataAttester {
         warden_id: ElusivWardenID,
+        attester: Pubkey,
     },
 
     #[acc(signer, { signer, writable })]

@@ -3,7 +3,7 @@ use crate::apa::{
     ApaProponentRole, ApaProposal, ApaProposalAccount, ApaProposalsAccount, ApaTargetMapAccount,
 };
 use crate::error::ElusivWardenNetworkError;
-use elusiv_types::{elusiv_token, SPL_TOKEN_COUNT};
+use elusiv_types::{elusiv_token, UnverifiedAccountInfo, SPL_TOKEN_COUNT};
 use elusiv_utils::{
     guard, open_pda_account_with_associated_pubkey, open_pda_account_with_offset, pda_account,
 };
@@ -13,11 +13,11 @@ use solana_program::program_pack::Pack;
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
 /// Processes an [`ApaProposal`]
-pub fn propose_apa_proposal<'a>(
-    proponent: &AccountInfo<'a>,
-    proposal_account: &AccountInfo<'a>,
+pub fn propose_apa_proposal<'a, 'b>(
+    proponent: &AccountInfo<'b>,
+    mut proposal_account: UnverifiedAccountInfo<'a, 'b>,
     proposals_account: &mut ApaProposalsAccount,
-    target_map_account: &AccountInfo<'a>,
+    target_map_account: &AccountInfo<'b>,
     token_mint: &AccountInfo,
 
     proposal_id: u32,
@@ -67,7 +67,7 @@ pub fn propose_apa_proposal<'a>(
     open_pda_account_with_offset::<ApaProposalAccount>(
         &crate::id(),
         proponent,
-        proposal_account,
+        proposal_account.get_unsafe_and_set_is_verified(),
         proposal_id,
         None,
     )?;
@@ -83,7 +83,11 @@ pub fn propose_apa_proposal<'a>(
         )?;
     }
 
-    pda_account!(mut proposal_account, ApaProposalAccount, proposal_account);
+    pda_account!(
+        mut proposal_account,
+        ApaProposalAccount,
+        proposal_account.get_safe()?
+    );
     proposal_account.set_proposal(&proposal);
 
     proposals_account.set_number_of_proposals(

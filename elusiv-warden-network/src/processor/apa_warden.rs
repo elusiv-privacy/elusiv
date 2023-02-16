@@ -2,13 +2,14 @@ use crate::{
     network::ApaWardenNetworkAccount,
     warden::{ApaWardenAccount, BasicWardenMapAccount, ElusivWardenID, Quote},
 };
+use elusiv_types::UnverifiedAccountInfo;
 use elusiv_utils::{open_pda_account_with_offset, pda_account};
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
-pub fn apply_apa_genesis_warden<'a>(
-    warden: &AccountInfo<'a>,
+pub fn apply_apa_genesis_warden<'a, 'b>(
+    warden: &AccountInfo<'b>,
     warden_map_account: &BasicWardenMapAccount,
-    apa_warden_account: &AccountInfo<'a>,
+    mut apa_warden_account: UnverifiedAccountInfo<'a, 'b>,
     apa_network_account: &mut ApaWardenNetworkAccount,
 
     _warden_id: ElusivWardenID,
@@ -20,12 +21,16 @@ pub fn apply_apa_genesis_warden<'a>(
     open_pda_account_with_offset::<ApaWardenAccount>(
         &crate::id(),
         warden,
-        apa_warden_account,
+        apa_warden_account.get_unsafe_and_set_is_verified(),
         warden_id, // this enforces equality between the two client supplied warden_id's
         None,
     )?;
 
-    pda_account!(mut apa_warden_account, ApaWardenAccount, apa_warden_account);
+    pda_account!(
+        mut apa_warden_account,
+        ApaWardenAccount,
+        apa_warden_account.get_safe()?
+    );
     apa_warden_account.set_warden_id(&warden_id);
     apa_warden_account.set_network_member_index(&network_member_index);
     // apa_warden_account.set_latest_quote(&quote);

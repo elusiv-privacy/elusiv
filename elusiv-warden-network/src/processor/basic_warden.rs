@@ -9,6 +9,7 @@ use crate::{
     network::BasicWardenNetworkAccount,
     warden::{ElusivBasicWarden, ElusivBasicWardenConfig, ElusivWardenID, WardensAccount},
 };
+use elusiv_types::UnverifiedAccountInfo;
 use elusiv_utils::{
     guard, open_pda_account_with_associated_pubkey, open_pda_account_with_offset, pda_account,
 };
@@ -18,10 +19,10 @@ use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 use solana_program::sysvar::instructions;
 
-pub fn register_basic_warden<'a>(
-    warden: &AccountInfo<'a>,
-    warden_account: &AccountInfo<'a>,
-    warden_map_account: &AccountInfo<'a>,
+pub fn register_basic_warden<'a, 'b>(
+    warden: &AccountInfo<'b>,
+    mut warden_account: UnverifiedAccountInfo<'a, 'b>,
+    mut warden_map_account: UnverifiedAccountInfo<'a, 'b>,
     wardens_account: &mut WardensAccount,
     basic_network_account: &mut BasicWardenNetworkAccount,
 
@@ -62,19 +63,23 @@ pub fn register_basic_warden<'a>(
     open_pda_account_with_offset::<BasicWardenAccount>(
         &crate::id(),
         warden,
-        warden_account,
+        warden_account.get_unsafe_and_set_is_verified(),
         warden_id,
         None,
     )?;
 
-    pda_account!(mut warden_account, BasicWardenAccount, warden_account);
+    pda_account!(
+        mut warden_account,
+        BasicWardenAccount,
+        warden_account.get_safe()?
+    );
     warden_account.set_warden(&basic_warden);
 
     // `warden_map_account` is used to store the `warden_id` and prevent duplicate registrations
     open_pda_account_with_associated_pubkey::<BasicWardenMapAccount>(
         &crate::id(),
         warden,
-        warden_map_account,
+        warden_map_account.get_unsafe_and_set_is_verified(),
         warden.key,
         None,
         None,
@@ -83,7 +88,7 @@ pub fn register_basic_warden<'a>(
     pda_account!(
         mut warden_map_account,
         BasicWardenMapAccount,
-        warden_map_account
+        warden_map_account.get_safe()?
     );
     warden_map_account.set_warden_id(&warden_id);
 
@@ -136,13 +141,13 @@ pub fn update_basic_warden_lut(
 
 pub const METADATA_ATTESTER_AUTHORITY: Pubkey = Pubkey::new_from_array([0; 32]);
 
-pub fn add_metadata_attester<'a>(
-    signer: &AccountInfo<'a>,
-    attester: &AccountInfo,
-    attester_account: &AccountInfo<'a>,
+pub fn add_metadata_attester<'a, 'b>(
+    signer: &AccountInfo<'b>,
+    mut attester_account: UnverifiedAccountInfo<'a, 'b>,
     warden_account: &mut BasicWardenAccount,
 
-    _warden_id: ElusivWardenID,
+    warden_id: ElusivWardenID,
+    attester: Pubkey,
 ) -> ProgramResult {
     guard!(
         *signer.key == METADATA_ATTESTER_AUTHORITY,
@@ -152,11 +157,18 @@ pub fn add_metadata_attester<'a>(
     open_pda_account_with_associated_pubkey::<BasicWardenAttesterMapAccount>(
         &crate::id(),
         signer,
-        attester_account,
-        attester.key,
+        attester_account.get_unsafe_and_set_is_verified(),
+        &attester,
         None,
         None,
     )?;
+
+    pda_account!(
+        mut attester_account,
+        BasicWardenAttesterMapAccount,
+        attester_account.get_safe()?
+    );
+    attester_account.set_warden_id(&warden_id);
 
     let mut warden = warden_account.get_warden();
     warden.config.warden_features.attestation = true;
@@ -228,23 +240,27 @@ pub fn attest_basic_warden_metadata(
     Ok(())
 }
 
-pub fn open_basic_warden_stats_account<'a>(
+pub fn open_basic_warden_stats_account<'a, 'b>(
     warden: &AccountInfo,
-    payer: &AccountInfo<'a>,
-    stats_account: &AccountInfo<'a>,
+    payer: &AccountInfo<'b>,
+    mut stats_account: UnverifiedAccountInfo<'a, 'b>,
 
     year: u16,
 ) -> ProgramResult {
     open_pda_account_with_associated_pubkey::<BasicWardenStatsAccount>(
         &crate::id(),
         payer,
-        stats_account,
+        stats_account.get_unsafe_and_set_is_verified(),
         warden.key,
         Some(year as u32),
         None,
     )?;
 
-    pda_account!(mut stats_account, BasicWardenStatsAccount, stats_account);
+    pda_account!(
+        mut stats_account,
+        BasicWardenStatsAccount,
+        stats_account.get_safe()?
+    );
     stats_account.set_year(&year);
 
     Ok(())

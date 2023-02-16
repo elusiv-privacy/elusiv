@@ -382,15 +382,38 @@ impl<'a> AccountRepr for AccountInfo<'a> {
     }
 }
 
-pub struct UnverifiedAccountInfo<'a, 'b>(&'a AccountInfo<'b>);
+pub struct UnverifiedAccountInfo<'a, 'b> {
+    account_info: &'a AccountInfo<'b>,
+    is_verified: bool,
+}
 
 impl<'a, 'b> UnverifiedAccountInfo<'a, 'b> {
     pub fn new(account_info: &'a AccountInfo<'b>) -> Self {
-        Self(account_info)
+        Self {
+            account_info,
+            is_verified: false,
+        }
     }
 
     pub fn get_unsafe(&self) -> &'a AccountInfo<'b> {
-        self.0
+        self.account_info
+    }
+
+    pub fn get_safe(&self) -> Result<&'a AccountInfo<'b>, ProgramError> {
+        if self.is_verified {
+            Ok(self.get_unsafe())
+        } else {
+            Err(ProgramError::AccountBorrowFailed)
+        }
+    }
+
+    pub fn get_unsafe_and_set_is_verified(&mut self) -> &'a AccountInfo<'b> {
+        self.set_is_verified();
+        self.get_unsafe()
+    }
+
+    pub fn set_is_verified(&mut self) {
+        self.is_verified = true;
     }
 }
 

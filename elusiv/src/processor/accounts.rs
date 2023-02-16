@@ -241,7 +241,7 @@ pub fn upgrade_governor_state(
 pub fn init_new_fee_version<'a, 'b>(
     payer: &AccountInfo<'b>,
     governor: &mut GovernorAccount,
-    new_fee_account: UnverifiedAccountInfo<'a, 'b>,
+    mut new_fee_account: UnverifiedAccountInfo<'a, 'b>,
 
     fee_version: u32,
     program_fee: ProgramFee,
@@ -256,13 +256,13 @@ pub fn init_new_fee_version<'a, 'b>(
     open_pda_account_with_offset::<FeeAccount>(
         &crate::id(),
         payer,
-        new_fee_account.get_unsafe(),
+        new_fee_account.get_unsafe_and_set_is_verified(),
         fee_version,
         None,
     )?;
 
-    pda_account!(mut fee, FeeAccount, new_fee_account.get_unsafe());
-    fee.set_program_fee(&program_fee);
+    pda_account!(mut fee_account, FeeAccount, new_fee_account.get_safe()?);
+    fee_account.set_program_fee(&program_fee);
     governor.set_program_fee(&program_fee);
 
     Ok(())
