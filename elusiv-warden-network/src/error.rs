@@ -3,17 +3,17 @@ use std::fmt;
 
 #[derive(Copy, Clone, Debug)]
 pub enum ElusivWardenNetworkError {
-    InvalidSignature,
-    InvalidInstructionData,
-    InvalidSigner,
-    WardenRegistrationError,
-    ProposalError,
-    VotingError,
-    StatsError,
-    TimestampError,
+    InvalidSignature = 0x00,
+    InvalidInstructionData = 0x01,
+    InvalidSigner = 0x02,
+    WardenRegistrationError = 0x03,
+    ProposalError = 0x04,
+    VotingError = 0x05,
+    StatsError = 0x06,
+    TimestampError = 0x07,
 
-    Overflow,
-    Underflow,
+    Overflow = 0x08,
+    Underflow = 0x09,
 }
 
 impl From<ElusivWardenNetworkError> for ProgramError {
