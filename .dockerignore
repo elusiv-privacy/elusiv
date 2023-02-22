@@ -1,0 +1,8 @@
+**/target
+/.idea/
+/.github
+**/Dockerfile
+/README.md
+/.git
+/.gitignore
+./docker_test.sh
