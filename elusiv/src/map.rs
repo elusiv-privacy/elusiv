@@ -1,6 +1,7 @@
 use crate::bytes::*;
 use crate::macros::two_pow;
 use crate::types::{JITArray, Lazy, LazyField, OrdU256, U256};
+use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_derive::{BorshSerDePlaceholder, BorshSerDeSized, ByteBackedJIT};
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -8,12 +9,14 @@ use std::fmt::Debug;
 pub trait ElusivMapKey: BorshSerDeSized + Clone + PartialEq + PartialOrd + Ord + Debug {}
 pub trait ElusivMapValue: BorshSerDeSized + Clone + Debug {}
 
+/// Implements [`ElusivMapKey`] for a provided type
 macro_rules! impl_map_key {
     ($ty: ty) => {
         impl crate::map::ElusivMapKey for $ty {}
     };
 }
 
+/// Implements [`ElusivMapValue`] for a provided type
 macro_rules! impl_map_value {
     ($ty: ty) => {
         impl crate::map::ElusivMapValue for $ty {}
@@ -24,23 +27,34 @@ impl_map_key!(());
 impl_map_key!(U256);
 impl_map_key!(OrdU256);
 impl_map_key!(u32);
+
 impl_map_value!(());
 
+/// We use pointers to increase read/write efficiency in the [`ElusivMap`]
+#[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized, Clone, Copy)]
+#[cfg_attr(test, derive(Debug))]
+pub struct ElusivMapPtr(pub u16);
+
+/// A set storing values of type `K` utilizing [`ElusivMap`]
 pub type ElusivSet<'a, K, const CAPACITY: usize> = ElusivMap<'a, K, (), CAPACITY>;
 
 /// Write efficient, append only, JIT deserializing, insertion sorted map with a maximum capacity
-/// - upper bound (inclusive) for `CAPACITY` is `2^16`
-#[derive(BorshSerDeSized, BorshSerDePlaceholder, ByteBackedJIT, Debug)]
+///
+/// # Note
+///
+/// The upper bound (inclusive) for `CAPACITY` is `2^16` (size of the pointer).
+#[derive(BorshSerDeSized, BorshSerDePlaceholder, ByteBackedJIT)]
+#[cfg_attr(test, derive(Debug))]
 pub struct ElusivMap<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> {
     len: Lazy<'a, u32>,
 
-    min_ptr: Lazy<'a, u16>,
-    max_ptr: Lazy<'a, u16>,
+    min_ptr: Lazy<'a, ElusivMapPtr>,
+    max_ptr: Lazy<'a, ElusivMapPtr>,
     // TODO: switch to a multi-mid-ptr system (log N pointers) to drastically increase efficiency
     //mid_ptr: Lazy<'a, u16>,
     /// The map is represented as a circular, singly linked list
     /// - this means: `keys.get(next(max_ptr.get()))` is the minimum key
-    next: JITArray<'a, u16, CAPACITY>,
+    next: JITArray<'a, ElusivMapPtr, CAPACITY>,
 
     keys: JITArray<'a, K, CAPACITY>,
     values: JITArray<'a, V, CAPACITY>,
@@ -58,14 +72,21 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
     pub const CAPACITY: u32 = verify_capacity(usize_as_u32_safe(CAPACITY));
 
     /// Attempts to insert a new entry into the map
-    /// - duplicate keys cannot be inserted
     ///
-    /// - `Ok(None)`: the entry has been inserted
-    /// - `Ok(Some(max))`: the entry has been inserted but the map is full so the maximum entry max is dropped
-    /// - `Err(_)`: the entry has not been inserted (due to a duplicate key)
+    /// # Note
+    ///
+    /// Duplicate keys cannot be inserted.
+    ///
+    /// # Return
+    ///
+    /// Returns [`Ok(None)`] if the entry has been inserted successfully.
+    ///
+    /// Returns [`Ok(Some(max))`] if the entry has been inserted successfully but the map was already full so the maximum entry max is dropped.
+    ///
+    /// Returns [`Err(_)`] if the entry has not been inserted (due to a duplicate key or the key being too large for the map).
     pub fn try_insert(&mut self, key: K, value: &V) -> Result<Option<(K, V)>, ElusivMapError<V>> {
         match self.binary_search(&key) {
-            Ok(pointer) => self.insert_at(&key, value, pointer),
+            Ok(index) => self.insert_at(&key, value, index),
             Err(ElusivMapError::KeyTooLarge) => Ok(Some((key, value.clone()))),
             Err(e) => Err(e),
         }
@@ -86,7 +107,16 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         }
     }
 
-    fn binary_search(&mut self, key: &K) -> Result<u16, ElusivMapError<V>> {
+    /// Searches for the [`ElusivMapPtr`] at which the key can be inserted
+    ///
+    /// # Return
+    ///
+    /// Returns [`Ok(index)`] if the key can be inserted in the map at `index`.
+    ///
+    /// Returns [`Err(ElusivMapError::KeyTooLarge)`] if the key cannot be inserted due to it being too large for the (already full) map.
+    ///
+    /// Returns [`Err(ElusivMapError::Duplicate(value)`] if the key is already contained in the map with the corresponding value.
+    fn binary_search(&mut self, key: &K) -> Result<u32, ElusivMapError<V>> {
         if self.is_empty() {
             return Ok(0);
         }
@@ -103,30 +133,35 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
                 if self.is_full() {
                     return Err(ElusivMapError::KeyTooLarge);
                 }
-                return Ok(self.len.get() as u16);
+
+                return Ok(self.len.get());
             }
             _ => {}
         }
 
-        let mut mid = 0;
-        let mut l = 0;
-        let mut h = self.len.get();
+        let mut mid = 0; // initial value is never used
+        let mut low = 0;
+        let mut high = self.len.get();
 
         let mut low_ptr = self.min_ptr.get();
-        let mut mid_ptr = 0;
+        let mut mid_ptr = ElusivMapPtr(0); // initial value is never used (but using `std::mem::MaybeUninit` is overkill)
 
-        // 130s -> 24.35s -> 20
-        // 8s -> 6
-        while l < h {
-            mid = l + (h - l) / 2;
-            mid_ptr = self.get_next_ptr_fast(low_ptr, mid - l);
-            match key.cmp(&self.keys.get(mid_ptr as usize)) {
+        // This is equivalent to '!self.is_empty()'
+        assert!(low < high);
+
+        while low < high {
+            mid = low + (high - low) / 2;
+
+            // Compute the `mid_ptr` by moving `mid - low` pointers forward
+            mid_ptr = self.get_next_ptr(&low_ptr, mid - low);
+
+            match key.cmp(&self.key(&mid_ptr)) {
                 Ordering::Less => {
-                    h = mid;
+                    high = mid;
                 }
                 Ordering::Greater => {
-                    l = mid + 1;
-                    low_ptr = self.get_next_ptr_fast(mid_ptr, 1);
+                    low = mid + 1;
+                    low_ptr = self.get_next_ptr(&mid_ptr, 1);
                 }
                 Ordering::Equal => {
                     return Err(ElusivMapError::Duplicate(self.values.get(mid as usize)))
@@ -134,46 +169,49 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
             }
         }
 
-        if *key > self.keys.get(mid_ptr as usize) {
+        if *key > self.key(&mid_ptr) {
             mid += 1;
         }
 
-        Ok(mid as u16)
+        // We construct a ptr from `mid` (which itself is an index and not a ptr)
+        Ok(mid)
     }
 
     fn insert_at(
         &mut self,
         key: &K,
         value: &V,
-        index: u16,
+        index: u32,
     ) -> Result<Option<(K, V)>, ElusivMapError<V>> {
         let max_key = self.max();
-        let max_value = self.values.get(self.max_ptr.get() as usize);
+        let max_value = self.max_value();
 
         let new_ptr = if self.is_full() {
             self.max_ptr.get()
         } else {
-            self.len.get().try_into().unwrap()
+            ElusivMapPtr(self.len.get().try_into().unwrap())
         };
 
-        self.keys.set(new_ptr as usize, key);
-        self.values.set(new_ptr as usize, value);
+        self.set(&new_ptr, key, value);
 
         if index == 0 {
             // Prepend
-            self.next.set(new_ptr as usize, &self.min_ptr.get());
+            let ptr = self.min_ptr.get();
+            self.set_next(&new_ptr, &ptr);
             self.min_ptr.set(&new_ptr);
-        } else if index == self.len.get() as u16 {
+        } else if index == self.len.get() {
             // Append
-            self.next.set(self.max_ptr.get() as usize, &new_ptr);
+            let ptr = self.max_ptr.get();
+            self.set_next(&ptr, &new_ptr);
             self.max_ptr.set(&new_ptr);
         } else {
             // Insert at index
             let min_ptr = self.min_ptr.get();
-            let prev = self.get_next_ptr_fast(min_ptr, index as u32 - 1);
-            let next = self.next.get(prev as usize);
-            self.next.set(prev as usize, &new_ptr);
-            self.next.set(new_ptr as usize, &next);
+            let prev = self.get_next_ptr(&min_ptr, index - 1);
+            let next = self.get_next(&prev);
+
+            self.set_next(&prev, &new_ptr);
+            self.set_next(&new_ptr, &next);
         }
 
         let len = self.len.get();
@@ -193,8 +231,9 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         if self.is_full() {
             let len = self.len.get() - 1;
             let min_ptr = self.min_ptr.get();
-            let prev = self.get_next_ptr_fast(min_ptr, len);
+            let prev = self.get_next_ptr(&min_ptr, len);
             self.max_ptr.set(&prev);
+
             return Ok(Some((max_key, max_value)));
         }
 
@@ -203,38 +242,57 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         Ok(None)
     }
 
-    fn get_next_ptr(&mut self, base_ptr: u16, offset: u32) -> u16 {
-        let mut ptr = base_ptr;
+    /// Traverses the pointer graph and returns the pointer with the a distance of `offset` from the `base_ptr`
+    fn get_next_ptr(&mut self, base_ptr: &ElusivMapPtr, offset: u32) -> ElusivMapPtr {
+        let mut ptr = *base_ptr;
         for _ in 0..offset {
-            ptr = self.next.get(ptr as usize);
+            ptr = self.next.get(ptr.0 as usize);
         }
         ptr
     }
 
-    fn get_next_ptr_fast(&mut self, base_ptr: u16, offset: u32) -> u16 {
-        /*let half = self.len.get() / 2;
-        if offset >= half {
-            let mid_ptr = self.mid_ptr.get();
-            return self.get_next_ptr_fast(mid_ptr, offset - half)
-        }*/
+    pub fn key(&mut self, ptr: &ElusivMapPtr) -> K {
+        self.keys.get(ptr.0 as usize)
+    }
 
-        self.get_next_ptr(base_ptr, offset)
+    pub fn value(&mut self, ptr: &ElusivMapPtr) -> V {
+        self.values.get(ptr.0 as usize)
+    }
+
+    #[inline]
+    fn set(&mut self, ptr: &ElusivMapPtr, key: &K, value: &V) {
+        self.keys.set(ptr.0 as usize, key);
+        self.values.set(ptr.0 as usize, value);
+    }
+
+    #[inline]
+    fn get_next(&mut self, ptr: &ElusivMapPtr) -> ElusivMapPtr {
+        self.next.get(ptr.0 as usize)
+    }
+
+    #[inline]
+    fn set_next(&mut self, ptr: &ElusivMapPtr, target: &ElusivMapPtr) {
+        self.next.set(ptr.0 as usize, target);
     }
 
     pub fn min(&mut self) -> K {
-        self.keys.get(self.min_ptr.get() as usize)
+        let ptr = self.min_ptr.get();
+        self.key(&ptr)
     }
 
     fn min_value(&mut self) -> V {
-        self.values.get(self.min_ptr.get() as usize)
+        let ptr = self.min_ptr.get();
+        self.value(&ptr)
     }
 
     pub fn max(&mut self) -> K {
-        self.keys.get(self.max_ptr.get() as usize)
+        let ptr = self.max_ptr.get();
+        self.key(&ptr)
     }
 
     fn max_value(&mut self) -> V {
-        self.values.get(self.max_ptr.get() as usize)
+        let ptr = self.max_ptr.get();
+        self.value(&ptr)
     }
 
     pub fn is_empty(&mut self) -> bool {
@@ -247,17 +305,19 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
 
     pub fn reset(&mut self) {
         self.len.set(&0);
-        self.max_ptr.set(&0);
-        self.next.set(0, &0);
+        self.max_ptr.set(&ElusivMapPtr(0));
+
+        // The first ptr points to itself
+        self.next.set(0, &ElusivMapPtr(0));
     }
 
     #[cfg(test)]
     pub fn sorted_keys(&mut self) -> Vec<K> {
-        let mut k = Vec::new();
-        let mut ptr = self.min_ptr.get() as usize;
+        let mut k = Vec::with_capacity(self.len.get() as usize);
+        let mut ptr = self.min_ptr.get();
         for _ in 0..self.len.get() {
-            k.push(self.keys.get(ptr));
-            ptr = self.next.get(ptr) as usize;
+            k.push(self.key(&ptr));
+            ptr = self.get_next(&ptr);
         }
 
         k
@@ -265,11 +325,11 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
 
     #[cfg(test)]
     pub fn values_sorted_by_keys(&mut self) -> Vec<V> {
-        let mut v = Vec::new();
-        let mut ptr = self.min_ptr.get() as usize;
+        let mut v = Vec::with_capacity(self.len.get() as usize);
+        let mut ptr = self.min_ptr.get();
         for _ in 0..self.len.get() {
-            v.push(self.values.get(ptr));
-            ptr = self.next.get(ptr) as usize;
+            v.push(self.value(&ptr));
+            ptr = self.get_next(&ptr);
         }
 
         v
@@ -285,8 +345,8 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         self.keys.set(1, &max.0);
         self.values.set(1, &max.1);
 
-        self.min_ptr.set(&0);
-        self.max_ptr.set(&1);
+        self.min_ptr.set(&ElusivMapPtr(0));
+        self.max_ptr.set(&ElusivMapPtr(1));
 
         self.len.set(&len);
     }
