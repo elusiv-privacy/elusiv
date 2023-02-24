@@ -64,9 +64,8 @@ pub struct ElusivMap<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usi
     max_ptr: Lazy<'a, ElusivMapPtr>,
     mid_ptr: Lazy<'a, ElusivMapPtr>,
 
-    /// The map is represented as a circular, singly linked list
-    /// - this means: `keys.get(next(max_ptr.get()))` is the minimum key
     next: JITArray<'a, ElusivMapPtr, CAPACITY>,
+    prev: JITArray<'a, ElusivMapPtr, CAPACITY>,
 
     keys: JITArray<'a, K, CAPACITY>,
     values: JITArray<'a, V, CAPACITY>,
@@ -156,16 +155,13 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         let mut high = self.len.get();
 
         let mut low_ptr = self.min_ptr.get();
-        let mut mid_ptr = ElusivMapPtr(0); // initial value is never used (but using `std::mem::MaybeUninit` is overkill)
-
-        // This is equivalent to '!self.is_empty()'
-        // assert!(low < high);
+        let mut mid_ptr = ElusivMapPtr(0); // initial value is never used
 
         while low < high {
             mid = low + (high - low) / 2;
 
             // Compute the `mid_ptr` by moving `mid - low` pointers forward
-            mid_ptr = self.get_next_ptr(&low_ptr, mid - low, true);
+            mid_ptr = self.get_ptr(&low_ptr, low, mid - low);
 
             match key.cmp(&self.key(&mid_ptr)) {
                 Ordering::Less => {
@@ -173,7 +169,7 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
                 }
                 Ordering::Greater => {
                     low = mid + 1;
-                    low_ptr = self.get_next_ptr(&mid_ptr, 1, true);
+                    low_ptr = self.get_next(&mid_ptr);
                 }
                 Ordering::Equal => {
                     return Err(ElusivMapError::Duplicate(self.values.get(mid as usize)))
@@ -198,6 +194,10 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         let max_key = self.max();
         let max_value = self.max_value();
         let is_full = self.is_full();
+        let max_ptr_predecessor = {
+            let max_ptr = self.max_ptr.get();
+            self.get_prev(&max_ptr)
+        };
 
         let new_ptr = if !is_full {
             // We fill the underlying data linearly
@@ -214,22 +214,22 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         if index == 0 {
             // Prepend
             let ptr = self.min_ptr.get();
-            self.set_next(&new_ptr, &ptr);
+            self.link_ptrs(&new_ptr, &ptr);
             self.min_ptr.set(&new_ptr);
         } else if index == self.len.get() {
             // Append
             let ptr = self.max_ptr.get();
-            self.set_next(&ptr, &new_ptr);
+            self.link_ptrs(&ptr, &new_ptr);
             self.max_ptr.set(&new_ptr);
         } else {
             // Insert at index
             let min_ptr = self.min_ptr.get();
-            let prev = self.get_next_ptr(&min_ptr, index - 1, true);
+            let prev = self.get_ptr(&min_ptr, 0, index - 1);
             let next = self.get_next(&prev);
 
             // Insert `new_ptr` between `prev` and `next`
-            self.set_next(&prev, &new_ptr);
-            self.set_next(&new_ptr, &next);
+            self.link_ptrs(&prev, &new_ptr);
+            self.link_ptrs(&new_ptr, &next);
         }
 
         let len = self.len.get();
@@ -237,32 +237,11 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         let next_len = len + u32::from(!is_full);
         let next_len_is_even = next_len % 2 == 0;
 
-        /*
-        let next_mid_ptr = if next_len % 2 == 1 {
-            // Adapt the `mid_ptr` for insertions left of the mid or at the mid
-            match index.cmp(&half_len) {
-                Ordering::Less => self.get_next_ptr(&new_ptr, half_len - index, false),
-                Ordering::Equal => new_ptr,
-                _ => self.mid_ptr.get(),
-            }
-        } else if !is_full && index > half_len {
-            // Every regular two insertions right of the mid move the `mid_ptr` one to the right
-            let mid_ptr = self.mid_ptr.get();
-            self.get_next(&mid_ptr)
-        } else if is_full && index < half_len {
-            // Move mid one to the left
-            self.get_next_ptr(&new_ptr, half_len - index, false)
-        } else {
-            self.mid_ptr.get()
-        };
-
-        self.mid_ptr.set(&next_mid_ptr);
-        */
-
         match index.cmp(&half_len) {
             Ordering::Less => {
                 if !next_len_is_even || is_full {
-                    let next_mid_ptr = self.get_next_ptr(&new_ptr, half_len - index, false);
+                    let mid_ptr = self.mid_ptr.get();
+                    let next_mid_ptr = self.get_prev(&mid_ptr);
                     self.mid_ptr.set(&next_mid_ptr);
                 }
             }
@@ -286,7 +265,7 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
             let prev = if index == len {
                 new_ptr
             } else {
-                self.get_next_ptr(&new_ptr, len - index - 1, true)
+                max_ptr_predecessor
             };
 
             self.max_ptr.set(&prev);
@@ -301,20 +280,53 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
     }
 
     /// Traverses the pointer graph and returns the pointer with a distance of `offset` from the `base_ptr`
-    fn get_next_ptr(
+    fn get_ptr(
         &mut self,
         base_ptr: &ElusivMapPtr,
+        base_ptr_offset: u32,
         offset: u32,
-        use_mid_ptr: bool,
     ) -> ElusivMapPtr {
-        if use_mid_ptr {
-            let half = self.len.get() / 2;
-            if offset >= half && *base_ptr == self.min_ptr.get() {
-                let mid_ptr = self.mid_ptr.get();
-                return self.get_next_ptr(&mid_ptr, offset - half, false);
+        let half = self.len.get() / 2;
+        let quarter = half / 2;
+
+        if offset <= quarter {
+            self.get_next_ptr(base_ptr, offset)
+        } else {
+            let index = base_ptr_offset + offset;
+            match index.cmp(&half) {
+                Ordering::Equal => self.mid_ptr.get(),
+                Ordering::Less => {
+                    if index <= quarter {
+                        let ptr = self.min_ptr.get();
+                        self.get_next_ptr(&ptr, index)
+                    } else {
+                        let ptr = self.mid_ptr.get();
+                        self.get_prev_ptr(&ptr, half - index)
+                    }
+                }
+                Ordering::Greater => {
+                    let index = index - half;
+                    if index <= quarter {
+                        let ptr = self.mid_ptr.get();
+                        self.get_next_ptr(&ptr, index)
+                    } else {
+                        let ptr = self.max_ptr.get();
+                        self.get_prev_ptr(&ptr, half - index)
+                    }
+                }
             }
         }
+    }
 
+    fn get_prev_ptr(&mut self, base_ptr: &ElusivMapPtr, offset: u32) -> ElusivMapPtr {
+        let mut ptr = *base_ptr;
+        for _ in 0..offset {
+            ptr = self.prev.get(ptr.0 as usize);
+        }
+        ptr
+    }
+
+    fn get_next_ptr(&mut self, base_ptr: &ElusivMapPtr, offset: u32) -> ElusivMapPtr {
         let mut ptr = *base_ptr;
         for _ in 0..offset {
             ptr = self.next.get(ptr.0 as usize);
@@ -337,13 +349,18 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
     }
 
     #[inline]
+    fn get_prev(&mut self, ptr: &ElusivMapPtr) -> ElusivMapPtr {
+        self.prev.get(ptr.0 as usize)
+    }
+
+    #[inline]
     fn get_next(&mut self, ptr: &ElusivMapPtr) -> ElusivMapPtr {
         self.next.get(ptr.0 as usize)
     }
 
-    #[inline]
-    fn set_next(&mut self, ptr: &ElusivMapPtr, target: &ElusivMapPtr) {
-        self.next.set(ptr.0 as usize, target);
+    fn link_ptrs(&mut self, a: &ElusivMapPtr, b: &ElusivMapPtr) {
+        self.next.set(a.0 as usize, b);
+        self.prev.set(b.0 as usize, a);
     }
 
     pub fn min(&mut self) -> K {
@@ -380,6 +397,7 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
 
         // The first ptr points to itself
         self.next.set(0, &ElusivMapPtr(0));
+        self.prev.set(0, &ElusivMapPtr(0));
     }
 
     #[cfg(test)]
@@ -462,6 +480,59 @@ mod tests {
     }
 
     #[test]
+    fn test_link_ptrs() {
+        map!(map);
+
+        map.link_ptrs(&ElusivMapPtr(0), &ElusivMapPtr(1));
+
+        assert_eq!(map.next.get(0).0, 1);
+        assert_eq!(map.prev.get(1).0, 0);
+    }
+
+    #[test]
+    fn test_get_ptr_even_len() {
+        map!(map);
+
+        map.next.set(0, &ElusivMapPtr(1));
+        map.next.set(1, &ElusivMapPtr(2));
+        map.next.set(2, &ElusivMapPtr(3));
+        map.next.set(3, &ElusivMapPtr(0));
+
+        map.prev.set(0, &ElusivMapPtr(3));
+        map.prev.set(1, &ElusivMapPtr(0));
+        map.prev.set(2, &ElusivMapPtr(1));
+        map.prev.set(3, &ElusivMapPtr(2));
+
+        map.len.set(&4);
+        map.min_ptr.set(&ElusivMapPtr(0));
+        map.mid_ptr.set(&ElusivMapPtr(2));
+        map.max_ptr.set(&ElusivMapPtr(3));
+
+        assert_eq!(map.get_ptr(&ElusivMapPtr(1), 1, 2).0, 3);
+    }
+
+    #[test]
+    fn test_get_ptr_uneven_len() {
+        type Map<'a> = ElusivMap<'a, u16, u16, 10>;
+        let mut data = vec![0; Map::SIZE];
+        let mut map = Map::new(&mut data);
+
+        let len = Map::CAPACITY as usize;
+        for i in 0..len {
+            map.next.set(i, &ElusivMapPtr((i as u16 + 1) % len as u16));
+            map.prev
+                .set(i, &ElusivMapPtr((i + len - 1) as u16 % len as u16));
+        }
+
+        map.len.set(&(len as u32));
+        map.min_ptr.set(&ElusivMapPtr(0));
+        map.mid_ptr.set(&ElusivMapPtr(len as u16 / 2));
+        map.max_ptr.set(&ElusivMapPtr(len as u16 - 1));
+
+        assert_eq!(map.get_ptr(&ElusivMapPtr(1), 1, 2).0, 3);
+    }
+
+    #[test]
     fn test_try_insert() {
         type Map<'a> = ElusivMap<'a, u16, u16, 8>;
 
@@ -493,7 +564,6 @@ mod tests {
     #[test]
     fn test_try_insert_mid_even_len() {
         type Map<'a> = ElusivMap<'a, u16, u16, 4>;
-
         let mut data = vec![0; Map::SIZE];
         let mut map = Map::new(&mut data);
 
@@ -507,6 +577,7 @@ mod tests {
         assert_eq!(map.max(), 11);
 
         map.try_insert_default(5).unwrap();
+        println!("{:?}", map.sorted_keys());
         assert_eq!(map.min(), 0);
         assert_eq!(map.mid(), 5);
         assert_eq!(map.max(), 10);
