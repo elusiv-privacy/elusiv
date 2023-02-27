@@ -51,7 +51,7 @@ elusiv-test = { path = "shared/elusiv-test" }
 elusiv-warden-network = { path = ".", features = ["elusiv-client", "test-elusiv", "logging"] }
 solana-program-test = "1.10"
 solana-sdk = "1.10"
-mock-program = { path = "shared/elusiv-test/mock-program" }
+mock-program = { path = "shared/elusiv-test/mock-program", features = ["no-entrypoint"] }
 
 [profile.test]
 opt-level = 2
