@@ -44,6 +44,7 @@ pub enum ElusivMapError<V: ElusivMapValue> {
 
 const MID_PTR_HEIGHT: u32 = 3;
 const MID_PTR_COUNT: usize = two_pow!(MID_PTR_HEIGHT + 1) - 1;
+const LAST_MID_PTR_INDEX: usize = MID_PTR_COUNT - 1;
 
 /// We use pointers to increase read/write efficiency in the [`ElusivMap`]
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized, Clone, Copy, PartialEq, Eq)]
@@ -306,10 +307,10 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         base_ptr_offset: u32,
         offset: u32,
     ) -> ElusivMapPtr {
-        let distance = self.len.get() / MID_PTR_COUNT as u32;
-        let half_distance = distance / 2;
+        let distance = self.len.get() / (MID_PTR_COUNT as u32 + 1);
+        // let half_distance = distance / 2;
 
-        if offset <= half_distance || distance == 0 {
+        if distance == 0 || offset <= 1 {
             self.get_next_ptr(base_ptr, offset)
         } else {
             let index = base_ptr_offset + offset;
@@ -330,44 +331,77 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
                 }
             }
 
+            // if offset <= 8 {
+            //     return self.get_next_ptr(base_ptr, offset);
+            // }
+
             let mid = self.mid_ptr_position.get(mid_ptr_index);
-            match index.cmp(&mid) {
+            let (d, ptr, next) = match index.cmp(&mid) {
                 Ordering::Less => {
-                    /*let len = if mid_ptr_index == 0 {
+                    let len = if mid_ptr_index == 0 {
                         mid
                     } else {
                         mid - self.mid_ptr_position.get(mid_ptr_index - 1)
-                    };*/
-                    let x = if mid_ptr_index == 0 {
-                        0
-                    } else {
-                        self.mid_ptr_position.get(mid_ptr_index - 1)
                     };
 
-                    let ptr = if mid_ptr_index == 0 {
-                        self.min_ptr.get()
-                    } else {
-                        self.mid_ptr.get(mid_ptr_index - 1)
-                    };
+                    if index <= mid - len / 2 {
+                        let base = if mid_ptr_index == 0 {
+                            0
+                        } else {
+                            self.mid_ptr_position.get(mid_ptr_index - 1)
+                        };
 
-                    self.get_next_ptr(&ptr, index - x)
+                        let ptr = if mid_ptr_index == 0 {
+                            self.min_ptr.get()
+                        } else {
+                            self.mid_ptr.get(mid_ptr_index - 1)
+                        };
+
+                        (index - base, ptr, true)
+                    } else {
+                        let ptr = self.mid_ptr.get(mid_ptr_index);
+                        (mid - index, ptr, false)
+                    }
                 }
-                Ordering::Equal => self.mid_ptr.get(mid_ptr_index),
+                Ordering::Equal => return self.mid_ptr.get(mid_ptr_index),
                 Ordering::Greater => {
-                    /*let len = if mid_ptr_index == MID_PTR_COUNT {
+                    let len = if mid_ptr_index == LAST_MID_PTR_INDEX {
                         self.len.get() - mid
                     } else {
                         self.mid_ptr_position.get(mid_ptr_index + 1) - mid
-                    };*/
+                    };
 
-                    let ptr = self.mid_ptr.get(mid_ptr_index);
-                    self.get_next_ptr(&ptr, index - mid)
+                    if index <= mid - len / 2 {
+                        let ptr = self.mid_ptr.get(mid_ptr_index);
+                        (index - mid, ptr, true)
+                    } else {
+                        let base = if mid_ptr_index == LAST_MID_PTR_INDEX {
+                            self.len.get() - 1
+                        } else {
+                            self.mid_ptr_position.get(mid_ptr_index + 1)
+                        };
+
+                        let ptr = if mid_ptr_index == LAST_MID_PTR_INDEX {
+                            self.max_ptr.get()
+                        } else {
+                            self.mid_ptr.get(mid_ptr_index + 1)
+                        };
+
+                        (base - index, ptr, false)
+                    }
                 }
+            };
+
+            if offset < d {
+                self.get_next_ptr(base_ptr, offset)
+            } else if next {
+                self.get_next_ptr(&ptr, d)
+            } else {
+                self.get_prev_ptr(&ptr, d)
             }
         }
     }
 
-    /*
     fn get_prev_ptr(&mut self, base_ptr: &ElusivMapPtr, offset: u32) -> ElusivMapPtr {
         let mut ptr = *base_ptr;
         for _ in 0..offset {
@@ -375,7 +409,6 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         }
         ptr
     }
-    */
 
     fn get_next_ptr(&mut self, base_ptr: &ElusivMapPtr, offset: u32) -> ElusivMapPtr {
         let mut ptr = *base_ptr;
