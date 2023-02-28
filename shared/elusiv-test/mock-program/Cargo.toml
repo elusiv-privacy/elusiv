@@ -10,3 +10,6 @@ solana-program = "1.10"
 [lib]
 name = "mock_program"
 crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
