@@ -141,8 +141,9 @@ impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> LazyField<'a>
     }
 
     fn serialize(&mut self) {
+        // no call to serialize required, performed directly after each set
         panic!()
-    } // no call to serialize required, performed after each set
+    }
 }
 
 impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> JITArray<'a, N, CAPACITY> {
@@ -158,18 +159,18 @@ impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> JITArray<'a, N, CAPA
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
 /// A Groth16 proof in affine form
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
 pub struct Proof {
     pub a: G1A,
     pub b: G2A,
     pub c: G1A,
 }
 
+/// A Groth16 proof in affine form in binary representation (this construct is required for serde-json parsing in the Warden)
 #[cfg(feature = "elusiv-client")]
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-/// A Groth16 proof in affine form in binary representation (this construct is required for serde-json parsing in the Warden)
 pub struct RawProof {
     pub a: RawG1A,
     pub b: RawG2A,
@@ -301,7 +302,7 @@ pub trait PublicInputs {
 }
 
 /// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
-/// - IMPORTANT: depending on recipient.is_non_associated_token_account, a higher amount is required (that also includes the rent)
+/// - IMPORTANT: depending on recipient.recipient_is_associated_token_account, a higher amount is required (that also includes the rent)
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct SendPublicInputs {
@@ -339,7 +340,7 @@ pub fn generate_hashed_inputs(
     hash
 }
 
-// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
+/// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct MigratePublicInputs {
@@ -376,8 +377,8 @@ impl PublicInputs for SendPublicInputs {
         &self.join_split
     }
 
-    // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
-    // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/send.circom
+    /// Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
+    /// Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/send.circom
     fn public_signals(&self) -> Vec<RawU256> {
         let mut public_signals = Vec::with_capacity(Self::PUBLIC_INPUTS_COUNT);
 
@@ -441,8 +442,8 @@ impl PublicInputs for MigratePublicInputs {
         &self.join_split
     }
 
-    // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
-    // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/migrate.circom
+    /// Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
+    /// Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/migrate.circom
     fn public_signals(&self) -> Vec<RawU256> {
         vec![
             self.join_split.input_commitments[0].nullifier_hash,

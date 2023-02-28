@@ -109,7 +109,7 @@ impl<'a, 'b, 'c> NullifierAccount<'a, 'b, 'c> {
 mod tests {
     use super::*;
     use crate::{
-        fields::{u256_from_str, u64_to_u256_skip_mr},
+        fields::{u256_from_str, u64_to_u256, u64_to_u256_skip_mr},
         macros::parent_account,
     };
     use assert_matches::assert_matches;
@@ -171,13 +171,13 @@ mod tests {
 
         for i in (0..count).rev() {
             nullifier_account
-                .try_insert_nullifier_hash(u64_to_u256_skip_mr(i))
+                .try_insert_nullifier_hash(u64_to_u256(i))
                 .unwrap();
         }
 
         for i in 0..count {
             assert!(!nullifier_account
-                .can_insert_nullifier_hash(u64_to_u256_skip_mr(i))
+                .can_insert_nullifier_hash(u64_to_u256(i))
                 .unwrap());
         }
     }

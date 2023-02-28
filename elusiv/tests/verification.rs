@@ -5,6 +5,7 @@ mod common;
 use borsh::{BorshDeserialize, BorshSerialize};
 use common::*;
 use elusiv::bytes::{BorshSerDeSized, ElusivOption};
+use elusiv::fields::u64_to_u256;
 use elusiv::instruction::{
     ElusivInstruction, SignerAccount, UserAccount, WritableSignerAccount, WritableUserAccount,
 };
@@ -1988,7 +1989,9 @@ async fn test_finalization_nullifier_insertions() {
 
     insert_nullifier_hashes(
         &mut test,
-        &(0..20_000).map(|_| rand::random()).collect::<Vec<U256>>(),
+        &(0..NULLIFIERS_PER_ACCOUNT as u64 - 5)
+            .map(u64_to_u256)
+            .collect::<Vec<_>>(),
     )
     .await;
 

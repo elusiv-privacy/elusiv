@@ -164,6 +164,8 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         while low < high {
             mid = low + (high - low) / 2;
 
+            // TODO: keep a subset of traversed ptrs in memory for further speed increase (ptrs used after leaving the mid-ptr tree)
+
             // Compute the `mid_ptr` by moving `mid - low` pointers forward
             mid_ptr = self.get_ptr(&low_ptr, low, mid - low);
 
