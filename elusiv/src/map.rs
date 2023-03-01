@@ -30,7 +30,7 @@ impl_map_key!(u32);
 
 impl_map_value!(());
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ElusivMapError<V: ElusivMapValue> {
     /// Value of a duplciate entry
     Duplicate(V),
@@ -44,7 +44,8 @@ pub enum ElusivMapError<V: ElusivMapValue> {
 
 const MID_PTR_HEIGHT: u32 = 3;
 const MID_PTR_COUNT: usize = two_pow!(MID_PTR_HEIGHT + 1) - 1;
-const LAST_MID_PTR_INDEX: usize = MID_PTR_COUNT - 1;
+// const LAST_MID_PTR_INDEX: usize = MID_PTR_COUNT - 1;
+const SUBSECTIONS: u32 = MID_PTR_COUNT as u32 + 1;
 
 /// We use pointers to increase read/write efficiency in the [`ElusivMap`]
 #[derive(BorshSerialize, BorshDeserialize, BorshSerDeSized, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +70,6 @@ pub struct ElusivMap<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usi
 
     /// All mid-ptrs form a binary tree of height [`MID_PTR_HEIGHT`].
     mid_ptr: JITArray<'a, ElusivMapPtr, MID_PTR_COUNT>,
-    mid_ptr_position: JITArray<'a, u32, MID_PTR_COUNT>,
 
     next: JITArray<'a, ElusivMapPtr, CAPACITY>,
     prev: JITArray<'a, ElusivMapPtr, CAPACITY>,
@@ -198,9 +198,13 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
     ) -> Result<Option<(K, V)>, ElusivMapError<V>> {
         assert!(index <= self.len.get());
 
-        let max_key = self.max();
-        let max_value = self.max_value();
         let is_full = self.is_full();
+        let max_key = if is_full { Some(self.max()) } else { None };
+        let max_value = if is_full {
+            Some(self.max_value())
+        } else {
+            None
+        };
         let max_ptr_predecessor = {
             let max_ptr = self.max_ptr.get();
             self.get_prev(&max_ptr)
@@ -250,7 +254,7 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
             self.max_ptr.set(&prev);
 
             // Return the previous max key and value
-            return Ok(Some((max_key, max_value)));
+            return Ok(Some((max_key.unwrap(), max_value.unwrap())));
         }
 
         let new_len = self.len.get() + u32::from(!is_full);
@@ -259,45 +263,31 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         Ok(None)
     }
 
-    fn mid_ptr_index(local_mid_ptr_index: usize, mid_ptr_depth: usize) -> usize {
-        // Conversion from local index and tree depth (root has depth 0):
-        // `i * 2^(h-d+1) + 2^(h-d) - 1` (with height `h`, local-index `i`, depth `d`)
-        let e = two_pow!(MID_PTR_HEIGHT - mid_ptr_depth as u32);
-        local_mid_ptr_index * e * 2 + e - 1
+    fn compute_mid(mid_ptr_index: u32, len: u32) -> u32 {
+        ((1 + mid_ptr_index) * len) / SUBSECTIONS
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn update_mid_ptrs(&mut self, insertion_index: u32) {
         let len = self.len.get();
         let is_full = self.is_full();
         let new_len = len + u32::from(!self.is_full());
 
-        for i in 0..=MID_PTR_HEIGHT {
-            let c = two_pow!(i) as u32;
-            let c2 = c * 2;
+        for i in 0..MID_PTR_COUNT {
+            let mid = Self::compute_mid(i as u32, len);
+            let new_mid = Self::compute_mid(i as u32, new_len);
 
-            for j in 0..c {
-                let mid_ptr_index = Self::mid_ptr_index(j as usize, i as usize);
-                let mid = self.mid_ptr_position.get(mid_ptr_index);
-                let new_mid = ((1 + 2 * j) * new_len) / c2;
-
-                if mid != new_mid {
-                    self.mid_ptr_position.set(mid_ptr_index, &new_mid);
+            if insertion_index <= mid {
+                if mid == new_mid || is_full {
+                    // Adjust by decreasing by one ptr
+                    let mid_ptr = self.mid_ptr.get(i);
+                    let next_mid_ptr = self.get_prev(&mid_ptr);
+                    self.mid_ptr.set(i, &next_mid_ptr);
                 }
-
-                if insertion_index <= mid {
-                    if mid == new_mid || is_full {
-                        // Adjust by decreasing by one ptr
-                        let mid_ptr = self.mid_ptr.get(mid_ptr_index);
-                        let next_mid_ptr = self.get_prev(&mid_ptr);
-                        self.mid_ptr.set(mid_ptr_index, &next_mid_ptr);
-                    }
-                } else if mid != new_mid {
-                    // Adjust by increasing by one ptr
-                    let mid_ptr = self.mid_ptr.get(mid_ptr_index);
-                    let next_mid_ptr = self.get_next(&mid_ptr);
-                    self.mid_ptr.set(mid_ptr_index, &next_mid_ptr);
-                }
+            } else if mid != new_mid {
+                // Adjust by increasing by one ptr
+                let mid_ptr = self.mid_ptr.get(i);
+                let next_mid_ptr = self.get_next(&mid_ptr);
+                self.mid_ptr.set(i, &next_mid_ptr);
             }
         }
     }
@@ -310,16 +300,16 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         offset: u32,
     ) -> ElusivMapPtr {
         let distance = self.len.get() / (MID_PTR_COUNT as u32 + 1);
-        // let half_distance = distance / 2;
 
         if distance == 0 || offset <= 1 {
             self.get_next_ptr(base_ptr, offset)
         } else {
             let index = base_ptr_offset + offset;
+            let len = self.len.get();
             let mut step = MID_PTR_COUNT / 2;
             let mut mid_ptr_index = step;
             for i in 1..=MID_PTR_HEIGHT {
-                let mid = self.mid_ptr_position.get(mid_ptr_index);
+                let mid = Self::compute_mid(mid_ptr_index as u32, len);
                 step = two_pow!(MID_PTR_HEIGHT - i);
 
                 match index.cmp(&mid) {
@@ -337,79 +327,36 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
             //     return self.get_next_ptr(base_ptr, offset);
             // }
 
-            let mid = self.mid_ptr_position.get(mid_ptr_index);
-            let (d, ptr, next) = match index.cmp(&mid) {
+            let mid = Self::compute_mid(mid_ptr_index as u32, len);
+            let (d, ptr) = match index.cmp(&mid) {
                 Ordering::Less => {
-                    let len = if mid_ptr_index == 0 {
-                        mid
+                    let base = if mid_ptr_index == 0 {
+                        0
                     } else {
-                        mid - self.mid_ptr_position.get(mid_ptr_index - 1)
+                        Self::compute_mid(mid_ptr_index as u32 - 1, len)
                     };
 
-                    if index <= mid - len / 2 {
-                        let base = if mid_ptr_index == 0 {
-                            0
-                        } else {
-                            self.mid_ptr_position.get(mid_ptr_index - 1)
-                        };
-
-                        let ptr = if mid_ptr_index == 0 {
-                            self.min_ptr.get()
-                        } else {
-                            self.mid_ptr.get(mid_ptr_index - 1)
-                        };
-
-                        (index - base, ptr, true)
+                    let ptr = if mid_ptr_index == 0 {
+                        self.min_ptr.get()
                     } else {
-                        let ptr = self.mid_ptr.get(mid_ptr_index);
-                        (mid - index, ptr, false)
-                    }
+                        self.mid_ptr.get(mid_ptr_index - 1)
+                    };
+
+                    (index - base, ptr)
                 }
                 Ordering::Equal => return self.mid_ptr.get(mid_ptr_index),
                 Ordering::Greater => {
-                    let len = if mid_ptr_index == LAST_MID_PTR_INDEX {
-                        self.len.get() - mid
-                    } else {
-                        self.mid_ptr_position.get(mid_ptr_index + 1) - mid
-                    };
-
-                    if index <= mid - len / 2 {
-                        let ptr = self.mid_ptr.get(mid_ptr_index);
-                        (index - mid, ptr, true)
-                    } else {
-                        let base = if mid_ptr_index == LAST_MID_PTR_INDEX {
-                            self.len.get() - 1
-                        } else {
-                            self.mid_ptr_position.get(mid_ptr_index + 1)
-                        };
-
-                        let ptr = if mid_ptr_index == LAST_MID_PTR_INDEX {
-                            self.max_ptr.get()
-                        } else {
-                            self.mid_ptr.get(mid_ptr_index + 1)
-                        };
-
-                        (base - index, ptr, false)
-                    }
+                    let ptr = self.mid_ptr.get(mid_ptr_index);
+                    (index - mid, ptr)
                 }
             };
 
             if offset < d {
                 self.get_next_ptr(base_ptr, offset)
-            } else if next {
-                self.get_next_ptr(&ptr, d)
             } else {
-                self.get_prev_ptr(&ptr, d)
+                self.get_next_ptr(&ptr, d)
             }
         }
-    }
-
-    fn get_prev_ptr(&mut self, base_ptr: &ElusivMapPtr, offset: u32) -> ElusivMapPtr {
-        let mut ptr = *base_ptr;
-        for _ in 0..offset {
-            ptr = self.prev.get(ptr.0 as usize);
-        }
-        ptr
     }
 
     fn get_next_ptr(&mut self, base_ptr: &ElusivMapPtr, offset: u32) -> ElusivMapPtr {
@@ -428,18 +375,15 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
         self.values.get(ptr.0 as usize)
     }
 
-    #[inline]
     fn set(&mut self, ptr: &ElusivMapPtr, key: &K, value: &V) {
         self.keys.set(ptr.0 as usize, key);
         self.values.set(ptr.0 as usize, value);
     }
 
-    #[inline]
     fn get_prev(&mut self, ptr: &ElusivMapPtr) -> ElusivMapPtr {
         self.prev.get(ptr.0 as usize)
     }
 
-    #[inline]
     fn get_next(&mut self, ptr: &ElusivMapPtr) -> ElusivMapPtr {
         self.next.get(ptr.0 as usize)
     }
@@ -561,7 +505,6 @@ pub fn permute<T: Clone + Sized>(v: &[T]) -> Vec<Vec<T>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_matches::assert_matches;
 
     impl_map_key!(u16);
     impl_map_value!(u16);
@@ -586,13 +529,12 @@ mod tests {
     }
 
     #[test]
-    fn test_mid_ptr_index() {
-        assert_eq!(Map::mid_ptr_index(0, MID_PTR_HEIGHT as usize), 0);
+    fn test_compute_mid() {
+        assert_eq!(Map::compute_mid(0, 100), 100 / (MID_PTR_COUNT as u32 + 1));
         assert_eq!(
-            Map::mid_ptr_index(MID_PTR_COUNT / 2, MID_PTR_HEIGHT as usize),
-            MID_PTR_COUNT - 1
+            Map::compute_mid(1, 100),
+            2 * 100 / (MID_PTR_COUNT as u32 + 1)
         );
-        assert_eq!(Map::mid_ptr_index(0, 0), MID_PTR_COUNT / 2);
     }
 
     #[test]
@@ -601,7 +543,7 @@ mod tests {
 
         for permutation in permute(&(0..8).collect::<Vec<u16>>()) {
             let mut sorted = permutation.clone();
-            sorted.sort_unstable();
+            sorted.sort();
 
             let mut data = vec![0; Map::SIZE];
             let mut map = Map::new(&mut data);
@@ -640,7 +582,6 @@ mod tests {
         assert_eq!(map.max(), 11);
 
         map.try_insert_default(5).unwrap();
-        println!("{:?}", map.sorted_keys());
         assert_eq!(map.min(), 0);
         assert_eq!(map.mid(), 5);
         assert_eq!(map.max(), 10);
@@ -705,7 +646,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(unused_variables)]
     fn test_try_insert_duplicate() {
         map!(map);
 
@@ -713,7 +653,10 @@ mod tests {
         for i in 0..7u16 {
             let k = i + 1;
             let v = i + 8;
-            assert_matches!(map.try_insert_default(k), Err(ElusivMapError::Duplicate(v)));
+            assert_eq!(
+                map.try_insert_default(k).err().unwrap(),
+                ElusivMapError::Duplicate(v)
+            );
         }
     }
 
@@ -722,12 +665,10 @@ mod tests {
         // Prepend new mins
         map!(map);
         map.insert_multiple_default(&(7..14).rev().collect::<Vec<u16>>());
-        // println!("{:?}", map.sorted_keys());
         assert_eq!(map.min(), 7);
         assert_eq!(map.max(), 13);
 
         assert_eq!(map.try_insert_default(6).unwrap().unwrap().0, 13);
-        // println!("{:?}", map.sorted_keys());
         assert_eq!(map.min(), 6);
         assert_eq!(map.max(), 12);
 
