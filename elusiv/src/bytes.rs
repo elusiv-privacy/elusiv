@@ -109,7 +109,7 @@ pub fn slice_to_array<N: Default + Copy, const SIZE: usize>(s: &[N]) -> [N; SIZE
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{macros::BorshSerDeSized, types::U256};
+    use crate::macros::BorshSerDeSized;
     use borsh::BorshDeserialize;
     use solana_program::pubkey::Pubkey;
 
@@ -216,16 +216,6 @@ mod tests {
         for i in length as u64..length as u64 + 20 {
             assert!(!contains(&i, &data[..]));
             assert!(matches!(find(&i, &data[..], length), None));
-        }
-    }
-
-    #[test]
-    fn test_override_slice() {
-        let mut slice = vec![0; 256];
-        U256::override_slice(&[1; 32], &mut slice[32..64]).unwrap();
-
-        for &v in slice.iter().take(64).skip(32) {
-            assert_eq!(v, 1);
         }
     }
 

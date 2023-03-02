@@ -2,7 +2,7 @@ use super::program_account::*;
 use crate::bytes::*;
 use crate::macros::{elusiv_account, two_pow};
 use crate::types::U256;
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
@@ -108,10 +108,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         let (account_index, local_index) =
             self.account_and_local_index(mt_array_index(index, level));
         self.execute_on_child_account_mut(account_index, |data| {
-            U256::override_slice(
-                value,
-                &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE],
-            )
+            let mut slice = &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE];
+            BorshSerialize::serialize(value, &mut slice)
         })??;
 
         Ok(())

@@ -1,6 +1,5 @@
 pub mod macros;
 
-use elusiv_types::bytes::BorshSerDeSized;
 use elusiv_types::{
     accounts::{PDAAccount, PDAAccountData, SizedAccount},
     PDAOffset,
@@ -144,13 +143,13 @@ pub fn create_pda_account<'a>(
     )?;
 
     // Assign default fields
-    let data = &mut pda_account.data.borrow_mut()[..];
-    PDAAccountData::override_slice(
+    let mut data = &mut pda_account.data.borrow_mut()[..];
+    borsh::BorshSerialize::serialize(
         &PDAAccountData {
             bump_seed: bump,
             version: 0,
         },
-        data,
+        &mut data,
     )?;
 
     Ok(())

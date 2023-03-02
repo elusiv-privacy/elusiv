@@ -245,10 +245,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     doc.extend(attr.to_token_stream());
                 }
 
-                // Type accpets the mutable slice and handles serialization/deserialization autonomously
+                // Type accepts the mutable slice and handles serialization/deserialization autonomously
                 // - in consequence, skips creation of getter and setter functions
                 // - note: the type needs to impl `elusiv_types::bytes::SizedType`
-                "pub_non_lazy" => {
+                "lazy" => {
                     use_getter = false;
                     use_setter = false;
                     custom_field = true;
@@ -275,10 +275,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                             pub #field_ident: #ty,
                         });
                     }
-                }
-
-                "lazy" => {
-                    todo!("lazy")
                 }
 
                 // Deserializes the value by default
@@ -359,8 +355,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         fns.extend(quote! {
                             #doc
                             #vis fn #setter_ident(&mut self, value: &#ty) {
-                                let v = <#ty as borsh::BorshSerialize>::try_to_vec(value).unwrap();
-                                self.#field_ident[..v.len()].copy_from_slice(&v[..]);
+                                let mut slice = &mut self.#field_ident[..<#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE];
+                                borsh::BorshSerialize::serialize(value, &mut slice).unwrap();
                             }
                         });
                     }
@@ -396,12 +392,12 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 }
 
                 if use_setter {
-                    fns.extend(quote!{
+                    fns.extend(quote! {
                         #doc
                         #vis fn #setter_ident(&mut self, index: usize, value: &#ty) {
                             let offset = index * <#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE;
-                            let v = <#ty as borsh::BorshSerialize>::try_to_vec(value).unwrap();
-                            self.#field_ident[offset..][..v.len()].copy_from_slice(&v[..]);
+                            let mut slice = &mut self.#field_ident[offset..offset + <#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE];
+                            borsh::BorshSerialize::serialize(value, &mut slice).unwrap();
                         }
                     });
                 }

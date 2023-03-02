@@ -67,32 +67,32 @@ pub struct VerificationAccount {
     pub public_input: [RawU256; MAX_PUBLIC_INPUTS_COUNT],
 
     // Proof
-    #[pub_non_lazy]
+    #[lazy]
     pub a: Lazy<'a, G1A>,
-    #[pub_non_lazy]
+    #[lazy]
     pub b: Lazy<'a, G2A>,
-    #[pub_non_lazy]
+    #[lazy]
     pub c: Lazy<'a, G1A>,
 
     // Computation values
-    #[pub_non_lazy]
+    #[lazy]
     prepared_inputs: Lazy<'a, G1A>,
-    #[pub_non_lazy]
+    #[lazy]
     r: Lazy<'a, G2HomProjective>,
-    #[pub_non_lazy]
+    #[lazy]
     f: Lazy<'a, Wrap<Fq12>>,
-    #[pub_non_lazy]
+    #[lazy]
     alt_b: Lazy<'a, G2A>,
     coeff_index: u8,
 
     // RAMs for storing computation values
-    #[pub_non_lazy]
+    #[lazy]
     ram_fq: RAMFq<'a>,
-    #[pub_non_lazy]
+    #[lazy]
     ram_fq2: RAMFq2<'a>,
-    #[pub_non_lazy]
+    #[lazy]
     ram_fq6: RAMFq6<'a>,
-    #[pub_non_lazy]
+    #[lazy]
     ram_fq12: RAMFq12<'a>,
 
     // If true, the proof request can be finalized
@@ -299,10 +299,9 @@ where
         for (i, &change) in self.changes.iter().enumerate() {
             if change {
                 if let Some(value) = self.data[i] {
-                    <Wrap<N>>::override_slice(
-                        &Wrap(value),
-                        &mut self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE],
-                    )?;
+                    let mut slice =
+                        &mut self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE];
+                    BorshSerialize::serialize(&Wrap(value), &mut slice)?;
                 }
             }
         }
