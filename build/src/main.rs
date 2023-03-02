@@ -85,7 +85,7 @@ fn main() {
                 features.push("test-unit");
             } else if tarpaulin {
                 command = "test";
-                build_args = vec!["--lib", "--out", "Xml"];
+                build_args = vec!["--lib"];
                 features.push("test-unit");
             } else if integration {
                 command = "test-bpf";
