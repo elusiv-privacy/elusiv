@@ -119,7 +119,7 @@ fn main() {
         features.insert(0, "--features");
     }
 
-    Command::new("cargo")
+    let exit_code = Command::new("cargo")
         .arg(command)
         .args(manifest_path)
         .args(&bpf_out_dir)
@@ -129,4 +129,6 @@ fn main() {
         .expect("Error running 'cargo build-bpf'")
         .wait()
         .expect("Error running 'cargo build-bpf'");
+
+    std::process::exit(exit_code.code().unwrap_or(0));
 }
