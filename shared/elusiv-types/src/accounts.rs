@@ -39,9 +39,9 @@ pub trait ChildAccount: Sized {
             return Err(ProgramError::IllegalOwner);
         }
         config.is_in_use = true;
-        let v = config.try_to_vec()?;
 
-        config_data[..ChildAccountConfig::SIZE].copy_from_slice(&v);
+        let mut slice = &mut config_data[..ChildAccountConfig::SIZE];
+        borsh::BorshSerialize::serialize(&config, &mut slice).unwrap();
 
         Ok(())
     }
@@ -332,8 +332,8 @@ pub trait ComputationAccount: PDAAccount {
     fn round(&self) -> u32;
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
-#[cfg_attr(feature = "elusiv-client", derive(Clone))]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[cfg_attr(feature = "elusiv-client", derive(Clone, Debug))]
 pub struct PDAAccountData {
     pub bump_seed: u8,
 

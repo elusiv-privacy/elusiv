@@ -70,17 +70,17 @@ pub trait LazyField<'a>: SizedType {
 }
 
 #[derive(PartialEq, Debug)]
-pub struct Lazy<'a, N: BorshSerDeSized + Clone> {
+pub struct Lazy<'a, N: BorshSerDeSized + Copy> {
     modified: bool,
     value: Option<N>,
     data: &'a mut [u8],
 }
 
-impl<'a, N: BorshSerDeSized + Clone> SizedType for Lazy<'a, N> {
+impl<'a, N: BorshSerDeSized + Copy> SizedType for Lazy<'a, N> {
     const SIZE: usize = N::SIZE;
 }
 
-impl<'a, N: BorshSerDeSized + Clone> LazyField<'a> for Lazy<'a, N> {
+impl<'a, N: BorshSerDeSized + Copy> LazyField<'a> for Lazy<'a, N> {
     fn new(data: &'a mut [u8]) -> Self {
         Self {
             modified: false,
@@ -93,28 +93,94 @@ impl<'a, N: BorshSerDeSized + Clone> LazyField<'a> for Lazy<'a, N> {
         if !self.modified {
             return;
         }
-        let v = self.value.clone().unwrap().try_to_vec().unwrap();
-        assert!(self.data.len() >= v.len());
-        self.data[..v.len()].copy_from_slice(&v[..]);
+
+        let mut slice = &mut self.data[..];
+        BorshSerialize::serialize(&self.value.unwrap(), &mut slice).unwrap();
     }
 }
 
-impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
+impl<'a, N: BorshSerDeSized + Copy> Lazy<'a, N> {
     pub fn get(&mut self) -> N {
         match &self.value {
-            Some(v) => v.clone(),
+            Some(v) => *v,
             None => {
                 self.value = Some(N::try_from_slice(self.data).unwrap());
-                self.value.clone().unwrap()
+                self.value.unwrap()
             }
         }
     }
 
     /// Sets and serializes the value
-    pub fn set(&mut self, value: &N) {
-        self.value = Some(value.clone());
+    pub fn set(&mut self, value: N) {
+        self.value = Some(value);
         self.modified = true;
         self.serialize();
+    }
+
+    pub fn set_no_serialization(&mut self, value: N) {
+        self.value = Some(value);
+        self.modified = true;
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct LazyArray<'a, N: BorshSerDeSized + Copy, const SIZE: usize> {
+    modified: bool,
+    values: Vec<Option<N>>,
+    data: &'a mut [u8],
+}
+
+impl<'a, N: BorshSerDeSized + Copy, const SIZE: usize> SizedType for LazyArray<'a, N, SIZE> {
+    const SIZE: usize = N::SIZE * SIZE;
+}
+
+impl<'a, N: BorshSerDeSized + Copy, const SIZE: usize> LazyField<'a> for LazyArray<'a, N, SIZE> {
+    fn new(data: &'a mut [u8]) -> Self {
+        Self {
+            modified: false,
+            values: vec![None; SIZE],
+            data,
+        }
+    }
+
+    fn serialize(&mut self) {
+        if !self.modified {
+            return;
+        }
+
+        for i in 0..SIZE {
+            if let Some(value) = self.values[i] {
+                let offset = i * N::SIZE;
+                let mut slice = &mut self.data[offset..offset + N::SIZE];
+                BorshSerialize::serialize(&value, &mut slice).unwrap();
+            }
+        }
+    }
+}
+
+impl<'a, N: BorshSerDeSized + Copy, const SIZE: usize> LazyArray<'a, N, SIZE> {
+    pub fn get(&mut self, index: usize) -> N {
+        match &self.values[index] {
+            Some(v) => *v,
+            None => {
+                let offset = index * N::SIZE;
+                let v = N::try_from_slice(&self.data[offset..offset + N::SIZE]).unwrap();
+                self.values[index] = Some(v);
+                v
+            }
+        }
+    }
+
+    /// Sets and serializes the value
+    pub fn set(&mut self, index: usize, value: N) {
+        self.values[index] = Some(value);
+        self.modified = true;
+        self.serialize();
+    }
+
+    pub fn set_no_serialization(&mut self, index: usize, value: N) {
+        self.values[index] = Some(value);
+        self.modified = true;
     }
 }
 
@@ -152,10 +218,9 @@ impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> JITArray<'a, N, CAPA
     }
 
     pub fn set(&mut self, index: usize, value: &N) {
-        let v = value.try_to_vec().unwrap();
-        for (i, v) in v.iter().enumerate() {
-            self.data[index * N::SIZE + i] = *v;
-        }
+        let offset = index * N::SIZE;
+        let mut slice = &mut self.data[offset..offset + N::SIZE];
+        BorshSerialize::serialize(value, &mut slice).unwrap();
     }
 }
 

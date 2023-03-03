@@ -11,7 +11,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;
 use elusiv_derive::BorshSerDeSized;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, PartialEq, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct BasisPointFee(pub u64);
 
 impl BasisPointFee {
@@ -20,7 +21,8 @@ impl BasisPointFee {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, PartialEq, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct ProgramFee {
     /// Consists of `lamports_per_signature` and possible additional compute units costs
     /// TODO: will be changed with our upcoming fee consensus fee-model

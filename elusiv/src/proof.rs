@@ -104,7 +104,8 @@ pub struct VerificationAccount {
     pub tree_indices: [u32; MAX_MT_COUNT],
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug, Clone, Default)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Default)]
+#[cfg_attr(feature = "elusiv-client", derive(Debug))]
 pub struct VerificationAccountData {
     pub fee_payer: RawU256,
     pub fee_payer_account: RawU256,

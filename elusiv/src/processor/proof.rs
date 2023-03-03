@@ -381,9 +381,9 @@ pub fn init_verification_proof(
         ElusivError::InvalidAccount
     );
 
-    verification_account.a.set(&proof.a);
-    verification_account.b.set(&proof.b);
-    verification_account.c.set(&proof.c);
+    verification_account.a.set(proof.a);
+    verification_account.b.set(proof.b);
+    verification_account.c.set(proof.c);
 
     verification_account.set_state(&VerificationState::ProofSetup);
 
@@ -2388,9 +2388,9 @@ mod tests {
         );
 
         let proof = test_proof();
-        verification_account.a.set(&proof.a);
-        verification_account.b.set(&proof.b);
-        verification_account.c.set(&proof.c);
+        verification_account.a.set(proof.a);
+        verification_account.b.set(proof.b);
+        verification_account.c.set(proof.c);
         verification_account.set_state(&VerificationState::ProofSetup);
 
         // Success

@@ -1,6 +1,6 @@
 use crate::bytes::*;
 use crate::macros::two_pow;
-use crate::types::{JITArray, Lazy, LazyField, OrdU256, U256};
+use crate::types::{JITArray, Lazy, LazyArray, LazyField, OrdU256, U256};
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_derive::{BorshSerDePlaceholder, BorshSerDeSized, ByteBackedJIT};
 use std::cmp::Ordering;
@@ -69,7 +69,7 @@ pub struct ElusivMap<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usi
     max_ptr: Lazy<'a, ElusivMapPtr>,
 
     /// All mid-ptrs form a binary tree of height [`MID_PTR_HEIGHT`].
-    mid_ptr: JITArray<'a, ElusivMapPtr, MID_PTR_COUNT>,
+    mid_ptr: LazyArray<'a, ElusivMapPtr, MID_PTR_COUNT>,
 
     next: JITArray<'a, ElusivMapPtr, CAPACITY>,
     prev: JITArray<'a, ElusivMapPtr, CAPACITY>,
@@ -224,12 +224,12 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
             // Prepend
             let ptr = self.min_ptr.get();
             self.link_ptrs(&new_ptr, &ptr);
-            self.min_ptr.set(&new_ptr);
+            self.min_ptr.set(new_ptr);
         } else if index == self.len.get() {
             // Append
             let ptr = self.max_ptr.get();
             self.link_ptrs(&ptr, &new_ptr);
-            self.max_ptr.set(&new_ptr);
+            self.max_ptr.set(new_ptr);
         } else {
             // Insert at index
             let min_ptr = self.min_ptr.get();
@@ -251,14 +251,14 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
                 max_ptr_predecessor
             };
 
-            self.max_ptr.set(&prev);
+            self.max_ptr.set(prev);
 
             // Return the previous max key and value
             return Ok(Some((max_key.unwrap(), max_value.unwrap())));
         }
 
         let new_len = self.len.get() + u32::from(!is_full);
-        self.len.set(&new_len);
+        self.len.set(new_len);
 
         Ok(None)
     }
@@ -281,13 +281,13 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
                     // Adjust by decreasing by one ptr
                     let mid_ptr = self.mid_ptr.get(i);
                     let next_mid_ptr = self.get_prev(&mid_ptr);
-                    self.mid_ptr.set(i, &next_mid_ptr);
+                    self.mid_ptr.set(i, next_mid_ptr);
                 }
             } else if mid != new_mid {
                 // Adjust by increasing by one ptr
                 let mid_ptr = self.mid_ptr.get(i);
                 let next_mid_ptr = self.get_next(&mid_ptr);
-                self.mid_ptr.set(i, &next_mid_ptr);
+                self.mid_ptr.set(i, next_mid_ptr);
             }
         }
     }
@@ -422,8 +422,8 @@ impl<'a, K: ElusivMapKey, V: ElusivMapValue, const CAPACITY: usize> ElusivMap<'a
     }
 
     pub fn reset(&mut self) {
-        self.len.set(&0);
-        self.max_ptr.set(&ElusivMapPtr(0));
+        self.len.set(0);
+        self.max_ptr.set(ElusivMapPtr(0));
 
         // The first ptr points to itself
         self.next.set(0, &ElusivMapPtr(0));

@@ -95,7 +95,7 @@ pub fn prepare_public_inputs(
     if round + rounds as usize == prepare_public_inputs_rounds(vkey.public_inputs_count) {
         let prepared_inputs = result.ok_or(CouldNotProcessProof)?;
 
-        verifier_account.prepared_inputs.set(&G1A(prepared_inputs));
+        verifier_account.prepared_inputs.set(G1A(prepared_inputs));
 
         verifier_account.set_step(&VerificationStep::CombinedMillerLoop);
         verifier_account.set_round(&0);
@@ -147,14 +147,14 @@ pub fn combined_miller_loop(
         let f = result.ok_or(CouldNotProcessProof)?;
 
         // Add `f` for the final exponentiation
-        verifier_account.f.set(&Wrap(f));
+        verifier_account.f.set(Wrap(f));
 
         verifier_account.set_step(&VerificationStep::FinalExponentiation);
         verifier_account.set_round(&0);
         verifier_account.set_instruction(&0);
     } else {
-        verifier_account.r.set(&r);
-        verifier_account.alt_b.set(&alt_b);
+        verifier_account.r.set(r);
+        verifier_account.alt_b.set(alt_b);
 
         verifier_account.set_round(&usize_as_u32_safe(round + rounds));
         verifier_account.set_instruction(&(instruction as u32 + 1));
@@ -188,7 +188,7 @@ pub fn final_exponentiation(
 
     if round + rounds == FinalExponentiation::TOTAL_ROUNDS as usize {
         let v = result.ok_or(CouldNotProcessProof)?;
-        verifier_account.f.set(&Wrap(v));
+        verifier_account.f.set(Wrap(v));
 
         // Final verification, we check:
         // https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
@@ -966,9 +966,9 @@ mod tests {
         proof: Proof,
         public_inputs: &[U256],
     ) {
-        storage.a.set(&proof.a);
-        storage.b.set(&proof.b);
-        storage.c.set(&proof.c);
+        storage.a.set(proof.a);
+        storage.b.set(proof.b);
+        storage.c.set(proof.c);
         storage.set_state(&VerificationState::ProofSetup);
 
         for (i, &public_input) in public_inputs.iter().enumerate() {
@@ -1264,11 +1264,11 @@ mod tests {
 
         // Second version
         zero_program_account!(mut storage, VerificationAccount);
-        storage.a.set(&proof.a);
-        storage.b.set(&proof.b);
-        storage.c.set(&proof.c);
+        storage.a.set(proof.a);
+        storage.b.set(proof.b);
+        storage.c.set(proof.c);
         storage.set_step(&VerificationStep::CombinedMillerLoop);
-        storage.prepared_inputs.set(&G1A(prepared_inputs));
+        storage.prepared_inputs.set(G1A(prepared_inputs));
 
         for i in 0..COMBINED_MILLER_LOOP_IXS {
             let round = storage.get_round();
@@ -1313,7 +1313,7 @@ mod tests {
                 .unwrap(),
             ),
         };
-        let mut r2 = r.clone();
+        let mut r2 = r;
 
         let mut result = None;
         for round in 0..ADDITION_STEP_ROUNDS_COUNT {
@@ -1363,7 +1363,7 @@ mod tests {
                 .unwrap(),
             ),
         };
-        let mut r2 = r.clone();
+        let mut r2 = r;
 
         let mut result = None;
         for round in 0..DOUBLING_STEP_ROUNDS_COUNT {
@@ -1428,7 +1428,7 @@ mod tests {
         // Second version
         zero_program_account!(mut storage, VerificationAccount);
         storage.set_step(&VerificationStep::FinalExponentiation);
-        storage.f.set(&Wrap(f()));
+        storage.f.set(Wrap(f()));
 
         for i in 0..FINAL_EXPONENTIATION_IXS {
             let round = storage.get_round();
