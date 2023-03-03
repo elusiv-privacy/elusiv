@@ -17,7 +17,7 @@ use elusiv::proof::verifier::{
 use elusiv::proof::vkey::{SendQuadraVKey, VerifyingKeyInfo};
 use elusiv::state::fee::ProgramFee;
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
-use elusiv::state::nullifier::{NullifierMap, NULLIFIERS_PER_ACCOUNT};
+use elusiv::state::nullifier::{NullifierAccount, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, PDAAccountData, ProgramAccount, SizedAccount};
 use elusiv::state::proof::{VerificationAccount, VerificationState};
 use elusiv::state::storage::{empty_root_raw, StorageAccount};
@@ -32,6 +32,7 @@ use elusiv::types::{
 };
 use elusiv_computation::PartialComputation;
 use elusiv_types::tokens::Price;
+use elusiv_types::ParentAccount;
 use solana_program::instruction::Instruction;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::program_pack::Pack;
@@ -351,19 +352,56 @@ async fn setup_vkey_account<VKey: VerifyingKeyInfo>(
     (pda, sub_account_pubkey)
 }
 
-async fn insert_nullifier_hashes(test: &mut ElusivProgramTest, nullifier_hashes: &[U256]) {
-    assert!(nullifier_hashes.len() <= NULLIFIERS_PER_ACCOUNT);
+async fn insert_nullifier_hashes(
+    test: &mut ElusivProgramTest,
+    mt_index: u32,
+    nullifier_hashes: &[U256],
+) {
+    let mut nullifier_hashes: Vec<_> = nullifier_hashes.iter().map(|n| OrdU256(*n)).collect();
+    nullifier_hashes.sort();
 
-    let nullifier_accounts = nullifier_accounts(test, 0).await;
-    let mut data = test.data(&nullifier_accounts[0]).await;
-    {
-        let mut map = NullifierMap::new(&mut data[1..]);
-        for nullifier_hash in nullifier_hashes {
-            map.try_insert_default(OrdU256(*nullifier_hash)).unwrap();
-        }
+    let nullifier_accounts = nullifier_accounts(test, mt_index).await;
+    let mut nullifier_accounts_data = Vec::with_capacity(NullifierAccount::COUNT);
+    for nullifier_account in nullifier_accounts.iter() {
+        nullifier_accounts_data.push(test.data(nullifier_account).await);
     }
-    test.set_account_rent_exempt(&nullifier_accounts[0], &data, &elusiv::id())
-        .await;
+
+    {
+        let mut maps: Vec<_> = nullifier_accounts_data
+            .iter_mut()
+            .map(|data| NullifierMap::new(&mut data[1..]))
+            .collect();
+
+        while let Some(nullifier_hash) = nullifier_hashes.pop() {
+            for map in maps.iter_mut() {
+                if map.is_full() {
+                    continue;
+                }
+
+                assert!(map.try_insert_default(nullifier_hash).unwrap().is_none());
+                break;
+            }
+        }
+
+        /*let mut data = test.data(&NullifierAccount::find(Some(mt_index)).0).await;
+        let mut nullifier_account = NullifierAccount::new(&mut data).unwrap();
+        for (i, map) in maps.iter_mut().enumerate() {
+            if !map.is_empty() {
+                nullifier_account.set_max_values(i, &Some(map.max().0).into());
+            }
+        }
+        test.set_program_account_rent_exempt(
+            &elusiv::id(),
+            &NullifierAccount::find(Some(mt_index)).0,
+            &data,
+        )
+        .await;*/
+    }
+
+    for (i, data) in nullifier_accounts_data.iter().enumerate() {
+        test.set_account_rent_exempt(&nullifier_accounts[i], data, &elusiv::id())
+            .await;
+    }
 }
 
 fn merge(a: &[Instruction], b: &[&Instruction]) -> Vec<Instruction> {
@@ -508,7 +546,7 @@ async fn test_init_proof_lamports() {
         )
         .await;
 
-    let init_verification_instruction = |v_index: u32, skip_nullifier_pda: bool| {
+    let init_verification_instruction = |v_index: u8, skip_nullifier_pda: bool| {
         ElusivInstruction::init_verification_instruction(
             v_index,
             SendQuadraVKey::VKEY_ID,
@@ -826,9 +864,10 @@ async fn test_finalize_proof_lamports() {
     // Fill in nullifiers to test heap/compute unit limits
     insert_nullifier_hashes(
         &mut test,
-        &(0..NULLIFIERS_PER_ACCOUNT - 1)
-            .map(|_| rand::random())
-            .collect::<Vec<U256>>(),
+        0,
+        &(0..NULLIFIERS_PER_ACCOUNT as u64 - 1)
+            .map(u64_to_u256)
+            .collect::<Vec<_>>(),
     )
     .await;
 
@@ -1218,7 +1257,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     test.airdrop_lamports(&PoolAccount::find(None).0, LAMPORTS_PER_SOL * 1000)
         .await;
 
-    let init_instructions = |v_index: u32, skip_nullifier_pda: bool| {
+    let init_instructions = |v_index: u8, skip_nullifier_pda: bool| {
         [
             ElusivInstruction::init_verification_instruction(
                 v_index,
@@ -1257,7 +1296,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
         skip_computation(warden.pubkey, i, is_valid, &mut test).await;
     }
 
-    let finalize = |v_index: u32, is_valid: bool| {
+    let finalize = |v_index: u8, is_valid: bool| {
         let ixs = [
             ElusivInstruction::finalize_verification_send_instruction(
                 FinalizeSendData {
@@ -1931,37 +1970,38 @@ async fn test_enforced_finalization_order() {
     .await;
 }
 
-#[tokio::test]
-async fn test_finalization_nullifier_insertions() {
+async fn nullifier_finalization_test(number_of_start_nullifiers: u64, input_commitments_count: u8) {
     let mut test = start_verification_test().await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
     let pool = PoolAccount::find(None).0;
     let fee_collector = FeeCollectorAccount::find(None).0;
 
+    insert_nullifier_hashes(
+        &mut test,
+        0,
+        &(0..number_of_start_nullifiers)
+            .map(u64_to_u256)
+            .collect::<Vec<_>>(),
+    )
+    .await;
+
+    let mut input_commitments: Vec<_> = (0..input_commitments_count)
+        .map(|i| InputCommitment {
+            root: None,
+            nullifier_hash: RawU256::new(u64_to_u256(u64::MAX - i as u64)),
+        })
+        .collect();
+    input_commitments[0].root = Some(empty_root_raw());
+
     let extra_data = ExtraData::default();
     let proof = send_request(0).proof;
     let mut public_inputs = SendPublicInputs {
         join_split: JoinSplitPublicInputs {
-            input_commitments: vec![
-                InputCommitment {
-                    root: Some(empty_root_raw()),
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                },
-                InputCommitment {
-                    root: None,
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                },
-                InputCommitment {
-                    root: None,
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
-                },
-                InputCommitment {
-                    root: None,
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("96859603105066347219121219513415986783258332305082407505599041968095646559")),
-                },
-            ],
-            output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+            input_commitments,
+            output_commitment: RawU256::new(u256_from_str_skip_mr(
+                "685960310506634721912121951341598678325833230508240750559904196809564625591",
+            )),
             fee_version: 0,
             amount: LAMPORTS_PER_SOL * 123,
             fee: 0,
@@ -1989,14 +2029,6 @@ async fn test_finalization_nullifier_insertions() {
     skip_computation(test.payer(), 0, true, &mut test).await;
     set_verification_state(test.payer(), 0, VerificationState::ProofSetup, &mut test).await;
 
-    insert_nullifier_hashes(
-        &mut test,
-        &(0..NULLIFIERS_PER_ACCOUNT as u64 - 5)
-            .map(u64_to_u256)
-            .collect::<Vec<_>>(),
-    )
-    .await;
-
     let finalize_verification_send_nullifier_instruction = |index: u8| {
         ElusivInstruction::finalize_verification_send_nullifier_instruction(
             0,
@@ -2007,7 +2039,7 @@ async fn test_finalization_nullifier_insertions() {
         )
     };
 
-    test.tx_should_succeed_simple(&[
+    let mut instructions = vec![
         request_compute_units(1_400_000),
         ElusivInstruction::finalize_verification_send_instruction(
             FinalizeSendData {
@@ -2023,18 +2055,22 @@ async fn test_finalization_nullifier_insertions() {
             UserAccount(reference),
             UserAccount(test.payer()),
         ),
-        finalize_verification_send_nullifier_instruction(0),
-        finalize_verification_send_nullifier_instruction(1),
-        finalize_verification_send_nullifier_instruction(2),
-        finalize_verification_send_nullifier_instruction(3),
+    ];
+
+    for i in 0..input_commitments_count {
+        instructions.push(finalize_verification_send_nullifier_instruction(i));
+    }
+
+    instructions.push(
         ElusivInstruction::finalize_verification_transfer_lamports_instruction(
             0,
             WritableSignerAccount(test.payer()),
             WritableUserAccount(recipient),
             WritableUserAccount(nullifier_duplicate_account),
         ),
-    ])
-    .await;
+    );
+
+    test.tx_should_succeed_simple(&instructions).await;
 }
 
 async fn finalize_instructions(
@@ -2076,6 +2112,11 @@ async fn finalize_instructions(
             WritableUserAccount(request.public_inputs.join_split.nullifier_duplicate_pda().0),
         ),
     ]
+}
+
+#[tokio::test]
+async fn test_finalization_nullifier_insertions() {
+    nullifier_finalization_test(NULLIFIERS_PER_ACCOUNT as u64 - 4, 4).await;
 }
 
 #[tokio::test]

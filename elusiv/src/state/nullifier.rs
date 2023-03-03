@@ -18,6 +18,7 @@ pub type NullifierMap<'a> = ElusivSet<'a, OrdU256, NULLIFIERS_PER_ACCOUNT>;
 
 pub const NULLIFIERS_PER_ACCOUNT: usize = two_pow!(16);
 const ACCOUNTS_COUNT: usize = div_ceiling_usize(NULLIFIERS_COUNT, NULLIFIERS_PER_ACCOUNT);
+
 #[cfg(test)]
 const_assert_eq!(ACCOUNTS_COUNT, 16);
 

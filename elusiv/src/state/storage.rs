@@ -8,25 +8,28 @@ use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 
 /// Height of the active MT
-/// - we define the height using the amount of leaves
-/// - a tree of height n has 2ˆn leaves
+///
+/// # Note
+///
+/// We define the height by the number of leaves, so a tree with `2^n` leaves has height `n`.
 pub const MT_HEIGHT: u32 = 20;
 
-/// Count of all nodes in the MT
+/// Number of all nodes in the MT
 pub const MT_SIZE: usize = mt_size(MT_HEIGHT);
 
 pub const fn mt_size(height: u32) -> usize {
     two_pow!(height + 1) - 1
 }
 
-/// Count of all commitments (leaves) in the MT
+/// Number of all commitments (leaves) in the MT
 pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
 
-/// Since before submitting a proof request the current root can change, we store the previous ones
+/// Since before submitting a proof request the current root can change, we store the [`HISTORY_ARRAY_SIZE`] previous ones
 pub const HISTORY_ARRAY_SIZE: usize = 100;
 
 pub const VALUES_PER_STORAGE_SUB_ACCOUNT: usize = 83_887;
 const ACCOUNTS_COUNT: usize = div_ceiling_usize(MT_SIZE, VALUES_PER_STORAGE_SUB_ACCOUNT);
+
 #[cfg(test)]
 const_assert_eq!(ACCOUNTS_COUNT, 25);
 
@@ -161,8 +164,11 @@ fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
     next_leaf_ptr == 0 || index > (next_leaf_ptr - 1) >> level_inv
 }
 
-/// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes (`EMPTY_TREE[MT_HEIGHT]` is the root)
-/// - all values are in mr-form
+/// [`EMPTY_TREE[0]`] is the empty commitment, all values above are the hashes ([`EMPTY_TREE[MT_HEIGHT]`] is the root)
+///
+/// # Note
+///
+/// All values are in mr-form.
 pub const EMPTY_TREE: [U256; MT_HEIGHT as usize + 1] = [
     [
         130, 154, 1, 250, 228, 248, 226, 43, 27, 76, 165, 173, 91, 84, 165, 131, 78, 224, 152, 167,

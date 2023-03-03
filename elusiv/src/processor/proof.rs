@@ -88,7 +88,7 @@ impl ProofRequest {
 pub const MAX_MT_COUNT: usize = 2;
 
 /// The maximum number of [`VerificationAccount`]s allowed to be active at once per fee-payer
-pub const RESERVED_VACCS_PER_FEE_PAYER: u32 = 128;
+pub const RESERVED_VACCS_PER_FEE_PAYER: u8 = 128;
 
 /// Initializes a new proof verification
 /// - subsequent calls of [`init_verification_transfer_fee`] and [`init_verification_proof`] required to start the computation
@@ -104,7 +104,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
     nullifier_account0: &NullifierAccount<'b, 'c, 'd>,
     nullifier_account1: &NullifierAccount<'b, 'c, 'd>,
 
-    verification_account_index: u32,
+    verification_account_index: u8,
     vkey_id: u32,
     tree_indices: [u32; MAX_MT_COUNT],
     request: ProofRequest,
@@ -196,7 +196,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
         fee_payer,
         verification_account,
         fee_payer.key,
-        Some(verification_account_index),
+        Some(verification_account_index as u32),
         None,
     )?;
 
@@ -235,7 +235,7 @@ pub fn init_verification_transfer_fee<'a>(
     token_program: &AccountInfo<'a>,
     system_program: &AccountInfo<'a>,
 
-    _verification_account_index: u32,
+    _verification_account_index: u8,
 ) -> ProgramResult {
     guard!(
         matches!(verification_account.get_state(), VerificationState::None),
@@ -353,14 +353,17 @@ pub fn init_verification_transfer_fee<'a>(
 }
 
 /// Called once after [`init_verification`] to initialize the proof's public inputs
-/// - Note: has to be called by the original `fee_payer`, that called [`init_verification`]
-/// - depending on the MT-count this has to be called in a different tx than the init-tx (-> require fee_payer signature)
-/// - this is required, due to tx-byte size limits
+///
+/// # Notes
+///
+/// This instruction has to be called by the original `fee_payer`, that called [`init_verification`].
+///
+/// Depending on the MT-count this has to be called in a different tx than the init-tx (-> require fee_payer signature).
 pub fn init_verification_proof(
     fee_payer: &AccountInfo,
     verification_account: &mut VerificationAccount,
 
-    _verification_account_index: u32,
+    _verification_account_index: u8,
     proof: Proof,
 ) -> ProgramResult {
     guard!(
@@ -396,7 +399,7 @@ pub fn compute_verification(
     vkey_account: &VKeyAccount,
     instructions_account: &AccountInfo,
 
-    _verification_account_index: u32,
+    _verification_account_index: u8,
     vkey_id: u32,
 ) -> ProgramResult {
     // Verify that an immutable vkey is setup
@@ -476,8 +479,18 @@ const SPL_MEMO_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
 ]);
 
 /// First finalize instruction
-/// - for valid proof finalization: [`finalize_verification_send`], [`finalize_verification_send_nullifiers`], [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`]
-/// - for invalid proof: [`finalize_verification_send`], [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`]
+///
+/// # Notes
+///
+/// The complete transactions requires to include:
+/// - for a valid proof:
+///     [`finalize_verification_send`],
+///     [`finalize_verification_send_nullifier`],
+///     [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`].
+///
+/// - for an invalid proof:
+///     [`finalize_verification_send`],
+///     [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`].
 #[allow(clippy::too_many_arguments)]
 pub fn finalize_verification_send<'a>(
     recipient: &AccountInfo,
@@ -489,7 +502,7 @@ pub fn finalize_verification_send<'a>(
     instructions_account: &AccountInfo<'a>,
 
     data: FinalizeSendData,
-    _verification_account_index: u32,
+    _verification_account_index: u8,
     uses_memo: bool,
 ) -> ProgramResult {
     guard!(
@@ -589,7 +602,7 @@ pub fn finalize_verification_send_nullifier<'a, 'b, 'c>(
     nullifier_account: &mut NullifierAccount<'a, 'b, 'c>,
     instructions_account: &AccountInfo,
 
-    _verification_account_index: u32,
+    _verification_account_index: u8,
     input_commitment_index: u8,
 ) -> ProgramResult {
     // TODO: Handle the case in which a duplicate verification has failed (funds flow to fee-collector)
@@ -661,7 +674,7 @@ pub fn finalize_verification_transfer_lamports<'a>(
     nullifier_duplicate_account: &AccountInfo<'a>,
     instructions_account: &AccountInfo,
 
-    _verification_account_index: u32,
+    _verification_account_index: u8,
 ) -> ProgramResult {
     pda_account!(
         mut verification_account,
@@ -802,7 +815,7 @@ pub fn finalize_verification_transfer_token<'a>(
     mint_account: &AccountInfo<'a>,
     instructions_account: &AccountInfo,
 
-    _verification_account_index: u32,
+    _verification_account_index: u8,
 ) -> ProgramResult {
     pda_account!(
         mut verification_account,
@@ -1102,7 +1115,7 @@ fn check_join_split_public_inputs(
                 nullifier_hashes.push(vec![nullifier_hash]);
 
                 // Verify that root is valid
-                // - Note: roots are stored in mr-form
+                // Note: roots are stored in mr-form
                 if tree_indices[index] == active_tree_index {
                     // Active tree
                     guard!(
@@ -1157,7 +1170,7 @@ fn check_join_split_public_inputs(
         }
 
         // Check that `nullifier_hash` is new
-        // - Note: nullifier-hashes are stored in mr-form
+        // Note: nullifier-hashes are stored in mr-form
         guard!(
             nullifier_accounts[tree_index[i]]
                 .can_insert_nullifier_hash(input_commitment.nullifier_hash.reduce())?,
