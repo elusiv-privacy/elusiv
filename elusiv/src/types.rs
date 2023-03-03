@@ -2,7 +2,7 @@ use crate::bytes::BorshSerDeSized;
 use crate::fields::{fr_to_u256_le, u256_to_big_uint, u64_to_u256_skip_mr, G1A, G2A};
 use crate::macros::BorshSerDeSized;
 use crate::proof::vkey::{MigrateUnaryVKey, SendQuadraVKey, VerifyingKeyInfo};
-use crate::proof::NullifierDuplicateAccount;
+use crate::state::proof::NullifierDuplicateAccount;
 use crate::u64_array;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
@@ -225,7 +225,8 @@ impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> JITArray<'a, N, CAPA
 }
 
 /// A Groth16 proof in affine form
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct Proof {
     pub a: G1A,
     pub b: G2A,
@@ -534,7 +535,7 @@ pub fn compute_fee_rec<V: crate::proof::vkey::VerifyingKeyInfo, P: PublicInputs>
 ) {
     let fee = program_fee
         .proof_verification_fee(
-            crate::proof::prepare_public_inputs_instructions(
+            crate::proof::verifier::prepare_public_inputs_instructions(
                 &public_inputs.public_signals_skip_mr(),
                 V::public_inputs_count(),
             )
@@ -589,7 +590,7 @@ mod test {
     use super::*;
     use crate::{
         fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr},
-        proof::proof_from_str,
+        proof::verifier::proof_from_str,
     };
     use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
     use std::str::FromStr;

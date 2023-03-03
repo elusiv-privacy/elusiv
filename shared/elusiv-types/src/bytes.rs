@@ -57,7 +57,7 @@ impl_borsh_sized!(std::net::Ipv4Addr, 4);
 
 /// The advantage of [`ElusivOption`] over [`Option`] is the fixed serialization length
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "elusiv-client", derive(Debug))]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub enum ElusivOption<N> {
     Some(N),
     None,

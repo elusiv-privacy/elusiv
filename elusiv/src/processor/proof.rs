@@ -10,18 +10,16 @@ use crate::processor::utils::{
     transfer_token_from_pda, verify_program_token_account,
 };
 use crate::processor::{MATH_ERR, ZERO_COMMITMENT_RAW};
-use crate::proof::vkey::{
-    MigrateUnaryVKey, SendQuadraVKey, VKeyAccount, VerifyingKey, VerifyingKeyInfo,
+use crate::proof::verifier::{prepare_public_inputs_instructions, verify_partial};
+use crate::proof::vkey::{MigrateUnaryVKey, SendQuadraVKey, VerifyingKey, VerifyingKeyInfo};
+use crate::state::governor::{FeeCollectorAccount, GovernorAccount, PoolAccount};
+use crate::state::nullifier::NullifierAccount;
+use crate::state::proof::{
+    NullifierDuplicateAccount, VerificationAccount, VerificationAccountData, VerificationState,
 };
-use crate::proof::VerificationAccount;
-use crate::proof::{
-    prepare_public_inputs_instructions, verify_partial, NullifierDuplicateAccount,
-    VerificationAccountData, VerificationState,
-};
-use crate::state::governor::{FeeCollectorAccount, PoolAccount};
 use crate::state::queue::{CommitmentQueue, CommitmentQueueAccount, Queue, RingQueue};
-use crate::state::MT_COMMITMENT_COUNT;
-use crate::state::{governor::GovernorAccount, NullifierAccount, StorageAccount};
+use crate::state::storage::{StorageAccount, MT_COMMITMENT_COUNT};
+use crate::state::vkey::VKeyAccount;
 use crate::token::{
     elusiv_token, verify_associated_token_account, verify_token_account, Lamports, Token,
     TokenPrice,
@@ -1389,22 +1387,19 @@ mod tests {
         test_account_info, test_pda_account_info, two_pow, zero_program_account,
     };
     use crate::processor::ZERO_COMMITMENT_RAW;
-    use crate::proof::{
-        proof_from_str, CombinedMillerLoop, FinalExponentiation, COMBINED_MILLER_LOOP_IXS,
-        FINAL_EXPONENTIATION_IXS,
+    use crate::proof::verifier::{
+        proof_from_str, COMBINED_MILLER_LOOP_IXS, FINAL_EXPONENTIATION_IXS,
     };
-    use crate::state::fee::{BasisPointFee, ProgramFee};
+    use crate::state::fee::ProgramFee;
     use crate::state::governor::PoolAccount;
+    use crate::state::nullifier::NullifierChildAccount;
     use crate::state::program_account::{PDAAccount, SizedAccount};
-    use crate::state::{empty_root_raw, NullifierChildAccount};
-    use crate::token::{
-        spl_token_account_data, Lamports, LAMPORTS_TOKEN_ID, USDC_TOKEN_ID, USDT_TOKEN_ID,
-    };
+    use crate::state::storage::empty_root_raw;
+    use crate::token::{spl_token_account_data, LAMPORTS_TOKEN_ID, USDC_TOKEN_ID, USDT_TOKEN_ID};
     use crate::types::{
         compute_fee_rec, compute_fee_rec_lamports, Proof, RawU256, JOIN_SPLIT_MAX_N_ARITY,
     };
     use assert_matches::assert_matches;
-    use elusiv_computation::PartialComputation;
     use elusiv_types::tokens::Price;
     use elusiv_types::ProgramAccount;
     use solana_program::native_token::LAMPORTS_PER_SOL;
@@ -1412,17 +1407,7 @@ mod tests {
     use solana_program::system_program;
 
     fn fee() -> ProgramFee {
-        ProgramFee {
-            lamports_per_tx: Lamports(5000),
-            base_commitment_network_fee: BasisPointFee(11),
-            proof_network_fee: BasisPointFee(100),
-            base_commitment_subvention: Lamports(33),
-            proof_subvention: Lamports(44),
-            warden_hash_tx_reward: Lamports(300),
-            warden_proof_reward: Lamports(555),
-            proof_base_tx_count: (CombinedMillerLoop::TX_COUNT + FinalExponentiation::TX_COUNT + 2)
-                as u64,
-        }
+        ProgramFee::new(5000, 11, 100, 33, 44, 300, 555).unwrap()
     }
 
     #[test]

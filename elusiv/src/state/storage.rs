@@ -23,7 +23,7 @@ pub const fn mt_size(height: u32) -> usize {
 pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
 
 /// Since before submitting a proof request the current root can change, we store the previous ones
-pub const HISTORY_ARRAY_COUNT: usize = 100;
+pub const HISTORY_ARRAY_SIZE: usize = 100;
 
 pub const VALUES_PER_STORAGE_SUB_ACCOUNT: usize = 83_887;
 const ACCOUNTS_COUNT: usize = div_ceiling_usize(MT_SIZE, VALUES_PER_STORAGE_SUB_ACCOUNT);
@@ -36,9 +36,11 @@ impl ChildAccount for StorageChildAccount {
     const INNER_SIZE: usize = VALUES_PER_STORAGE_SUB_ACCOUNT * U256::SIZE;
 }
 
-// The `StorageAccount` contains the active MT that stores new commitments
-// - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
-// - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
+/// The [`StorageAccount`] contains the active MT that stores new commitments
+///
+/// # Note
+///
+/// The MT is stored linearly as an array with the first element being the root.
 #[elusiv_account(parent_account: { child_account_count: ACCOUNTS_COUNT, child_account: StorageChildAccount }, eager_type: true)]
 pub struct StorageAccount {
     #[no_getter]
@@ -46,17 +48,17 @@ pub struct StorageAccount {
     pda_data: PDAAccountData,
     pubkeys: [ElusivOption<Pubkey>; ACCOUNTS_COUNT],
 
-    // Points to the next commitment in the active MT
+    /// Points to the next commitment in the active MT
     pub next_commitment_ptr: u32,
 
-    // The amount of already finished (closed) MTs
+    /// The amount of already finished (closed) MTs
     pub trees_count: u32,
 
-    // The amount of archived MTs
+    /// The amount of archived MTs
     archived_count: u32,
 
-    // Stores the last HISTORY_ARRAY_COUNT roots of the active tree (including the current root)
-    pub active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
+    /// Stores the last [`HISTORY_ARRAY_SIZE`] roots of the active tree (including the current root)
+    pub active_mt_root_history: [U256; HISTORY_ARRAY_SIZE],
     pub mt_roots_count: u32, // required since we batch insert commitments
 }
 
@@ -122,7 +124,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: &U256) -> bool {
         let max_history_roots =
-            std::cmp::min(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
+            std::cmp::min(self.get_mt_roots_count() as usize, HISTORY_ARRAY_SIZE);
 
         // TODO: remove this, has become redundant
         if let Ok(current_root) = self.get_root() {

@@ -1,3 +1,4 @@
+use super::poseidon_constants::*;
 use crate::{
     bytes::BorshSerDeSized,
     fields::{fr_to_u256_le, u256_to_fr_skip_mr},
@@ -6,8 +7,6 @@ use crate::{
 use ark_bn254::Fr;
 use ark_ff::{Field, Zero};
 use borsh::{BorshDeserialize, BorshSerialize};
-
-use super::poseidon_constants::*;
 
 pub const TOTAL_POSEIDON_ROUNDS: u32 = 65;
 
@@ -28,7 +27,8 @@ macro_rules! round {
     }};
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(PartialEq, Clone)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct BinarySpongeHashingState(pub [Fr; 3]);
 
 impl BinarySpongeHashingState {
@@ -116,7 +116,7 @@ pub fn full_poseidon2_hash(a: Fr, b: Fr) -> Fr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::EMPTY_TREE;
+    use crate::state::storage::EMPTY_TREE;
     use ark_ff::One;
     use std::str::FromStr;
 

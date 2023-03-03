@@ -1,4 +1,5 @@
 use super::program_account::PDAAccountData;
+use super::storage::MT_HEIGHT;
 use crate::bytes::*;
 use crate::error::ElusivError::CouldNotInsertNullifier;
 use crate::macros::{elusiv_account, guard, two_pow};
@@ -10,7 +11,7 @@ use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 
 /// The count of nullifiers is the count of leaves in the MT
-const NULLIFIERS_COUNT: usize = two_pow!(super::MT_HEIGHT);
+const NULLIFIERS_COUNT: usize = two_pow!(MT_HEIGHT);
 
 /// We store nullifiers with the `NullifierMap` data structure for efficient searching and later N-SMT construction
 pub type NullifierMap<'a> = ElusivSet<'a, OrdU256, NULLIFIERS_PER_ACCOUNT>;
@@ -27,7 +28,10 @@ impl ChildAccount for NullifierChildAccount {
 }
 
 /// Account storing [`NULLIFIERS_COUNT`] nullifiers over multiple accounts
-/// - we use [`NullifierMap`]s to store the nullifiers
+///
+/// # Note
+///
+/// We use [`NullifierMap`]s to store the nullifiers.
 #[elusiv_account(parent_account: { child_account_count: ACCOUNTS_COUNT, child_account: NullifierChildAccount }, eager_type: true)]
 pub struct NullifierAccount {
     #[no_getter]
@@ -41,7 +45,7 @@ pub struct NullifierAccount {
 
 /// Tree account after archiving (only a single collapsed N-SMT root)
 #[elusiv_account]
-pub struct ArchivedTreeAccount {
+pub struct ArchivedNullifierAccount {
     #[no_getter]
     #[no_setter]
     pda_data: PDAAccountData,

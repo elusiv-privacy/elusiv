@@ -1,8 +1,9 @@
-use super::proof_from_str_projective;
 use crate::{
     fields::u256_from_str_skip_mr,
     types::{Proof, U256},
 };
+
+use super::verifier::proof_from_str_projective;
 
 pub struct TestProof {
     pub proof: Proof,

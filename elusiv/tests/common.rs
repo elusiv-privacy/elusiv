@@ -4,10 +4,11 @@
 use elusiv::{
     fields::fr_to_u256_le,
     instruction::ElusivInstruction,
-    proof::{CombinedMillerLoop, FinalExponentiation},
+    proof::verifier::{CombinedMillerLoop, FinalExponentiation},
     state::{
         fee::{BasisPointFee, ProgramFee},
-        NullifierAccount, StorageAccount,
+        nullifier::NullifierAccount,
+        storage::StorageAccount,
     },
     types::U256,
 };

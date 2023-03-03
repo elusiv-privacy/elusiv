@@ -5,7 +5,7 @@ use crate::commitment::{
     MAX_COMMITMENT_BATCHING_RATE,
 };
 use crate::macros::elusiv_account;
-use crate::proof::{CombinedMillerLoop, FinalExponentiation};
+use crate::proof::verifier::{CombinedMillerLoop, FinalExponentiation};
 use crate::token::{Lamports, Token, TokenError, TokenPrice};
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;

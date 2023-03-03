@@ -10,16 +10,18 @@ use elusiv::instruction::{
     ElusivInstruction, SignerAccount, UserAccount, WritableSignerAccount, WritableUserAccount,
 };
 use elusiv::processor::{program_token_account_address, FinalizeSendData, ProofRequest};
-use elusiv::proof::verifier::proof_from_str;
-use elusiv::proof::vkey::{SendQuadraVKey, VKeyAccount, VKeyAccountEager, VerifyingKeyInfo};
-use elusiv::proof::{
-    prepare_public_inputs_instructions, CombinedMillerLoop, FinalExponentiation,
-    VerificationAccount, VerificationState, VerificationStep,
+use elusiv::proof::verifier::{
+    prepare_public_inputs_instructions, proof_from_str, CombinedMillerLoop, FinalExponentiation,
+    VerificationStep,
 };
+use elusiv::proof::vkey::{SendQuadraVKey, VerifyingKeyInfo};
 use elusiv::state::fee::ProgramFee;
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
+use elusiv::state::nullifier::{NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, PDAAccountData, ProgramAccount, SizedAccount};
-use elusiv::state::{empty_root_raw, NullifierMap, StorageAccount, NULLIFIERS_PER_ACCOUNT};
+use elusiv::state::proof::{VerificationAccount, VerificationState};
+use elusiv::state::storage::{empty_root_raw, StorageAccount};
+use elusiv::state::vkey::{VKeyAccount, VKeyAccountEager};
 use elusiv::token::{
     spl_token_account_data, Lamports, Token, TokenPrice, LAMPORTS_TOKEN_ID, TOKENS, USDC_TOKEN_ID,
     USDT_TOKEN_ID,

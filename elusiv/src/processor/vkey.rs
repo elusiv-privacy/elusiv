@@ -1,7 +1,6 @@
 use crate::{
-    error::ElusivError,
-    processor::setup_child_account,
-    proof::vkey::{VKeyAccount, VerifyingKey},
+    error::ElusivError, processor::setup_child_account, proof::vkey::VerifyingKey,
+    state::vkey::VKeyAccount,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::{BorshSerDeSized, ChildAccountConfig, ElusivOption, ParentAccount};

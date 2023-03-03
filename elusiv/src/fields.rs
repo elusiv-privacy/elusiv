@@ -226,10 +226,12 @@ impl BorshDeserialize for Wrap<Fq12> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct G1A(pub G1Affine);
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct G2A(pub G2Affine);
 impl G2A {
     pub fn set(&mut self, v: G2Affine) {

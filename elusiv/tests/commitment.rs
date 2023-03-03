@@ -8,8 +8,7 @@ use elusiv::{
     commitment::{
         commitment_hash_computation_instructions, commitments_per_batch,
         poseidon_hash::{full_poseidon2_hash, BinarySpongeHashingState},
-        BaseCommitmentHashComputation, BaseCommitmentHashingAccount, CommitmentHashingAccount,
-        COMMITMENT_HASH_COMPUTE_BUDGET,
+        BaseCommitmentHashComputation, COMMITMENT_HASH_COMPUTE_BUDGET,
     },
     fields::{fr_to_u256_le, u256_to_fr_skip_mr, u64_to_scalar_skip_mr},
     instruction::{
@@ -17,10 +16,11 @@ use elusiv::{
     },
     processor::{program_token_account_address, BaseCommitmentHashRequest, CommitmentHashRequest},
     state::{
+        commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount},
         governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
         program_account::{PDAAccount, ProgramAccount, SizedAccount},
         queue::{CommitmentQueue, CommitmentQueueAccount, Queue, RingQueue},
-        StorageAccount, EMPTY_TREE, MT_HEIGHT,
+        storage::{StorageAccount, EMPTY_TREE, MT_HEIGHT},
     },
     token::{Lamports, Token, TokenPrice, LAMPORTS_TOKEN_ID, USDC_TOKEN_ID},
     types::{RawU256, U256},
@@ -777,7 +777,7 @@ async fn test_single_commitment() {
     for i in 0..MT_HEIGHT as usize {
         assert_eq!(
             hashing_account.get_siblings(i),
-            elusiv::state::EMPTY_TREE[i]
+            elusiv::state::storage::EMPTY_TREE[i]
         );
     }
 

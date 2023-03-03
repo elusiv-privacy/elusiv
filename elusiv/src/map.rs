@@ -6,7 +6,7 @@ use elusiv_derive::{BorshSerDePlaceholder, BorshSerDeSized, ByteBackedJIT};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 
-pub trait ElusivMapKey: BorshSerDeSized + Clone + PartialEq + PartialOrd + Ord + Debug {}
+pub trait ElusivMapKey: BorshSerDeSized + Clone + PartialEq + PartialOrd + Ord {}
 pub trait ElusivMapValue: BorshSerDeSized + Clone + Debug {}
 
 /// Implements [`ElusivMapKey`] for a provided type
@@ -30,7 +30,8 @@ impl_map_key!(u32);
 
 impl_map_value!(());
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub enum ElusivMapError<V: ElusivMapValue> {
     /// Value of a duplciate entry
     Duplicate(V),

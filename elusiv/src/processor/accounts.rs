@@ -1,15 +1,15 @@
 use super::utils::*;
 use crate::bytes::{is_zero, BorshSerDeSized, ElusivOption};
-use crate::commitment::{
-    BaseCommitmentBufferAccount, CommitmentHashingAccount, DEFAULT_COMMITMENT_BATCHING_RATE,
-};
+use crate::commitment::DEFAULT_COMMITMENT_BATCHING_RATE;
 use crate::error::ElusivError;
 use crate::macros::*;
+use crate::state::commitment::{BaseCommitmentBufferAccount, CommitmentHashingAccount};
 use crate::state::{
     fee::{FeeAccount, ProgramFee},
     governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
+    nullifier::{NullifierAccount, NullifierChildAccount},
     queue::{CommitmentQueue, CommitmentQueueAccount, Queue},
-    NullifierAccount, NullifierChildAccount, StorageAccount, MT_COMMITMENT_COUNT,
+    storage::{StorageAccount, MT_COMMITMENT_COUNT},
 };
 use crate::{bytes::usize_as_u32_safe, map::ElusivMap, processor::MATH_ERR};
 use elusiv_types::{
@@ -373,7 +373,7 @@ mod tests {
     use crate::{
         macros::account_info,
         processor::CommitmentHashRequest,
-        state::{program_account::SizedAccount, queue::RingQueue, StorageChildAccount},
+        state::{program_account::SizedAccount, queue::RingQueue, storage::StorageChildAccount},
         types::U256,
     };
     use assert_matches::assert_matches;

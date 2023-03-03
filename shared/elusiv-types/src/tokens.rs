@@ -13,7 +13,7 @@ use std::{
 pub use pyth_sdk_solana::{load_price_feed_from_account_info, Price};
 
 #[derive(Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "elusiv-client", derive(Debug))]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct ElusivToken {
     #[cfg(feature = "elusiv-client")]
     pub ident: &'static str,
@@ -48,7 +48,7 @@ pub type TokenID = u16;
 pub const SPL_TOKEN_COUNT: usize = TOKENS.len() - 1;
 
 #[derive(Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "elusiv-client", derive(Debug))]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub enum Token {
     Lamports(Lamports),
     SPLToken(SPLToken),

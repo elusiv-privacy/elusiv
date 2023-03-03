@@ -1,9 +1,9 @@
+pub mod commitment;
 pub mod fee;
 pub mod governor;
+pub mod nullifier;
 pub mod program_account;
+pub mod proof;
 pub mod queue;
-mod storage;
-mod tree;
-
-pub use storage::*;
-pub use tree::*;
+pub mod storage;
+pub mod vkey;
