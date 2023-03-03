@@ -78,6 +78,7 @@ jobs:
       - name: Run unit- and integration-tests with BPF
         run: |
           set -eu
+          export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
           solana --version
           rustup component add rustfmt --toolchain nightly-x86_64-unknown-linux-gnu
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
