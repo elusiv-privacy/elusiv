@@ -146,19 +146,15 @@ pub enum ElusivInstruction {
     #[pda(storage_account, StorageAccount)]
     #[sys(instructions_account, key = instructions::ID)]
     FinalizeVerificationSend {
-        data: FinalizeSendData,
         verification_account_index: u8,
+        data: FinalizeSendData,
         uses_memo: bool,
     },
 
     #[acc(original_fee_payer, { ignore })]
     #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index.into()), { writable })]
     #[pda(nullifier_account, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, include_child_accounts, skip_abi })]
-    #[sys(instructions_account, key = instructions::ID)]
-    FinalizeVerificationSendNullifier {
-        verification_account_index: u8,
-        input_commitment_index: u8,
-    },
+    FinalizeVerificationInsertNullifier { verification_account_index: u8 },
 
     #[acc(original_fee_payer, { signer, writable })]
     #[acc(recipient, { writable })]

@@ -9,7 +9,7 @@ use crate::processor::utils::{
     system_program_account_rent, transfer_lamports_from_pda_checked, transfer_token,
     transfer_token_from_pda, verify_program_token_account,
 };
-use crate::processor::{MATH_ERR, ZERO_COMMITMENT_RAW};
+use crate::processor::ZERO_COMMITMENT_RAW;
 use crate::proof::verifier::{prepare_public_inputs_instructions, verify_partial};
 use crate::proof::vkey::{MigrateUnaryVKey, SendQuadraVKey, VerifyingKey, VerifyingKeyInfo};
 use crate::state::governor::{FeeCollectorAccount, GovernorAccount, PoolAccount};
@@ -87,8 +87,8 @@ impl ProofRequest {
 /// We only allow two distinct MTs in a join-split (merges can be used to reduce the amount of MTs)
 pub const MAX_MT_COUNT: usize = 2;
 
-/// The maximum number of [`VerificationAccount`]s allowed to be active at once per fee-payer
-pub const RESERVED_VACCS_PER_FEE_PAYER: u8 = 128;
+/// The maximum [`PDAOffset`] for [`VerificationAccount`] for a single fee payer
+pub const RESERVED_VERIFICATION_ACCOUNT_IDS: u8 = 128;
 
 /// Initializes a new proof verification
 /// - subsequent calls of [`init_verification_transfer_fee`] and [`init_verification_proof`] required to start the computation
@@ -117,7 +117,7 @@ pub fn init_verification<'a, 'b, 'c, 'd>(
 
     guard!(vkey_id == request.vkey_id(), ElusivError::InvalidAccount);
     guard!(
-        verification_account_index < RESERVED_VACCS_PER_FEE_PAYER,
+        verification_account_index <= RESERVED_VERIFICATION_ACCOUNT_IDS,
         ElusivError::InvalidAccount
     );
 
@@ -485,7 +485,7 @@ const SPL_MEMO_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
 /// The complete transactions requires to include:
 /// - for a valid proof:
 ///     [`finalize_verification_send`],
-///     [`finalize_verification_send_nullifier`],
+///     [`finalize_verification_insert_nullifier`]+,
 ///     [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`].
 ///
 /// - for an invalid proof:
@@ -501,8 +501,8 @@ pub fn finalize_verification_send<'a>(
     storage_account: &StorageAccount,
     instructions_account: &AccountInfo<'a>,
 
+    verification_account_index: u8,
     data: FinalizeSendData,
-    _verification_account_index: u8,
     uses_memo: bool,
 ) -> ProgramResult {
     guard!(
@@ -564,9 +564,8 @@ pub fn finalize_verification_send<'a>(
 
     enforce_finalize_send_instructions(
         instructions_account,
-        0,
-        public_inputs.join_split.input_commitments.len(),
         public_inputs.join_split.token_id == 0,
+        verification_account_index,
     )?;
 
     let (commitment_index, mt_index) = minimum_commitment_mt_index(
@@ -593,19 +592,19 @@ pub fn finalize_verification_send<'a>(
     guard!(data.mt_index == mt_index, ElusivError::InputsMismatch);
 
     verification_account.set_state(&VerificationState::InsertNullifiers);
+    verification_account.set_instruction(&0);
 
     Ok(())
 }
 
-pub fn finalize_verification_send_nullifier<'a, 'b, 'c>(
+pub fn finalize_verification_insert_nullifier<'a, 'b, 'c>(
     verification_account: &mut VerificationAccount,
     nullifier_account: &mut NullifierAccount<'a, 'b, 'c>,
-    instructions_account: &AccountInfo,
 
     _verification_account_index: u8,
-    input_commitment_index: u8,
 ) -> ProgramResult {
     // TODO: Handle the case in which a duplicate verification has failed (funds flow to fee-collector)
+
     guard!(
         matches!(
             verification_account.get_state(),
@@ -620,43 +619,44 @@ pub fn finalize_verification_send_nullifier<'a, 'b, 'c>(
         _ => return Err(ElusivError::FeatureNotAvailable.into()),
     };
 
-    let input_commitment_index = input_commitment_index as usize;
-    enforce_finalize_send_instructions(
-        instructions_account,
-        input_commitment_index + 1,
-        public_inputs.join_split.input_commitments.len(),
-        public_inputs.join_split.token_id == 0,
-    )?;
+    let input_commitment_index = verification_account.get_instruction() as usize;
+    if input_commitment_index < public_inputs.join_split.input_commitments.len() {
+        // Insert nullifier hashes
+        let mut tree_index = 0;
+        for (index, input_commitment) in public_inputs
+            .join_split
+            .input_commitments
+            .iter()
+            .enumerate()
+        {
+            let tree_index = match input_commitment.root {
+                Some(_) => {
+                    let t = tree_index;
+                    tree_index += 1;
+                    t
+                }
+                None => 0,
+            };
 
-    let mut tree_index = 0;
-    for (index, input_commitment) in public_inputs
-        .join_split
-        .input_commitments
-        .iter()
-        .enumerate()
-    {
-        let tree_index = match input_commitment.root {
-            Some(_) => {
-                let t = tree_index;
-                tree_index += 1;
-                t
+            if tree_index != 0 {
+                // TODO: add support for arbitrary MTs
+                return Err(ElusivError::FeatureNotAvailable.into());
             }
-            None => 0,
-        };
 
-        if tree_index != 0 {
-            // TODO: add support for arbitrary MTs
-            return Err(ElusivError::FeatureNotAvailable.into());
+            if index == input_commitment_index {
+                nullifier_account
+                    .try_insert_nullifier_hash(input_commitment.nullifier_hash.reduce())?;
+                break;
+            }
         }
 
-        if index == input_commitment_index {
-            nullifier_account
-                .try_insert_nullifier_hash(input_commitment.nullifier_hash.reduce())?;
-            break;
-        }
+        verification_account.set_instruction(&(input_commitment_index as u32 + 1));
+    } else if !nullifier_account.is_moved_nullifier_empty() {
+        // Insert moved nullifier hashes
+        nullifier_account.move_nullifier_hashes_to_next_account()?;
     }
 
-    if input_commitment_index == public_inputs.join_split.input_commitments.len() - 1 {
+    if nullifier_account.is_moved_nullifier_empty() {
         verification_account.set_state(&VerificationState::Finalized);
     }
 
@@ -724,13 +724,6 @@ pub fn finalize_verification_transfer_lamports<'a>(
     }
 
     if let ProofRequest::Send(public_inputs) = &request {
-        enforce_finalize_send_instructions(
-            instructions_account,
-            public_inputs.join_split.input_commitments.len() + 1,
-            public_inputs.join_split.input_commitments.len(),
-            public_inputs.join_split.token_id == 0,
-        )?;
-
         if public_inputs.join_split.amount > 0 {
             guard!(
                 recipient.key.to_bytes() == data.recipient_wallet.option().unwrap().skip_mr(),
@@ -889,13 +882,6 @@ pub fn finalize_verification_transfer_token<'a>(
 
     let mut associated_token_account_rent_token = None;
     if let ProofRequest::Send(public_inputs) = &request {
-        enforce_finalize_send_instructions(
-            instructions_account,
-            public_inputs.join_split.input_commitments.len() + 1,
-            public_inputs.join_split.input_commitments.len(),
-            public_inputs.join_split.token_id == 0,
-        )?;
-
         if public_inputs.join_split.amount > 0 {
             let mut actual_recipient = recipient;
 
@@ -1181,56 +1167,10 @@ fn check_join_split_public_inputs(
     Ok(())
 }
 
-/// Enforces that all sibling instructions in the current transaction match the ordering of instructions
-fn enforce_instruction_siblings<I: InstructionsSysvar>(
-    instruction_sysvar: &I,
-    current_sibling_index: usize,
-    instructions: &[u8],
-) -> Result<(), ProgramError> {
-    guard!(
-        current_sibling_index < instructions.len(),
-        ElusivError::InvalidOtherInstruction
-    );
-
-    fn get_elusiv_ix_index<I: InstructionsSysvar>(
-        ix_index: usize,
-        instruction_sysvar: &I,
-    ) -> Result<u8, ProgramError> {
-        let ix = instruction_sysvar.instruction_at_index(ix_index)?;
-        guard!(ix.program_id == crate::id(), ElusivError::InvalidAccount);
-        Ok(ix.data[0])
-    }
-
-    let ix_index = instruction_sysvar.current_index()? as usize;
-    guard!(
-        instructions[current_sibling_index] == get_elusiv_ix_index(ix_index, instruction_sysvar)?,
-        ElusivError::InvalidOtherInstruction
-    );
-    let zero_ix_index = ix_index
-        .checked_sub(current_sibling_index)
-        .ok_or(MATH_ERR)?;
-
-    for (i, instruction) in instructions.iter().enumerate().take(current_sibling_index) {
-        guard!(
-            *instruction == get_elusiv_ix_index(zero_ix_index + i, instruction_sysvar)?,
-            ElusivError::InvalidOtherInstruction
-        );
-    }
-    for (i, instruction) in instructions.iter().skip(current_sibling_index).enumerate() {
-        guard!(
-            *instruction == get_elusiv_ix_index(ix_index + i, instruction_sysvar)?,
-            ElusivError::InvalidOtherInstruction
-        );
-    }
-
-    Ok(())
-}
-
 fn enforce_finalize_send_instructions(
     instructions_account: &AccountInfo,
-    finalize_instruction_index: usize,
-    number_of_input_commitments: usize,
     uses_lamports: bool,
+    verification_account_index: u8,
 ) -> Result<(), ProgramError> {
     if cfg!(test) {
         return Ok(());
@@ -1238,39 +1178,79 @@ fn enforce_finalize_send_instructions(
 
     enforce_finalize_send_instructions_inner(
         &DefaultInstructionsSysvar(instructions_account),
-        finalize_instruction_index,
-        number_of_input_commitments,
         uses_lamports,
+        verification_account_index,
     )
 }
 
+fn verify_finalize_send_instruction<I: InstructionsSysvar>(
+    ix_index: usize,
+    instruction_sysvar: &I,
+    expected_variant_index: u8,
+    verification_account_index: u8,
+) -> Result<(), ProgramError> {
+    let ix = instruction_sysvar.instruction_at_index(ix_index)?;
+
+    guard!(
+        ix.program_id == crate::id(),
+        ProgramError::IncorrectProgramId
+    );
+    guard!(
+        ix.data[0] == expected_variant_index,
+        ElusivError::InvalidOtherInstruction
+    );
+    guard!(
+        ix.data[1] == verification_account_index,
+        ElusivError::InvalidOtherInstruction
+    );
+
+    Ok(())
+}
+
+/// Enforces that the current transaction contains all required finalization instructions in the correct order
 fn enforce_finalize_send_instructions_inner<I: InstructionsSysvar>(
     instruction_sysvar: &I,
-    finalize_instruction_index: usize,
-    number_of_input_commitments: usize,
     uses_lamports: bool,
+    verification_account_index: u8,
 ) -> Result<(), ProgramError> {
-    // TODO: precompute this since the range in [0; 4]
-    let mut instructions = vec![ElusivInstruction::FINALIZE_VERIFICATION_SEND_INDEX];
-    for _ in 0..number_of_input_commitments {
-        instructions.push(ElusivInstruction::FINALIZE_VERIFICATION_SEND_NULLIFIER_INDEX);
+    let current_ix_index = instruction_sysvar.current_index()? as usize;
+
+    // Leading [`ElusivInstruction::FinalizeVerificationSendInstruction`]
+    verify_finalize_send_instruction(
+        current_ix_index,
+        instruction_sysvar,
+        ElusivInstruction::FINALIZE_VERIFICATION_SEND_INDEX,
+        verification_account_index,
+    )?;
+
+    // Arbitrary number of [`ElusivInstruction::FinalizeVerificationInsertNullifier`]
+    let mut insertion_ix_count = 0;
+    while verify_finalize_send_instruction(
+        current_ix_index + insertion_ix_count + 1,
+        instruction_sysvar,
+        ElusivInstruction::FINALIZE_VERIFICATION_INSERT_NULLIFIER_INDEX,
+        verification_account_index,
+    )
+    .is_ok()
+    {
+        insertion_ix_count += 1;
     }
 
-    if uses_lamports {
-        instructions.push(ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_LAMPORTS_INDEX);
-        enforce_instruction_siblings(
-            instruction_sysvar,
-            finalize_instruction_index,
-            &instructions,
-        )
+    // Single transfer instruction (either [`ElusivInstruction::FinalizeVerificationTransferLamports`] or [`ElusivInstruction::FinalizeVerificationTransferToken`])
+    let transfer_ix_variant_index = if uses_lamports {
+        ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_LAMPORTS_INDEX
     } else {
-        instructions.push(ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_TOKEN_INDEX);
-        enforce_instruction_siblings(
-            instruction_sysvar,
-            finalize_instruction_index,
-            &instructions,
-        )
-    }
+        ElusivInstruction::FINALIZE_VERIFICATION_TRANSFER_TOKEN_INDEX
+    };
+
+    verify_finalize_send_instruction(
+        current_ix_index + insertion_ix_count + 1,
+        instruction_sysvar,
+        transfer_ix_variant_index,
+        verification_account_index,
+    )?;
+
+    Ok(())
 }
 
 fn enforce_instruction<I: InstructionsSysvar>(
@@ -1472,7 +1452,7 @@ mod tests {
         // TODO: wrong vkey-id
         // TODO: vkey not checked
 
-        // vkey-id exceeds `RESERVED_VACCS_PER_FEE_PAYER`
+        // vkey-id exceeds `RESERVED_VERIFICATION_ACCOUNT_IDS`
         assert_matches!(
             init_verification(
                 &fee_payer,
@@ -1483,7 +1463,7 @@ mod tests {
                 &storage,
                 &nullifier,
                 &nullifier,
-                RESERVED_VACCS_PER_FEE_PAYER,
+                RESERVED_VERIFICATION_ACCOUNT_IDS,
                 vkey_id,
                 [0, 1],
                 Send(inputs.clone()),
@@ -2539,8 +2519,8 @@ mod tests {
                 &mut verification_acc,
                 &storage,
                 &any,
-                finalize_data.clone(),
                 0,
+                finalize_data.clone(),
                 false
             ),
             Err(_)
@@ -2560,8 +2540,8 @@ mod tests {
                     &mut verification_acc,
                     &storage,
                     &any,
-                    finalize_data.clone(),
                     0,
+                    finalize_data.clone(),
                     false
                 ),
                 Err(_)
@@ -2580,8 +2560,8 @@ mod tests {
                     &mut verification_acc,
                     &storage,
                     &any,
-                    finalize_data.clone(),
                     0,
+                    finalize_data.clone(),
                     false
                 ),
                 Err(_)
@@ -2600,8 +2580,8 @@ mod tests {
                     &mut verification_acc,
                     &storage,
                     &any,
-                    finalize_data.clone(),
                     0,
+                    finalize_data.clone(),
                     false
                 ),
                 Err(_)
@@ -2629,8 +2609,8 @@ mod tests {
                     &mut verification_acc,
                     &storage,
                     &any,
-                    invalid_data,
                     0,
+                    invalid_data,
                     false
                 ),
                 Err(_)
@@ -2647,8 +2627,8 @@ mod tests {
                 &mut verification_acc,
                 &storage,
                 &any,
-                finalize_data.clone(),
                 0,
+                finalize_data.clone(),
                 false
             ),
             Ok(())
@@ -2669,8 +2649,8 @@ mod tests {
                 &mut verification_acc,
                 &storage,
                 &any,
-                finalize_data,
                 0,
+                finalize_data,
                 false
             ),
             Err(_)
@@ -2711,8 +2691,8 @@ mod tests {
                 &mut verification_acc,
                 &storage,
                 &any,
-                finalize_data,
                 0,
+                finalize_data,
                 false
             ),
             Ok(())
@@ -2763,8 +2743,8 @@ mod tests {
                 &mut v_account,
                 &storage,
                 &any,
-                finalize_data,
                 0,
+                finalize_data,
                 false
             ),
             Err(_)
@@ -2773,7 +2753,8 @@ mod tests {
 
     #[test]
     fn test_finalize_verification_send_nullifier() {
-        finalize_send_test!(
+        todo!();
+        /*finalize_send_test!(
             USDC_TOKEN_ID,
             LAMPORTS_PER_SOL,
             public_inputs,
@@ -2825,7 +2806,7 @@ mod tests {
         assert_matches!(
             finalize_verification_send_nullifier(&mut verification_acc, &mut n_acc_0, &any, 0, 0),
             Err(_)
-        );
+        );*/
     }
 
     #[test]
@@ -3571,108 +3552,12 @@ mod tests {
 
     #[test]
     fn test_enforce_instruction_siblings() {
-        // Invalid program_id in current instruction
-        assert_matches!(
-            enforce_instruction_siblings(
-                &TestInstructionsSysvar {
-                    current_index: Some(0),
-                    instructions: vec![StubInstruction(100, Pubkey::new_unique()).into(),],
-                },
-                0,
-                &[100]
-            ),
-            Err(_)
-        );
-
-        // Invalid program_id in sibling instruction
-        assert_matches!(
-            enforce_instruction_siblings(
-                &TestInstructionsSysvar {
-                    current_index: Some(0),
-                    instructions: vec![
-                        StubInstruction(100, crate::id()).into(),
-                        StubInstruction(101, Pubkey::new_unique()).into(),
-                    ],
-                },
-                0,
-                &[100, 101]
-            ),
-            Err(_)
-        );
-
-        // Missing leading instruction
-        assert_matches!(
-            enforce_instruction_siblings(
-                &TestInstructionsSysvar {
-                    current_index: Some(0),
-                    instructions: vec![
-                        StubInstruction(101, crate::id()).into(),
-                        StubInstruction(102, crate::id()).into(),
-                    ],
-                },
-                1,
-                &[100, 101, 102]
-            ),
-            Err(_)
-        );
-
-        // Missing center instruction
-        assert_matches!(
-            enforce_instruction_siblings(
-                &TestInstructionsSysvar {
-                    current_index: Some(1),
-                    instructions: vec![
-                        StubInstruction(100, crate::id()).into(),
-                        StubInstruction(102, crate::id()).into(),
-                    ],
-                },
-                0,
-                &[100, 101, 102]
-            ),
-            Err(_)
-        );
-
-        // Missing trailing instructions
-        assert_matches!(
-            enforce_instruction_siblings(
-                &TestInstructionsSysvar {
-                    current_index: Some(1),
-                    instructions: vec![
-                        StubInstruction(100, crate::id()).into(),
-                        StubInstruction(101, crate::id()).into(),
-                    ],
-                },
-                1,
-                &[100, 101, 102]
-            ),
-            Err(_)
-        );
-
-        // Valid
-        assert_matches!(
-            enforce_instruction_siblings(
-                &TestInstructionsSysvar {
-                    current_index: Some(3),
-                    instructions: vec![
-                        StubInstruction(100, crate::id()).into(),
-                        StubInstruction(101, crate::id()).into(),
-                        StubInstruction(102, crate::id()).into(),
-                        StubInstruction(103, crate::id()).into(),
-                        StubInstruction(104, crate::id()).into(),
-                        StubInstruction(105, crate::id()).into(),
-                        StubInstruction(106, crate::id()).into(),
-                    ],
-                },
-                2,
-                &[101, 102, 103, 104, 105]
-            ),
-            Ok(())
-        );
+        todo!()
     }
 
     #[test]
     fn test_enforce_finalize_send_instructions() {
-        assert_matches!(
+        /*assert_matches!(
             enforce_finalize_send_instructions_inner(
                 &TestInstructionsSysvar {
                     current_index: Some(0),
@@ -3854,7 +3739,8 @@ mod tests {
                 true,
             ),
             Err(_)
-        );
+        );*/
+        todo!()
     }
 
     #[test]
