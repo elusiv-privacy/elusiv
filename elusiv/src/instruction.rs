@@ -2,17 +2,19 @@
 
 use super::processor;
 use super::processor::BaseCommitmentHashRequest;
-use crate::commitment::{
-    BaseCommitmentBufferAccount, BaseCommitmentHashingAccount, CommitmentHashingAccount,
-};
 use crate::macros::*;
 use crate::processor::{FinalizeSendData, ProofRequest, VKeyAccountDataPacket, MAX_MT_COUNT};
-use crate::proof::{vkey::VKeyAccount, VerificationAccount};
 use crate::state::{
+    commitment::{
+        BaseCommitmentBufferAccount, BaseCommitmentHashingAccount, CommitmentHashingAccount,
+    },
     fee::{FeeAccount, ProgramFee},
     governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
+    nullifier::NullifierAccount,
+    proof::VerificationAccount,
     queue::CommitmentQueueAccount,
-    NullifierAccount, StorageAccount,
+    storage::StorageAccount,
+    vkey::VKeyAccount,
 };
 use crate::types::Proof;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -87,7 +89,7 @@ pub enum ElusivInstruction {
     // -------- Proof Verification --------
     /// Proof verification initialization
     #[acc(fee_payer, { writable, signer })]
-    #[pda(verification_account, VerificationAccount, pda_pubkey = fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable, account_info, find_pda })]
+    #[pda(verification_account, VerificationAccount, pda_pubkey = fee_payer.pubkey(), pda_offset = Some(verification_account_index.into()), { writable, account_info, find_pda })]
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id))]
     #[acc(nullifier_duplicate_account, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
@@ -96,7 +98,7 @@ pub enum ElusivInstruction {
     #[pda(nullifier_account0, NullifierAccount, pda_offset = Some(tree_indices[0]), { include_child_accounts })]
     #[pda(nullifier_account1, NullifierAccount, pda_offset = Some(tree_indices[1]), { include_child_accounts })]
     InitVerification {
-        verification_account_index: u32,
+        verification_account_index: u8,
         vkey_id: u32,
         tree_indices: [u32; MAX_MT_COUNT],
         request: ProofRequest,
@@ -112,62 +114,58 @@ pub enum ElusivInstruction {
     #[acc(sol_price_account)]
     #[acc(token_price_account)]
     #[pda(governor, GovernorAccount)]
-    #[pda(verification_account, VerificationAccount, pda_pubkey = fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
+    #[pda(verification_account, VerificationAccount, pda_pubkey = fee_payer.pubkey(), pda_offset = Some(verification_account_index.into()), { writable })]
     #[acc(token_program)] // if `token_id = 0` { `system_program` } else { `token_program` }
     #[sys(system_program, key = system_program::ID)]
-    InitVerificationTransferFee { verification_account_index: u32 },
+    InitVerificationTransferFee { verification_account_index: u8 },
 
     #[acc(fee_payer, { signer })]
-    #[pda(verification_account, VerificationAccount, pda_pubkey = fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
+    #[pda(verification_account, VerificationAccount, pda_pubkey = fee_payer.pubkey(), pda_offset = Some(verification_account_index.into()), { writable })]
     InitVerificationProof {
-        verification_account_index: u32,
+        verification_account_index: u8,
         proof: Proof,
     },
 
     /// Proof verification computation
     #[acc(original_fee_payer, { ignore })]
-    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
+    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index.into()), { writable })]
     #[pda(vkey_account, VKeyAccount, pda_offset = Some(vkey_id), { include_child_accounts })]
     #[sys(instructions_account, key = instructions::ID)]
     ComputeVerification {
-        verification_account_index: u32,
+        verification_account_index: u8,
         vkey_id: u32,
     },
 
-    /// Finalizing proofs that finished
+    /// Finalizing proofs
     #[acc(recipient)]
     #[acc(identifier_account)]
     #[acc(transaction_reference_account)]
     #[acc(original_fee_payer, { ignore })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
-    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
+    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index.into()), { writable })]
     #[pda(storage_account, StorageAccount)]
     #[sys(instructions_account, key = instructions::ID)]
     FinalizeVerificationSend {
+        verification_account_index: u8,
         data: FinalizeSendData,
-        verification_account_index: u32,
         uses_memo: bool,
     },
 
     #[acc(original_fee_payer, { ignore })]
-    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable })]
+    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index.into()), { writable })]
     #[pda(nullifier_account, NullifierAccount, pda_offset = Some(verification_account.get_tree_indices(0)), { writable, include_child_accounts, skip_abi })]
-    #[sys(instructions_account, key = instructions::ID)]
-    FinalizeVerificationSendNullifier {
-        verification_account_index: u32,
-        input_commitment_index: u8,
-    },
+    FinalizeVerificationInsertNullifier { verification_account_index: u8 },
 
     #[acc(original_fee_payer, { signer, writable })]
     #[acc(recipient, { writable })]
     #[pda(pool, PoolAccount, { account_info, writable })]
     #[pda(fee_collector, FeeCollectorAccount, { account_info, writable })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
-    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable, account_info })]
+    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index.into()), { writable, account_info })]
     #[acc(nullifier_duplicate_account, { writable, owned })]
     #[sys(system_program, key = system_program::ID, { ignore })]
     #[sys(instructions_account, key = instructions::ID)]
-    FinalizeVerificationTransferLamports { verification_account_index: u32 },
+    FinalizeVerificationTransferLamports { verification_account_index: u8 },
 
     #[acc(original_fee_payer, { signer, writable })]
     #[acc(original_fee_payer_account, { writable })]
@@ -178,14 +176,14 @@ pub enum ElusivInstruction {
     #[pda(fee_collector, FeeCollectorAccount, { account_info, writable })]
     #[acc(fee_collector_account, { writable })]
     #[pda(commitment_hash_queue, CommitmentQueueAccount, { writable })]
-    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index), { writable, account_info })]
+    #[pda(verification_account, VerificationAccount, pda_pubkey = original_fee_payer.pubkey(), pda_offset = Some(verification_account_index.into()), { writable, account_info })]
     #[acc(nullifier_duplicate_account, { writable, owned })]
     #[sys(a_token_program, key = spl_associated_token_account::ID, { ignore })]
     #[sys(token_program, key = spl_token::ID)]
     #[sys(system_program, key = system_program::ID, { ignore })]
     #[acc(mint_account)]
     #[sys(instructions_account, key = instructions::ID)]
-    FinalizeVerificationTransferToken { verification_account_index: u32 },
+    FinalizeVerificationTransferToken { verification_account_index: u8 },
 
     // -------- Verifying key management --------
     #[acc(signer, { writable, signer })]
@@ -329,7 +327,7 @@ impl ElusivInstruction {
     }
 
     pub fn init_verification_transfer_fee_sol_instruction(
-        verification_account_index: u32,
+        verification_account_index: u8,
         warden: Pubkey,
     ) -> solana_program::instruction::Instruction {
         ElusivInstruction::init_verification_transfer_fee_instruction(
@@ -345,7 +343,7 @@ impl ElusivInstruction {
     }
 
     pub fn init_verification_transfer_fee_token_instruction(
-        verification_account_index: u32,
+        verification_account_index: u8,
         token_id: u16,
         warden: Pubkey,
         warden_account: Pubkey,
@@ -390,7 +388,6 @@ mod tests {
     #[test]
     fn test_elusiv_instruction_tag() {
         // Tests used to ensure correctness of the Warden-Network stats tracking tags
-        // https://github.com/elusiv-privacy/elusiv/blob/basic-warden-network/elusiv-warden-network/src/processor/basic_warden.rs
 
         assert_eq!(2, ElusivInstruction::FINALIZE_BASE_COMMITMENT_HASH_INDEX);
         assert_eq!(

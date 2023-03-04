@@ -7,7 +7,7 @@ use ark_bn254::{Fq, Fq12, Fq2, Fq6, Fr, G1Affine, G1Projective, G2Affine};
 use ark_ff::{BigInteger256, One, PrimeField};
 use borsh::{BorshDeserialize, BorshSerialize};
 
-/// From &[u8] to [u8; 8]
+/// From [`&[u8]`] to [`[u8; 8]`]
 #[macro_export]
 macro_rules! u64_array {
     ($v: expr, $o: expr) => {
@@ -50,7 +50,7 @@ pub fn is_element_scalar_field(e: BigInteger256) -> bool {
     e < SCALAR_MODULUS_RAW
 }
 
-/// `BigInteger256` efficiently from LE buffer
+/// [`BigInteger256`] efficiently from LE buffer
 /// - to increase efficiency callers should always assert that $v.len() >= $o + 32 (https://www.reddit.com/r/rust/comments/6anp0d/suggestion_for_a_new_rustc_optimization/dhfzp93/)
 fn le_u256(slice: &[u8]) -> BigInteger256 {
     let l0 = u64_limb(slice, 0);
@@ -88,7 +88,8 @@ fn write_base_montgomery<W: std::io::Write>(v: Fq, writer: &mut W) -> std::io::R
 }
 
 /// Wraps foreign types into the local scope
-#[derive(Debug, PartialEq)]
+#[derive(Copy, PartialEq)]
+#[cfg_attr(test, derive(Debug))]
 pub struct Wrap<N>(pub N);
 
 impl<T: Clone> Clone for Wrap<T> {
@@ -225,10 +226,12 @@ impl BorshDeserialize for Wrap<Fq12> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct G1A(pub G1Affine);
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct G2A(pub G2Affine);
 impl G2A {
     pub fn set(&mut self, v: G2Affine) {
@@ -313,7 +316,8 @@ impl BorshDeserialize for Wrap<G2A> {
 }
 
 // Homogenous projective coordinates form
-#[derive(Debug, Clone)]
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug))]
 pub struct G2HomProjective {
     pub x: Fq2,
     pub y: Fq2,
@@ -345,27 +349,27 @@ impl BorshDeserialize for G2HomProjective {
     }
 }
 
-/// Converts an `U256` into a `Fr` without performing a montgomery reduction
+/// Converts an [`U256`] into a [`Fr`] without performing a montgomery reduction
 pub fn u256_to_fr_skip_mr(v: &U256) -> Fr {
     scalar_skip_mr(BigInteger256(u256_to_le_limbs(*v)))
 }
 
-/// Converts an `u64` into a `Fr` by performing a montgomery reduction
+/// Converts an [`u64`] into a [`Fr`] by performing a montgomery reduction
 pub fn u64_to_scalar(v: u64) -> Fr {
     Fr::from_repr(BigInteger256::from(v)).unwrap()
 }
 
-/// Converts an `u64` into a `Fr` without performing a montgomery reduction
+/// Converts an [`u64`] into a [`Fr`] without performing a montgomery reduction
 pub fn u64_to_scalar_skip_mr(v: u64) -> Fr {
     Fr::new(BigInteger256::from(v))
 }
 
-/// Converts an `u64` into a `U256` by performing a montgomery reduction
+/// Converts an [`u64`] into a [`U256`] by performing a montgomery reduction
 pub fn u64_to_u256(v: u64) -> U256 {
     fr_to_u256_le(&u64_to_scalar(v))
 }
 
-/// Converts an `u64` into a `U256` without performing a montgomery reduction
+/// Converts an [`u64`] into a [`U256`] without performing a montgomery reduction
 pub fn u64_to_u256_skip_mr(v: u64) -> U256 {
     let mut u = [0; 32];
     let v = v.to_le_bytes();

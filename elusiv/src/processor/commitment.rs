@@ -3,8 +3,7 @@ use crate::bytes::usize_as_u32_safe;
 use crate::commitment::{
     commitment_hash_computation_instructions, commitments_per_batch,
     compute_base_commitment_hash_partial, compute_commitment_hash_partial,
-    BaseCommitmentBufferAccount, BaseCommitmentHashComputation, BaseCommitmentHashingAccount,
-    CommitmentHashingAccount, MAX_HT_COMMITMENTS,
+    BaseCommitmentHashComputation, MAX_HT_COMMITMENTS,
 };
 use crate::error::ElusivError;
 use crate::fields::{fr_to_u256_le, is_element_scalar_field, u256_to_big_uint, u256_to_fr_skip_mr};
@@ -13,9 +12,11 @@ use crate::processor::utils::{
     transfer_lamports_from_pda_checked, transfer_token, transfer_token_from_pda,
     transfer_with_system_program, verify_program_token_account,
 };
+use crate::state::commitment::{
+    BaseCommitmentBufferAccount, BaseCommitmentHashingAccount, CommitmentHashingAccount,
+};
 use crate::state::governor::FeeCollectorAccount;
-use crate::state::StorageAccount;
-use crate::state::MT_COMMITMENT_COUNT;
+use crate::state::storage::{StorageAccount, MT_COMMITMENT_COUNT};
 use crate::state::{
     fee::FeeAccount,
     governor::GovernorAccount,
@@ -449,7 +450,7 @@ mod tests {
     };
     use crate::state::governor::PoolAccount;
     use crate::state::program_account::{PDAAccount, SizedAccount};
-    use crate::state::{EMPTY_TREE, MT_HEIGHT};
+    use crate::state::storage::{EMPTY_TREE, MT_HEIGHT};
     use crate::token::{lamports_token, usdc_token, LAMPORTS_TOKEN_ID, USDC_TOKEN_ID};
     use ark_ff::Zero;
     use assert_matches::assert_matches;

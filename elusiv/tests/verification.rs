@@ -5,30 +5,36 @@ mod common;
 use borsh::{BorshDeserialize, BorshSerialize};
 use common::*;
 use elusiv::bytes::{BorshSerDeSized, ElusivOption};
+use elusiv::fields::{u64_to_u256, u64_to_u256_skip_mr};
 use elusiv::instruction::{
     ElusivInstruction, SignerAccount, UserAccount, WritableSignerAccount, WritableUserAccount,
 };
 use elusiv::processor::{program_token_account_address, FinalizeSendData, ProofRequest};
-use elusiv::proof::verifier::proof_from_str;
-use elusiv::proof::vkey::{SendQuadraVKey, VKeyAccount, VKeyAccountEager, VerifyingKeyInfo};
-use elusiv::proof::{
-    prepare_public_inputs_instructions, CombinedMillerLoop, FinalExponentiation,
-    VerificationAccount, VerificationState, VerificationStep,
+use elusiv::proof::verifier::{
+    prepare_public_inputs_instructions, proof_from_str, CombinedMillerLoop, FinalExponentiation,
+    VerificationStep,
 };
+use elusiv::proof::vkey::{SendQuadraVKey, VerifyingKeyInfo};
 use elusiv::state::fee::ProgramFee;
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
+use elusiv::state::nullifier::{NullifierAccount, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, PDAAccountData, ProgramAccount, SizedAccount};
-use elusiv::state::{empty_root_raw, NullifierMap, StorageAccount, NULLIFIERS_PER_ACCOUNT};
+use elusiv::state::proof::{VerificationAccount, VerificationState};
+use elusiv::state::storage::{empty_root_raw, StorageAccount, MT_HEIGHT};
+use elusiv::state::vkey::{VKeyAccount, VKeyAccountEager};
 use elusiv::token::{
     spl_token_account_data, Lamports, Token, TokenPrice, LAMPORTS_TOKEN_ID, TOKENS, USDC_TOKEN_ID,
     USDT_TOKEN_ID,
 };
 use elusiv::types::{
     compute_fee_rec, compute_fee_rec_lamports, generate_hashed_inputs, InputCommitment,
-    JoinSplitPublicInputs, OrdU256, Proof, PublicInputs, RawProof, RawU256, SendPublicInputs, U256,
+    JoinSplitPublicInputs, OrdU256, Proof, PublicInputs, RawProof, RawU256, SendPublicInputs,
+    JOIN_SPLIT_MAX_N_ARITY, U256,
 };
 use elusiv_computation::PartialComputation;
 use elusiv_types::tokens::Price;
+use elusiv_types::ParentAccount;
+use elusiv_utils::two_pow;
 use solana_program::instruction::Instruction;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::program_pack::Pack;
@@ -348,19 +354,60 @@ async fn setup_vkey_account<VKey: VerifyingKeyInfo>(
     (pda, sub_account_pubkey)
 }
 
-async fn insert_nullifier_hashes(test: &mut ElusivProgramTest, nullifier_hashes: &[U256]) {
-    assert!(nullifier_hashes.len() <= NULLIFIERS_PER_ACCOUNT);
+async fn insert_nullifier_hashes(
+    test: &mut ElusivProgramTest,
+    mt_index: u32,
+    nullifier_hashes: &[U256],
+) {
+    let count = nullifier_hashes.len();
+    let mut nullifier_hashes: Vec<_> = nullifier_hashes.iter().map(|n| OrdU256(*n)).collect();
+    nullifier_hashes.sort();
 
-    let nullifier_accounts = nullifier_accounts(test, 0).await;
-    let mut data = test.data(&nullifier_accounts[0]).await;
-    {
-        let mut map = NullifierMap::new(&mut data[1..]);
-        for nullifier_hash in nullifier_hashes {
-            map.try_insert_default(OrdU256(*nullifier_hash)).unwrap();
-        }
+    let nullifier_accounts = nullifier_accounts(test, mt_index).await;
+    let mut nullifier_accounts_data = Vec::with_capacity(NullifierAccount::COUNT);
+    for nullifier_account in nullifier_accounts.iter() {
+        nullifier_accounts_data.push(test.data(nullifier_account).await);
     }
-    test.set_account_rent_exempt(&nullifier_accounts[0], &data, &elusiv::id())
+
+    {
+        let mut maps: Vec<_> = nullifier_accounts_data
+            .iter_mut()
+            .map(|data| NullifierMap::new(&mut data[1..]))
+            .collect();
+
+        while let Some(nullifier_hash) = nullifier_hashes.pop() {
+            for map in maps.iter_mut() {
+                if map.is_full() {
+                    continue;
+                }
+
+                assert!(map.try_insert_default(nullifier_hash).unwrap().is_none());
+                break;
+            }
+        }
+
+        let mut data = test.data(&NullifierAccount::find(Some(mt_index)).0).await;
+        let mut nullifier_account = NullifierAccount::new(&mut data).unwrap();
+        for (i, map) in maps.iter_mut().enumerate() {
+            if !map.is_empty() {
+                nullifier_account.set_max_values(i, &Some(map.max().0).into());
+            }
+        }
+        let nullifier_count = nullifier_account.get_nullifier_hash_count();
+        nullifier_account.set_nullifier_hash_count(&(nullifier_count + count as u32));
+
+        test.set_program_account_rent_exempt(
+            &elusiv::id(),
+            &NullifierAccount::find(Some(mt_index)).0,
+            &data,
+        )
         .await;
+    }
+
+    for (i, data) in nullifier_accounts_data.iter().enumerate() {
+        test.set_account_rent_exempt(&nullifier_accounts[i], data, &elusiv::id())
+            .await;
+    }
 }
 
 fn merge(a: &[Instruction], b: &[&Instruction]) -> Vec<Instruction> {
@@ -505,7 +552,7 @@ async fn test_init_proof_lamports() {
         )
         .await;
 
-    let init_verification_instruction = |v_index: u32, skip_nullifier_pda: bool| {
+    let init_verification_instruction = |v_index: u8, skip_nullifier_pda: bool| {
         ElusivInstruction::init_verification_instruction(
             v_index,
             SendQuadraVKey::VKEY_ID,
@@ -823,22 +870,23 @@ async fn test_finalize_proof_lamports() {
     // Fill in nullifiers to test heap/compute unit limits
     insert_nullifier_hashes(
         &mut test,
-        &(0..NULLIFIERS_PER_ACCOUNT - 1)
-            .map(|_| rand::random())
-            .collect::<Vec<U256>>(),
+        0,
+        &(0..NULLIFIERS_PER_ACCOUNT as u64 - 1)
+            .map(u64_to_u256)
+            .collect::<Vec<_>>(),
     )
     .await;
 
     // Finalize
     let finalize_verification_send_instruction =
         ElusivInstruction::finalize_verification_send_instruction(
+            0,
             FinalizeSendData {
                 total_amount: request.public_inputs.join_split.total_amount(),
                 encrypted_owner: extra_data.encrypted_owner,
                 iv: extra_data.iv,
                 ..Default::default()
             },
-            0,
             false,
             UserAccount(recipient),
             UserAccount(identifier),
@@ -846,8 +894,7 @@ async fn test_finalize_proof_lamports() {
             UserAccount(warden.pubkey),
         );
     let finalize_verification_send_nullifier_instruction =
-        ElusivInstruction::finalize_verification_send_nullifier_instruction(
-            0,
+        ElusivInstruction::finalize_verification_insert_nullifier_instruction(
             0,
             UserAccount(warden.pubkey),
             Some(0),
@@ -1071,6 +1118,7 @@ async fn test_finalize_proof_token() {
     // Finalize
     let finalize_verification_send_instruction =
         ElusivInstruction::finalize_verification_send_instruction(
+            0,
             FinalizeSendData {
                 total_amount: request.public_inputs.join_split.total_amount(),
                 token_id: USDC_TOKEN_ID,
@@ -1078,7 +1126,6 @@ async fn test_finalize_proof_token() {
                 iv: extra_data.iv,
                 ..Default::default()
             },
-            0,
             false,
             UserAccount(recipient_token_account),
             UserAccount(identifier),
@@ -1086,8 +1133,7 @@ async fn test_finalize_proof_token() {
             UserAccount(warden.pubkey),
         );
     let finalize_verification_send_nullifier_instruction =
-        ElusivInstruction::finalize_verification_send_nullifier_instruction(
-            0,
+        ElusivInstruction::finalize_verification_insert_nullifier_instruction(
             0,
             UserAccount(warden.pubkey),
             Some(0),
@@ -1215,7 +1261,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     test.airdrop_lamports(&PoolAccount::find(None).0, LAMPORTS_PER_SOL * 1000)
         .await;
 
-    let init_instructions = |v_index: u32, skip_nullifier_pda: bool| {
+    let init_instructions = |v_index: u8, skip_nullifier_pda: bool| {
         [
             ElusivInstruction::init_verification_instruction(
                 v_index,
@@ -1254,25 +1300,24 @@ async fn test_finalize_proof_skip_nullifier_pda() {
         skip_computation(warden.pubkey, i, is_valid, &mut test).await;
     }
 
-    let finalize = |v_index: u32, is_valid: bool| {
+    let finalize = |v_index: u8, is_valid: bool| {
         let ixs = [
             ElusivInstruction::finalize_verification_send_instruction(
+                v_index,
                 FinalizeSendData {
                     total_amount: request.public_inputs.join_split.total_amount(),
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
                     ..Default::default()
                 },
-                v_index,
                 false,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
                 UserAccount(reference),
                 UserAccount(warden.pubkey),
             ),
-            ElusivInstruction::finalize_verification_send_nullifier_instruction(
+            ElusivInstruction::finalize_verification_insert_nullifier_instruction(
                 v_index,
-                0,
                 UserAccount(warden.pubkey),
                 Some(0),
                 &writable_user_accounts(&[nullifier_accounts[0]]),
@@ -1380,6 +1425,7 @@ async fn test_finalize_proof_commitment_index() {
     let finalize = |commitment_index: u32| {
         [
             ElusivInstruction::finalize_verification_send_instruction(
+                0,
                 FinalizeSendData {
                     timestamp: 0,
                     total_amount: request.public_inputs.join_split.total_amount(),
@@ -1389,15 +1435,13 @@ async fn test_finalize_proof_commitment_index() {
                     encrypted_owner: extra_data.encrypted_owner,
                     iv: extra_data.iv,
                 },
-                0,
                 false,
                 UserAccount(recipient.pubkey),
                 UserAccount(identifier),
                 UserAccount(reference),
                 UserAccount(warden.pubkey),
             ),
-            ElusivInstruction::finalize_verification_send_nullifier_instruction(
-                0,
+            ElusivInstruction::finalize_verification_insert_nullifier_instruction(
                 0,
                 UserAccount(warden.pubkey),
                 Some(0),
@@ -1560,6 +1604,7 @@ async fn test_associated_token_account() {
     let instructions = |recipient: Pubkey, recipient_wallet: Pubkey| {
         vec![
             ElusivInstruction::finalize_verification_send_instruction(
+                0,
                 FinalizeSendData {
                     timestamp: request.public_inputs.current_time,
                     total_amount: request.public_inputs.join_split.total_amount(),
@@ -1568,15 +1613,13 @@ async fn test_associated_token_account() {
                     iv: extra_data.iv,
                     ..Default::default()
                 },
-                0,
                 false,
                 UserAccount(recipient_wallet),
                 UserAccount(Pubkey::new_from_array(extra_data.identifier)),
                 UserAccount(Pubkey::new_from_array(extra_data.reference)),
                 UserAccount(warden.pubkey),
             ),
-            ElusivInstruction::finalize_verification_send_nullifier_instruction(
-                0,
+            ElusivInstruction::finalize_verification_insert_nullifier_instruction(
                 0,
                 UserAccount(warden.pubkey),
                 Some(0),
@@ -1870,13 +1913,13 @@ async fn test_enforced_finalization_order() {
 
     let finalize_verification_send_instruction =
         ElusivInstruction::finalize_verification_send_instruction(
+            0,
             FinalizeSendData {
                 total_amount: request.public_inputs.join_split.total_amount(),
                 encrypted_owner: extra_data.encrypted_owner,
                 iv: extra_data.iv,
                 ..Default::default()
             },
-            0,
             false,
             UserAccount(extra_data.recipient()),
             UserAccount(extra_data.identifier()),
@@ -1884,8 +1927,7 @@ async fn test_enforced_finalization_order() {
             UserAccount(test.payer()),
         );
     let finalize_verification_send_nullifier_instruction =
-        ElusivInstruction::finalize_verification_send_nullifier_instruction(
-            0,
+        ElusivInstruction::finalize_verification_insert_nullifier_instruction(
             0,
             UserAccount(test.payer()),
             Some(0),
@@ -1902,18 +1944,8 @@ async fn test_enforced_finalization_order() {
     set_verification_state(test.payer(), 0, VerificationState::ProofSetup, &mut test).await;
     test.ix_should_fail_simple(finalize_verification_send_instruction.clone())
         .await;
-
-    set_verification_state(
-        test.payer(),
-        0,
-        VerificationState::InsertNullifiers,
-        &mut test,
-    )
-    .await;
     test.ix_should_fail_simple(finalize_verification_send_nullifier_instruction.clone())
         .await;
-
-    set_verification_state(test.payer(), 0, VerificationState::Finalized, &mut test).await;
     test.ix_should_fail_simple(finalize_verification_transfer_lamports_instruction.clone())
         .await;
 
@@ -1928,37 +1960,38 @@ async fn test_enforced_finalization_order() {
     .await;
 }
 
-#[tokio::test]
-async fn test_finalization_nullifier_insertions() {
+async fn nullifier_finalization_test(number_of_start_nullifiers: u64, input_commitments_count: u8) {
     let mut test = start_verification_test().await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
     let pool = PoolAccount::find(None).0;
     let fee_collector = FeeCollectorAccount::find(None).0;
 
+    insert_nullifier_hashes(
+        &mut test,
+        0,
+        &(0..number_of_start_nullifiers)
+            .map(u64_to_u256)
+            .collect::<Vec<_>>(),
+    )
+    .await;
+
+    let mut input_commitments: Vec<_> = (0..input_commitments_count)
+        .map(|i| InputCommitment {
+            root: None,
+            nullifier_hash: RawU256::new(u64_to_u256_skip_mr(u64::MAX - i as u64)),
+        })
+        .collect();
+    input_commitments[0].root = Some(empty_root_raw());
+
     let extra_data = ExtraData::default();
     let proof = send_request(0).proof;
     let mut public_inputs = SendPublicInputs {
         join_split: JoinSplitPublicInputs {
-            input_commitments: vec![
-                InputCommitment {
-                    root: Some(empty_root_raw()),
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("10026859857882131638516328056627849627085232677511724829502598764489185541935")),
-                },
-                InputCommitment {
-                    root: None,
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("19685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                },
-                InputCommitment {
-                    root: None,
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("168596031050663472212195134159867832583323058240750559904196809564625591")),
-                },
-                InputCommitment {
-                    root: None,
-                    nullifier_hash: RawU256::new(u256_from_str_skip_mr("96859603105066347219121219513415986783258332305082407505599041968095646559")),
-                },
-            ],
-            output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+            input_commitments,
+            output_commitment: RawU256::new(u256_from_str_skip_mr(
+                "685960310506634721912121951341598678325833230508240750559904196809564625591",
+            )),
             fee_version: 0,
             amount: LAMPORTS_PER_SOL * 123,
             fee: 0,
@@ -1986,50 +2019,84 @@ async fn test_finalization_nullifier_insertions() {
     skip_computation(test.payer(), 0, true, &mut test).await;
     set_verification_state(test.payer(), 0, VerificationState::ProofSetup, &mut test).await;
 
-    insert_nullifier_hashes(
-        &mut test,
-        &(0..20_000).map(|_| rand::random()).collect::<Vec<U256>>(),
-    )
-    .await;
-
-    let finalize_verification_send_nullifier_instruction = |index: u8| {
-        ElusivInstruction::finalize_verification_send_nullifier_instruction(
-            0,
-            index,
-            UserAccount(test.payer()),
-            Some(0),
-            &writable_user_accounts(&[nullifier_accounts[0]]),
-        )
-    };
-
-    test.tx_should_succeed_simple(&[
+    let mut instructions = vec![
         request_compute_units(1_400_000),
         ElusivInstruction::finalize_verification_send_instruction(
+            0,
             FinalizeSendData {
                 total_amount: public_inputs.join_split.total_amount(),
                 encrypted_owner: extra_data.encrypted_owner,
                 iv: extra_data.iv,
                 ..Default::default()
             },
-            0,
             false,
             UserAccount(recipient),
             UserAccount(identifier),
             UserAccount(reference),
             UserAccount(test.payer()),
         ),
-        finalize_verification_send_nullifier_instruction(0),
-        finalize_verification_send_nullifier_instruction(1),
-        finalize_verification_send_nullifier_instruction(2),
-        finalize_verification_send_nullifier_instruction(3),
+    ];
+
+    pda_account!(nullifier_account, NullifierAccount, None, Some(0), test);
+
+    let nullifier_hashes: Vec<U256> = public_inputs
+        .join_split
+        .nullifier_hashes()
+        .iter()
+        .map(|n| n.reduce())
+        .collect();
+
+    // Insertion instructions
+    for nullifier_hash in &nullifier_hashes {
+        let child_account_index = nullifier_account.find_child_account_index(nullifier_hash);
+
+        instructions.push(
+            ElusivInstruction::finalize_verification_insert_nullifier_instruction(
+                0,
+                UserAccount(test.payer()),
+                Some(0),
+                &writable_user_accounts(
+                    &nullifier_accounts[child_account_index..child_account_index + 1],
+                ),
+            ),
+        );
+    }
+
+    // Movement instructions
+    let number_of_movement_instructions =
+        nullifier_account.number_of_movement_instructions(&nullifier_hashes);
+    for i in 0..number_of_movement_instructions {
+        instructions.push(
+            ElusivInstruction::finalize_verification_insert_nullifier_instruction(
+                0,
+                UserAccount(test.payer()),
+                Some(0),
+                &writable_user_accounts(&[nullifier_accounts[i + 1]]),
+            ),
+        );
+    }
+
+    instructions.push(
         ElusivInstruction::finalize_verification_transfer_lamports_instruction(
             0,
             WritableSignerAccount(test.payer()),
             WritableUserAccount(recipient),
             WritableUserAccount(nullifier_duplicate_account),
         ),
-    ])
-    .await;
+    );
+
+    test.tx_should_succeed_simple(&instructions).await;
+}
+
+#[tokio::test]
+async fn test_finalization_nullifier_insertions() {
+    let max_nullifiers_count = two_pow!(MT_HEIGHT) as u64;
+
+    for n in 1..=JOIN_SPLIT_MAX_N_ARITY as u8 {
+        nullifier_finalization_test(0, n).await;
+        nullifier_finalization_test(NULLIFIERS_PER_ACCOUNT as u64, n).await;
+        nullifier_finalization_test(max_nullifiers_count - n as u64, n).await;
+    }
 }
 
 async fn finalize_instructions(
@@ -2044,21 +2111,20 @@ async fn finalize_instructions(
 
     vec![
         ElusivInstruction::finalize_verification_send_instruction(
+            0,
             FinalizeSendData {
                 total_amount: request.public_inputs.join_split.total_amount(),
                 encrypted_owner: extra_data.encrypted_owner,
                 iv: extra_data.iv,
                 ..Default::default()
             },
-            0,
             memo.is_some(),
             UserAccount(extra_data.recipient()),
             UserAccount(extra_data.identifier()),
             UserAccount(*reference),
             UserAccount(*signer),
         ),
-        ElusivInstruction::finalize_verification_send_nullifier_instruction(
-            0,
+        ElusivInstruction::finalize_verification_insert_nullifier_instruction(
             0,
             UserAccount(*signer),
             Some(0),
@@ -2500,6 +2566,7 @@ async fn test_solana_pay_tokens() {
 
     let valid_finalize_ixs = vec![
         ElusivInstruction::finalize_verification_send_instruction(
+            0,
             FinalizeSendData {
                 total_amount: request.public_inputs.join_split.total_amount(),
                 token_id: USDC_TOKEN_ID,
@@ -2507,15 +2574,13 @@ async fn test_solana_pay_tokens() {
                 iv: extra_data.iv,
                 ..Default::default()
             },
-            0,
             false,
             UserAccount(recipient_token_account),
             UserAccount(extra_data.identifier()),
             UserAccount(extra_data.reference()),
             UserAccount(warden.pubkey),
         ),
-        ElusivInstruction::finalize_verification_send_nullifier_instruction(
-            0,
+        ElusivInstruction::finalize_verification_insert_nullifier_instruction(
             0,
             UserAccount(warden.pubkey),
             Some(0),

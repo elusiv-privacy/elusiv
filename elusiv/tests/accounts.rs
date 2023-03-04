@@ -4,19 +4,19 @@ mod common;
 
 use borsh::BorshSerialize;
 use common::*;
-use elusiv::commitment::{BaseCommitmentBufferAccount, CommitmentHashingAccount};
 use elusiv::instruction::*;
 use elusiv::processor::CommitmentHashRequest;
+use elusiv::state::commitment::{BaseCommitmentBufferAccount, CommitmentHashingAccount};
 use elusiv::state::program_account::PDAOffset;
 use elusiv::state::queue::{CommitmentQueue, Queue, RingQueue};
 use elusiv::state::{
     fee::FeeAccount,
     governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
+    nullifier::{NullifierAccount, NullifierChildAccount},
     program_account::{PDAAccount, PDAAccountData, ProgramAccount, SizedAccount},
     queue::CommitmentQueueAccount,
-    NullifierAccount,
+    storage::{StorageAccount, MT_COMMITMENT_COUNT},
 };
-use elusiv::state::{NullifierChildAccount, StorageAccount, MT_COMMITMENT_COUNT};
 use elusiv::token::SPL_TOKEN_COUNT;
 use elusiv_types::split_child_account_data_mut;
 use solana_program::instruction::{AccountMeta, Instruction};

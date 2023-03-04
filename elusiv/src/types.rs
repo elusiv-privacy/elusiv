@@ -2,7 +2,7 @@ use crate::bytes::BorshSerDeSized;
 use crate::fields::{fr_to_u256_le, u256_to_big_uint, u64_to_u256_skip_mr, G1A, G2A};
 use crate::macros::BorshSerDeSized;
 use crate::proof::vkey::{MigrateUnaryVKey, SendQuadraVKey, VerifyingKeyInfo};
-use crate::proof::NullifierDuplicateAccount;
+use crate::state::proof::NullifierDuplicateAccount;
 use crate::u64_array;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
@@ -70,17 +70,17 @@ pub trait LazyField<'a>: SizedType {
 }
 
 #[derive(PartialEq, Debug)]
-pub struct Lazy<'a, N: BorshSerDeSized + Clone> {
+pub struct Lazy<'a, N: BorshSerDeSized + Copy> {
     modified: bool,
     value: Option<N>,
     data: &'a mut [u8],
 }
 
-impl<'a, N: BorshSerDeSized + Clone> SizedType for Lazy<'a, N> {
+impl<'a, N: BorshSerDeSized + Copy> SizedType for Lazy<'a, N> {
     const SIZE: usize = N::SIZE;
 }
 
-impl<'a, N: BorshSerDeSized + Clone> LazyField<'a> for Lazy<'a, N> {
+impl<'a, N: BorshSerDeSized + Copy> LazyField<'a> for Lazy<'a, N> {
     fn new(data: &'a mut [u8]) -> Self {
         Self {
             modified: false,
@@ -93,28 +93,94 @@ impl<'a, N: BorshSerDeSized + Clone> LazyField<'a> for Lazy<'a, N> {
         if !self.modified {
             return;
         }
-        let v = self.value.clone().unwrap().try_to_vec().unwrap();
-        assert!(self.data.len() >= v.len());
-        self.data[..v.len()].copy_from_slice(&v[..]);
+
+        let mut slice = &mut self.data[..];
+        BorshSerialize::serialize(&self.value.unwrap(), &mut slice).unwrap();
     }
 }
 
-impl<'a, N: BorshSerDeSized + Clone> Lazy<'a, N> {
+impl<'a, N: BorshSerDeSized + Copy> Lazy<'a, N> {
     pub fn get(&mut self) -> N {
         match &self.value {
-            Some(v) => v.clone(),
+            Some(v) => *v,
             None => {
                 self.value = Some(N::try_from_slice(self.data).unwrap());
-                self.value.clone().unwrap()
+                self.value.unwrap()
             }
         }
     }
 
     /// Sets and serializes the value
-    pub fn set(&mut self, value: &N) {
-        self.value = Some(value.clone());
+    pub fn set(&mut self, value: N) {
+        self.value = Some(value);
         self.modified = true;
         self.serialize();
+    }
+
+    pub fn set_no_serialization(&mut self, value: N) {
+        self.value = Some(value);
+        self.modified = true;
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct LazyArray<'a, N: BorshSerDeSized + Copy, const SIZE: usize> {
+    modified: bool,
+    values: Vec<Option<N>>,
+    data: &'a mut [u8],
+}
+
+impl<'a, N: BorshSerDeSized + Copy, const SIZE: usize> SizedType for LazyArray<'a, N, SIZE> {
+    const SIZE: usize = N::SIZE * SIZE;
+}
+
+impl<'a, N: BorshSerDeSized + Copy, const SIZE: usize> LazyField<'a> for LazyArray<'a, N, SIZE> {
+    fn new(data: &'a mut [u8]) -> Self {
+        Self {
+            modified: false,
+            values: vec![None; SIZE],
+            data,
+        }
+    }
+
+    fn serialize(&mut self) {
+        if !self.modified {
+            return;
+        }
+
+        for i in 0..SIZE {
+            if let Some(value) = self.values[i] {
+                let offset = i * N::SIZE;
+                let mut slice = &mut self.data[offset..offset + N::SIZE];
+                BorshSerialize::serialize(&value, &mut slice).unwrap();
+            }
+        }
+    }
+}
+
+impl<'a, N: BorshSerDeSized + Copy, const SIZE: usize> LazyArray<'a, N, SIZE> {
+    pub fn get(&mut self, index: usize) -> N {
+        match &self.values[index] {
+            Some(v) => *v,
+            None => {
+                let offset = index * N::SIZE;
+                let v = N::try_from_slice(&self.data[offset..offset + N::SIZE]).unwrap();
+                self.values[index] = Some(v);
+                v
+            }
+        }
+    }
+
+    /// Sets and serializes the value
+    pub fn set(&mut self, index: usize, value: N) {
+        self.values[index] = Some(value);
+        self.modified = true;
+        self.serialize();
+    }
+
+    pub fn set_no_serialization(&mut self, index: usize, value: N) {
+        self.values[index] = Some(value);
+        self.modified = true;
     }
 }
 
@@ -141,8 +207,9 @@ impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> LazyField<'a>
     }
 
     fn serialize(&mut self) {
+        // no call to serialize required, performed directly after each set
         panic!()
-    } // no call to serialize required, performed after each set
+    }
 }
 
 impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> JITArray<'a, N, CAPACITY> {
@@ -151,25 +218,25 @@ impl<'a, N: BorshSerDeSized + Clone, const CAPACITY: usize> JITArray<'a, N, CAPA
     }
 
     pub fn set(&mut self, index: usize, value: &N) {
-        let v = value.try_to_vec().unwrap();
-        for (i, v) in v.iter().enumerate() {
-            self.data[index * N::SIZE + i] = *v;
-        }
+        let offset = index * N::SIZE;
+        let mut slice = &mut self.data[offset..offset + N::SIZE];
+        BorshSerialize::serialize(value, &mut slice).unwrap();
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
 /// A Groth16 proof in affine form
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct Proof {
     pub a: G1A,
     pub b: G2A,
     pub c: G1A,
 }
 
+/// A Groth16 proof in affine form in binary representation (this construct is required for serde-json parsing in the Warden)
 #[cfg(feature = "elusiv-client")]
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-/// A Groth16 proof in affine form in binary representation (this construct is required for serde-json parsing in the Warden)
 pub struct RawProof {
     pub a: RawG1A,
     pub b: RawG2A,
@@ -301,7 +368,7 @@ pub trait PublicInputs {
 }
 
 /// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
-/// - IMPORTANT: depending on recipient.is_non_associated_token_account, a higher amount is required (that also includes the rent)
+/// - IMPORTANT: depending on recipient.recipient_is_associated_token_account, a higher amount is required (that also includes the rent)
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct SendPublicInputs {
@@ -339,7 +406,7 @@ pub fn generate_hashed_inputs(
     hash
 }
 
-// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
+/// https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct MigratePublicInputs {
@@ -376,8 +443,8 @@ impl PublicInputs for SendPublicInputs {
         &self.join_split
     }
 
-    // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
-    // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/send.circom
+    /// Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/send_quadra.circom
+    /// Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/send.circom
     fn public_signals(&self) -> Vec<RawU256> {
         let mut public_signals = Vec::with_capacity(Self::PUBLIC_INPUTS_COUNT);
 
@@ -441,8 +508,8 @@ impl PublicInputs for MigratePublicInputs {
         &self.join_split
     }
 
-    // Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
-    // Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/migrate.circom
+    /// Reference: https://github.com/elusiv-privacy/circuits/blob/master/circuits/main/migrate_unary.circom
+    /// Ordering: https://github.com/elusiv-privacy/circuits/blob/master/circuits/migrate.circom
     fn public_signals(&self) -> Vec<RawU256> {
         vec![
             self.join_split.input_commitments[0].nullifier_hash,
@@ -468,7 +535,7 @@ pub fn compute_fee_rec<V: crate::proof::vkey::VerifyingKeyInfo, P: PublicInputs>
 ) {
     let fee = program_fee
         .proof_verification_fee(
-            crate::proof::prepare_public_inputs_instructions(
+            crate::proof::verifier::prepare_public_inputs_instructions(
                 &public_inputs.public_signals_skip_mr(),
                 V::public_inputs_count(),
             )
@@ -523,7 +590,7 @@ mod test {
     use super::*;
     use crate::{
         fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr},
-        proof::proof_from_str,
+        proof::verifier::proof_from_str,
     };
     use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
     use std::str::FromStr;

@@ -8,15 +8,16 @@
 #![allow(clippy::assign_op_pattern)]
 
 use super::vkey::VerifyingKey;
-use super::*;
-use crate::bytes::usize_as_u8_safe;
+use crate::bytes::{usize_as_u32_safe, usize_as_u8_safe};
 use crate::error::ElusivError::{
-    ComputationIsAlreadyFinished, CouldNotProcessProof, InvalidAccountState,
+    self, ComputationIsAlreadyFinished, CouldNotProcessProof, InvalidAccountState,
     PartialComputationError,
 };
 use crate::error::ElusivResult;
-use crate::fields::G2HomProjective;
+use crate::fields::{G2HomProjective, Wrap, G1A, G2A};
 use crate::processor::COMPUTE_VERIFICATION_IX_COUNT;
+use crate::state::proof::{RAMFq, VerificationAccount, VerificationState};
+use crate::types::U256;
 use ark_bn254::{
     Fq, Fq12, Fq12Parameters, Fq2, Fq6, Fq6Parameters, G1Affine, G1Projective, G2Affine, Parameters,
 };
@@ -26,26 +27,30 @@ use ark_ff::fields::models::{
     fp12_2over3over2::Fp12ParamsWrapper, fp6_3over2::Fp6ParamsWrapper, QuadExtParameters,
 };
 use ark_ff::{biginteger::BigInteger256, field_new, CubicExtParameters, Field, One, Zero};
-use elusiv_computation::PartialComputation;
+use borsh::{BorshDeserialize, BorshSerialize};
+use elusiv_computation::{PartialComputation, RAM};
+use elusiv_derive::BorshSerDeSized;
 use elusiv_interpreter::elusiv_computations;
+use elusiv_utils::guard;
 use std::ops::{AddAssign, Neg};
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub enum VerificationStep {
     PublicInputPreparation,
     CombinedMillerLoop,
     FinalExponentiation,
 }
 
-/// Requires `verifier_account.prepare_inputs_instructions_count + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS` calls to verify a valid proof
+/// Requires `verification_account.prepare_inputs_instructions_count + COMBINED_MILLER_LOOP_IXS + FINAL_EXPONENTIATION_IXS` calls to verify a valid proof
 pub fn verify_partial(
-    verifier_account: &mut VerificationAccount,
+    verification_account: &mut VerificationAccount,
     vkey: &VerifyingKey,
     instruction_index: u16,
 ) -> Result<Option<bool>, ElusivError> {
-    let instruction = verifier_account.get_instruction() as usize;
-    let round = verifier_account.get_round() as usize;
-    let step = verifier_account.get_step();
+    let instruction = verification_account.get_instruction() as usize;
+    let round = verification_account.get_round() as usize;
+    let step = verification_account.get_step();
 
     match step {
         VerificationStep::PublicInputPreparation => {
@@ -54,18 +59,21 @@ pub fn verify_partial(
                 return Ok(None);
             }
 
-            prepare_public_inputs(verifier_account, vkey, instruction, round)?;
-            verifier_account.serialize_rams().unwrap();
+            prepare_public_inputs(verification_account, vkey, instruction, round)?;
+            verification_account.serialize_rams().unwrap();
         }
         VerificationStep::CombinedMillerLoop => {
             // Proof first has to be setup
             guard!(
-                matches!(verifier_account.get_state(), VerificationState::ProofSetup),
+                matches!(
+                    verification_account.get_state(),
+                    VerificationState::ProofSetup
+                ),
                 InvalidAccountState
             );
 
-            combined_miller_loop(verifier_account, vkey, instruction, round)?;
-            verifier_account.serialize_rams().unwrap();
+            combined_miller_loop(verification_account, vkey, instruction, round)?;
+            verification_account.serialize_rams().unwrap();
         }
         VerificationStep::FinalExponentiation => {
             // This enables us to use a uniform number of ixs per tx (by only allowing the last ix to perform the computation)
@@ -73,8 +81,8 @@ pub fn verify_partial(
                 return Ok(None);
             }
 
-            let v = final_exponentiation(verifier_account, vkey, instruction, round);
-            verifier_account.serialize_rams().unwrap();
+            let v = final_exponentiation(verification_account, vkey, instruction, round);
+            verification_account.serialize_rams().unwrap();
             return v;
         }
     }
@@ -83,53 +91,55 @@ pub fn verify_partial(
 }
 
 pub fn prepare_public_inputs(
-    verifier_account: &mut VerificationAccount,
+    verification_account: &mut VerificationAccount,
     vkey: &VerifyingKey,
     instruction: usize,
     round: usize,
 ) -> ElusivResult {
-    let rounds = verifier_account.get_prepare_inputs_instructions(instruction);
+    let rounds = verification_account.get_prepare_inputs_instructions(instruction);
 
-    let result = prepare_public_inputs_partial(round, rounds as usize, verifier_account, vkey);
+    let result = prepare_public_inputs_partial(round, rounds as usize, verification_account, vkey);
 
     if round + rounds as usize == prepare_public_inputs_rounds(vkey.public_inputs_count) {
         let prepared_inputs = result.ok_or(CouldNotProcessProof)?;
 
-        verifier_account.prepared_inputs.set(&G1A(prepared_inputs));
+        verification_account
+            .prepared_inputs
+            .set(G1A(prepared_inputs));
 
-        verifier_account.set_step(&VerificationStep::CombinedMillerLoop);
-        verifier_account.set_round(&0);
-        verifier_account.set_instruction(&0);
+        verification_account.set_step(&VerificationStep::CombinedMillerLoop);
+        verification_account.set_round(&0);
+        verification_account.set_instruction(&0);
     } else {
-        verifier_account.set_round(&(round as u32 + rounds as u32));
-        verifier_account.set_instruction(&(instruction as u32 + 1));
+        verification_account.set_round(&(round as u32 + rounds as u32));
+        verification_account.set_instruction(&(instruction as u32 + 1));
     }
 
     Ok(())
 }
 
 pub fn combined_miller_loop(
-    verifier_account: &mut VerificationAccount,
+    verification_account: &mut VerificationAccount,
     vkey: &VerifyingKey,
     instruction: usize,
     round: usize,
 ) -> ElusivResult {
     let rounds = CombinedMillerLoop::INSTRUCTION_ROUNDS[instruction] as usize;
 
-    let mut r = verifier_account.r.get();
-    let mut alt_b = verifier_account.alt_b.get();
-    let mut coeff_index = verifier_account.get_coeff_index() as usize;
+    let mut r = verification_account.r.get();
+    let mut alt_b = verification_account.alt_b.get();
+    let mut coeff_index = verification_account.get_coeff_index() as usize;
 
-    let a = verifier_account.a.get().0;
-    let b = verifier_account.b.get().0;
-    let c = verifier_account.c.get().0;
-    let prepared_inputs = verifier_account.prepared_inputs.get().0;
+    let a = verification_account.a.get().0;
+    let b = verification_account.b.get().0;
+    let c = verification_account.c.get().0;
+    let prepared_inputs = verification_account.prepared_inputs.get().0;
 
     let mut result = None;
     for round in round..round + rounds {
         result = combined_miller_loop_partial(
             round,
-            verifier_account,
+            verification_account,
             vkey,
             &a,
             &b,
@@ -141,30 +151,30 @@ pub fn combined_miller_loop(
         )?;
     }
 
-    verifier_account.set_coeff_index(&usize_as_u8_safe(coeff_index));
+    verification_account.set_coeff_index(&usize_as_u8_safe(coeff_index));
 
     if round + rounds == CombinedMillerLoop::TOTAL_ROUNDS as usize {
         let f = result.ok_or(CouldNotProcessProof)?;
 
         // Add `f` for the final exponentiation
-        verifier_account.f.set(&Wrap(f));
+        verification_account.f.set(Wrap(f));
 
-        verifier_account.set_step(&VerificationStep::FinalExponentiation);
-        verifier_account.set_round(&0);
-        verifier_account.set_instruction(&0);
+        verification_account.set_step(&VerificationStep::FinalExponentiation);
+        verification_account.set_round(&0);
+        verification_account.set_instruction(&0);
     } else {
-        verifier_account.r.set(&r);
-        verifier_account.alt_b.set(&alt_b);
+        verification_account.r.set(r);
+        verification_account.alt_b.set(alt_b);
 
-        verifier_account.set_round(&usize_as_u32_safe(round + rounds));
-        verifier_account.set_instruction(&(instruction as u32 + 1));
+        verification_account.set_round(&usize_as_u32_safe(round + rounds));
+        verification_account.set_instruction(&(instruction as u32 + 1));
     }
 
     Ok(())
 }
 
 pub fn final_exponentiation(
-    verifier_account: &mut VerificationAccount,
+    verification_account: &mut VerificationAccount,
     vkey: &VerifyingKey,
     instruction: usize,
     round: usize,
@@ -176,19 +186,19 @@ pub fn final_exponentiation(
 
     let rounds = FinalExponentiation::INSTRUCTION_ROUNDS[instruction] as usize;
 
-    let f = verifier_account.f.get().0;
+    let f = verification_account.f.get().0;
 
     let mut result = None;
     for round in round..round + rounds {
-        result = final_exponentiation_partial(round, verifier_account, &f)?;
+        result = final_exponentiation_partial(round, verification_account, &f)?;
     }
 
-    verifier_account.set_round(&usize_as_u32_safe(round + rounds));
-    verifier_account.set_instruction(&(instruction as u32 + 1));
+    verification_account.set_round(&usize_as_u32_safe(round + rounds));
+    verification_account.set_instruction(&(instruction as u32 + 1));
 
     if round + rounds == FinalExponentiation::TOTAL_ROUNDS as usize {
         let v = result.ok_or(CouldNotProcessProof)?;
-        verifier_account.f.set(&Wrap(v));
+        verification_account.f.set(Wrap(v));
 
         // Final verification, we check:
         // https://github.com/zkcrypto/bellman/blob/9bb30a7bd261f2aa62840b80ed6750c622bebec3/src/groth16/verifier.rs#L43
@@ -211,6 +221,9 @@ const fn prepare_public_inputs_rounds(public_inputs_count: usize) -> usize {
 }
 
 /// Public input preparation
+///
+/// # Notes
+///
 /// - `prepared_inputs = \sum_{i = 0}ˆ{N} input_{i} gamma_abc_g1_{i}`
 /// - reference implementation: https://github.com/arkworks-rs/groth16/blob/765817f77a6e14964c6f264d565b18676b11bd59/src/verifier.rs#L22
 /// - N public inputs (elements of the scalar field) in non-reduced form
@@ -950,8 +963,10 @@ mod tests {
     use crate::macros::zero_program_account;
     use crate::proof::test_proofs::{invalid_proofs, valid_proofs};
     use crate::proof::vkey::{TestVKey, VerifyingKeyInfo};
-    use crate::state::empty_root_raw;
-    use crate::types::{InputCommitment, JoinSplitPublicInputs, PublicInputs, SendPublicInputs};
+    use crate::state::storage::empty_root_raw;
+    use crate::types::{
+        InputCommitment, JoinSplitPublicInputs, PublicInputs, RawU256, SendPublicInputs,
+    };
     use ark_bn254::{Bn254, Fr};
     use ark_ec::bn::G2Prepared;
     use ark_ec::models::bn::BnParameters;
@@ -966,9 +981,9 @@ mod tests {
         proof: Proof,
         public_inputs: &[U256],
     ) {
-        storage.a.set(&proof.a);
-        storage.b.set(&proof.b);
-        storage.c.set(&proof.c);
+        storage.a.set(proof.a);
+        storage.b.set(proof.b);
+        storage.c.set(proof.c);
         storage.set_state(&VerificationState::ProofSetup);
 
         for (i, &public_input) in public_inputs.iter().enumerate() {
@@ -1264,11 +1279,11 @@ mod tests {
 
         // Second version
         zero_program_account!(mut storage, VerificationAccount);
-        storage.a.set(&proof.a);
-        storage.b.set(&proof.b);
-        storage.c.set(&proof.c);
+        storage.a.set(proof.a);
+        storage.b.set(proof.b);
+        storage.c.set(proof.c);
         storage.set_step(&VerificationStep::CombinedMillerLoop);
-        storage.prepared_inputs.set(&G1A(prepared_inputs));
+        storage.prepared_inputs.set(G1A(prepared_inputs));
 
         for i in 0..COMBINED_MILLER_LOOP_IXS {
             let round = storage.get_round();
@@ -1313,7 +1328,7 @@ mod tests {
                 .unwrap(),
             ),
         };
-        let mut r2 = r.clone();
+        let mut r2 = r;
 
         let mut result = None;
         for round in 0..ADDITION_STEP_ROUNDS_COUNT {
@@ -1363,7 +1378,7 @@ mod tests {
                 .unwrap(),
             ),
         };
-        let mut r2 = r.clone();
+        let mut r2 = r;
 
         let mut result = None;
         for round in 0..DOUBLING_STEP_ROUNDS_COUNT {
@@ -1428,7 +1443,7 @@ mod tests {
         // Second version
         zero_program_account!(mut storage, VerificationAccount);
         storage.set_step(&VerificationStep::FinalExponentiation);
-        storage.f.set(&Wrap(f()));
+        storage.f.set(Wrap(f()));
 
         for i in 0..FINAL_EXPONENTIATION_IXS {
             let round = storage.get_round();

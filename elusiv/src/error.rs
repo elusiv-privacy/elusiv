@@ -3,7 +3,8 @@ use std::fmt;
 
 pub type ElusivResult = Result<(), ElusivError>;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub enum ElusivError {
     InvalidInstructionData,
     InputsMismatch,

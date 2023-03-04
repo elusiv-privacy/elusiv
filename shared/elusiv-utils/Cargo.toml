@@ -16,8 +16,8 @@ sdk = [
 test-unit = []
 
 [dependencies]
+borsh = { version = "=0.9.3" }
 elusiv-types = { path = "./../elusiv-types", default-features = false, features = ["accounts", "bytes"] }
 elusiv-computation = { path = "./../elusiv-computation", optional = true }
-
 solana-program = { version = "1.10" }
 solana-sdk = { version = "1.10", optional = true }

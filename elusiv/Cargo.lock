@@ -1228,6 +1228,7 @@ dependencies = [
 name = "elusiv-utils"
 version = "0.1.0"
 dependencies = [
+ "borsh",
  "elusiv-computation",
  "elusiv-types",
  "solana-program",

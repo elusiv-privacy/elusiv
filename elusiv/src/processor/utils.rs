@@ -229,8 +229,7 @@ mod tests {
     use super::*;
     use crate::{
         macros::{account_info, test_account_info},
-        proof::VerificationAccount,
-        state::governor::PoolAccount,
+        state::{governor::PoolAccount, proof::VerificationAccount},
         token::TOKENS,
     };
     use assert_matches::assert_matches;

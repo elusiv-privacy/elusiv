@@ -2,31 +2,34 @@ use super::program_account::*;
 use crate::bytes::*;
 use crate::macros::{elusiv_account, two_pow};
 use crate::types::U256;
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 
 /// Height of the active MT
-/// - we define the height using the amount of leaves
-/// - a tree of height n has 2ˆn leaves
+///
+/// # Note
+///
+/// We define the height by the number of leaves, so a tree with `2^n` leaves has height `n`.
 pub const MT_HEIGHT: u32 = 20;
 
-/// Count of all nodes in the MT
+/// Number of all nodes in the MT
 pub const MT_SIZE: usize = mt_size(MT_HEIGHT);
 
 pub const fn mt_size(height: u32) -> usize {
     two_pow!(height + 1) - 1
 }
 
-/// Count of all commitments (leaves) in the MT
+/// Number of all commitments (leaves) in the MT
 pub const MT_COMMITMENT_COUNT: usize = two_pow!(MT_HEIGHT);
 
-/// Since before submitting a proof request the current root can change, we store the previous ones
-pub const HISTORY_ARRAY_COUNT: usize = 100;
+/// Since before submitting a proof request the current root can change, we store the [`HISTORY_ARRAY_SIZE`] previous ones
+pub const HISTORY_ARRAY_SIZE: usize = 100;
 
 pub const VALUES_PER_STORAGE_SUB_ACCOUNT: usize = 83_887;
 const ACCOUNTS_COUNT: usize = div_ceiling_usize(MT_SIZE, VALUES_PER_STORAGE_SUB_ACCOUNT);
+
 #[cfg(test)]
 const_assert_eq!(ACCOUNTS_COUNT, 25);
 
@@ -36,9 +39,11 @@ impl ChildAccount for StorageChildAccount {
     const INNER_SIZE: usize = VALUES_PER_STORAGE_SUB_ACCOUNT * U256::SIZE;
 }
 
-// The `StorageAccount` contains the active MT that stores new commitments
-// - the MT is stored as an array with the first element being the root and the second and third elements the layer below the root
-// - in order to manage a growing number of commitments, once the MT is full it get's reset (and the root is stored elsewhere)
+/// The [`StorageAccount`] contains the active MT that stores new commitments
+///
+/// # Note
+///
+/// The MT is stored linearly as an array with the first element being the root.
 #[elusiv_account(parent_account: { child_account_count: ACCOUNTS_COUNT, child_account: StorageChildAccount }, eager_type: true)]
 pub struct StorageAccount {
     #[no_getter]
@@ -46,17 +51,17 @@ pub struct StorageAccount {
     pda_data: PDAAccountData,
     pubkeys: [ElusivOption<Pubkey>; ACCOUNTS_COUNT],
 
-    // Points to the next commitment in the active MT
+    /// Points to the next commitment in the active MT
     pub next_commitment_ptr: u32,
 
-    // The amount of already finished (closed) MTs
+    /// The amount of already finished (closed) MTs
     pub trees_count: u32,
 
-    // The amount of archived MTs
+    /// The amount of archived MTs
     archived_count: u32,
 
-    // Stores the last HISTORY_ARRAY_COUNT roots of the active tree (including the current root)
-    pub active_mt_root_history: [U256; HISTORY_ARRAY_COUNT],
+    /// Stores the last [`HISTORY_ARRAY_SIZE`] roots of the active tree (including the current root)
+    pub active_mt_root_history: [U256; HISTORY_ARRAY_SIZE],
     pub mt_roots_count: u32, // required since we batch insert commitments
 }
 
@@ -108,10 +113,8 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
         let (account_index, local_index) =
             self.account_and_local_index(mt_array_index(index, level));
         self.execute_on_child_account_mut(account_index, |data| {
-            U256::override_slice(
-                value,
-                &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE],
-            )
+            let mut slice = &mut data[local_index * U256::SIZE..(local_index + 1) * U256::SIZE];
+            BorshSerialize::serialize(value, &mut slice)
         })??;
 
         Ok(())
@@ -124,7 +127,7 @@ impl<'a, 'b, 't> StorageAccount<'a, 'b, 't> {
     /// A root is valid if it's the current root or inside of the active_mt_root_history array
     pub fn is_root_valid(&self, root: &U256) -> bool {
         let max_history_roots =
-            std::cmp::min(self.get_mt_roots_count() as usize, HISTORY_ARRAY_COUNT);
+            std::cmp::min(self.get_mt_roots_count() as usize, HISTORY_ARRAY_SIZE);
 
         // TODO: remove this, has become redundant
         if let Ok(current_root) = self.get_root() {
@@ -161,8 +164,11 @@ fn use_default_value(index: usize, level: usize, next_leaf_ptr: usize) -> bool {
     next_leaf_ptr == 0 || index > (next_leaf_ptr - 1) >> level_inv
 }
 
-/// `EMPTY_TREE[0]` is the empty commitment, all values above are the hashes (`EMPTY_TREE[MT_HEIGHT]` is the root)
-/// - all values are in mr-form
+/// [`EMPTY_TREE[0]`] is the empty commitment, all values above are the hashes ([`EMPTY_TREE[MT_HEIGHT]`] is the root)
+///
+/// # Note
+///
+/// All values are in mr-form.
 pub const EMPTY_TREE: [U256; MT_HEIGHT as usize + 1] = [
     [
         130, 154, 1, 250, 228, 248, 226, 43, 27, 76, 165, 173, 91, 84, 165, 131, 78, 224, 152, 167,

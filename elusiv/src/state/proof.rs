@@ -1,15 +1,9 @@
-#[cfg(test)]
-mod test_proofs;
-pub mod verifier;
-pub mod vkey;
-
 use crate::bytes::{
     usize_as_u32_safe, BorshSerDeSized, BorshSerDeSizedEnum, ElusivOption, SizedType,
 };
-use crate::error::ElusivError;
 use crate::fields::{G2HomProjective, Wrap, G1A, G2A};
-use crate::macros::{elusiv_account, guard};
 use crate::processor::{ProofRequest, MAX_MT_COUNT};
+use crate::proof::verifier::VerificationStep;
 use crate::state::program_account::PDAAccountData;
 use crate::token::Lamports;
 use crate::types::{Lazy, LazyField, RawU256, U256};
@@ -17,9 +11,9 @@ use ark_bn254::{Fq, Fq12, Fq2, Fq6};
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::RAM;
 use elusiv_derive::{BorshSerDeSized, EnumVariantIndex};
+use elusiv_proc_macros::elusiv_account;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::pubkey::Pubkey;
-pub use verifier::*;
 
 pub type RAMFq<'a> = LazyRAM<'a, Fq, 6>;
 pub type RAMFq2<'a> = LazyRAM<'a, Fq2, 10>;
@@ -30,9 +24,8 @@ pub type RAMG2A<'a> = LazyRAM<'a, G2A, 1>;
 const MAX_PUBLIC_INPUTS_COUNT: usize = 14;
 const MAX_PREPARE_INPUTS_INSTRUCTIONS: usize = MAX_PUBLIC_INPUTS_COUNT * 10;
 
+/// Describes the state of the proof-verification initialization and finalization
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, EnumVariantIndex, Debug, Clone)]
-/// Describes the state of the proof-verification setup
-/// - after the `PublicInputsSetup` state has been reached (`is_setup() == true`), the computation can start (but before the miller loop `ProofSetup` has to be reached)
 pub enum VerificationState {
     // Init
     None,
@@ -46,15 +39,18 @@ pub enum VerificationState {
 }
 
 /// Account used for verifying proofs over the span of multiple transactions
-/// - exists only for verifying a single proof, closed afterwards
+///
+/// # Note
+///
+/// Exists only temporarily for verifying a single proof and is closed afterwards.
 #[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct VerificationAccount {
     #[no_getter]
     #[no_setter]
     pda_data: PDAAccountData,
 
-    instruction: u32,
-    round: u32,
+    pub(crate) instruction: u32,
+    pub(crate) round: u32,
 
     pub prepare_inputs_instructions_count: u32,
     pub prepare_inputs_instructions: [u16; MAX_PREPARE_INPUTS_INSTRUCTIONS],
@@ -67,33 +63,33 @@ pub struct VerificationAccount {
     pub public_input: [RawU256; MAX_PUBLIC_INPUTS_COUNT],
 
     // Proof
-    #[pub_non_lazy]
+    #[lazy]
     pub a: Lazy<'a, G1A>,
-    #[pub_non_lazy]
+    #[lazy]
     pub b: Lazy<'a, G2A>,
-    #[pub_non_lazy]
+    #[lazy]
     pub c: Lazy<'a, G1A>,
 
     // Computation values
-    #[pub_non_lazy]
-    prepared_inputs: Lazy<'a, G1A>,
-    #[pub_non_lazy]
-    r: Lazy<'a, G2HomProjective>,
-    #[pub_non_lazy]
-    f: Lazy<'a, Wrap<Fq12>>,
-    #[pub_non_lazy]
-    alt_b: Lazy<'a, G2A>,
-    coeff_index: u8,
+    #[lazy]
+    pub(crate) prepared_inputs: Lazy<'a, G1A>,
+    #[lazy]
+    pub(crate) r: Lazy<'a, G2HomProjective>,
+    #[lazy]
+    pub(crate) f: Lazy<'a, Wrap<Fq12>>,
+    #[lazy]
+    pub(crate) alt_b: Lazy<'a, G2A>,
+    pub(crate) coeff_index: u8,
 
     // RAMs for storing computation values
-    #[pub_non_lazy]
-    ram_fq: RAMFq<'a>,
-    #[pub_non_lazy]
-    ram_fq2: RAMFq2<'a>,
-    #[pub_non_lazy]
-    ram_fq6: RAMFq6<'a>,
-    #[pub_non_lazy]
-    ram_fq12: RAMFq12<'a>,
+    #[lazy]
+    pub(crate) ram_fq: RAMFq<'a>,
+    #[lazy]
+    pub(crate) ram_fq2: RAMFq2<'a>,
+    #[lazy]
+    pub(crate) ram_fq6: RAMFq6<'a>,
+    #[lazy]
+    pub(crate) ram_fq12: RAMFq12<'a>,
 
     // If true, the proof request can be finalized
     pub is_verified: ElusivOption<bool>,
@@ -104,7 +100,8 @@ pub struct VerificationAccount {
     pub tree_indices: [u32; MAX_MT_COUNT],
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Debug, Clone, Default)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Default)]
+#[cfg_attr(feature = "elusiv-client", derive(Debug))]
 pub struct VerificationAccountData {
     pub fee_payer: RawU256,
     pub fee_payer_account: RawU256,
@@ -117,22 +114,22 @@ pub struct VerificationAccountData {
 
     pub token_id: u16,
 
-    /// In `token_id`-Token
+    /// The subvention in `token_id`-Token
     pub subvention: u64,
 
-    /// In `token_id`-Token
+    /// The network-fee in `token_id`-Token
     pub network_fee: u64,
 
-    /// In `Lamports`
+    /// The commitment-hash-fee in `Lamports`
     pub commitment_hash_fee: Lamports,
 
-    /// In `token_id`-Token
+    /// The commitment-hash-fee in `token_id`-Token
     pub commitment_hash_fee_token: u64,
 
-    /// In `token_id`-Token
+    /// The proof-verification-fee in `token_id`-Token
     pub proof_verification_fee: u64,
 
-    /// In `token_id`-Token
+    /// The expected associated-token-account-rent in `token_id`-Token
     pub associated_token_account_rent: u64,
 }
 
@@ -218,15 +215,17 @@ impl<'a> VerificationAccount<'a> {
 
 /// Stores data lazily on the heap, read requests will trigger deserialization
 ///
-/// Note: heap allocation happens jit
+/// # Note
+///
+/// Heap allocation happens just-in-time.
 pub struct LazyRAM<'a, N: Clone + Copy, const SIZE: usize> {
-    /// Stores all serialized values
-    /// - if an element has value None, it has not been initialized yet
+    /// Stores all serialized values.
+    /// If an element has value [`None`], it has not been initialized yet.
     data: Vec<Option<N>>,
     source: &'a mut [u8],
     changes: Vec<bool>,
 
-    /// Base-pointer for sub-function-calls
+    /// Base-pointer for sub-function-calls.
     frame: usize,
 }
 
@@ -299,10 +298,9 @@ where
         for (i, &change) in self.changes.iter().enumerate() {
             if change {
                 if let Some(value) = self.data[i] {
-                    <Wrap<N>>::override_slice(
-                        &Wrap(value),
-                        &mut self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE],
-                    )?;
+                    let mut slice =
+                        &mut self.source[i * <Wrap<N>>::SIZE..(i + 1) * <Wrap<N>>::SIZE];
+                    BorshSerialize::serialize(&Wrap(value), &mut slice)?;
                 }
             }
         }

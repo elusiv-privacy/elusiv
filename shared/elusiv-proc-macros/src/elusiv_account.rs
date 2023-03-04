@@ -56,18 +56,49 @@ impl ToTokens for Lifetimes {
     }
 }
 
-fn vis_token(vis: &syn::Visibility) -> TokenStream {
-    if let syn::Visibility::Public(_) = vis {
-        quote!(pub)
-    } else {
-        quote!()
+/// Returns the value for an inner attribute (syntax: `attr_ident: value`)
+fn inner_attr_value(attr_ident: &str, inner: &TokenStream) -> TokenStream {
+    let inner_attrs = match_inner(inner.clone());
+    for ElusivAccountAttr { ident, value } in inner_attrs {
+        if ident == attr_ident {
+            return value;
+        }
+    }
+    panic!("Inner attribute '{}' not found in '{}'", attr_ident, inner);
+}
+
+/// Checks whether a type is bound by lifetimes
+fn is_type_lifetime_bound(ty: &Type) -> bool {
+    ty.to_token_stream().to_string().contains('\'')
+}
+
+/// Anonymizes all lifetimes of a type
+fn anonymize_type_lifetimes(ty: &mut Type) {
+    if let Type::Path(syn::TypePath {
+        path: syn::Path { segments, .. },
+        ..
+    }) = ty
+    {
+        for segment in segments.iter_mut() {
+            if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                args,
+                ..
+            }) = &mut segment.arguments
+            {
+                for arg in args.iter_mut() {
+                    if let syn::GenericArgument::Lifetime(lt) = arg {
+                        lt.ident = syn::Ident::new(&String::from("_"), lt.ident.span());
+                    }
+                }
+            }
+        }
     }
 }
 
 pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenStream {
     let ident = ast.ident.clone();
     let eager_ident: TokenStream = format!("{}Eager", ident).parse().unwrap();
-    let vis = vis_token(&ast.vis);
+    let vis = &ast.vis.to_token_stream();
     let s = if let Data::Struct(s) = &ast.data {
         s
     } else {
@@ -223,7 +254,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
     } in &s.fields
     {
         let field_ident = ident.clone().unwrap();
-        let vis = vis_token(vis);
+        let vis = vis.to_token_stream();
         let getter_ident: TokenStream = format!("get_{}", field_ident).parse().unwrap();
         let setter_ident: TokenStream = format!("set_{}", field_ident).parse().unwrap();
         let mut custom_field = false;
@@ -245,10 +276,10 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                     doc.extend(attr.to_token_stream());
                 }
 
-                // Type accpets the mutable slice and handles serialization/deserialization autonomously
+                // Type accepts the mutable slice and handles serialization/deserialization autonomously
                 // - in consequence, skips creation of getter and setter functions
                 // - note: the type needs to impl `elusiv_types::bytes::SizedType`
-                "pub_non_lazy" => {
+                "lazy" => {
                     use_getter = false;
                     use_setter = false;
                     custom_field = true;
@@ -275,10 +306,6 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                             pub #field_ident: #ty,
                         });
                     }
-                }
-
-                "lazy" => {
-                    todo!("lazy")
                 }
 
                 // Deserializes the value by default
@@ -359,8 +386,8 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         fns.extend(quote! {
                             #doc
                             #vis fn #setter_ident(&mut self, value: &#ty) {
-                                let v = <#ty as borsh::BorshSerialize>::try_to_vec(value).unwrap();
-                                self.#field_ident[..v.len()].copy_from_slice(&v[..]);
+                                let mut slice = &mut self.#field_ident[..<#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE];
+                                borsh::BorshSerialize::serialize(value, &mut slice).unwrap();
                             }
                         });
                     }
@@ -396,12 +423,12 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                 }
 
                 if use_setter {
-                    fns.extend(quote!{
+                    fns.extend(quote! {
                         #doc
                         #vis fn #setter_ident(&mut self, index: usize, value: &#ty) {
                             let offset = index * <#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE;
-                            let v = <#ty as borsh::BorshSerialize>::try_to_vec(value).unwrap();
-                            self.#field_ident[offset..][..v.len()].copy_from_slice(&v[..]);
+                            let mut slice = &mut self.#field_ident[offset..offset + <#ty as elusiv_types::bytes::BorshSerDeSized>::SIZE];
+                            borsh::BorshSerialize::serialize(value, &mut slice).unwrap();
                         }
                     });
                 }
@@ -548,44 +575,5 @@ fn match_inner(inner: TokenStream) -> Vec<ElusivAccountAttr> {
         }
         [TokenTree::Group(g)] => match_attrs(&g.stream().into_iter().collect::<Vec<TokenTree>>()),
         _ => panic!("Invalid inner attributes '{}'", inner),
-    }
-}
-
-/// Returns the value for an inner attribute (syntax: `attr_ident: value`)
-fn inner_attr_value(attr_ident: &str, inner: &TokenStream) -> TokenStream {
-    let inner_attrs = match_inner(inner.clone());
-    for ElusivAccountAttr { ident, value } in inner_attrs {
-        if ident == attr_ident {
-            return value;
-        }
-    }
-    panic!("Inner attribute '{}' not found in '{}'", attr_ident, inner);
-}
-
-/// Checks whether a type is bound by lifetimes
-fn is_type_lifetime_bound(ty: &Type) -> bool {
-    ty.to_token_stream().to_string().contains('\'')
-}
-
-/// Anonymizes all lifetimes of a type
-fn anonymize_type_lifetimes(ty: &mut Type) {
-    if let Type::Path(syn::TypePath {
-        path: syn::Path { segments, .. },
-        ..
-    }) = ty
-    {
-        for segment in segments.iter_mut() {
-            if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
-                args,
-                ..
-            }) = &mut segment.arguments
-            {
-                for arg in args.iter_mut() {
-                    if let syn::GenericArgument::Lifetime(lt) = arg {
-                        lt.ident = syn::Ident::new(&String::from("_"), lt.ident.span());
-                    }
-                }
-            }
-        }
     }
 }

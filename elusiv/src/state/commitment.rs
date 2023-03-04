@@ -1,34 +1,18 @@
-pub mod poseidon_hash;
-
-#[cfg(not(tarpaulin_include))]
-mod poseidon_constants;
-
-use self::poseidon_hash::BinarySpongeHashingState;
 use crate::bytes::{contains, usize_as_u32_safe};
-use crate::commitment::poseidon_hash::{binary_poseidon_hash_partial, TOTAL_POSEIDON_ROUNDS};
+use crate::commitment::poseidon_hash::BinarySpongeHashingState;
+use crate::commitment::{commitments_per_batch, MAX_HT_SIZE, MT_HEIGHT};
 use crate::error::ElusivError;
-use crate::error::ElusivError::ComputationIsAlreadyFinished;
 use crate::fields::{fr_to_u256_le, u256_to_fr_skip_mr};
-use crate::macros::{elusiv_account, elusiv_hash_compute_units, guard, two_pow};
+use crate::macros::{elusiv_account, guard, two_pow};
 use crate::processor::BaseCommitmentHashRequest;
 use crate::state::program_account::PDAAccountData;
-use crate::state::{StorageAccount, HISTORY_ARRAY_COUNT};
+use crate::state::storage::{StorageAccount, HISTORY_ARRAY_SIZE};
 use crate::types::U256;
 use ark_bn254::Fr;
 use ark_ff::{BigInteger256, PrimeField};
-use elusiv_computation::PartialComputation;
 use solana_program::program_error::ProgramError;
 
-/// Partial computation resulting in `commitment = h(base_commitment, amount)`
-pub struct BaseCommitmentHashComputation;
-
-elusiv_hash_compute_units!(BaseCommitmentHashComputation, 1, 100_000);
-#[cfg(test)]
-const_assert_eq!(BaseCommitmentHashComputation::TX_COUNT, 2);
-
 /// Account used for computing `commitment = h(base_commitment, amount)`
-/// - https://github.com/elusiv-privacy/circuits/blob/16de8d067a9c71aa7d807cfd80a128de6df863dd/circuits/commitment.circom#L7
-/// - multiple of these accounts can exist
 #[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct BaseCommitmentHashingAccount {
     #[no_getter]
@@ -36,7 +20,7 @@ pub struct BaseCommitmentHashingAccount {
     pda_data: PDAAccountData,
 
     pub instruction: u32,
-    round: u32,
+    pub(crate) round: u32,
 
     pub fee_version: u32,
     pub fee_payer: U256,
@@ -79,121 +63,7 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
     }
 }
 
-pub fn compute_base_commitment_hash_partial(
-    hashing_account: &mut BaseCommitmentHashingAccount,
-) -> Result<(), ProgramError> {
-    let instruction = hashing_account.get_instruction();
-    guard!(
-        (instruction as usize) < BaseCommitmentHashComputation::IX_COUNT,
-        ComputationIsAlreadyFinished
-    );
-
-    let start_round = hashing_account.get_round();
-    let rounds = BaseCommitmentHashComputation::INSTRUCTION_ROUNDS[instruction as usize] as u32;
-
-    let mut state = hashing_account.get_state();
-
-    for round in start_round..start_round + rounds {
-        guard!(
-            round < BaseCommitmentHashComputation::TOTAL_ROUNDS,
-            ComputationIsAlreadyFinished
-        );
-        binary_poseidon_hash_partial(round, &mut state);
-    }
-
-    hashing_account.set_state(&state);
-    hashing_account.set_instruction(&(instruction + 1));
-    hashing_account.set_round(&(start_round + rounds));
-
-    Ok(())
-}
-
-pub const DEFAULT_COMMITMENT_BATCHING_RATE: usize = 0;
-pub const MAX_COMMITMENT_BATCHING_RATE: usize = 4;
-
-/// Commitment hashing computations with batches
-/// - all commitments in a batch are hashed together in order to reduce hashing costs
-/// - 2ˆbatching_rate is the amount of commitments per batch
-/// - batch sizes range: `[0; MAX_COMMITMENT_BATCHING_RATE]`
-struct CommitmentHashComputation<const BATCHING_RATE: usize>;
-
-/// Generates a [`CommitmentHashComputation`] with a specific `BATCHING_RATE`
-/// - the macro also verifies that `$hash_count` is valid
-macro_rules! commitment_batch_hashing {
-    ($batching_rate: literal, $hash_count: literal, $instruction_count: literal) => {
-        elusiv_hash_compute_units!(CommitmentHashComputation<$batching_rate>, $hash_count);
-
-        #[cfg(test)]
-        const_assert_eq!($hash_count, hash_count_per_batch($batching_rate));
-
-        #[cfg(test)]
-        const_assert_eq!(
-            $instruction_count,
-            <CommitmentHashComputation<$batching_rate>>::IX_COUNT
-        );
-    };
-}
-
-commitment_batch_hashing!(0, 20, 24);
-commitment_batch_hashing!(1, 20, 24);
-commitment_batch_hashing!(2, 21, 25);
-commitment_batch_hashing!(3, 24, 29);
-commitment_batch_hashing!(4, 31, 37);
-
-macro_rules! commitment_hash_computation {
-    ($batching_rate: ident, $field: ident) => {
-        match $batching_rate {
-            0 => &CommitmentHashComputation::<0>::$field,
-            1 => &CommitmentHashComputation::<1>::$field,
-            2 => &CommitmentHashComputation::<2>::$field,
-            3 => &CommitmentHashComputation::<3>::$field,
-            4 => &CommitmentHashComputation::<4>::$field,
-            _ => {
-                panic!()
-            }
-        }
-    };
-}
-
-pub const COMMITMENT_HASH_COMPUTE_BUDGET: u32 =
-    <CommitmentHashComputation<0>>::COMPUTE_BUDGET_PER_IX;
-
-pub fn commitment_hash_computation_instructions<'a>(batching_rate: u32) -> &'a [u8] {
-    commitment_hash_computation!(batching_rate, INSTRUCTION_ROUNDS)
-}
-
-pub fn commitment_hash_computation_rounds(batching_rate: u32) -> u32 {
-    *commitment_hash_computation!(batching_rate, TOTAL_ROUNDS)
-}
-
-const MT_HEIGHT: usize = crate::state::MT_HEIGHT as usize;
-
-/// Amount of commitments batched together to compute the MT root
-pub const fn commitments_per_batch(batching_rate: u32) -> usize {
-    two_pow!(batching_rate)
-}
-
-/// Amount of hashes per commitment batch
-/// - the commitments in a batch form a hash-sub-tree (HT) of height `batching_rate`
-/// - there are additional `MT_HEIGHT - batching_rate` hashes from the HT-root to the MT-root
-/// - the HT contains the commitments and has `2ˆ{batching_rate + 1} - 1` hashes
-pub const fn hash_count_per_batch(batching_rate: u32) -> usize {
-    // batching_rate - 1 is the height of the sub-tree without commitments
-    two_pow!(batching_rate) - 1 + MT_HEIGHT - batching_rate as usize
-}
-
-/// Max amount of nodes in a HT (commitments + hashes)
-const MAX_HT_SIZE: usize = two_pow!(usize_as_u32_safe(MAX_COMMITMENT_BATCHING_RATE) + 1) - 1;
-pub const MAX_HT_COMMITMENTS: usize =
-    commitments_per_batch(usize_as_u32_safe(MAX_COMMITMENT_BATCHING_RATE));
-
-#[cfg(test)]
-const_assert_eq!(MAX_HT_SIZE, 31);
-#[cfg(test)]
-const_assert_eq!(MAX_HT_COMMITMENTS, 16);
-
 /// Account used for computing the hashes of a MT
-/// - only one of these accounts can exist per MT
 #[elusiv_account(partial_computation: true, eager_type: true)]
 pub struct CommitmentHashingAccount {
     #[no_getter]
@@ -201,7 +71,7 @@ pub struct CommitmentHashingAccount {
     pda_data: PDAAccountData,
 
     pub instruction: u32,
-    round: u32,
+    pub(crate) round: u32,
 
     pub fee_version: u32,
     pub is_active: bool,
@@ -210,7 +80,7 @@ pub struct CommitmentHashingAccount {
     pub finalization_ix: u32,
 
     pub batching_rate: u32,
-    state: BinarySpongeHashingState,
+    pub(crate) state: BinarySpongeHashingState,
     pub ordering: u32,
     pub siblings: [U256; MT_HEIGHT],
 
@@ -219,51 +89,6 @@ pub struct CommitmentHashingAccount {
 
     // commitments and hashes in the HT
     pub hash_tree: [U256; MAX_HT_SIZE],
-}
-
-pub fn compute_commitment_hash_partial(
-    hashing_account: &mut CommitmentHashingAccount,
-) -> Result<(), ProgramError> {
-    let batching_rate = hashing_account.get_batching_rate();
-    let instruction = hashing_account.get_instruction();
-    let instructions = commitment_hash_computation_instructions(batching_rate);
-    guard!(
-        (instruction as usize) < instructions.len(),
-        ComputationIsAlreadyFinished
-    );
-
-    let start_round = hashing_account.get_round();
-    let rounds = instructions[instruction as usize] as u32;
-    let total_rounds = commitment_hash_computation_rounds(batching_rate);
-    guard!(
-        start_round + rounds <= total_rounds,
-        ComputationIsAlreadyFinished
-    );
-
-    let mut state = hashing_account.get_state();
-
-    for round in start_round..start_round + rounds {
-        binary_poseidon_hash_partial(round % TOTAL_POSEIDON_ROUNDS, &mut state);
-
-        // A single hash is finished
-        if round % TOTAL_POSEIDON_ROUNDS == 64 {
-            let hash_index = round / TOTAL_POSEIDON_ROUNDS;
-
-            // Save hash
-            hashing_account.save_finished_hash(hash_index as usize, &state);
-
-            // Reset state for next hash
-            if (hash_index as usize) < hash_count_per_batch(batching_rate) - 1 {
-                state = hashing_account.next_hashing_state(hash_index as usize + 1);
-            }
-        }
-    }
-
-    hashing_account.set_state(&state);
-    hashing_account.set_instruction(&(instruction + 1));
-    hashing_account.set_round(&(start_round + rounds));
-
-    Ok(())
 }
 
 impl<'a> CommitmentHashingAccount<'a> {
@@ -427,7 +252,7 @@ impl<'a> CommitmentHashingAccount<'a> {
 
             // This inserts the new root into the `active_mt_root_history`
             storage_account.set_active_mt_root_history(
-                ordering as usize % HISTORY_ARRAY_COUNT,
+                ordering as usize % HISTORY_ARRAY_SIZE,
                 &storage_account.get_root().unwrap(),
             );
             storage_account.set_mt_roots_count(&(storage_account.get_mt_roots_count() + 1));
@@ -518,15 +343,15 @@ pub fn base_commitment_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fields::{u256_from_str, u64_to_scalar, u64_to_scalar_skip_mr, u64_to_u256_skip_mr};
+    use crate::commitment::{
+        hash_count_per_batch, MAX_COMMITMENT_BATCHING_RATE, MAX_HT_COMMITMENTS,
+    };
+    use crate::fields::{u64_to_scalar, u64_to_scalar_skip_mr, u64_to_u256_skip_mr};
     use crate::macros::{parent_account, zero_program_account};
-    use crate::state::program_account::{ProgramAccount, SizedAccount};
-    use crate::state::EMPTY_TREE;
     use crate::types::RawU256;
     use ark_bn254::Fr;
     use ark_ff::Zero;
     use assert_matches::assert_matches;
-    use solana_program::native_token::LAMPORTS_PER_SOL;
     use std::cmp::max;
     use std::str::FromStr;
 
@@ -535,32 +360,9 @@ mod tests {
     }
 
     #[test]
-    fn test_commitments_per_batch() {
-        assert_eq!(commitments_per_batch(0), 1);
-        assert_eq!(commitments_per_batch(1), 2);
-        assert_eq!(commitments_per_batch(2), 4);
-        assert_eq!(commitments_per_batch(3), 8);
-    }
-
-    #[test]
-    fn test_hash_count_per_batch() {
-        let n = MT_HEIGHT;
-
-        // 1 or 2 commitments => tree height hashes
-        assert_eq!(hash_count_per_batch(0), n);
-        assert_eq!(hash_count_per_batch(1), n);
-
-        // 4 commitments => 2 hashes on the lowest level, 1 above, then n - 2 hashes
-        assert_eq!(hash_count_per_batch(2), 2 + 1 + n - 2);
-
-        assert_eq!(hash_count_per_batch(3), 4 + 2 + 1 + n - 3);
-    }
-
-    #[test]
     #[allow(clippy::needless_range_loop)]
     fn test_next_hashing_state() {
-        let mut data = vec![0; CommitmentHashingAccount::SIZE];
-        let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
+        zero_program_account!(mut account, CommitmentHashingAccount);
 
         let commitments = [[0; 32]; MAX_HT_COMMITMENTS];
 
@@ -656,8 +458,7 @@ mod tests {
 
     #[test]
     fn test_save_finished_hash() {
-        let mut data = vec![0; CommitmentHashingAccount::SIZE];
-        let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
+        zero_program_account!(mut account, CommitmentHashingAccount);
 
         let batching_rate = 4;
         account.set_batching_rate(&batching_rate);
@@ -695,8 +496,7 @@ mod tests {
 
     #[test]
     fn test_update_mt() {
-        let mut data = vec![0; CommitmentHashingAccount::SIZE];
-        let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
+        zero_program_account!(mut account, CommitmentHashingAccount);
         parent_account!(mut storage_account, StorageAccount);
 
         let batching_rates: Vec<u32> = (0..MAX_COMMITMENT_BATCHING_RATE as u32).collect();
@@ -768,94 +568,8 @@ mod tests {
     }
 
     #[test]
-    fn test_base_commitment_hash_computation() {
-        let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
-        let mut account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
-
-        let requests = [base_commitment_request(
-            "8337064132573119120838379738103457054645361649757131991036638108422638197362",
-            "139214303935475888711984321184227760578793579443975701453971046059378311483",
-            LAMPORTS_PER_SOL,
-            0,
-            0,
-            0,
-        )];
-
-        for request in requests {
-            account.setup(request.clone(), [0; 32]).unwrap();
-
-            while account.get_instruction() < BaseCommitmentHashComputation::IX_COUNT as u32 {
-                compute_base_commitment_hash_partial(&mut account).unwrap();
-            }
-
-            assert_matches!(compute_base_commitment_hash_partial(&mut account), Err(_));
-            assert_eq!(
-                account.get_state().result(),
-                u256_to_fr_skip_mr(&request.commitment.reduce())
-            );
-        }
-    }
-
-    struct CommitmentBatchHashRequest<'a> {
-        batching_rate: u32,
-        commitments: &'a [U256],
-        siblings: &'a [U256],
-        valid_root: U256,
-    }
-
-    #[test]
-    fn test_commitment_hash_computation() {
-        let empty_siblings: Vec<U256> = EMPTY_TREE.iter().take(MT_HEIGHT).copied().collect();
-
-        let requests = [
-            CommitmentBatchHashRequest {
-                batching_rate: 0,
-                commitments: &[
-                    u256_from_str("139214303935475888711984321184227760578793579443975701453971046059378311483"),
-                ],
-                siblings: &empty_siblings,
-                valid_root: u256_from_str("11500204619817968836204864831937045342731531929677521260156990135685848035575"),
-            },
-            CommitmentBatchHashRequest {
-                batching_rate: 2,
-                commitments: &[
-                    u256_from_str("17695089122606640046122050453568281484908329551111425943069599106344573268591"),
-                    u256_from_str("6647356857703578745245713474272809288360618637120301827353679811066213900723"),
-                    u256_from_str("15379640546683409691976024780847698243281026803042985142030905481489858510622"),
-                    u256_from_str("9526685147941891237781527305630522288121859341465303072844645355022143819256"),
-                ],
-                siblings: &empty_siblings,
-                valid_root: u256_from_str("6543817352315114290363106811223879539017599496237896578152011659905900001939"),
-            }
-        ];
-
-        for request in requests {
-            let mut data = vec![0; CommitmentHashingAccount::SIZE];
-            let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
-
-            let batching_rate = request.batching_rate;
-            account.setup(0, request.siblings).unwrap();
-            account
-                .reset(batching_rate, 0, request.commitments)
-                .unwrap();
-
-            let instructions = commitment_hash_computation_instructions(batching_rate).len() as u32;
-            while account.get_instruction() < instructions {
-                compute_commitment_hash_partial(&mut account).unwrap();
-            }
-
-            assert_matches!(compute_commitment_hash_partial(&mut account), Err(_));
-            assert_eq!(
-                account.get_state().result(),
-                u256_to_fr_skip_mr(&request.valid_root)
-            );
-        }
-    }
-
-    #[test]
     fn test_base_commitment_account_setup() {
-        let mut data = vec![0; BaseCommitmentHashingAccount::SIZE];
-        let mut account = BaseCommitmentHashingAccount::new(&mut data).unwrap();
+        zero_program_account!(mut account, BaseCommitmentHashingAccount);
 
         let request = BaseCommitmentHashRequest {
             base_commitment: RawU256::new([1; 32]),
@@ -887,8 +601,7 @@ mod tests {
     #[test]
     #[allow(clippy::needless_range_loop)]
     fn test_commitment_account_reset() {
-        let mut data = vec![0; CommitmentHashingAccount::SIZE];
-        let mut account = CommitmentHashingAccount::new(&mut data).unwrap();
+        zero_program_account!(mut account, CommitmentHashingAccount);
 
         let mut commitments = [[0; 32]; MAX_HT_COMMITMENTS];
         for i in 0..MAX_HT_COMMITMENTS {

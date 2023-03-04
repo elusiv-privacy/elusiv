@@ -7,7 +7,7 @@ mint_devnet = "11111111111111111111111111111111" # unused
 active = true
 price_base_exp = 9
 min = 1_000
-max = 100_000_000_000
+max = 360_000_000_000
 # https://pyth.network/price-feeds/crypto-sol-usd
 pyth_usd_price_mainnet = "H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4AQJEG"
 pyth_usd_price_devnet = "J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"
@@ -20,7 +20,7 @@ mint_devnet = "F3hocsFVHrdTBG2yEHwnJHAJo4rZfnSwPg8d5nVMNKYE"
 active = true
 decimals = 6
 min = 1_000
-max = 100_000_000_000
+max = 9_000_000_000
 # https://pyth.network/price-feeds/crypto-usdc-usd
 pyth_usd_price_mainnet = "Gnt27xtC473ZT2Mw5u8wZ68Z3gULkSTb5DuxJy7eJotD"
 pyth_usd_price_devnet = "5SSkXsEKQepHHAewytPVwdej4epN1nxgLVM84L4KXgy7"
@@ -33,7 +33,7 @@ mint_devnet = "AyPeYKj4oHBGdhLjMwbj9m8tEdS1gr9tyqkpT3oDEZUV"
 active = true
 decimals = 6
 min = 1_000
-max = 100_000_000_000
+max = 9_000_000_000
 # https://pyth.network/price-feeds/crypto-usdt-usd
 pyth_usd_price_mainnet = "3vxLXJqLqF3JG5TCbYycbKWRBbCJQLxQmBGCkyqEEefL"
 pyth_usd_price_devnet = "38xoQ4oeJCBrcVvca2cGk7iV1dAfrmTR1kmhSCJQ8Jto"
