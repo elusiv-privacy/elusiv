@@ -270,29 +270,38 @@ mod tests {
     #[test]
     fn test_can_insert_nullifier_hash() {
         parent_account!(mut nullifier_account, NullifierAccount);
-        assert!(nullifier_account
-            .can_insert_nullifier_hash([0; 32])
-            .unwrap());
 
-        nullifier_account
-            .try_insert_nullifier_hash([0; 32])
-            .unwrap();
-        assert!(!nullifier_account
-            .can_insert_nullifier_hash([0; 32])
-            .unwrap());
+        let a = [0; 32];
+        assert!(nullifier_account.can_insert_nullifier_hash(a).unwrap());
+        nullifier_account.try_insert_nullifier_hash(a).unwrap();
+        assert!(!nullifier_account.can_insert_nullifier_hash(a).unwrap());
 
-        nullifier_account
-            .try_insert_nullifier_hash([1; 32])
-            .unwrap();
-        assert!(!nullifier_account
-            .can_insert_nullifier_hash([1; 32])
-            .unwrap());
+        let b = [1; 32];
+        nullifier_account.try_insert_nullifier_hash(b).unwrap();
+        assert!(!nullifier_account.can_insert_nullifier_hash(b).unwrap());
 
-        assert!(nullifier_account
-            .can_insert_nullifier_hash([2; 32])
-            .unwrap());
+        let c = [2; 32];
+        assert!(nullifier_account.can_insert_nullifier_hash(c).unwrap());
+    }
 
-        todo!("Add check against moved-values");
+    #[test]
+    fn test_can_insert_nullifier_hash_moved_values() {
+        parent_account!(mut nullifier_account, NullifierAccount);
+
+        let a = [0; 32];
+        nullifier_account.set_all_moved_values(&[(OrdU256(a), 0)]);
+        assert!(!nullifier_account.can_insert_nullifier_hash(a).unwrap());
+
+        for i in 0..NULLIFIERS_PER_ACCOUNT as u64 {
+            nullifier_account
+                .try_insert_nullifier_hash(u64_to_u256_skip_mr(i + 1))
+                .unwrap();
+        }
+
+        let b = [1; 32];
+        nullifier_account.set_all_moved_values(&[(OrdU256(b), 1)]);
+        assert!(nullifier_account.can_insert_nullifier_hash(a).unwrap());
+        assert!(!nullifier_account.can_insert_nullifier_hash(b).unwrap());
     }
 
     #[test]
@@ -313,12 +322,47 @@ mod tests {
         nullifier_account
             .try_insert_nullifier_hash(u256_from_str("0"))
             .unwrap();
+
         assert_matches!(
             nullifier_account.try_insert_nullifier_hash(u256_from_str("1")),
             Err(_)
         );
+    }
 
-        todo!("Add check against moved-values");
+    #[test]
+    fn test_try_insert_nullifier_hash_moved_values() {
+        parent_account!(mut nullifier_account, NullifierAccount);
+
+        // Value cannot be inserted since it's contained in the moved values
+        nullifier_account.set_all_moved_values(&[(OrdU256(u256_from_str("2")), 0)]);
+        assert_matches!(
+            nullifier_account.try_insert_nullifier_hash(u256_from_str("2")),
+            Err(_)
+        );
+
+        // Value now can be inserted
+        nullifier_account.set_all_moved_values(&[]);
+        nullifier_account
+            .try_insert_nullifier_hash(u256_from_str("2"))
+            .unwrap();
+
+        for i in 0..NULLIFIERS_PER_ACCOUNT as u64 {
+            nullifier_account
+                .try_insert_nullifier_hash(u64_to_u256_skip_mr(i))
+                .unwrap();
+        }
+
+        // Moved value now linked to second child account
+        nullifier_account.set_all_moved_values(&[(OrdU256(u256_from_str("3")), 1)]);
+        assert_matches!(
+            nullifier_account.try_insert_nullifier_hash(u256_from_str("3")),
+            Err(_)
+        );
+
+        nullifier_account.set_all_moved_values(&[]);
+        nullifier_account
+            .try_insert_nullifier_hash(u256_from_str("3"))
+            .unwrap();
     }
 
     #[test]
@@ -408,13 +452,14 @@ mod tests {
     }
 
     #[test]
-    fn test_get_all_moved_values() {
-        todo!()
-    }
-
-    #[test]
     fn test_set_all_moved_values() {
-        todo!()
+        parent_account!(mut nullifier_account, NullifierAccount);
+
+        let moved_values: Vec<_> = (0..JOIN_SPLIT_MAX_N_ARITY)
+            .map(|i| (OrdU256(u64_to_u256(i as u64)), i as u8))
+            .collect();
+        nullifier_account.set_all_moved_values(&moved_values);
+        assert_eq!(nullifier_account.get_all_moved_values(), moved_values);
     }
 
     #[test]
@@ -431,7 +476,11 @@ mod tests {
 
     #[test]
     fn test_sort_all_moved_values() {
-        todo!()
+        let v = [(OrdU256(u64_to_u256(0)), 1), (OrdU256(u64_to_u256(1)), 0)];
+        let mut values = v;
+        NullifierAccount::sort_all_moved_values(&mut values);
+
+        assert_eq!(&values[..], &v.into_iter().rev().collect::<Vec<_>>()[..]);
     }
 
     #[test]

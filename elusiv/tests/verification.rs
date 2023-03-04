@@ -20,7 +20,7 @@ use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
 use elusiv::state::nullifier::{NullifierAccount, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, PDAAccountData, ProgramAccount, SizedAccount};
 use elusiv::state::proof::{VerificationAccount, VerificationState};
-use elusiv::state::storage::{empty_root_raw, StorageAccount};
+use elusiv::state::storage::{empty_root_raw, StorageAccount, MT_HEIGHT};
 use elusiv::state::vkey::{VKeyAccount, VKeyAccountEager};
 use elusiv::token::{
     spl_token_account_data, Lamports, Token, TokenPrice, LAMPORTS_TOKEN_ID, TOKENS, USDC_TOKEN_ID,
@@ -28,11 +28,13 @@ use elusiv::token::{
 };
 use elusiv::types::{
     compute_fee_rec, compute_fee_rec_lamports, generate_hashed_inputs, InputCommitment,
-    JoinSplitPublicInputs, OrdU256, Proof, PublicInputs, RawProof, RawU256, SendPublicInputs, U256,
+    JoinSplitPublicInputs, OrdU256, Proof, PublicInputs, RawProof, RawU256, SendPublicInputs,
+    JOIN_SPLIT_MAX_N_ARITY, U256,
 };
 use elusiv_computation::PartialComputation;
 use elusiv_types::tokens::Price;
 use elusiv_types::ParentAccount;
+use elusiv_utils::two_pow;
 use solana_program::instruction::Instruction;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::program_pack::Pack;
@@ -1942,18 +1944,8 @@ async fn test_enforced_finalization_order() {
     set_verification_state(test.payer(), 0, VerificationState::ProofSetup, &mut test).await;
     test.ix_should_fail_simple(finalize_verification_send_instruction.clone())
         .await;
-
-    set_verification_state(
-        test.payer(),
-        0,
-        VerificationState::InsertNullifiers,
-        &mut test,
-    )
-    .await;
     test.ix_should_fail_simple(finalize_verification_send_nullifier_instruction.clone())
         .await;
-
-    set_verification_state(test.payer(), 0, VerificationState::Finalized, &mut test).await;
     test.ix_should_fail_simple(finalize_verification_transfer_lamports_instruction.clone())
         .await;
 
@@ -2056,20 +2048,24 @@ async fn nullifier_finalization_test(number_of_start_nullifiers: u64, input_comm
 
     // Insertion instructions
     for nullifier_hash in &nullifier_hashes {
+        let child_account_index = nullifier_account.find_child_account_index(nullifier_hash);
+
         instructions.push(
             ElusivInstruction::finalize_verification_insert_nullifier_instruction(
                 0,
                 UserAccount(test.payer()),
                 Some(0),
-                &writable_user_accounts(&[
-                    nullifier_accounts[nullifier_account.find_child_account_index(nullifier_hash)]
-                ]),
+                &writable_user_accounts(
+                    &nullifier_accounts[child_account_index..child_account_index + 1],
+                ),
             ),
         );
     }
 
     // Movement instructions
-    for i in 0..nullifier_account.number_of_movement_instructions(&nullifier_hashes) {
+    let number_of_movement_instructions =
+        nullifier_account.number_of_movement_instructions(&nullifier_hashes);
+    for i in 0..number_of_movement_instructions {
         instructions.push(
             ElusivInstruction::finalize_verification_insert_nullifier_instruction(
                 0,
@@ -2094,7 +2090,13 @@ async fn nullifier_finalization_test(number_of_start_nullifiers: u64, input_comm
 
 #[tokio::test]
 async fn test_finalization_nullifier_insertions() {
-    nullifier_finalization_test(NULLIFIERS_PER_ACCOUNT as u64 * 4, 4).await;
+    let max_nullifiers_count = two_pow!(MT_HEIGHT) as u64;
+
+    for n in 1..=JOIN_SPLIT_MAX_N_ARITY as u8 {
+        nullifier_finalization_test(0, n).await;
+        nullifier_finalization_test(NULLIFIERS_PER_ACCOUNT as u64, n).await;
+        nullifier_finalization_test(max_nullifiers_count - n as u64, n).await;
+    }
 }
 
 async fn finalize_instructions(
