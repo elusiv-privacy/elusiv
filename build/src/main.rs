@@ -3,45 +3,35 @@ use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames};
 
 #[derive(Debug, StructOpt)]
-enum BuildTarget {
-    /// The Elusiv program
-    #[structopt(name = "elusiv")]
-    Elusiv,
-
-    /// The Elusiv-Warden-Network program
-    #[structopt(name = "elusiv-warden-network")]
-    ElusivWardenNetwork,
-}
-
-#[derive(Debug, StructOpt)]
 enum BuildCommand {
-    /// Build the program
+    /// Build a program
     Build {
-        #[structopt(flatten)]
+        /// The program library name
+        #[structopt(long)]
         target: BuildTarget,
 
         /// The deployment cluster
-        #[structopt(short, long)]
+        #[structopt(long)]
         cluster: Cluster,
     },
 
-    /// Test the program
+    /// Test a program
     Test {
-        #[structopt(flatten)]
+        /// The program library name
+        #[structopt(long)]
         target: BuildTarget,
 
-        /// Run the unit tests
-        #[structopt(short, long)]
-        unit: bool,
-
-        /// Run the integration tests
-        #[structopt(short, long)]
-        integration: bool,
-
-        /// Run 'cargo-tarpaulin'
-        #[structopt(short, long)]
-        tarpaulin: bool,
+        /// The test-kind (unit, integration, tarpaulin)
+        #[structopt(long)]
+        test_kind: TestKind,
     },
+}
+
+#[derive(EnumString, EnumVariantNames, Debug)]
+#[strum(serialize_all = "kebab_case")]
+enum BuildTarget {
+    Elusiv,
+    ElusivWardenNetwork,
 }
 
 #[derive(EnumString, EnumVariantNames, Debug)]
@@ -50,6 +40,14 @@ enum Cluster {
     Mainnet,
     Devnet,
     Local,
+}
+
+#[derive(EnumString, EnumVariantNames, Debug)]
+#[strum(serialize_all = "kebab_case")]
+enum TestKind {
+    Unit,
+    Integration,
+    Tarpaulin,
 }
 
 fn main() {
@@ -71,29 +69,26 @@ fn main() {
                 _ => {}
             }
         }
-        BuildCommand::Test {
-            target,
-            unit,
-            integration,
-            tarpaulin,
-        } => {
+        BuildCommand::Test { target, test_kind } => {
             build_target = target;
 
-            if unit {
-                command = "test";
-                build_args = vec!["--lib"];
-                features.push("test-unit");
-            } else if tarpaulin {
-                command = "test";
-                build_args = vec!["--lib"];
-                features.push("test-unit");
-            } else if integration {
-                command = "test-bpf";
-                build_args = vec!["--test", "*"];
-                use_bpf = true;
-                features.push("test-bpf");
-            } else {
-                panic!("Please specify a test-kind (unit, integration, tarpaulin)");
+            match test_kind {
+                TestKind::Unit => {
+                    command = "test";
+                    build_args = vec!["--lib"];
+                    features.push("test-unit");
+                }
+                TestKind::Integration => {
+                    command = "test-bpf";
+                    build_args = vec!["--test", "*"];
+                    use_bpf = true;
+                    features.push("test-bpf");
+                }
+                TestKind::Tarpaulin => {
+                    command = "test";
+                    build_args = vec!["--lib"];
+                    features.push("test-unit");
+                }
             }
         }
     }

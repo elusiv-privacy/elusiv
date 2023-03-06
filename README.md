@@ -6,10 +6,11 @@
 
 <div align="center">
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![CI](https://github.com/elusiv-privacy/elusiv/actions/workflows/test.yaml/badge.svg)](https://github.com/elusiv-privacy/elusiv/actions/workflows/test.yaml)
 [![Codecov](https://codecov.io/gh/elusiv-privacy/elusiv/branch/master/graph/badge.svg?token=E6EBAGCE0M)](https://codecov.io/gh/elusiv-privacy/elusiv)
-[![Dependency check](https://github.com/elusiv-privacy/elusiv/actions/workflows/audit.yaml/badge.svg)](https://github.com/elusiv-privacy/elusiv/actions/workflows/audit.yaml)
-[![Verifying-key check](https://github.com/elusiv-privacy/elusiv/actions/workflows/vkey.yaml/badge.svg)](https://github.com/elusiv-privacy/elusiv/actions/workflows/vkey.yaml)
+[![dependency check](https://github.com/elusiv-privacy/elusiv/actions/workflows/audit.yaml/badge.svg)](https://github.com/elusiv-privacy/elusiv/actions/workflows/audit.yaml)
+[![vkey check](https://github.com/elusiv-privacy/elusiv/actions/workflows/vkey.yaml/badge.svg)](https://github.com/elusiv-privacy/elusiv/actions/workflows/vkey.yaml)
 
 </div>
 
@@ -36,7 +37,7 @@ The `build` crate allows for accessible building and testing of any program in t
 Build a program library with:
 
 ```
-$ sh build.sh build --cluster <mainnet|devnet> <program-name>
+$ sh build.sh build --cluster <mainnet|devnet> --target <program-name>
 ```
 
 ### Testing
@@ -44,7 +45,7 @@ This library comes with comprehensive unit and integration tests for each of the
 Execute the tests with:
 
 ```
-$ sh build.sh test --test-kind <unit|integration|...> <program-name>
+$ sh build.sh test --test-kind <unit|integration|...> --target <program-name>
 ```
 
 ### Program interaction
