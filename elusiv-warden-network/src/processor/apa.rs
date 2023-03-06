@@ -13,9 +13,9 @@ use solana_program::program_pack::Pack;
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
 /// Processes an [`ApaProposal`]
-pub fn propose_apa_proposal<'a, 'b>(
+pub fn propose_apa_proposal<'b>(
     proponent: &AccountInfo<'b>,
-    mut proposal_account: UnverifiedAccountInfo<'a, 'b>,
+    mut proposal_account: UnverifiedAccountInfo<'_, 'b>,
     proposals_account: &mut ApaProposalsAccount,
     target_map_account: &AccountInfo<'b>,
     token_mint: &AccountInfo,

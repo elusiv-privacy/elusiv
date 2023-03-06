@@ -31,8 +31,8 @@ impl Default for ApaProponentRole {
 
 pub type ApaReason = FixedLenString<512>;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Debug)]
-#[cfg_attr(feature = "elusiv-client", derive(Clone, PartialEq))]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
+#[cfg_attr(feature = "elusiv-client", derive(Clone, PartialEq, Debug))]
 pub struct ApaProposal {
     pub proponent: Pubkey,
     pub proponent_role: ApaProponentRole,

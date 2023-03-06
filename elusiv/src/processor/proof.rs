@@ -492,14 +492,14 @@ const SPL_MEMO_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
 ///     [`finalize_verification_send`],
 ///     [`finalize_verification_transfer_lamports`] or [`finalize_verification_transfer_token`].
 #[allow(clippy::too_many_arguments)]
-pub fn finalize_verification_send<'a>(
+pub fn finalize_verification_send(
     recipient: &AccountInfo,
     identifier_account: &AccountInfo,
     transaction_reference: &AccountInfo, // if no reference is used, set this account to the same as `instructions_account`
     commitment_hash_queue: &mut CommitmentQueueAccount,
     verification_account: &mut VerificationAccount,
     storage_account: &StorageAccount,
-    instructions_account: &AccountInfo<'a>,
+    instructions_account: &AccountInfo,
 
     verification_account_index: u8,
     data: FinalizeSendData,
@@ -597,9 +597,9 @@ pub fn finalize_verification_send<'a>(
     Ok(())
 }
 
-pub fn finalize_verification_insert_nullifier<'a, 'b, 'c>(
+pub fn finalize_verification_insert_nullifier(
     verification_account: &mut VerificationAccount,
-    nullifier_account: &mut NullifierAccount<'a, 'b, 'c>,
+    nullifier_account: &mut NullifierAccount,
 
     _verification_account_index: u8,
 ) -> ProgramResult {
