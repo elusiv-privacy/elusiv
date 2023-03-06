@@ -41,6 +41,7 @@ ark-bn254 = "=0.3.0"
 ark-ec = { version = "=0.3.0", default-features = false }
 ark-ff = { version = "=0.3.0", default-features = false }
 borsh = { version = "=0.9.3", features = ["const-generics"] }
+default-env = "0.1.1"
 elusiv-computation = { path = "shared/elusiv-computation" }
 elusiv-derive = { path = "shared/elusiv-derive" }
 elusiv-interpreter = { path = "elusiv-interpreter" }
@@ -49,6 +50,7 @@ elusiv-types = { path = "shared/elusiv-types", default-features = false, feature
 elusiv-utils = { path = "shared/elusiv-utils" }
 serde = { version = "1.0.85", features = ["derive"], optional = true }
 solana-program = "1.10"
+solana-security-txt = "1.0.1"
 spl-associated-token-account = { version = "1.1.1", features = ["no-entrypoint"] }
 spl-token = { version = "3.5", features = ["no-entrypoint"] }
 

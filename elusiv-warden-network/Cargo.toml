@@ -38,17 +38,19 @@ test-unit = ["elusiv-utils/test-unit"]
 
 [dependencies]
 borsh = { version = "=0.9.3", features = ["const-generics"] }
+default-env = "0.1.1"
 elusiv-types = { path = "shared/elusiv-types", default-features = false, features = ["accounts", "bytes", "tokens"] }
 elusiv-utils = { path = "shared/elusiv-utils" }
 elusiv-derive = { path = "shared/elusiv-derive" }
 elusiv-proc-macros = { path = "shared/elusiv-proc-macros" }
 solana-program = "1.10"
+solana-security-txt = "1.0.1"
 spl-token = { version = "3.5", features = ["no-entrypoint"] }
 
 [dev-dependencies]
 chrono = "0.4"
 elusiv-test = { path = "shared/elusiv-test" }
-elusiv-warden-network = { path = ".", features = ["elusiv-client", "test-elusiv", "logging"] }
+elusiv-warden-network = { path = ".", features = ["elusiv-client", "test-elusiv", "logging", "no-entrypoint"] }
 solana-program-test = "1.10"
 solana-sdk = "1.10"
 mock-program = { path = "shared/elusiv-test/mock-program", features = ["no-entrypoint"] }
