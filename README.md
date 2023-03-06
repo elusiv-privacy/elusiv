@@ -19,13 +19,13 @@ Scaling privacy with Zero-knowledge proofs and MPC on the [Solana](https://githu
 ## Programs
 This repository contains a collection of on-chain programs:
 
-- the [Elusiv](https://github.com/elusiv-privacy/elusiv/tree/master/elusiv) on-chain program,
-- the [Elusiv-Warden-Network](https://github.com/elusiv-privacy/elusiv/tree/master/elusiv-warden-network) on-chain program.
+- the [Elusiv](./elusiv/) on-chain program,
+- the [Elusiv-Warden-Network](./elusiv-warden-network/) on-chain program.
 
-The addresses for the on-chain programs are located in (and linked at compilation from) [Id.toml](https://github.com/elusiv-privacy/elusiv/blob/master/Id.toml).
+The addresses for the on-chain programs are located in (and linked at compilation from) [Id.toml](./Id.toml).
 
 ## Supported tokens
-All tokens (SOL and SPL-tokens) supported by the Elusiv on-chain programs are located in (and linked at compilation from) [Token.toml](https://github.com/elusiv-privacy/elusiv/blob/master/Token.toml).
+All tokens (SOL and SPL-tokens) supported by the Elusiv on-chain programs are located in (and linked at compilation from) [Token.toml](./Token.toml).
 On-chain price data is provided through the [Pyth oracle network](https://pyth.network/).
 
 ## Development
@@ -55,15 +55,15 @@ When constructing instructions from other clients, serialize the instructions us
 
 ## Contribution
 We welcome contributions and pull requests.
-Please check our [contribution rules](https://github.com/elusiv-privacy/elusiv/blob/master/CONTRIBUTING.md) and [code of conduct](https://github.com/elusiv-privacy/elusiv/blob/master/CODE_OF_CONDUCT.md).
+Please check our [contribution rules](https://github.com/elusiv-privacy/elusiv/blob/master/CONTRIBUTING.md) and [code of conduct](./CODE_OF_CONDUCT.md).
 
 ## Security
 To ensure that Elusiv is secure we did the following among other things:
 
-- independent security audit of the Elusiv on-chain program with [OtterSec](),
+- independent security audit of the Elusiv on-chain program with [OtterSec](./resources/OtterSec-09-22.pdf),
 - independent security audit of the associated Zero-knowledge-proof circuits with [ABDK Consulting](https://github.com/elusiv-privacy/circuits/tree/master/audits),
 - running the [Sec3](https://www.sec3.dev/) X-Ray tool after any changes to the on-chain code,
-- open sourced the codebase together with our [security policy](https://github.com/elusiv-privacy/elusiv/tree/master/SECURITY.md).
+- open sourced the codebase together with our [security policy](./SECURITY.md).
 
 Our goal is to make the Elusiv on-chain programs non-upgradeable as soon as possible.
 
