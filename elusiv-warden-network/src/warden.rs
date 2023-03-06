@@ -21,7 +21,7 @@ pub struct WardensAccount {
     pub next_warden_id: ElusivWardenID,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone, PartialEq, Eq)]
 #[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct FixedLenString<const MAX_LEN: usize> {
     len: u64,
@@ -52,14 +52,14 @@ impl<const MAX_LEN: usize> TryFrom<String> for FixedLenString<MAX_LEN> {
 
 pub type Identifier = FixedLenString<256>;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Clone, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Clone, PartialEq, Eq)]
 #[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct WardenFeatures {
     pub apa: bool,
     pub attestation: bool,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Clone, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Default, Clone, PartialEq, Eq)]
 #[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct BasicWardenFeatures {
     pub rpc: bool,
@@ -67,7 +67,7 @@ pub struct BasicWardenFeatures {
     pub instant_relay: bool,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone, PartialEq, Eq)]
 #[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub enum TlsMode {
     NoTls,
@@ -95,7 +95,7 @@ pub struct Timezone {
 ///     - Indian -> Asia,
 ///     - Pacific -> Asia
 #[repr(u8)]
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone, Copy, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub enum WardenRegion {
     Africa,

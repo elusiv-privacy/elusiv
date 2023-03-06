@@ -141,9 +141,9 @@ pub fn update_basic_warden_lut(
 
 pub const METADATA_ATTESTER_AUTHORITY: Pubkey = Pubkey::new_from_array([0; 32]);
 
-pub fn add_metadata_attester<'a, 'b>(
+pub fn add_metadata_attester<'b>(
     signer: &AccountInfo<'b>,
-    mut attester_account: UnverifiedAccountInfo<'a, 'b>,
+    mut attester_account: UnverifiedAccountInfo<'_, 'b>,
     warden_account: &mut BasicWardenAccount,
 
     warden_id: ElusivWardenID,
@@ -240,10 +240,10 @@ pub fn attest_basic_warden_metadata(
     Ok(())
 }
 
-pub fn open_basic_warden_stats_account<'a, 'b>(
+pub fn open_basic_warden_stats_account<'b>(
     warden: &AccountInfo,
     payer: &AccountInfo<'b>,
-    mut stats_account: UnverifiedAccountInfo<'a, 'b>,
+    mut stats_account: UnverifiedAccountInfo<'_, 'b>,
 
     year: u16,
 ) -> ProgramResult {

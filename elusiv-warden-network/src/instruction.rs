@@ -1,10 +1,9 @@
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::too_many_arguments)]
 
-use crate::apa::{ApaProposal, ApaProposalAccount, ApaProposalsAccount, ApaTargetMapAccount};
+use crate::apa::{ApaProposal, ApaProposalsAccount, ApaTargetMapAccount};
 use crate::macros::ElusivInstruction;
 use crate::network::{ApaWardenNetworkAccount, BasicWardenNetworkAccount};
-use crate::operator::WardenOperatorAccount;
 use crate::processor;
 use crate::warden::{
     ApaWardenAccount, BasicWardenAccount, BasicWardenAttesterMapAccount, BasicWardenMapAccount,
@@ -17,6 +16,10 @@ use solana_program::pubkey::Pubkey;
 use solana_program::system_program;
 use solana_program::sysvar::instructions;
 
+#[cfg(feature = "elusiv-client")]
+use crate::apa::ApaProposalAccount;
+#[cfg(feature = "elusiv-client")]
+use crate::operator::WardenOperatorAccount;
 #[cfg(feature = "elusiv-client")]
 pub use elusiv_types::accounts::{
     SignerAccount, UserAccount, WritableSignerAccount, WritableUserAccount,

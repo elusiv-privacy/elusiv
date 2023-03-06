@@ -6,10 +6,10 @@ use elusiv_types::UnverifiedAccountInfo;
 use elusiv_utils::{open_pda_account_with_offset, pda_account};
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
-pub fn apply_apa_genesis_warden<'a, 'b>(
+pub fn apply_apa_genesis_warden<'b>(
     warden: &AccountInfo<'b>,
     warden_map_account: &BasicWardenMapAccount,
-    mut apa_warden_account: UnverifiedAccountInfo<'a, 'b>,
+    mut apa_warden_account: UnverifiedAccountInfo<'_, 'b>,
     apa_network_account: &mut ApaWardenNetworkAccount,
 
     _warden_id: ElusivWardenID,

@@ -71,9 +71,9 @@ pub fn open_single_instance_accounts<'a, 'b>(
     Ok(())
 }
 
-pub fn open_nullifier_account<'a, 'b>(
+pub fn open_nullifier_account<'b>(
     payer: &AccountInfo<'b>,
-    nullifier_account: UnverifiedAccountInfo<'a, 'b>,
+    nullifier_account: UnverifiedAccountInfo<'_, 'b>,
 
     mt_index: u32,
 ) -> ProgramResult {
@@ -202,9 +202,9 @@ pub fn archive_closed_merkle_tree<'a>(
 /// # Note
 ///
 /// There is no way of upgrading it atm.
-pub fn setup_governor_account<'a, 'b>(
+pub fn setup_governor_account<'b>(
     payer: &AccountInfo<'b>,
-    governor_account: UnverifiedAccountInfo<'a, 'b>,
+    governor_account: UnverifiedAccountInfo<'_, 'b>,
 ) -> ProgramResult {
     open_pda_account_without_offset::<GovernorAccount>(
         &crate::id(),
@@ -238,10 +238,10 @@ pub fn upgrade_governor_state(
 /// # Note
 ///
 /// There is no way of upgrading the program fees atm.
-pub fn init_new_fee_version<'a, 'b>(
+pub fn init_new_fee_version<'b>(
     payer: &AccountInfo<'b>,
     governor: &mut GovernorAccount,
-    mut new_fee_account: UnverifiedAccountInfo<'a, 'b>,
+    mut new_fee_account: UnverifiedAccountInfo<'_, 'b>,
 
     fee_version: u32,
     program_fee: ProgramFee,

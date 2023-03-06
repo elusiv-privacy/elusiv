@@ -12,7 +12,7 @@ use std::{
 
 pub use pyth_sdk_solana::{load_price_feed_from_account_info, Price};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub struct ElusivToken {
     #[cfg(feature = "elusiv-client")]
@@ -47,7 +47,7 @@ pub type TokenID = u16;
 
 pub const SPL_TOKEN_COUNT: usize = TOKENS.len() - 1;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub enum Token {
     Lamports(Lamports),
@@ -179,7 +179,9 @@ impl Sub for Token {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Copy, Default)]
+#[derive(
+    BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Eq, Clone, Copy, Default,
+)]
 #[cfg_attr(feature = "elusiv-client", derive(Debug))]
 pub struct Lamports(pub u64);
 
@@ -202,7 +204,7 @@ impl Add for Lamports {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "elusiv-client", derive(Debug))]
 pub struct SPLToken {
     pub id: NonZeroU16,

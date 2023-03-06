@@ -1,0 +1,65 @@
+name: Clippy check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  rust_toolchain: 1.65
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@v2
+        name: Cache Cargo registry + index
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-${{ runner.os }}-v0000-${{ hashFiles('**/Cargo.lock') }}
+
+      - uses: actions/cache@v2
+        name: Cache elusiv target
+        with:
+          path: elusiv/target
+          key: ${{ runner.os }}-elusiv-target-${{ hashFiles('elusiv/Cargo.lock') }}
+
+      - uses: actions/cache@v2
+        name: Cache elusiv-warden-network target
+        with:
+          path: elusiv-warden-network/target
+          key: ${{ runner.os }}-elusiv-warden-network-target-${{ hashFiles('elusiv-warden-network/Cargo.lock') }}
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.rust_toolchain }}
+          override: true
+
+      - name: install essential
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config build-essential libudev-dev
+          rustup component add rustfmt
+          rustup component add clippy
+
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Run Rustfmt
+        run: |
+          set -eu
+          cd elusiv && cargo fmt --check && cd ..
+          cd elusiv-warden-network && cargo fmt --check && cd ..
+
+      - name: Run clippy
+        run: |
+          set -eu
+          cd elusiv && cargo clippy && cd ..
+          cd elusiv-warden-network && cargo clippy && cd ..

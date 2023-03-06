@@ -7,9 +7,9 @@ use elusiv_types::UnverifiedAccountInfo;
 use elusiv_utils::{guard, open_pda_account_with_associated_pubkey, pda_account};
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
-pub fn register_warden_operator<'a, 'b>(
+pub fn register_warden_operator<'b>(
     operator: &AccountInfo<'b>,
-    mut operator_account: UnverifiedAccountInfo<'a, 'b>,
+    mut operator_account: UnverifiedAccountInfo<'_, 'b>,
 
     ident: Identifier,
     url: Identifier,
