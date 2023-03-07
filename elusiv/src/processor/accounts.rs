@@ -11,7 +11,7 @@ use crate::state::{
     queue::{CommitmentQueue, CommitmentQueueAccount, Queue},
     storage::{StorageAccount, MT_COMMITMENT_COUNT},
 };
-use crate::{bytes::usize_as_u32_safe, map::ElusivMap, processor::MATH_ERR};
+use crate::{bytes::usize_as_u32_safe, map::ElusivMap};
 use elusiv_types::{
     split_child_account_data_mut, ChildAccount, ChildAccountConfig, ParentAccount, SizedAccount,
     UnverifiedAccountInfo,

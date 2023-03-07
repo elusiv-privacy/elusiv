@@ -73,7 +73,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV }}
         run: |
           cargo install cargo-tarpaulin --force
-          sh ./build.sh test --tarpaulin elusiv
+          sh ./build.sh test --test-kind tarpaulin --target elusiv
           bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
 
       - name: Run unit- and integration-tests with BPF
@@ -83,7 +83,7 @@ jobs:
           solana --version
           rustup component add rustfmt
           export PATH="/home/runner/.local/share/solana/install/active_release/bin:$PATH"
-          sh ./build.sh test --unit elusiv
-          sh ./build.sh test --integration elusiv
-          sh ./build.sh test --unit elusiv-warden-network
-          sh ./build.sh test --integration elusiv-warden-network
+          sh ./build.sh test --test-kind unit --target elusiv
+          sh ./build.sh test --test-kind integration --target elusiv
+          sh ./build.sh test --test-kind unit --target elusiv-warden-network
+          sh ./build.sh test --test-kind integration --target elusiv-warden-network

@@ -133,7 +133,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let is_signer = contains_key(&sub_attrs, "signer");
                 if is_signer {
                     accounts.extend(quote!{
-                        if !#account.is_signer { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
+                        if !#account.is_signer { return Err(solana_program::program_error::ProgramError::MissingRequiredSignature) }
                     });
                 }
 
@@ -149,7 +149,7 @@ pub fn impl_elusiv_instruction(ast: &syn::DeriveInput) -> proc_macro2::TokenStre
                 let is_owned = contains_key(&sub_attrs, "owned");
                 if is_owned {
                     accounts.extend(quote!{
-                        if *#account.owner != crate::ID { return Err(solana_program::program_error::ProgramError::InvalidArgument) }
+                        if *#account.owner != crate::ID { return Err(solana_program::program_error::ProgramError::IllegalOwner) }
                     });
                 }
 

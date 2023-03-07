@@ -103,7 +103,7 @@ mod tests {
         ) -> Result<&AccountInfo<'t>, ProgramError> {
             match self.accounts[child_index] {
                 Some(account) => Ok(account),
-                None => Err(ProgramError::InvalidArgument),
+                None => Err(ProgramError::NotEnoughAccountKeys),
             }
         }
 

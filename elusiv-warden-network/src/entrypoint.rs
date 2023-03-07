@@ -10,6 +10,20 @@ crate::macros::declare_program_id!();
 #[cfg(not(feature = "no-entrypoint"))]
 solana_program::entrypoint!(process_instruction);
 
+#[cfg(not(feature = "no-entrypoint"))]
+use {default_env::default_env, solana_security_txt::security_txt};
+
+#[cfg(not(feature = "no-entrypoint"))]
+security_txt! {
+    name: "Elusiv-Warden-Network",
+    project_url: "https://elusiv.io",
+    contacts: "email:security@elusiv.io",
+    policy: "https://github.com/elusiv-privacy/elusiv/blob/main/SECURITY.md",
+    preferred_languages: "en",
+    source_code: "https://github.com/elusiv-privacy/elusiv/blob/elusiv-warden-network",
+    source_revision: default_env!("GITHUB_SHA", ""),
+}
+
 #[cfg(not(tarpaulin_include))]
 pub fn process_instruction(
     program_id: &Pubkey,

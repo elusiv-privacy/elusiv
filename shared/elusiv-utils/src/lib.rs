@@ -21,7 +21,7 @@ use solana_sdk::compute_budget::ComputeBudgetInstruction;
 #[cfg(feature = "sdk")]
 use solana_program::instruction::Instruction;
 
-pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
+pub const MATH_ERR: ProgramError = ProgramError::Custom(222);
 
 #[macro_export]
 macro_rules! signers_seeds {

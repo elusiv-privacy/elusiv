@@ -28,11 +28,7 @@ use ark_bn254::Fr;
 use ark_ff::BigInteger256;
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_computation::PartialComputation;
-use solana_program::{
-    account_info::AccountInfo, entrypoint::ProgramResult, program_error::ProgramError,
-};
-
-pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
+use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
