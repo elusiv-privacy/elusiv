@@ -1,4 +1,4 @@
-name: Dependency check
+name: dependency check
 
 on:
   push:

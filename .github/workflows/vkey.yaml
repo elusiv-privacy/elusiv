@@ -1,4 +1,4 @@
-name: Verifying-key check
+name: verifying-key check
 
 on:
   push:
