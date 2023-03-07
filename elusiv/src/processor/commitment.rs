@@ -38,6 +38,7 @@ pub const MATH_ERR: ProgramError = ProgramError::InvalidArgument;
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct BaseCommitmentHashRequest {
     pub base_commitment: RawU256,
+    pub commitment_index: u32,
     pub amount: u64,
     pub token_id: u16,
     pub commitment: RawU256, // only there in case we require duplicate checking (not atm)
@@ -126,6 +127,8 @@ pub fn store_base_commitment<'a>(
         is_element_scalar_field(u256_to_big_uint(&request.commitment.skip_mr())),
         ElusivError::NonScalarValue
     );
+
+    // TODO: verify commitment-index in the next SDK version
 
     // Zero-commitment cannot be inserted by user
     guard!(
@@ -508,6 +511,7 @@ mod tests {
 
         let request = BaseCommitmentHashRequest {
             base_commitment: RawU256::new(u256_from_str_skip_mr("1")),
+            commitment_index: 123,
             amount: LAMPORTS_PER_SOL,
             token_id: LAMPORTS_TOKEN_ID,
             commitment: RawU256::new(u256_from_str_skip_mr("1")),
@@ -783,6 +787,7 @@ mod tests {
 
         let request = BaseCommitmentHashRequest {
             base_commitment: RawU256::new(u256_from_str_skip_mr("1")),
+            commitment_index: 123,
             amount: 1_000_000,
             token_id: USDC_TOKEN_ID,
             commitment: RawU256::new(u256_from_str_skip_mr("1")),

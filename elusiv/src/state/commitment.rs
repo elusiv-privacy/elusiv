@@ -51,7 +51,7 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
             u256_to_fr_skip_mr(&request.base_commitment.reduce()),
             Fr::from_repr(BigInteger256([
                 request.amount,
-                request.token_id as u64,
+                request.token_id as u64 + ((request.commitment_index as u64) << 16),
                 0,
                 0,
             ]))
@@ -321,8 +321,9 @@ buffer_account!(BaseCommitmentBufferAccount, U256, 128);
 
 #[cfg(test)]
 pub fn base_commitment_request(
-    bc: &str,
-    c: &str,
+    base_commitment: &str,
+    commitment: &str,
+    commitment_index: u32,
     amount: u64,
     token_id: u16,
     fee_version: u32,
@@ -331,8 +332,9 @@ pub fn base_commitment_request(
     use crate::{fields::u256_from_str_skip_mr, types::RawU256};
 
     BaseCommitmentHashRequest {
-        base_commitment: RawU256::new(u256_from_str_skip_mr(bc)),
-        commitment: RawU256::new(u256_from_str_skip_mr(c)),
+        base_commitment: RawU256::new(u256_from_str_skip_mr(base_commitment)),
+        commitment: RawU256::new(u256_from_str_skip_mr(commitment)),
+        commitment_index,
         amount,
         token_id,
         fee_version,
@@ -573,8 +575,9 @@ mod tests {
 
         let request = BaseCommitmentHashRequest {
             base_commitment: RawU256::new([1; 32]),
+            commitment_index: 123,
             amount: 333,
-            token_id: 2,
+            token_id: 22,
             commitment: RawU256::new([2; 32]),
             fee_version: 444,
             min_batching_rate: 555,
@@ -588,7 +591,7 @@ mod tests {
             [
                 Fr::zero(),
                 u256_to_fr_skip_mr(&request.base_commitment.reduce()),
-                Fr::from_str("36893488147419103565").unwrap(), // 333 + 18446744073709551616 * 2
+                Fr::from_str("148698281640969010098995533").unwrap(), // 333 + 2^64 * 22 + 2^80 * 123 (https://www.wolframalpha.com/input?i=333+%2B+2%5E64+*+22+%2B+2%5E80+*+123)
             ]
         );
         assert_eq!(account.get_fee_payer(), fee_payer);

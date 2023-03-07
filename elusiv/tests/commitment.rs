@@ -42,6 +42,7 @@ async fn test_store_base_commitment_lamports_transfer() {
     let request = base_commitment_request(
         "8337064132573119120838379738103457054645361649757131991036638108422638197362",
         "139214303935475888711984321184227760578793579443975701453971046059378311483",
+        123,
         1_000_000_000,
         LAMPORTS_TOKEN_ID,
         0,
@@ -153,6 +154,7 @@ async fn test_store_base_commitment_token_transfer() {
     let request = base_commitment_request(
         "8337064132573119120838379738103457054645361649757131991036638108422638197362",
         "139214303935475888711984321184227760578793579443975701453971046059378311483",
+        123,
         1_000_000,
         USDC_TOKEN_ID,
         0,
@@ -249,17 +251,19 @@ async fn test_base_commitment_lamports() {
     let warden_b = test.new_actor().await;
 
     let request0 = base_commitment_request(
-        "8337064132573119120838379738103457054645361649757131991036638108422638197362",
-        "139214303935475888711984321184227760578793579443975701453971046059378311483",
-        LAMPORTS_PER_SOL,
+        "2373653605831809653325702328909530483017219552320948513277905949984497279624",
+        "11354689880263756368702389324600778781911466694140676144665365316598881175238",
+        369270,
+        5745748949,
         LAMPORTS_TOKEN_ID,
         0,
         1,
     );
     let request1 = base_commitment_request(
-        "8337064132573119120838379738103457054645361649757131991036638108422638197361",
-        "21186803555845400161937398579081414146527572885637089779856221229551142844794",
-        20 * LAMPORTS_PER_SOL,
+        "12104139889635562332812066919517710111891712867884647962184153324051811405076",
+        "1648743558947166791659724723407286787130041879468443966677530652569417690417",
+        865210,
+        16902202056,
         LAMPORTS_TOKEN_ID,
         0,
         1,
@@ -586,6 +590,7 @@ async fn test_base_commitment_token() {
     let request = base_commitment_request(
         "8337064132573119120838379738103457054645361649757131991036638108422638197362",
         "139214303935475888711984321184227760578793579443975701453971046059378311483",
+        123,
         999_999,
         USDC_TOKEN_ID,
         0,
@@ -697,6 +702,7 @@ async fn test_base_commitment_token() {
 pub fn base_commitment_request(
     base_commitment: &str,
     commitment: &str,
+    commitment_index: u32,
     amount: u64,
     token_id: u16,
     fee_version: u32,
@@ -705,6 +711,7 @@ pub fn base_commitment_request(
     BaseCommitmentHashRequest {
         base_commitment: RawU256::new(u256_from_str_skip_mr(base_commitment)),
         commitment: RawU256::new(u256_from_str_skip_mr(commitment)),
+        commitment_index,
         amount,
         token_id,
         fee_version,
@@ -724,6 +731,7 @@ async fn test_single_commitment() {
     let request = base_commitment_request(
         "8337064132573119120838379738103457054645361649757131991036638108422638197362",
         "139214303935475888711984321184227760578793579443975701453971046059378311483",
+        123,
         1_000_000_000,
         LAMPORTS_TOKEN_ID,
         0,
