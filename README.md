@@ -48,6 +48,9 @@ Execute the tests with:
 $ sh build.sh test --test-kind <unit|integration|...> --target <program-name>
 ```
 
+### Using Docker
+Testing can be performed in a Docker container using `./docker_test.sh`. Running this will result in the creation of an `elusiv-dev` Docker image as well as a few cache volumes. 
+
 ### Program interaction
 In order to easily interact with the program from a Rust client, import a program library with the `elusiv-client` feature enabled.
 This results in access to all instruction-generation functions located in each program-crate's `instructions` module.
