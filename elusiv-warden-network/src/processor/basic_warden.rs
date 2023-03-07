@@ -1,4 +1,3 @@
-use super::close_program_account;
 use crate::error::ElusivWardenNetworkError;
 use crate::processor::{current_timestamp, unix_timestamp_to_day_and_year};
 use crate::warden::{
@@ -11,7 +10,8 @@ use crate::{
 };
 use elusiv_types::UnverifiedAccountInfo;
 use elusiv_utils::{
-    guard, open_pda_account_with_associated_pubkey, open_pda_account_with_offset, pda_account,
+    close_account, guard, open_pda_account_with_associated_pubkey, open_pda_account_with_offset,
+    pda_account,
 };
 use solana_program::account_info::AccountInfo;
 use solana_program::entrypoint::ProgramResult;
@@ -190,7 +190,7 @@ pub fn revoke_metadata_attester<'a>(
         ElusivWardenNetworkError::InvalidSigner
     );
 
-    close_program_account(signer, signer, attester_account)?;
+    close_account(signer, attester_account)?;
 
     let mut warden = warden_account.get_warden();
     warden.config.warden_features.attestation = false;
