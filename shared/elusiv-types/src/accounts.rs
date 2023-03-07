@@ -308,7 +308,7 @@ pub trait PDAAccount {
 
     fn verify_account(account: &AccountInfo, offset: PDAOffset) -> ProgramResult {
         if Self::create(offset, Self::get_bump(account))? != *account.key {
-            return Err(ProgramError::InvalidArgument);
+            return Err(ProgramError::InvalidSeeds);
         }
 
         Ok(())
@@ -320,7 +320,7 @@ pub trait PDAAccount {
         offset: PDAOffset,
     ) -> ProgramResult {
         if Self::create_with_pubkey(pubkey, offset, Self::get_bump(account))? != *account.key {
-            return Err(ProgramError::InvalidArgument);
+            return Err(ProgramError::InvalidSeeds);
         }
 
         Ok(())

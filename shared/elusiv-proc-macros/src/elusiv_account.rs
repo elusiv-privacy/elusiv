@@ -175,7 +175,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
                         unsafe fn get_child_account_unsafe(&self, child_index: usize) -> Result<& #b_lifetime solana_program::account_info::AccountInfo< #t_lifetime >, solana_program::program_error::ProgramError> {
                             match self.child_accounts[child_index] {
                                 Some(child) => Ok(child),
-                                None => Err(solana_program::program_error::ProgramError::InvalidArgument)
+                                None => Err(solana_program::program_error::ProgramError::NotEnoughAccountKeys)
                             }
                         }
                     }
@@ -497,7 +497,7 @@ pub fn impl_elusiv_account(ast: &syn::DeriveInput, attrs: TokenStream) -> TokenS
         impl < #lifetimes > elusiv_types::accounts::ProgramAccount < #program_account_lifetime > for #ident < #lifetimes > {
             fn new(data: &'a mut [u8]) -> Result<Self, solana_program::program_error::ProgramError> {
                 if data.len() != <Self as elusiv_types::accounts::SizedAccount>::SIZE {
-                    return Err(solana_program::program_error::ProgramError::InvalidArgument)
+                    return Err(solana_program::program_error::ProgramError::InvalidAccountData)
                 }
 
                 #fields_split
