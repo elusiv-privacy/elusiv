@@ -109,13 +109,13 @@ fn send_request(index: usize) -> FullSendRequest {
                         }
                     ],
                     output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment_index: 456,
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
                     token_id: 0,
                 },
                 recipient_is_associated_token_account: false,
-                current_time: 0,
                 hashed_inputs: default_hashed_inputs,
                 solana_pay_transfer: false,
             }
@@ -135,13 +135,13 @@ fn send_request(index: usize) -> FullSendRequest {
                         },
                     ],
                     output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment_index: 456,
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
                     token_id: 0,
                 },
                 recipient_is_associated_token_account: false,
-                current_time: 0,
                 hashed_inputs: default_hashed_inputs,
                 solana_pay_transfer: false,
             }
@@ -161,13 +161,13 @@ fn send_request(index: usize) -> FullSendRequest {
                         },
                     ],
                     output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment_index: 456,
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
                     token_id: 0,
                 },
                 recipient_is_associated_token_account: false,
-                current_time: 0,
                 hashed_inputs: default_hashed_inputs,
                 solana_pay_transfer: false,
             }
@@ -191,13 +191,13 @@ fn send_request(index: usize) -> FullSendRequest {
                         },
                     ],
                     output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
+                    output_commitment_index: 456,
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
                     token_id: 0,
                 },
                 recipient_is_associated_token_account: false,
-                current_time: 0,
                 hashed_inputs: default_hashed_inputs,
                 solana_pay_transfer: false,
             }
@@ -1427,7 +1427,6 @@ async fn test_finalize_proof_commitment_index() {
             ElusivInstruction::finalize_verification_send_instruction(
                 0,
                 FinalizeSendData {
-                    timestamp: 0,
                     total_amount: request.public_inputs.join_split.total_amount(),
                     token_id: 0,
                     mt_index: 0,
@@ -1606,7 +1605,6 @@ async fn test_associated_token_account() {
             ElusivInstruction::finalize_verification_send_instruction(
                 0,
                 FinalizeSendData {
-                    timestamp: request.public_inputs.current_time,
                     total_amount: request.public_inputs.join_split.total_amount(),
                     token_id: USDC_TOKEN_ID,
                     encrypted_owner: extra_data.encrypted_owner,
@@ -1992,13 +1990,13 @@ async fn nullifier_finalization_test(number_of_start_nullifiers: u64, input_comm
             output_commitment: RawU256::new(u256_from_str_skip_mr(
                 "685960310506634721912121951341598678325833230508240750559904196809564625591",
             )),
+            output_commitment_index: 456,
             fee_version: 0,
             amount: LAMPORTS_PER_SOL * 123,
             fee: 0,
             token_id: 0,
         },
         recipient_is_associated_token_account: false,
-        current_time: 0,
         hashed_inputs: extra_data.hash(),
         solana_pay_transfer: false,
     };
