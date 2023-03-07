@@ -21,7 +21,7 @@ security_txt! {
     policy: "https://github.com/elusiv-privacy/elusiv/blob/main/SECURITY.md",
     preferred_languages: "en",
     source_code: "https://github.com/elusiv-privacy/elusiv/blob/elusiv-warden-network",
-    source_revision: default_env!("GITHUB_SHA", ""),
+    source_revision: default_env!("GITHUB_SHA", "")
 }
 
 #[cfg(not(tarpaulin_include))]
