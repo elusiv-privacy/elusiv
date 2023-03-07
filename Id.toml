@@ -1,11 +1,11 @@
 [[program_id]]
 name = "elusiv"
-mainnet = "AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7"
+mainnet = "4CgyHKuP6yi1vbmcdsArngEKcETR4nZupqYEMk2hEoQd"
 devnet = "HSwKaCUZPTQXsrrgV1KYUvF5yn9RHg86jEtRViTE5fUV"
 testnet = "HMr2Y6Gkjvy42y1iAPEbRKz5o7WEFPHBvagHQYR581UB"
 
 [[program_id]]
 name = "elusiv-warden-network"
-mainnet = "AQJN5bDobGyooyURYGfhFCWK6pfEdEf17gLxixEvY6y7"
+mainnet = "HxCsgxZ8xXX77WGF2xNANbHThKyqZo3Tr1m7L1Vgwqo8"
 devnet = "G1C8kQKEwR2snboP7JBTNq9fm3V2wW7VLizawvmGZ6gp"
 testnet = "2GeAbcy9Wuu2mLsx5aFt8Cb7aPQRteFx36DvAfoBEWY1"
