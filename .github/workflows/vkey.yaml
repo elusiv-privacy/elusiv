@@ -19,7 +19,7 @@ jobs:
       - name: Fetch and compare vkeys
         run: |
           sh ./vkey.sh send_quadra temp2/send_quadra
-          if diff -rq temp2/send_quadra elusiv/src/proof/vkeys/send_quadra ; then
+          if diff -rq temp2/send_quadra/send_quadra elusiv/src/proof/vkeys/send_quadra ; then
             echo "Vkeys up to date"
           else
             echo "Vkeys not up to date"
