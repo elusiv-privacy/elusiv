@@ -68,13 +68,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run unit tests for codecoverage
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV }}
-        run: |
-          cargo install cargo-tarpaulin --force
-          sh ./build.sh test --test-kind tarpaulin --target elusiv
-          bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
+#      - name: Run unit tests for codecoverage
+#        env:
+#          CODECOV_TOKEN: ${{ secrets.CODECOV }}
+#        run: |
+#          cargo install cargo-tarpaulin --force
+#          sh ./build.sh test --test-kind tarpaulin --target elusiv
+#          bash <(curl -s https://codecov.io/bash) -X gcov -t $CODECOV_TOKEN
 
       - name: Run unit- and integration-tests with BPF
         run: |
