@@ -37,3 +37,16 @@ max = 8_000_000_000
 # https://pyth.network/price-feeds/crypto-usdt-usd
 pyth_usd_price_mainnet = "3vxLXJqLqF3JG5TCbYycbKWRBbCJQLxQmBGCkyqEEefL"
 pyth_usd_price_devnet = "38xoQ4oeJCBrcVvca2cGk7iV1dAfrmTR1kmhSCJQ8Jto"
+
+[[token]]
+symbol = "mSOL"
+# https://explorer.solana.com/address/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So
+mint = "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So"
+mint_devnet = "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So"
+active = true
+decimals = 9
+min = 1_000
+max = 360_000_000_000
+# https://pyth.network/price-feeds/crypto-msol-usd
+pyth_usd_price_mainnet = "E4v1BBgoso9s64TQvmyownAVJbhbEPGyzA3qn4n46qj9"
+pyth_usd_price_devnet = "9a6RNx3tCu1TSs6TBSfV2XRXEPEZXQ6WB7jRojZRvyeZ"
