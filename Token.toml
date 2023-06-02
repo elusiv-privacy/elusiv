@@ -32,8 +32,10 @@ mint = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
 mint_devnet = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
 active = true
 decimals = 5
-min = 10_000
-max = 12_000_000_000
+# 100M BONK
+min = 10_000_000_000_000
+# 100B BONK
+max = 10_000_000_000_000_000
 # https://pyth.network/price-feeds/crypto-bonk-usd
 pyth_usd_price_mainnet = "8ihFLu5FimgTQ1Unh4dVyEHUGodJ5gJQCrQf4KUVB9bN"
 pyth_usd_price_devnet = "6bquU99ktV1VRiHDr8gMhDFt3kMfhCQo5nfNrg2Urvsn"
