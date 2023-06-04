@@ -35,7 +35,7 @@ use elusiv_utils::guard;
 use std::ops::{AddAssign, Neg};
 
 #[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone)]
-#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
+#[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug, PartialEq))]
 pub enum VerificationStep {
     PublicInputPreparation,
     CombinedMillerLoop,
@@ -65,10 +65,7 @@ pub fn verify_partial(
         VerificationStep::CombinedMillerLoop => {
             // Proof first has to be setup
             guard!(
-                matches!(
-                    verification_account.get_state(),
-                    VerificationState::ProofSetup
-                ),
+                verification_account.get_state() == VerificationState::ProofSetup,
                 InvalidAccountState
             );
 
@@ -963,16 +960,17 @@ mod tests {
     use crate::macros::zero_program_account;
     use crate::proof::test_proofs::{invalid_proofs, valid_proofs};
     use crate::proof::vkey::{TestVKey, VerifyingKeyInfo};
+    use crate::state::metadata::CommitmentMetadata;
     use crate::state::storage::empty_root_raw;
     use crate::types::{
-        InputCommitment, JoinSplitPublicInputs, PublicInputs, RawU256, SendPublicInputs,
+        InputCommitment, JoinSplitPublicInputs, OptionalFee, PublicInputs, RawU256,
+        SendPublicInputs,
     };
     use ark_bn254::{Bn254, Fr};
     use ark_ec::bn::G2Prepared;
     use ark_ec::models::bn::BnParameters;
     use ark_ec::PairingEngine;
     use ark_groth16::prepare_inputs;
-    use assert_matches::assert_matches;
     use solana_program::native_token::LAMPORTS_PER_SOL;
     use std::str::FromStr;
 
@@ -1454,7 +1452,7 @@ mod tests {
 
     #[test]
     fn test_public_inputs_preparation_costs() {
-        let abc = SendPublicInputs {
+        let public_inputs = SendPublicInputs {
             join_split: JoinSplitPublicInputs {
                 input_commitments: vec![
                     InputCommitment {
@@ -1467,17 +1465,19 @@ mod tests {
                     },
                 ],
                 output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                output_commitment_index: 456,
+                recent_commitment_index: 456,
                 fee_version: 0,
                 amount: LAMPORTS_PER_SOL * 123,
                 fee: 0,
+                optional_fee: OptionalFee::default(),
                 token_id: 0,
+                metadata: CommitmentMetadata::default(),
             },
             hashed_inputs: u256_from_str_skip_mr("230508240750559904196809564625"),
             recipient_is_associated_token_account: true,
             solana_pay_transfer: false,
         };
-        let p = abc.public_signals_skip_mr();
+        let p = public_inputs.public_signals_skip_mr();
         let v = prepare_public_inputs_instructions(&p, TestVKey::public_inputs_count());
         assert_eq!(v.len(), 3);
     }
@@ -1552,9 +1552,9 @@ mod tests {
         }
 
         // Additional ix will result in error
-        assert_matches!(
+        assert_eq!(
             verify_partial(&mut storage, &vkey, COMPUTE_VERIFICATION_IX_COUNT - 1),
-            Err(_)
+            Err(ElusivError::ComputationIsAlreadyFinished)
         );
     }
 

@@ -133,7 +133,7 @@ impl Token {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TokenError {
     MismatchedTokenID,
     InvalidTokenID,

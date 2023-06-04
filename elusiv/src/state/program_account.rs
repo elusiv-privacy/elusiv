@@ -4,7 +4,6 @@ pub use elusiv_types::accounts::*;
 mod tests {
     use super::*;
     use crate::macros::{account_info, parent_account};
-    use assert_matches::assert_matches;
     use borsh::BorshDeserialize;
     use elusiv_types::{split_child_account_data, BorshSerDeSized, ElusivOption};
     use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
@@ -250,14 +249,20 @@ mod tests {
         account_info!(account, Pubkey::new_unique());
         let mut unverified_account_info = UnverifiedAccountInfo::new(&account);
 
-        assert_matches!(unverified_account_info.get_safe(), Err(_));
+        assert_eq!(
+            unverified_account_info.get_safe().unwrap_err(),
+            ProgramError::AccountBorrowFailed
+        );
 
         unverified_account_info.get_unsafe();
 
-        assert_matches!(unverified_account_info.get_safe(), Err(_));
+        assert_eq!(
+            unverified_account_info.get_safe().unwrap_err(),
+            ProgramError::AccountBorrowFailed
+        );
 
         unverified_account_info.get_unsafe_and_set_is_verified();
 
-        assert_matches!(unverified_account_info.get_safe(), Ok(_));
+        assert!(unverified_account_info.get_safe().is_ok());
     }
 }

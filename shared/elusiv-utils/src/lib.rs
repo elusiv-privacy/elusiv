@@ -5,14 +5,8 @@ use elusiv_types::{
     PDAOffset,
 };
 use solana_program::{
-    account_info::AccountInfo,
-    entrypoint::ProgramResult,
-    program::invoke_signed,
-    program_error::ProgramError::{self, InsufficientFunds, InvalidInstructionData},
-    pubkey::Pubkey,
-    rent::Rent,
-    system_instruction,
-    sysvar::Sysvar,
+    account_info::AccountInfo, entrypoint::ProgramResult, program::invoke_signed,
+    program_error::ProgramError, pubkey::Pubkey, rent::Rent, system_instruction, sysvar::Sysvar,
 };
 
 #[cfg(feature = "sdk")]
@@ -99,7 +93,7 @@ pub fn open_pda_account<'a, T: PDAAccount>(
         }
     };
 
-    guard!(pk == *pda_account.key, InvalidInstructionData);
+    guard!(pk == *pda_account.key, ProgramError::InvalidSeeds);
     let seeds = T::signers_seeds(pda_pubkey, pda_offset, bump);
     let signers_seeds = signers_seeds!(seeds);
 
@@ -128,7 +122,10 @@ pub fn create_pda_account<'a>(
 
     let lamports_required = Rent::get()?.minimum_balance(account_size);
     let space: u64 = account_size.try_into().unwrap();
-    guard!(payer.lamports() >= lamports_required, InsufficientFunds);
+    guard!(
+        payer.lamports() >= lamports_required,
+        ProgramError::AccountNotRentExempt
+    );
 
     invoke_signed(
         &system_instruction::create_account(
@@ -163,7 +160,7 @@ pub fn transfer_with_system_program<'a>(
 ) -> ProgramResult {
     guard!(
         *system_program.key == solana_program::system_program::ID,
-        InvalidInstructionData
+        ProgramError::IncorrectProgramId
     );
 
     let instruction =

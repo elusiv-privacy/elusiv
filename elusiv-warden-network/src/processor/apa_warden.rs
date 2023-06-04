@@ -1,22 +1,36 @@
+use crate::error::ElusivWardenNetworkError;
 use crate::{
     network::ApaWardenNetworkAccount,
-    warden::{ApaWardenAccount, BasicWardenMapAccount, ElusivWardenID, Quote},
+    warden::{ApaWardenAccount, BasicWardenMapAccount, ElusivWardenID, QuoteEnd, QuoteStart},
 };
 use elusiv_types::UnverifiedAccountInfo;
-use elusiv_utils::{open_pda_account_with_offset, pda_account};
+use elusiv_utils::{guard, open_pda_account_with_offset, pda_account};
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult};
 
-pub fn apply_apa_genesis_warden<'b>(
+/// Initialize the [`ApaWardenAccount`], register as a member of the network, store the first half
+/// of the SGX quote.
+///
+/// # Notes
+///
+/// The application phase is the first step of the Elusiv Warden Network Protocol
+/// Each Warden possesses a keypair (kwi, Kwi).
+/// The APAE (Autonomous Protocol Analysis Environment) of every warden generated a seed exchange
+/// keypair (xi, Xi), as well as an SGX quote embedding the APA seed (Xi).
+/// The quote is stored on chain and every Warden will later verify the quotes of every other
+/// Warden, ensuring that all run the same code on genuine Intel CPUs.
+///
+/// Because the quote is too large to be sent in a single transaction, only the first half is sent
+/// here, and the rest is transmitted upon call to [`complete_apa_genesis_warden_application`].
+pub fn start_apa_genesis_warden_application<'b>(
     warden: &AccountInfo<'b>,
     warden_map_account: &BasicWardenMapAccount,
     mut apa_warden_account: UnverifiedAccountInfo<'_, 'b>,
     apa_network_account: &mut ApaWardenNetworkAccount,
-
     _warden_id: ElusivWardenID,
-    quote: Quote,
+    quote_start: QuoteStart,
 ) -> ProgramResult {
     let warden_id = warden_map_account.get_warden_id();
-    let network_member_index = apa_network_account.apply(warden_id, &quote)?;
+    let network_member_index = apa_network_account.start_application(warden_id, &quote_start)?;
 
     open_pda_account_with_offset::<ApaWardenAccount>(
         &crate::id(),
@@ -38,6 +52,30 @@ pub fn apply_apa_genesis_warden<'b>(
     Ok(())
 }
 
+/// Complete the APA genesis Warden application by sending the other half of the SGX quote.
+///
+/// See [`start_apa_genesis_warden_application`]
+pub fn complete_apa_genesis_warden_application<'a>(
+    _warden: &AccountInfo<'a>,
+    warden_map_account: &BasicWardenMapAccount,
+    apa_network_account: &mut ApaWardenNetworkAccount,
+
+    provided_warden_id: ElusivWardenID,
+    quote_end: QuoteEnd,
+) -> ProgramResult {
+    let warden_id = warden_map_account.get_warden_id();
+    guard!(
+        provided_warden_id == warden_id,
+        ElusivWardenNetworkError::InvalidInstructionData
+    );
+    apa_network_account.complete_application(warden_id, quote_end)?;
+
+    Ok(())
+}
+
+/// Every Warden has verified the quotes of its peers and hashed these into a confirmation message.
+/// This method verifies these confirmation messages and keeps track of the list of nodes having
+/// confirmed its peers.
 pub fn confirm_apa_genesis_network(
     exchange_key_account: &AccountInfo,
     apa_warden_account: &ApaWardenAccount,

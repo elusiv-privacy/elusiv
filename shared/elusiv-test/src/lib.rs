@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_macros)]
 
-use assert_matches::assert_matches;
 use elusiv_types::tokens::{
     elusiv_token, pyth_price_account_data, Lamports, Price, SPLToken, Token, TOKENS,
 };
@@ -103,10 +102,15 @@ impl ElusivProgramTest {
         signing_keypairs.insert(0, &self.context.payer);
 
         let mut tx = Transaction::new_with_payer(instructions, Some(&self.context.payer.pubkey()));
+        self.context.last_blockhash = self.context.banks_client.get_latest_blockhash().await?;
+
         tx.try_sign(&signing_keypairs, self.context.last_blockhash)
             .or(Err(BanksClientError::ClientError("Signature failure")))?;
 
-        self.context.banks_client.process_transaction(tx).await
+        self.context
+            .banks_client
+            .process_transaction_with_preflight(tx)
+            .await
     }
 
     pub async fn process_transaction_nonced(
@@ -350,11 +354,10 @@ impl ElusivProgramTest {
             owner,
         );
 
-        assert_matches!(
-            self.process_transaction(&[ix], &[&new_account_keypair])
-                .await,
-            Ok(())
-        );
+        assert!(self
+            .process_transaction(&[ix], &[&new_account_keypair])
+            .await
+            .is_ok());
 
         new_account_keypair
     }
@@ -390,11 +393,11 @@ impl ElusivProgramTest {
     }
 
     pub async fn tx_should_succeed(&mut self, ixs: &[Instruction], signers: &[&Keypair]) {
-        assert_matches!(self.process_transaction_nonced(ixs, signers).await, Ok(()));
+        assert!(self.process_transaction_nonced(ixs, signers).await.is_ok());
     }
 
     pub async fn tx_should_succeed_simple(&mut self, ixs: &[Instruction]) {
-        assert_matches!(self.process_transaction_nonced(ixs, &[]).await, Ok(()));
+        assert!(self.process_transaction_nonced(ixs, &[]).await.is_ok());
     }
 
     pub async fn ix_should_succeed(&mut self, ix: Instruction, signers: &[&Keypair]) {
@@ -402,23 +405,33 @@ impl ElusivProgramTest {
     }
 
     pub async fn ix_should_succeed_simple(&mut self, ix: Instruction) {
-        assert_matches!(self.process_transaction_nonced(&[ix], &[]).await, Ok(()));
+        assert!(self.process_transaction_nonced(&[ix], &[]).await.is_ok());
     }
 
-    pub async fn tx_should_fail(&mut self, ixs: &[Instruction], signers: &[&Keypair]) {
-        assert_matches!(self.process_transaction_nonced(ixs, signers).await, Err(_));
+    pub async fn tx_should_fail(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> BanksClientError {
+        self.process_transaction_nonced(ixs, signers)
+            .await
+            .unwrap_err()
     }
 
     pub async fn tx_should_fail_simple(&mut self, ixs: &[Instruction]) {
-        assert_matches!(self.process_transaction_nonced(ixs, &[]).await, Err(_));
+        assert!(self.process_transaction_nonced(ixs, &[]).await.is_err());
     }
 
-    pub async fn ix_should_fail(&mut self, ix: Instruction, signers: &[&Keypair]) {
+    pub async fn ix_should_fail(
+        &mut self,
+        ix: Instruction,
+        signers: &[&Keypair],
+    ) -> BanksClientError {
         self.tx_should_fail(&[ix], signers).await
     }
 
     pub async fn ix_should_fail_simple(&mut self, ix: Instruction) {
-        assert_matches!(self.process_transaction_nonced(&[ix], &[]).await, Err(_));
+        assert!(self.process_transaction_nonced(&[ix], &[]).await.is_err());
     }
 
     /// Replaces all accounts through invalid accounts with valid data and lamports

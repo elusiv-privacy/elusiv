@@ -265,7 +265,6 @@ mod tests {
         fields::{u256_from_str, u64_to_u256, u64_to_u256_skip_mr},
         macros::parent_account,
     };
-    use assert_matches::assert_matches;
 
     #[test]
     fn test_can_insert_nullifier_hash() {
@@ -323,9 +322,9 @@ mod tests {
             .try_insert_nullifier_hash(u256_from_str("0"))
             .unwrap();
 
-        assert_matches!(
+        assert_eq!(
             nullifier_account.try_insert_nullifier_hash(u256_from_str("1")),
-            Err(_)
+            Err(ElusivError::CouldNotInsertNullifier.into())
         );
     }
 
@@ -335,9 +334,9 @@ mod tests {
 
         // Value cannot be inserted since it's contained in the moved values
         nullifier_account.set_all_moved_values(&[(OrdU256(u256_from_str("2")), 0)]);
-        assert_matches!(
+        assert_eq!(
             nullifier_account.try_insert_nullifier_hash(u256_from_str("2")),
-            Err(_)
+            Err(ElusivError::CouldNotInsertNullifier.into())
         );
 
         // Value now can be inserted
@@ -354,9 +353,9 @@ mod tests {
 
         // Moved value now linked to second child account
         nullifier_account.set_all_moved_values(&[(OrdU256(u256_from_str("3")), 1)]);
-        assert_matches!(
+        assert_eq!(
             nullifier_account.try_insert_nullifier_hash(u256_from_str("3")),
-            Err(_)
+            Err(ElusivError::CouldNotInsertNullifier.into())
         );
 
         nullifier_account.set_all_moved_values(&[]);
@@ -413,9 +412,9 @@ mod tests {
         //assert!(!nullifier_account.can_insert_nullifier_hash(u64_to_u256_skip_mr(i)).unwrap());
         //}
 
-        assert_matches!(
+        assert_eq!(
             nullifier_account.try_insert_nullifier_hash(u64_to_u256_skip_mr(count)),
-            Err(_)
+            Err(ElusivError::CouldNotInsertNullifier.into())
         );
     }
 

@@ -3,7 +3,6 @@ use std::fmt;
 
 #[derive(Copy, Clone, Debug)]
 pub enum ElusivWardenNetworkError {
-    InvalidSignature = 0x00,
     InvalidInstructionData = 0x01,
     InvalidSigner = 0x02,
     WardenRegistrationError = 0x03,
@@ -14,6 +13,16 @@ pub enum ElusivWardenNetworkError {
 
     Overflow = 0x08,
     Underflow = 0x09,
+
+    /// Placeholder, [`elusiv_types::token::TokenError`] uses 0x1xx error codes
+    TokenError = 0x100,
+
+    // APA inception errors
+    ApplicationAlreadyComplete = 0x200,
+    InvalidConfirmationMessage = 0x201,
+    SignerAndWardenIdMismatch = 0x202,
+    NotInConfirmationPhase = 0x203,
+    WardenAlreadyConfirmed = 0x204,
 }
 
 impl From<ElusivWardenNetworkError> for ProgramError {

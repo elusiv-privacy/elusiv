@@ -56,7 +56,6 @@ spl-token = { version = "3.5", features = ["no-entrypoint"] }
 
 [dev-dependencies]
 ark-groth16 = { version = "=0.3.0", default-features = false }
-assert_matches = "1.5.0"
 elusiv = { path = ".", features = ["elusiv-client", "test-elusiv", "logging", "serde", "no-entrypoint"] }
 elusiv-utils = { path = "shared/elusiv-utils", features = ["sdk"] }
 elusiv-test = { path = "shared/elusiv-test" }

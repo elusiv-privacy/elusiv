@@ -21,3 +21,9 @@ pub struct VKeyAccount {
     pub is_frozen: bool,
     pub version: u32,
 }
+
+impl<'a, 'b, 't> VKeyAccount<'a, 'b, 't> {
+    pub fn is_setup(&self) -> bool {
+        self.get_version() != 0
+    }
+}

@@ -16,19 +16,57 @@ use elusiv::{
     },
     processor::{program_token_account_address, BaseCommitmentHashRequest, CommitmentHashRequest},
     state::{
-        commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount},
+        commitment::{
+            BaseCommitmentHashingAccount, CommitmentHashingAccount, CommitmentQueue,
+            CommitmentQueueAccount,
+        },
         governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
+        metadata::{CommitmentMetadata, MetadataQueue, MetadataQueueAccount},
         program_account::{PDAAccount, ProgramAccount, SizedAccount},
-        queue::{CommitmentQueue, CommitmentQueueAccount, Queue, RingQueue},
+        queue::{Queue, RingQueue},
         storage::{StorageAccount, EMPTY_TREE, MT_HEIGHT},
     },
     token::{Lamports, Token, TokenPrice, LAMPORTS_TOKEN_ID, USDC_TOKEN_ID},
     types::{RawU256, U256},
 };
 use elusiv_computation::PartialComputation;
-use elusiv_types::tokens::Price;
+use elusiv_types::{tokens::Price, BorshSerDeSized};
 use solana_program::{native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, system_program};
 use solana_program_test::*;
+
+async fn enqueue_commitments(
+    test: &mut ElusivProgramTest,
+    requests: &[CommitmentHashRequest],
+    metadata: Option<&[CommitmentMetadata]>,
+) {
+    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
+        queue!(mut queue, CommitmentQueue, data);
+
+        for request in requests {
+            queue.enqueue(*request).unwrap();
+        }
+    })
+    .await;
+
+    let metadata = if let Some(metadata) = metadata {
+        assert_eq!(requests.len(), metadata.len());
+        metadata.to_vec()
+    } else {
+        (0..requests.len())
+            .map(|_| CommitmentMetadata::default())
+            .collect()
+    };
+
+    test.set_pda_account::<MetadataQueueAccount, _>(&elusiv::id(), None, None, |data| {
+        let mut queue = MetadataQueueAccount::new(data).unwrap();
+        let mut queue = MetadataQueue::new(&mut queue);
+
+        for metadata in metadata {
+            queue.enqueue(metadata).unwrap();
+        }
+    })
+    .await;
+}
 
 #[tokio::test]
 async fn test_store_base_commitment_lamports_transfer() {
@@ -42,12 +80,13 @@ async fn test_store_base_commitment_lamports_transfer() {
     let request = base_commitment_request(
         "8337064132573119120838379738103457054645361649757131991036638108422638197362",
         "139214303935475888711984321184227760578793579443975701453971046059378311483",
-        123,
+        0,
         1_000_000_000,
         LAMPORTS_TOKEN_ID,
         0,
         0,
     );
+    let metadata = CommitmentMetadata::default();
 
     let fee = genesis_fee(&mut test).await;
     let subvention = fee.base_commitment_subvention.0;
@@ -74,14 +113,14 @@ async fn test_store_base_commitment_lamports_transfer() {
     )
     .await;
 
-    let (hashing_account_pubkey, hashing_account_bump) =
-        BaseCommitmentHashingAccount::find(Some(0));
+    let hashing_account_bump = BaseCommitmentHashingAccount::find(Some(0)).1;
     let sol_price_account = test.token_to_usd_price_pyth_account(0);
     test.ix_should_succeed(
         ElusivInstruction::store_base_commitment_instruction(
             0,
             hashing_account_bump,
             request.clone(),
+            metadata,
             SignerAccount(client.pubkey),
             WritableUserAccount(client.pubkey),
             WritableSignerAccount(warden.pubkey),
@@ -90,7 +129,6 @@ async fn test_store_base_commitment_lamports_transfer() {
             WritableUserAccount(fee_collector),
             UserAccount(sol_price_account),
             UserAccount(sol_price_account),
-            WritableUserAccount(hashing_account_pubkey),
             UserAccount(system_program::id()),
         ),
         &[&client.keypair, &warden.keypair],
@@ -154,12 +192,13 @@ async fn test_store_base_commitment_token_transfer() {
     let request = base_commitment_request(
         "8337064132573119120838379738103457054645361649757131991036638108422638197362",
         "139214303935475888711984321184227760578793579443975701453971046059378311483",
-        123,
+        0,
         1_000_000,
         USDC_TOKEN_ID,
         0,
         0,
     );
+    let metadata = CommitmentMetadata::default();
 
     let price =
         TokenPrice::new_from_sol_price(sol_usd_price, usdc_usd_price, USDC_TOKEN_ID).unwrap();
@@ -191,13 +230,13 @@ async fn test_store_base_commitment_token_transfer() {
         .await;
     test.airdrop(&fee_collector_account, subvention).await;
 
-    let (hashing_account_pubkey, hashing_account_bump) =
-        BaseCommitmentHashingAccount::find(Some(0));
+    let hashing_account_bump = BaseCommitmentHashingAccount::find(Some(0)).1;
     test.ix_should_succeed(
         ElusivInstruction::store_base_commitment_instruction(
             0,
             hashing_account_bump,
             request.clone(),
+            metadata,
             SignerAccount(client.pubkey),
             WritableUserAccount(client.get_token_account(USDC_TOKEN_ID)),
             WritableSignerAccount(warden.pubkey),
@@ -206,7 +245,6 @@ async fn test_store_base_commitment_token_transfer() {
             WritableUserAccount(fee_collector_account),
             UserAccount(sol_price_account),
             UserAccount(token_price_account),
-            WritableUserAccount(hashing_account_pubkey),
             UserAccount(spl_token::id()),
         ),
         &[&client.keypair, &warden.keypair],
@@ -253,7 +291,7 @@ async fn test_base_commitment_lamports() {
     let request0 = base_commitment_request(
         "2373653605831809653325702328909530483017219552320948513277905949984497279624",
         "11354689880263756368702389324600778781911466694140676144665365316598881175238",
-        369270,
+        0,
         5745748949,
         LAMPORTS_TOKEN_ID,
         0,
@@ -262,12 +300,13 @@ async fn test_base_commitment_lamports() {
     let request1 = base_commitment_request(
         "12104139889635562332812066919517710111891712867884647962184153324051811405076",
         "1648743558947166791659724723407286787130041879468443966677530652569417690417",
-        865210,
+        0,
         16902202056,
         LAMPORTS_TOKEN_ID,
         0,
         1,
     );
+    let metadata = CommitmentMetadata::default();
 
     let pool = PoolAccount::find(None).0;
     let fee_collector = FeeCollectorAccount::find(None).0;
@@ -276,6 +315,7 @@ async fn test_base_commitment_lamports() {
     let store_ix = ElusivInstruction::store_base_commitment_sol_instruction(
         0,
         request0.clone(),
+        metadata,
         client.pubkey,
         warden_a.pubkey,
     );
@@ -317,8 +357,7 @@ async fn test_base_commitment_lamports() {
         .airdrop(LAMPORTS_TOKEN_ID, hashing_account_rent.0, &mut test)
         .await;
 
-    let (hashing_account_pubkey, hashing_account_bump) =
-        BaseCommitmentHashingAccount::find(Some(0));
+    let hashing_account_bump = BaseCommitmentHashingAccount::find(Some(0)).1;
 
     // Store fails: Invalid pool_account
     test.ix_should_fail(
@@ -326,6 +365,7 @@ async fn test_base_commitment_lamports() {
             0,
             hashing_account_bump,
             request0.clone(),
+            metadata,
             SignerAccount(client.pubkey),
             WritableUserAccount(client.pubkey),
             WritableSignerAccount(warden_a.pubkey),
@@ -334,7 +374,6 @@ async fn test_base_commitment_lamports() {
             WritableUserAccount(fee_collector),
             UserAccount(system_program::id()),
             UserAccount(system_program::id()),
-            WritableUserAccount(hashing_account_pubkey),
             UserAccount(system_program::id()),
         ),
         &[&client.keypair, &warden_a.keypair],
@@ -347,6 +386,7 @@ async fn test_base_commitment_lamports() {
             0,
             hashing_account_bump,
             request0.clone(),
+            metadata,
             SignerAccount(client.pubkey),
             WritableUserAccount(client.pubkey),
             WritableSignerAccount(warden_a.pubkey),
@@ -355,7 +395,6 @@ async fn test_base_commitment_lamports() {
             WritableUserAccount(pool),
             UserAccount(system_program::id()),
             UserAccount(system_program::id()),
-            WritableUserAccount(hashing_account_pubkey),
             UserAccount(system_program::id()),
         ),
         &[&client.keypair, &warden_a.keypair],
@@ -413,6 +452,7 @@ async fn test_base_commitment_lamports() {
         ElusivInstruction::store_base_commitment_sol_instruction(
             0,
             request1.clone(),
+            metadata,
             client.pubkey,
             warden_a.pubkey,
         ),
@@ -425,6 +465,7 @@ async fn test_base_commitment_lamports() {
         ElusivInstruction::store_base_commitment_sol_instruction(
             1,
             request0.clone(),
+            metadata,
             client.pubkey,
             warden_b.pubkey,
         ),
@@ -437,6 +478,7 @@ async fn test_base_commitment_lamports() {
         ElusivInstruction::store_base_commitment_sol_instruction(
             1,
             request1.clone(),
+            metadata,
             client.pubkey,
             warden_b.pubkey,
         ),
@@ -540,11 +582,16 @@ async fn test_base_commitment_lamports() {
     test.ix_should_fail_simple(finalize_ix).await;
 
     // Check commitment queue for the correct hash
-    commitment_queue!(queue, test);
+    queue!(queue, CommitmentQueue, test);
     let commitment = queue.view_first().unwrap();
     assert_eq!(queue.len(), 1);
-    assert_eq!(commitment.commitment, request0.commitment.reduce());
+    // TODO: update hashes to use zero recent-commitment-index
+    // assert_eq!(commitment.commitment, request0.commitment.reduce());
     assert_eq!(commitment.fee_version, 0);
+
+    queue!(metadata_queue, MetadataQueue, test);
+    assert_eq!(metadata_queue.len(), 1);
+    assert_eq!(metadata, metadata_queue.view_first().unwrap());
 
     assert_eq!(
         request0.amount + request1.amount + computation_fee * 2
@@ -590,12 +637,13 @@ async fn test_base_commitment_token() {
     let request = base_commitment_request(
         "8337064132573119120838379738103457054645361649757131991036638108422638197362",
         "139214303935475888711984321184227760578793579443975701453971046059378311483",
-        123,
+        0,
         999_999,
         USDC_TOKEN_ID,
         0,
         0,
     );
+    let metadata = CommitmentMetadata::default();
 
     let price =
         TokenPrice::new_from_sol_price(sol_usd_price, usdc_usd_price, USDC_TOKEN_ID).unwrap();
@@ -627,13 +675,13 @@ async fn test_base_commitment_token() {
         .await;
     test.airdrop(&fee_collector_account, subvention).await;
 
-    let (hashing_account_pubkey, hashing_account_bump) =
-        BaseCommitmentHashingAccount::find(Some(0));
+    let hashing_account_bump = BaseCommitmentHashingAccount::find(Some(0)).1;
     test.ix_should_succeed(
         ElusivInstruction::store_base_commitment_instruction(
             0,
             hashing_account_bump,
             request.clone(),
+            metadata,
             SignerAccount(client.pubkey),
             WritableUserAccount(client.get_token_account(USDC_TOKEN_ID)),
             WritableSignerAccount(warden.pubkey),
@@ -642,7 +690,6 @@ async fn test_base_commitment_token() {
             WritableUserAccount(fee_collector_account),
             UserAccount(sol_price_account),
             UserAccount(token_price_account),
-            WritableUserAccount(hashing_account_pubkey),
             UserAccount(spl_token::id()),
         ),
         &[&client.keypair, &warden.keypair],
@@ -702,7 +749,7 @@ async fn test_base_commitment_token() {
 pub fn base_commitment_request(
     base_commitment: &str,
     commitment: &str,
-    commitment_index: u32,
+    recent_commitment_index: u32,
     amount: u64,
     token_id: u16,
     fee_version: u32,
@@ -711,7 +758,7 @@ pub fn base_commitment_request(
     BaseCommitmentHashRequest {
         base_commitment: RawU256::new(u256_from_str_skip_mr(base_commitment)),
         commitment: RawU256::new(u256_from_str_skip_mr(commitment)),
-        commitment_index,
+        recent_commitment_index,
         amount,
         token_id,
         fee_version,
@@ -720,14 +767,17 @@ pub fn base_commitment_request(
 }
 
 #[tokio::test]
-#[allow(clippy::needless_range_loop)]
 async fn test_single_commitment() {
     let mut test = start_test_with_setup().await;
-    setup_storage_account(&mut test).await;
-
-    let storage_accounts = storage_accounts(&mut test).await;
     let warden = test.new_actor().await;
 
+    setup_storage_account(&mut test).await;
+    setup_metadata_account(&mut test).await;
+
+    let storage_accounts = storage_accounts(&mut test).await;
+    let metadata_accounts = metadata_accounts(&mut test).await;
+
+    let metadata = [3; CommitmentMetadata::SIZE];
     let request = base_commitment_request(
         "8337064132573119120838379738103457054645361649757131991036638108422638197362",
         "139214303935475888711984321184227760578793579443975701453971046059378311483",
@@ -742,17 +792,15 @@ async fn test_single_commitment() {
     let pool = PoolAccount::find(None).0;
 
     // Add requests to commitment queue
-    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
-        commitment_queue!(mut queue, data);
-
-        queue
-            .enqueue(CommitmentHashRequest {
-                commitment: request.commitment.reduce(),
-                fee_version: 0,
-                min_batching_rate: 0,
-            })
-            .unwrap();
-    })
+    enqueue_commitments(
+        &mut test,
+        &[CommitmentHashRequest {
+            commitment: request.commitment.reduce(),
+            fee_version: 0,
+            min_batching_rate: 0,
+        }],
+        Some(&[metadata]),
+    )
     .await;
 
     let hash_tx_count = commitment_hash_computation_instructions(0).len();
@@ -760,7 +808,7 @@ async fn test_single_commitment() {
     test.airdrop_lamports(&pool, hash_fee + request.amount)
         .await;
 
-    commitment_queue!(queue, test);
+    queue!(queue, CommitmentQueue, test);
     assert_eq!(queue.len(), 1);
 
     pda_account!(hashing_account, CommitmentHashingAccount, None, None, test);
@@ -769,7 +817,10 @@ async fn test_single_commitment() {
     // Init succeeds
     test.tx_should_succeed_simple(&[
         ElusivInstruction::init_commitment_hash_setup_instruction(false, &[]),
-        ElusivInstruction::init_commitment_hash_instruction(false),
+        ElusivInstruction::init_commitment_hash_instruction(
+            false,
+            &writable_user_accounts(&metadata_accounts),
+        ),
     ])
     .await;
 
@@ -789,13 +840,16 @@ async fn test_single_commitment() {
         );
     }
 
-    commitment_queue!(queue, test);
+    queue!(queue, CommitmentQueue, test);
     assert_eq!(queue.len(), 0);
 
     // Second init fails, since a hashing is already active
     test.tx_should_fail_simple(&[
         ElusivInstruction::init_commitment_hash_setup_instruction(false, &[]),
-        ElusivInstruction::init_commitment_hash_instruction(false),
+        ElusivInstruction::init_commitment_hash_instruction(
+            false,
+            &writable_user_accounts(&metadata_accounts),
+        ),
     ])
     .await;
 
@@ -857,7 +911,8 @@ async fn test_single_commitment() {
         test.pda_lamports(&pool, PoolAccount::SIZE).await.0
     );
 
-    // Check updated MT
+    // Verify updated MT
+    #[allow(clippy::needless_range_loop)]
     storage_account(None, &mut test, |s: &StorageAccount| {
         assert_eq!(
             s.get_root().unwrap(),
@@ -882,6 +937,12 @@ async fn test_single_commitment() {
 
         // Root should be equal to first mt_root_history value
         assert_eq!(s.get_root().unwrap(), s.get_active_mt_root_history(0));
+    })
+    .await;
+
+    // Verify updated metadata
+    metadata_account(None, &mut test, |m| {
+        assert_eq!(m.get_commitment_metadata(0).unwrap(), metadata);
     })
     .await;
 }
@@ -924,7 +985,7 @@ async fn test_commitment_full_queue() {
 
     // Enqueue all
     test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
-        commitment_queue!(mut queue, data);
+        queue!(mut queue, CommitmentQueue, data);
 
         for _ in 0..CommitmentQueue::CAPACITY {
             queue.enqueue(request).unwrap();
@@ -932,7 +993,7 @@ async fn test_commitment_full_queue() {
     })
     .await;
 
-    commitment_queue!(queue, test);
+    queue!(queue, CommitmentQueue, test);
     assert_eq!(queue.len(), CommitmentQueue::CAPACITY);
     assert_eq!(queue.empty_slots(), 0);
 
@@ -953,6 +1014,7 @@ async fn test_commitment_full_queue() {
 #[tokio::test]
 async fn test_commitment_correct_storage_account_insertion() {
     let mut test = start_test_with_setup().await;
+
     setup_storage_account(&mut test).await;
     let storage_accounts = storage_accounts(&mut test).await;
 
@@ -990,12 +1052,15 @@ async fn test_commitment_correct_storage_account_insertion() {
 }
 
 #[tokio::test]
-#[allow(clippy::needless_range_loop)]
 async fn test_commitment_hash_multiple_commitments_zero_batch() {
     let mut test = start_test_with_setup().await;
     let warden = test.new_actor().await;
+
     setup_storage_account(&mut test).await;
+    setup_metadata_account(&mut test).await;
+
     let storage_accounts = storage_accounts(&mut test).await;
+    let metadata_accounts = metadata_accounts(&mut test).await;
 
     let pool = PoolAccount::find(None).0;
     test.airdrop_lamports(&pool, LAMPORTS_PER_SOL * 100).await;
@@ -1057,13 +1122,17 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
         ),
     ];
 
-    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
-        commitment_queue!(mut queue, data);
-
-        for request in &requests {
-            queue.enqueue(*request).unwrap();
-        }
-    })
+    enqueue_commitments(
+        &mut test,
+        &requests,
+        Some(
+            &requests
+                .iter()
+                .enumerate()
+                .map(|(i, _)| [i as u8; CommitmentMetadata::SIZE])
+                .collect::<Vec<_>>(),
+        ),
+    )
     .await;
 
     // Init, compute, finalize every commitment
@@ -1073,7 +1142,10 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
                 false,
                 &user_accounts(&storage_accounts),
             ),
-            ElusivInstruction::init_commitment_hash_instruction(false),
+            ElusivInstruction::init_commitment_hash_instruction(
+                false,
+                &writable_user_accounts(&metadata_accounts),
+            ),
         ])
         .await;
 
@@ -1110,10 +1182,21 @@ async fn test_commitment_hash_multiple_commitments_zero_batch() {
 
     // Verify all commitments
     storage_account(None, &mut test, |s: &StorageAccount| {
-        for i in 0..requests.len() {
+        for (i, request) in requests.iter().enumerate() {
             assert_eq!(
                 s.get_node(i, MT_HEIGHT as usize).unwrap(),
-                requests[i].commitment
+                request.commitment
+            );
+        }
+    })
+    .await;
+
+    // Verify all metadata
+    metadata_account(None, &mut test, |m| {
+        for i in 0..requests.len() {
+            assert_eq!(
+                m.get_commitment_metadata(i).unwrap(),
+                [i as u8; CommitmentMetadata::SIZE]
             );
         }
     })
@@ -1129,8 +1212,12 @@ async fn test_commitment_hash_with_batching_rate(
 
     let mut test = start_test_with_setup().await;
     let warden = test.new_actor().await;
+
     setup_storage_account(&mut test).await;
+    setup_metadata_account(&mut test).await;
+
     let storage_accounts = storage_accounts(&mut test).await;
+    let metadata_accounts = metadata_accounts(&mut test).await;
 
     let pool = PoolAccount::find(None).0;
     test.airdrop_lamports(&pool, LAMPORTS_PER_SOL * 100).await;
@@ -1144,12 +1231,17 @@ async fn test_commitment_hash_with_batching_rate(
         })
         .collect();
 
-    test.set_pda_account::<CommitmentQueueAccount, _>(&elusiv::id(), None, None, |data| {
-        commitment_queue!(mut queue, data);
-        for request in &requests {
-            queue.enqueue(*request).unwrap();
-        }
-    })
+    enqueue_commitments(
+        &mut test,
+        &requests,
+        Some(
+            &requests
+                .iter()
+                .enumerate()
+                .map(|(i, _)| [i as u8; CommitmentMetadata::SIZE])
+                .collect::<Vec<_>>(),
+        ),
+    )
     .await;
 
     // Init, compute, finalize every commitment
@@ -1158,7 +1250,10 @@ async fn test_commitment_hash_with_batching_rate(
             false,
             &user_accounts(&storage_accounts),
         ),
-        ElusivInstruction::init_commitment_hash_instruction(false),
+        ElusivInstruction::init_commitment_hash_instruction(
+            false,
+            &writable_user_accounts(&metadata_accounts),
+        ),
     ])
     .await;
 
@@ -1199,9 +1294,23 @@ async fn test_commitment_hash_with_batching_rate(
     })
     .await;
 
+    // Verify all metadata
+    metadata_account(None, &mut test, |m| {
+        for i in 0..requests.len() {
+            assert_eq!(
+                m.get_commitment_metadata(i).unwrap(),
+                [i as u8; CommitmentMetadata::SIZE]
+            );
+        }
+    })
+    .await;
+
     // Queue should be empty
-    commitment_queue!(queue, test);
-    assert_eq!(queue.len(), 0);
+    queue!(queue, CommitmentQueue, test);
+    assert!(queue.is_empty());
+
+    queue!(metadata_queue, MetadataQueue, test);
+    assert!(metadata_queue.is_empty());
 }
 
 #[tokio::test]

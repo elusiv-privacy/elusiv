@@ -232,7 +232,6 @@ mod tests {
         state::{governor::PoolAccount, proof::VerificationAccount},
         token::TOKENS,
     };
-    use assert_matches::assert_matches;
     use solana_program::{pubkey::Pubkey, system_program};
 
     #[test]
@@ -243,7 +242,7 @@ mod tests {
         test_account_info!(src, 0, spl_token::id());
         test_account_info!(dst, 0, spl_token::id());
 
-        assert_matches!(
+        assert_eq!(
             transfer_token_from_pda::<PoolAccount>(
                 &non_pda,
                 &src,
@@ -253,10 +252,10 @@ mod tests {
                 None,
                 None
             ),
-            Err(_)
+            Err(ElusivError::InvalidAccount.into())
         );
 
-        assert_matches!(
+        assert_eq!(
             transfer_token_from_pda::<PoolAccount>(
                 &pda,
                 &src,
@@ -266,7 +265,7 @@ mod tests {
                 None,
                 None
             ),
-            Ok(_)
+            Ok(())
         );
     }
 
@@ -278,12 +277,12 @@ mod tests {
         account_info!(system_program, system_program::id(), vec![]);
         account_info!(invalid_system_program, Pubkey::new_unique(), vec![]);
 
-        assert_matches!(
+        assert_eq!(
             transfer_with_system_program(&source, &destination, &invalid_system_program, 100),
-            Err(_)
+            Err(ProgramError::IncorrectProgramId)
         );
 
-        assert_matches!(
+        assert_eq!(
             transfer_with_system_program(&source, &destination, &system_program, 100),
             Ok(())
         );
@@ -301,7 +300,7 @@ mod tests {
         account_info!(token_program, spl_token::id(), vec![]);
         account_info!(invalid_token_program, Pubkey::new_unique(), vec![]);
 
-        assert_matches!(
+        assert_eq!(
             transfer_with_token_program(
                 &source,
                 &source_token_account,
@@ -310,10 +309,10 @@ mod tests {
                 100,
                 None,
             ),
-            Err(_)
+            Err(ElusivError::InvalidAccount.into())
         );
 
-        assert_matches!(
+        assert_eq!(
             transfer_with_token_program(
                 &source,
                 &invalid_source_token_account,
@@ -322,10 +321,10 @@ mod tests {
                 100,
                 None,
             ),
-            Err(_)
+            Err(ElusivError::InvalidAccount.into())
         );
 
-        assert_matches!(
+        assert_eq!(
             transfer_with_token_program(
                 &source,
                 &source_token_account,
@@ -334,10 +333,10 @@ mod tests {
                 100,
                 None,
             ),
-            Err(_)
+            Err(ElusivError::InvalidAccount.into())
         );
 
-        assert_matches!(
+        assert_eq!(
             transfer_with_token_program(
                 &source,
                 &source_token_account,
@@ -356,7 +355,7 @@ mod tests {
         let (pubkey, bump) = VerificationAccount::find(Some(3));
         account_info!(pda_account, pubkey, vec![]);
 
-        assert_matches!(
+        assert_eq!(
             open_pda_account_with_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
@@ -364,10 +363,10 @@ mod tests {
                 2,
                 None
             ),
-            Err(_)
+            Err(ProgramError::InvalidSeeds)
         );
 
-        assert_matches!(
+        assert_eq!(
             open_pda_account_with_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
@@ -379,7 +378,7 @@ mod tests {
         );
 
         // Using bump:
-        assert_matches!(
+        assert_eq!(
             open_pda_account_with_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
@@ -387,10 +386,10 @@ mod tests {
                 2,
                 Some(bump)
             ),
-            Err(_)
+            Err(ProgramError::InvalidSeeds)
         );
 
-        assert_matches!(
+        assert_eq!(
             open_pda_account_with_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
@@ -398,10 +397,10 @@ mod tests {
                 3,
                 Some(0)
             ),
-            Err(_)
+            Err(ProgramError::InvalidSeeds)
         );
 
-        assert_matches!(
+        assert_eq!(
             open_pda_account_with_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
@@ -423,17 +422,17 @@ mod tests {
         let (invalid_pubkey, invalid_bump) = VerificationAccount::find(Some(0));
         account_info!(invalid_pda_account, invalid_pubkey, vec![]);
 
-        assert_matches!(
+        assert_eq!(
             open_pda_account_without_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
                 &invalid_pda_account,
                 None
             ),
-            Err(_)
+            Err(ProgramError::InvalidSeeds)
         );
 
-        assert_matches!(
+        assert_eq!(
             open_pda_account_without_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
@@ -444,28 +443,28 @@ mod tests {
         );
 
         // Using bump:
-        assert_matches!(
+        assert_eq!(
             open_pda_account_without_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
                 &invalid_pda_account,
                 Some(bump)
             ),
-            Err(_)
+            Err(ProgramError::InvalidSeeds)
         );
 
-        assert_matches!(
+        assert_eq!(
             open_pda_account_without_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
                 &invalid_pda_account,
                 Some(invalid_bump)
             ),
-            Err(_)
+            Err(ProgramError::InvalidSeeds)
         );
 
         // Invalid bump can be supplied for None due to FIRST_PDA
-        assert_matches!(
+        assert_eq!(
             open_pda_account_without_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
@@ -475,7 +474,7 @@ mod tests {
             Ok(())
         );
 
-        assert_matches!(
+        assert_eq!(
             open_pda_account_without_offset::<VerificationAccount>(
                 &crate::id(),
                 &payer,
@@ -494,19 +493,19 @@ mod tests {
         unsafe {
             // Underflow
             let balance = pda.lamports();
-            assert_matches!(
+            assert_eq!(
                 transfer_lamports_from_pda(&pda, &recipient, balance + 1),
-                Err(_)
+                Err(MATH_ERR)
             );
 
             // Overflow
-            assert_matches!(
+            assert_eq!(
                 transfer_lamports_from_pda(&pda, &recipient, u64::MAX),
-                Err(_)
+                Err(MATH_ERR)
             );
 
             // Valid amount
-            assert_matches!(
+            assert_eq!(
                 transfer_lamports_from_pda(&pda, &recipient, balance),
                 Ok(())
             );
@@ -522,7 +521,7 @@ mod tests {
 
         let start_balance = account.lamports();
 
-        assert_matches!(close_account(&payer, &account), Ok(()));
+        assert_eq!(close_account(&payer, &account), Ok(()));
 
         assert_eq!(account.lamports(), 0);
         assert_ne!(account.lamports(), start_balance);
@@ -538,23 +537,23 @@ mod tests {
         account_info!(token_account0, pk_pool_0, vec![]);
         account_info!(token_account1, pk_pool_1, vec![]);
 
-        assert_matches!(verify_program_token_account(&pool, &pool, 0), Ok(()));
-        assert_matches!(
+        assert_eq!(verify_program_token_account(&pool, &pool, 0), Ok(()));
+        assert_eq!(
             verify_program_token_account(&pool, &token_account0, 1),
-            Ok(_)
+            Ok(())
         );
-        assert_matches!(
+        assert_eq!(
             verify_program_token_account(&pool, &token_account1, 1),
-            Err(_)
+            Err(ElusivError::InvalidAccount.into())
         );
 
-        assert_matches!(
+        assert_eq!(
             verify_program_token_account(&pool, &token_account1, 2),
-            Ok(_)
+            Ok(())
         );
-        assert_matches!(
+        assert_eq!(
             verify_program_token_account(&pool, &token_account0, 2),
-            Err(_)
+            Err(ElusivError::InvalidAccount.into())
         );
     }
 }

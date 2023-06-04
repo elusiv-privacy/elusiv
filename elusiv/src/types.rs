@@ -1,7 +1,9 @@
 use crate::bytes::BorshSerDeSized;
 use crate::fields::{fr_to_u256_le, u256_to_big_uint, u64_to_u256_skip_mr, G1A, G2A};
 use crate::macros::BorshSerDeSized;
+use crate::processor::MAX_MT_COUNT;
 use crate::proof::vkey::{MigrateUnaryVKey, SendQuadraVKey, VerifyingKeyInfo};
+use crate::state::metadata::CommitmentMetadata;
 use crate::state::proof::NullifierDuplicateAccount;
 use crate::u64_array;
 use ark_bn254::Fr;
@@ -286,16 +288,25 @@ pub struct InputCommitment {
     pub nullifier_hash: RawU256,
 }
 
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, PartialEq, Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct OptionalFee {
+    pub collector: Pubkey,
+    pub amount: u64,
+}
+
 #[derive(BorshDeserialize, BorshSerialize, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct JoinSplitPublicInputs {
     pub input_commitments: Vec<InputCommitment>,
     pub output_commitment: RawU256,
-    pub output_commitment_index: u32,
+    pub recent_commitment_index: u32,
     pub fee_version: u32,
     pub amount: u64,
     pub fee: u64,
+    pub optional_fee: OptionalFee,
     pub token_id: u16,
+    pub metadata: CommitmentMetadata,
 }
 
 impl JoinSplitPublicInputs {
@@ -347,7 +358,18 @@ pub const JOIN_SPLIT_MAX_N_ARITY: usize = 4;
 
 impl BorshSerDeSized for JoinSplitPublicInputs {
     // only used as maximum size in this context
-    const SIZE: usize = 4 + (JOIN_SPLIT_MAX_N_ARITY * 32 * 2) + 32 + 4 + 8 + 8 + 2;
+    const SIZE: usize = 4 // input_commitments length
+        + JOIN_SPLIT_MAX_N_ARITY * 32 // all nullifier hashes
+        + MAX_MT_COUNT * (32 + 1) // unique roots
+        + (JOIN_SPLIT_MAX_N_ARITY - MAX_MT_COUNT) // roots identical to the first root
+        + 32 // output_commitment
+        + 4 // recent_commitment_index
+        + 4 // fee_version
+        + 8 // amount
+        + 8 // fee
+        + OptionalFee::SIZE
+        + 2 // token_id
+        + CommitmentMetadata::SIZE;
 }
 
 pub trait PublicInputs {
@@ -379,13 +401,16 @@ pub struct SendPublicInputs {
     pub hashed_inputs: U256,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn generate_hashed_inputs(
-    recipient: U256,
-    identifier: U256,
-    iv: U256,
-    encrypted_owner: U256,
-    transaction_reference: U256,
+    recipient: &U256,
+    identifier: &U256,
+    iv: &U256,
+    encrypted_owner: &U256,
+    transaction_reference: &U256,
     is_associated_token_account: bool,
+    metadata: &CommitmentMetadata,
+    optional_fee: &OptionalFee,
     memo: &Option<Vec<u8>>,
 ) -> U256 {
     let mut data = recipient.to_vec();
@@ -394,6 +419,9 @@ pub fn generate_hashed_inputs(
     data.extend(encrypted_owner);
     data.extend(transaction_reference);
     data.extend([u8::from(is_associated_token_account)]);
+    data.extend(metadata);
+    data.extend(optional_fee.collector.to_bytes());
+    data.extend(optional_fee.amount.to_le_bytes());
 
     if let Some(memo) = memo {
         data.extend(memo);
@@ -471,7 +499,7 @@ impl PublicInputs for SendPublicInputs {
             RawU256(u64_to_u256_skip_mr(self.join_split.total_amount())),
             self.join_split.output_commitment,
             RawU256(u64_to_u256_skip_mr(
-                self.join_split.output_commitment_index as u64,
+                self.join_split.recent_commitment_index as u64,
             )),
             RawU256(u64_to_u256_skip_mr(self.join_split.fee_version as u64)),
             RawU256(u64_to_u256_skip_mr(self.join_split.token_id as u64)),
@@ -518,11 +546,11 @@ impl PublicInputs for MigratePublicInputs {
             self.join_split.input_commitments[0].root.unwrap(),
             self.join_split.output_commitment,
             RawU256(u64_to_u256_skip_mr(
-                self.join_split.output_commitment_index as u64,
+                self.join_split.recent_commitment_index as u64,
             )),
             self.current_nsmt_root,
             self.next_nsmt_root,
-            RawU256(u64_to_u256_skip_mr(self.join_split.fee_version as u64)),
+            // RawU256(u64_to_u256_skip_mr(self.join_split.fee_version as u64)),
             RawU256(u64_to_u256_skip_mr(self.join_split.total_amount())),
         ]
     }
@@ -595,6 +623,7 @@ mod test {
     use super::*;
     use crate::{
         fields::{u256_from_str_skip_mr, u256_to_fr_skip_mr},
+        processor::MAX_MT_COUNT,
         proof::verifier::proof_from_str,
     };
     use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
@@ -686,11 +715,13 @@ mod test {
                 nullifier_hash: RawU256::new(u256_from_str_skip_mr("333")),
             }],
             output_commitment: RawU256::new(u256_from_str_skip_mr("44444")),
-            output_commitment_index: 123,
+            recent_commitment_index: 123,
             fee_version: 999,
             amount: 666,
             fee: 777,
+            optional_fee: OptionalFee::default(),
             token_id: 0,
+            metadata: CommitmentMetadata::default(),
         };
 
         let serialized = inputs.try_to_vec().unwrap();
@@ -715,11 +746,13 @@ mod test {
                     },
                 ],
                 output_commitment: RawU256([0; 32]),
-                output_commitment_index: 123,
+                recent_commitment_index: 123,
                 fee_version: 0,
                 amount: 0,
                 fee: 0,
+                optional_fee: OptionalFee::default(),
                 token_id: 0,
+                metadata: CommitmentMetadata::default(),
             },
             hashed_inputs: [0; 32],
             recipient_is_associated_token_account: true,
@@ -758,11 +791,13 @@ mod test {
                     }
                 ],
                 output_commitment: RawU256::new(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
-                output_commitment_index: 123,
+                recent_commitment_index: 123,
                 fee_version: 0,
                 amount: 50000,
                 fee: 1,
+                optional_fee: OptionalFee::default(),
                 token_id: 3,
+                metadata: CommitmentMetadata::default(),
             },
             hashed_inputs: u256_from_str_skip_mr("306186522190603117929438292402982536627"),
             recipient_is_associated_token_account: true,
@@ -794,6 +829,42 @@ mod test {
     }
 
     #[test]
+    fn test_join_split_public_inputs_size() {
+        let mut input_commitments = vec![
+            InputCommitment {
+                root: Some(RawU256([1; 32])),
+                nullifier_hash: RawU256::new([1; 32]),
+            };
+            MAX_MT_COUNT
+        ];
+        for _ in 0..JOIN_SPLIT_MAX_N_ARITY - MAX_MT_COUNT {
+            input_commitments.push(InputCommitment {
+                root: None,
+                nullifier_hash: RawU256::new([1; 32]),
+            });
+        }
+        let join_split = JoinSplitPublicInputs {
+            input_commitments,
+            output_commitment: RawU256::new([1; 32]),
+            recent_commitment_index: u32::MAX,
+            fee_version: u32::MAX,
+            amount: u64::MAX,
+            fee: u64::MAX,
+            optional_fee: OptionalFee {
+                collector: Pubkey::new_unique(),
+                amount: u64::MAX,
+            },
+            token_id: u16::MAX,
+            metadata: [1; CommitmentMetadata::SIZE],
+        };
+
+        assert_eq!(
+            JoinSplitPublicInputs::SIZE,
+            join_split.try_to_vec().unwrap().len()
+        );
+    }
+
+    #[test]
     fn test_send_public_inputs_serde() {
         let str = "
         {
@@ -806,11 +877,16 @@ mod test {
                     }
                 ],
                 \"output_commitment\":[146,94,46,51,211,4,49,85,42,229,99,188,226,49,115,65,108,37,190,116,123,32,2,181,59,231,108,209,18,13,235,45],
-                \"output_commitment_index\":123,
+                \"recent_commitment_index\":123,
                 \"fee_version\":0,
                 \"amount\":100000000,
                 \"fee\":120000,
-                \"token_id\":0
+                \"optional_fee\": {
+                    \"collector\": [220,109,75,166,42,21,212,57,27,45,247,16,115,107,121,228,172,110,162,119,166,173,100,50,196,104,230,12,112,119,15,30],
+                    \"amount\": 99
+                },
+                \"token_id\":0,
+                \"metadata\":[255,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]
             },
             \"hashed_inputs\":[239,6,63,227,53,18,117,85,172,69,192,148,3,201,244,219,177,39,64,179,204,41,240,146,189,20,177,226,231,33,176,0],
             \"recipient_is_associated_token_account\":true,
@@ -834,11 +910,13 @@ mod test {
                     nullifier_hash: RawU256::new([0; 32]),
                 }],
                 output_commitment: RawU256::new([0; 32]),
-                output_commitment_index: 123,
+                recent_commitment_index: 123,
                 fee_version: 0,
                 amount: 0,
                 fee: 0,
+                optional_fee: OptionalFee::default(),
                 token_id: 0,
+                metadata: CommitmentMetadata::default(),
             },
             current_nsmt_root: RawU256([0; 32]),
             next_nsmt_root: RawU256([0; 32]),
@@ -873,11 +951,13 @@ mod test {
                     }
                 ],
                 output_commitment: RawU256::new(u256_from_str_skip_mr("12986953721358354389598211912988135563583503708016608019642730042605916285029")),
-                output_commitment_index: 123,
+                recent_commitment_index: 123,
                 fee_version: 0,
                 amount: 50000,
                 fee: 1,
+                optional_fee: OptionalFee::default(),
                 token_id: 2,
+                metadata: CommitmentMetadata::default(),
             },
             current_nsmt_root: RawU256(u256_from_str_skip_mr("21233465679819394895497108546111032364089063960863923090101683")),
             next_nsmt_root: RawU256(u256_from_str_skip_mr("409746283836180593012730668816372135835438959821191292730")),
@@ -950,30 +1030,58 @@ mod test {
             "115792089237316195423570985008687907853269984665640564039457584007913129639935",
         );
         let identifier = u256_from_str_skip_mr(
-            "7664287681500223472370483741580378590496434315208292049383954342296148132753",
+            "2724519746760381068789905529616186067135764345073895624457825506068544226822",
         );
         let iv = u256_from_str_skip_mr("5683487854789");
-        let encrypted_owner = u256_from_str_skip_mr(
-            "21620303059720667189546524860541209640581655979702452251272504609177116384089",
-        );
-        let solana_pay_id = u256_from_str_skip_mr(
-            "15301892188911160449341837174902405446602050384096489477117140364841430914614",
-        );
-        let is_associated_token_account = true;
+        let encrypted_owner = u256_from_str_skip_mr("5789489458548458945478235642378");
+        let solana_pay_id = u256_from_str_skip_mr("2739264834378438439");
+        let is_associated_token_account = false;
+        let metadata = u256_from_str_skip_mr("5806146055028818284759215385528282317313")
+            [..CommitmentMetadata::SIZE]
+            .try_into()
+            .unwrap();
+        let optional_fee = OptionalFee {
+            collector: Pubkey::new_from_array(u256_from_str_skip_mr(
+                "47245630098656629409689502135467576747915749142015942317587311262393467745251",
+            )),
+            amount: 1000000,
+        };
 
         let expected = u256_from_str_skip_mr(
-            "13377023609243152888087996289546074665572546267939720535001129695597521747191",
+            "5593953132782974239527342909647286690390142208813910555015910557707363192433",
         );
 
         assert_eq!(
             generate_hashed_inputs(
-                recipient,
-                identifier,
-                iv,
-                encrypted_owner,
-                solana_pay_id,
+                &recipient,
+                &identifier,
+                &iv,
+                &encrypted_owner,
+                &solana_pay_id,
                 is_associated_token_account,
+                &metadata,
+                &optional_fee,
                 &None
+            ),
+            expected
+        );
+
+        let memo = Some(vec![1, 6, 7, 88, 88, 8, 8, 8, 8, 84, 3]);
+        let expected = u256_from_str_skip_mr(
+            "7190753645577115026314391505244643580055580854837751025314898582887072501874",
+        );
+
+        assert_eq!(
+            generate_hashed_inputs(
+                &recipient,
+                &identifier,
+                &iv,
+                &encrypted_owner,
+                &solana_pay_id,
+                is_associated_token_account,
+                &metadata,
+                &optional_fee,
+                &memo
             ),
             expected
         );

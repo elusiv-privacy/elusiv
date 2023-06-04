@@ -3,7 +3,7 @@ use std::fmt;
 
 pub type ElusivResult = Result<(), ElusivError>;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[cfg_attr(any(test, feature = "elusiv-client"), derive(Debug))]
 pub enum ElusivError {
     InvalidInstructionData,
@@ -15,11 +15,12 @@ pub enum ElusivError {
     InvalidRecipient,
     InvalidAccountState,
     NonScalarValue,
-    MissingSubAccount,
+    MissingChildAccount,
     FeatureNotAvailable,
     UnsupportedToken,
     OracleError,
     DuplicateValue,
+    MissingValue,
 
     // Merkle tree
     InvalidMerkleRoot,
@@ -30,6 +31,7 @@ pub enum ElusivError {
     // Commitment
     NoRoomForCommitment,
     InvalidBatchingRate,
+    InvalidRecentCommitmentIndex,
 
     // Proof
     InvalidPublicInputs,
@@ -46,7 +48,6 @@ pub enum ElusivError {
 
     // Partial computations
     PartialComputationError,
-    AccountCannotBeReset,
     ComputationIsNotYetStarted,
     ComputationIsNotYetFinished,
     ComputationIsAlreadyFinished,
@@ -56,8 +57,8 @@ pub enum ElusivError {
     InvalidFeeVersion,
 
     // Accounts
-    SubAccountAlreadyExists,
-    SubAccouttDoesNotExists,
+    ChildAccountAlreadyExists,
+    ChildAccouttDoesNotExists,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -71,5 +72,16 @@ impl From<ElusivError> for ProgramError {
 impl fmt::Display for ElusivError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", *self as u32)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use elusiv_types::TokenError;
+
+    #[test]
+    fn test_sdk_error_codes() {
+        assert_eq!(ProgramError::Custom(105), TokenError::PriceError.into());
     }
 }

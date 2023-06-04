@@ -3,12 +3,17 @@ use crate::bytes::{is_zero, BorshSerDeSized, ElusivOption};
 use crate::commitment::DEFAULT_COMMITMENT_BATCHING_RATE;
 use crate::error::ElusivError;
 use crate::macros::*;
-use crate::state::commitment::{BaseCommitmentBufferAccount, CommitmentHashingAccount};
+use crate::state::commitment::{
+    BaseCommitmentBufferAccount, CommitmentBufferAccount, CommitmentHashingAccount,
+    CommitmentQueue, CommitmentQueueAccount,
+};
+use crate::state::metadata::{MetadataAccount, MetadataQueueAccount};
+use crate::state::queue::RingQueue;
 use crate::state::{
     fee::{FeeAccount, ProgramFee},
     governor::{FeeCollectorAccount, GovernorAccount, PoolAccount},
     nullifier::{NullifierAccount, NullifierChildAccount},
-    queue::{CommitmentQueue, CommitmentQueueAccount, Queue},
+    queue::Queue,
     storage::{StorageAccount, MT_COMMITMENT_COUNT},
 };
 use crate::{bytes::usize_as_u32_safe, map::ElusivMap};
@@ -132,6 +137,23 @@ pub fn enable_nullifier_child_account(
     Ok(())
 }
 
+/// Enables the supplied child-account for the [`MetadataAccount`]
+pub fn enable_metadata_child_account(
+    metadata_account: &mut MetadataAccount,
+    child_account: &AccountInfo,
+
+    child_index: u32,
+) -> ProgramResult {
+    // Note: we don't zero-check these accounts, since we will never access data that has not been set by the program
+    setup_child_account(
+        metadata_account,
+        child_account,
+        child_index as usize,
+        false,
+        None,
+    )
+}
+
 /// Closes the active MT and activates the next one
 ///
 /// # Notes
@@ -164,6 +186,59 @@ pub fn reset_active_merkle_tree(
     Ok(())
 }
 
+pub fn create_new_accounts_v1<'a, 'b>(
+    payer: &AccountInfo<'b>,
+    commitment_buffer_account: UnverifiedAccountInfo<'a, 'b>,
+    metadata_queue: UnverifiedAccountInfo<'a, 'b>,
+    metadata_account: UnverifiedAccountInfo<'a, 'b>,
+    storage_account: &StorageAccount,
+    commitment_hashing_account: &CommitmentHashingAccount,
+    commitment_queue_account: &mut CommitmentQueueAccount,
+) -> ProgramResult {
+    // TODO: add this functionality to the single instance initialization
+    open_pda_account_without_offset::<CommitmentBufferAccount>(
+        &crate::id(),
+        payer,
+        commitment_buffer_account.get_unsafe(),
+        None,
+    )?;
+
+    open_pda_account_without_offset::<MetadataQueueAccount>(
+        &crate::id(),
+        payer,
+        metadata_queue.get_unsafe(),
+        None,
+    )?;
+
+    open_pda_account_without_offset::<MetadataAccount>(
+        &crate::id(),
+        payer,
+        metadata_account.get_unsafe(),
+        None,
+    )?;
+
+    // Ensure that there is no commitment that is being hashed
+    guard!(
+        !commitment_hashing_account.get_is_active(),
+        ElusivError::InvalidAccountState
+    );
+
+    // Ensure that there is no commitment awaiting insertion
+    let commitment_queue = CommitmentQueue::new(commitment_queue_account);
+    guard!(
+        commitment_queue.is_empty(),
+        ElusivError::InvalidAccountState
+    );
+
+    // Transfer the commitment index from the storage-account (required for the upgrade of the deployed program)
+    let next_commitment_ptr = storage_account.get_next_commitment_ptr();
+    let metadata_account = metadata_account.get_unsafe();
+    pda_account!(mut metadata_account, MetadataAccount, metadata_account);
+    metadata_account.set_next_metadata_ptr(&next_commitment_ptr);
+
+    Ok(())
+}
+
 fn is_mt_full(
     storage_account: &StorageAccount,
     queue: &CommitmentQueue,
@@ -181,12 +256,12 @@ fn is_mt_full(
     Ok(false)
 }
 
-/// Archives a closed MT by creating creating a N-SMT in an [`ArchivedTreeAccount`]
+/// Archives a closed MT by creating creating a N-SMT in an [`ArchivedNullifierAccount`]
 pub fn archive_closed_merkle_tree<'a>(
     _payer: &AccountInfo<'a>,
     storage_account: &mut StorageAccount,
     _nullifier_account: &mut NullifierAccount,
-    _archived_tree_account: &AccountInfo<'a>,
+    _archived_nullifier_account: &AccountInfo<'a>,
 
     closed_merkle_tree_index: u32,
 ) -> ProgramResult {
@@ -299,7 +374,7 @@ pub fn setup_child_account<'a, 'b, 't, P: ParentAccount<'a, 'b, 't>>(
     size: Option<usize>,
 ) -> ProgramResult {
     if parent_account.get_child_pubkey(child_index).is_some() {
-        return Err(ElusivError::SubAccountAlreadyExists.into());
+        return Err(ElusivError::ChildAccountAlreadyExists.into());
     }
 
     verify_extern_data_account(
@@ -330,17 +405,18 @@ fn verify_extern_data_account(
 ) -> ProgramResult {
     guard!(
         account.data_len() == data_len,
-        ElusivError::InvalidInstructionData
+        ProgramError::InvalidAccountData
     );
+
     guard!(
         data_len >= ChildAccountConfig::SIZE,
-        ElusivError::InvalidInstructionData
+        ProgramError::InvalidAccountData
     );
 
     if check_zeroness {
         guard!(
             is_zero(&account.data.borrow()[..]),
-            ElusivError::InvalidInstructionData
+            ProgramError::InvalidAccountData
         );
     }
 
@@ -349,20 +425,17 @@ fn verify_extern_data_account(
         // only unit-testing (since we have no ledger there)
         guard!(
             account.lamports() >= u32::MAX as u64,
-            ElusivError::InvalidInstructionData
+            ProgramError::AccountNotRentExempt
         );
     } else {
         guard!(
             account.lamports() >= Rent::get()?.minimum_balance(data_len),
-            ElusivError::InvalidInstructionData
+            ProgramError::AccountNotRentExempt
         );
     }
 
     // Check ownership
-    guard!(
-        *account.owner == crate::id(),
-        ElusivError::InvalidInstructionData
-    );
+    guard!(*account.owner == crate::id(), ProgramError::IllegalOwner);
 
     Ok(())
 }
@@ -376,15 +449,13 @@ mod tests {
         state::{program_account::SizedAccount, queue::RingQueue, storage::StorageChildAccount},
         types::U256,
     };
-    use assert_matches::assert_matches;
     use elusiv_types::ProgramAccount;
-    use solana_program::pubkey::Pubkey;
+    use solana_program::{pubkey::Pubkey, system_program};
 
     #[test]
     fn test_enable_storage_child_account() {
         let mut data = vec![0; StorageAccount::SIZE];
         let mut storage_account = StorageAccount::new(&mut data).unwrap();
-        storage_account.set_child_pubkey(0, ElusivOption::Some(Pubkey::new_unique()));
 
         // Account has invalid size
         account_info!(
@@ -392,10 +463,12 @@ mod tests {
             Pubkey::new_unique(),
             vec![0; StorageChildAccount::SIZE - 1]
         );
-        assert_matches!(
+        assert_eq!(
             enable_storage_child_account(&mut storage_account, &child_account, 0),
-            Err(_)
+            Err(ProgramError::InvalidAccountData)
         );
+
+        storage_account.set_child_pubkey(0, ElusivOption::Some(Pubkey::new_unique()));
 
         // Account has already been setup
         account_info!(
@@ -403,22 +476,22 @@ mod tests {
             Pubkey::new_unique(),
             vec![0; StorageChildAccount::SIZE]
         );
-        assert_matches!(
+        assert_eq!(
             enable_storage_child_account(&mut storage_account, &child_account, 0),
-            Err(_)
+            Err(ElusivError::ChildAccountAlreadyExists.into())
         );
 
         // Success at different index
-        assert_matches!(
+        assert_eq!(
             enable_storage_child_account(&mut storage_account, &child_account, 3),
             Ok(())
         );
         assert_eq!(child_account.data.borrow()[0], 1);
 
         // Account already is use
-        assert_matches!(
+        assert_eq!(
             enable_storage_child_account(&mut storage_account, &child_account, 1),
-            Err(_)
+            Err(ProgramError::AccountAlreadyInitialized)
         );
     }
 
@@ -426,7 +499,6 @@ mod tests {
     fn test_enable_nullifier_child_account() {
         let mut data = vec![0; NullifierAccount::SIZE];
         let mut nullifier_account = NullifierAccount::new(&mut data).unwrap();
-        nullifier_account.set_child_pubkey(0, ElusivOption::Some(Pubkey::new_unique()));
 
         // Account has invalid size
         account_info!(
@@ -434,10 +506,12 @@ mod tests {
             Pubkey::new_unique(),
             vec![0; NullifierChildAccount::SIZE - 1]
         );
-        assert_matches!(
+        assert_eq!(
             enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 0),
-            Err(_)
+            Err(ProgramError::InvalidAccountData)
         );
+
+        nullifier_account.set_child_pubkey(0, ElusivOption::Some(Pubkey::new_unique()));
 
         // Account has already been setup
         account_info!(
@@ -445,22 +519,22 @@ mod tests {
             Pubkey::new_unique(),
             vec![0; NullifierChildAccount::SIZE]
         );
-        assert_matches!(
+        assert_eq!(
             enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 0),
-            Err(_)
+            Err(ElusivError::ChildAccountAlreadyExists.into())
         );
 
         // Success at different index with
-        assert_matches!(
+        assert_eq!(
             enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 3),
             Ok(())
         );
         assert_eq!(child_account.data.borrow()[0], 1);
 
         // Account already is use
-        assert_matches!(
+        assert_eq!(
             enable_nullifier_child_account(&mut nullifier_account, &child_account, 0, 1),
-            Err(_)
+            Err(ProgramError::AccountAlreadyInitialized)
         );
     }
 
@@ -533,18 +607,31 @@ mod tests {
 
         // Mismatched size
         account_info!(account, pk, vec![0; 100]);
-        assert_matches!(verify_extern_data_account(&account, 99, true), Err(_));
+        assert_eq!(
+            verify_extern_data_account(&account, 99, true),
+            Err(ProgramError::InvalidAccountData)
+        );
 
         // Non-zero
         account_info!(account, pk, vec![1; 100]);
-        assert_matches!(verify_extern_data_account(&account, 100, true), Err(_));
+        assert_eq!(
+            verify_extern_data_account(&account, 100, true),
+            Err(ProgramError::InvalidAccountData)
+        );
 
         // Ignore zero
-        assert_matches!(verify_extern_data_account(&account, 100, false), Ok(()));
+        assert_eq!(verify_extern_data_account(&account, 100, false), Ok(()));
+
+        // Invalid owner
+        account_info!(account, pk, vec![0; 100], system_program::id(), false);
+        assert_eq!(
+            verify_extern_data_account(&account, 100, true),
+            Err(ProgramError::IllegalOwner)
+        );
 
         // Check zero
         account_info!(account, pk, vec![0; 100]);
-        assert_matches!(verify_extern_data_account(&account, 100, true), Ok(()));
+        assert_eq!(verify_extern_data_account(&account, 100, true), Ok(()));
     }
 
     struct TestChildAccount;
