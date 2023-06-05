@@ -37,3 +37,16 @@ max = 8_000_000_000
 # https://pyth.network/price-feeds/crypto-usdt-usd
 pyth_usd_price_mainnet = "3vxLXJqLqF3JG5TCbYycbKWRBbCJQLxQmBGCkyqEEefL"
 pyth_usd_price_devnet = "38xoQ4oeJCBrcVvca2cGk7iV1dAfrmTR1kmhSCJQ8Jto"
+
+[[token]]
+symbol = "SAMO"
+# https://explorer.solana.com/address/7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU
+mint = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
+mint_devnet = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
+active = true
+decimals = 9
+min = 10_000_000
+max = 2_000_000_000_000_000
+# https://pyth.network/price-feeds/crypto-samo-usd
+pyth_usd_price_mainnet = "5wRjzrwWZG3af3FE26ZrRj3s8A3BVNyeJ9Pt9Uf2ogdf"
+pyth_usd_price_devnet = "G7dySNGaxZ8y2E89aX1K6rFeBt2ZnYBqXuCu1k2Y9MEe"
