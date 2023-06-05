@@ -26,21 +26,6 @@ pyth_usd_price_mainnet = "Gnt27xtC473ZT2Mw5u8wZ68Z3gULkSTb5DuxJy7eJotD"
 pyth_usd_price_devnet = "5SSkXsEKQepHHAewytPVwdej4epN1nxgLVM84L4KXgy7"
 
 [[token]]
-symbol = "BONK"
-# https://explorer.solana.com/address/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263
-mint = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
-mint_devnet = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
-active = true
-decimals = 5
-# 100M BONK
-min = 10_000_000_000_000
-# 100B BONK
-max = 10_000_000_000_000_000
-# https://pyth.network/price-feeds/crypto-bonk-usd
-pyth_usd_price_mainnet = "8ihFLu5FimgTQ1Unh4dVyEHUGodJ5gJQCrQf4KUVB9bN"
-pyth_usd_price_devnet = "6bquU99ktV1VRiHDr8gMhDFt3kMfhCQo5nfNrg2Urvsn"
-
-[[token]]
 symbol = "USDT"
 # https://explorer.solana.com/address/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB
 mint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
@@ -65,3 +50,16 @@ max = 360_000_000_000
 # https://pyth.network/price-feeds/crypto-msol-usd
 pyth_usd_price_mainnet = "E4v1BBgoso9s64TQvmyownAVJbhbEPGyzA3qn4n46qj9"
 pyth_usd_price_devnet = "9a6RNx3tCu1TSs6TBSfV2XRXEPEZXQ6WB7jRojZRvyeZ"
+
+[[token]]
+symbol = "BONK"
+# https://explorer.solana.com/address/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263
+mint = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+mint_devnet = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+active = true
+decimals = 5
+min = 1_000_000_000 # 10K units
+max = 2_000_000_000_000_000 # 20B units
+# https://pyth.network/price-feeds/crypto-bonk-usd
+pyth_usd_price_mainnet = "8ihFLu5FimgTQ1Unh4dVyEHUGodJ5gJQCrQf4KUVB9bN"
+pyth_usd_price_devnet = "6bquU99ktV1VRiHDr8gMhDFt3kMfhCQo5nfNrg2Urvsn"
