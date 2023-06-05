@@ -42,7 +42,7 @@ pyth_usd_price_devnet = "38xoQ4oeJCBrcVvca2cGk7iV1dAfrmTR1kmhSCJQ8Jto"
 symbol = "mSOL"
 # https://explorer.solana.com/address/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So
 mint = "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So"
-mint_devnet = "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So"
+mint_devnet = "4EnmvnhxdmMrHQeHXh5tRnhCCUJpdCjmWjrnJPr3YNzi"
 active = true
 decimals = 9
 min = 1_000
@@ -55,7 +55,7 @@ pyth_usd_price_devnet = "9a6RNx3tCu1TSs6TBSfV2XRXEPEZXQ6WB7jRojZRvyeZ"
 symbol = "BONK"
 # https://explorer.solana.com/address/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263
 mint = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
-mint_devnet = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+mint_devnet = "5B2TabGvtPgV67jnyEhhSrFvTTBv4awdrPg2qxNashhm"
 active = true
 decimals = 5
 min = 1_000_000_000 # 10K units
@@ -68,11 +68,11 @@ pyth_usd_price_devnet = "6bquU99ktV1VRiHDr8gMhDFt3kMfhCQo5nfNrg2Urvsn"
 symbol = "SAMO"
 # https://explorer.solana.com/address/7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU
 mint = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
-mint_devnet = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
+mint_devnet = "QcvLaJJPXCTmcBsif9DxivbHQLqqjUgcXU1F97sKoPJ"
 active = true
 decimals = 9
-min = 10_000_000
-max = 2_000_000_000_000_000
+min = 100_000_000 # 0.1 units
+max = 2_000_000_000_000_000 # 2M units
 # https://pyth.network/price-feeds/crypto-samo-usd
 pyth_usd_price_mainnet = "5wRjzrwWZG3af3FE26ZrRj3s8A3BVNyeJ9Pt9Uf2ogdf"
 pyth_usd_price_devnet = "G7dySNGaxZ8y2E89aX1K6rFeBt2ZnYBqXuCu1k2Y9MEe"
