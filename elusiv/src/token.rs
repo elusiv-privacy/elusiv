@@ -4,7 +4,6 @@ pub use elusiv_types::tokens::*;
 mod tests {
     use super::*;
     use crate::macros::{account_info, pyth_price_account_info};
-    use assert_matches::assert_matches;
     use solana_program::{native_token::LAMPORTS_PER_SOL, pubkey::Pubkey};
     use std::{num::NonZeroU16, ops::Add, ops::Sub};
 
@@ -26,9 +25,9 @@ mod tests {
     #[test]
     #[allow(unused_variables)]
     fn test_token_new() {
-        assert_matches!(Token::new(0, 123), Token::Lamports(Lamports(123)));
+        assert_eq!(Token::new(0, 123), Token::Lamports(Lamports(123)));
         let id = NonZeroU16::new(99).unwrap();
-        assert_matches!(
+        assert_eq!(
             Token::new(99, 456),
             Token::SPLToken(SPLToken { amount: 456, id })
         );
@@ -37,27 +36,27 @@ mod tests {
     #[test]
     #[allow(unused_variables)]
     fn test_token_new_checked() {
-        assert_matches!(
+        assert_eq!(
             Token::new_checked(TOKENS.len() as u16, 1_000_000),
             Err(TokenError::InvalidTokenID)
         );
 
         let min = lamports_token().min;
         let max = lamports_token().max;
-        assert_matches!(
+        assert_eq!(
             Token::new_checked(0, max + 1),
             Err(TokenError::InvalidAmount)
         );
-        assert_matches!(
+        assert_eq!(
             Token::new_checked(0, min - 1),
             Err(TokenError::InvalidAmount)
         );
 
-        assert_matches!(
+        assert_eq!(
             Token::new_checked(0, lamports_token().max),
             Ok(Token::Lamports(Lamports(max)))
         );
-        assert_matches!(
+        assert_eq!(
             Token::new_checked(0, lamports_token().min),
             Ok(Token::Lamports(Lamports(min)))
         );
@@ -70,7 +69,7 @@ mod tests {
             expo: -30,
             conf: 100,
         };
-        assert_matches!(
+        assert_eq!(
             Token::new_from_price(0, price, true),
             Err(TokenError::InvalidAmount)
         );
@@ -80,7 +79,7 @@ mod tests {
             expo: -2,
             conf: 100,
         };
-        assert_matches!(
+        assert_eq!(
             Token::new_from_price(0, price, true),
             Ok(Token::Lamports(Lamports(1234567)))
         );
@@ -90,13 +89,13 @@ mod tests {
     fn test_enforce_token_equality() {
         let a = Token::new(0, 1_000_000);
         let b = Token::new(1, 1_000_000);
-        assert_matches!(
+        assert_eq!(
             a.enforce_token_equality(&b),
             Err(TokenError::MismatchedTokenID)
         );
 
         let a = Token::new(1, 1_000_000);
-        assert_matches!(a.enforce_token_equality(&b), Ok(1));
+        assert_eq!(a.enforce_token_equality(&b), Ok(1));
     }
 
     #[test]
@@ -114,8 +113,8 @@ mod tests {
 
     #[test]
     fn test_into_lamports() {
-        assert_matches!(Token::new(0, 10).into_lamports(), Ok(Lamports(10)));
-        assert_matches!(
+        assert_eq!(Token::new(0, 10).into_lamports(), Ok(Lamports(10)));
+        assert_eq!(
             Token::new(1, 10).into_lamports(),
             Err(TokenError::InvalidTokenID)
         );
@@ -123,15 +122,15 @@ mod tests {
 
     #[test]
     fn test_add_tokens() {
-        assert_matches!(
+        assert_eq!(
             Token::new(0, 10).add(Token::new(1, 10)),
             Err(TokenError::MismatchedTokenID)
         );
-        assert_matches!(
+        assert_eq!(
             Token::new(0, u64::MAX).add(Token::new(0, 1)),
             Err(TokenError::Overflow)
         );
-        assert_matches!(
+        assert_eq!(
             Token::new(0, 123).add(Token::new(0, 1_000)),
             Ok(Token::Lamports(Lamports(1_123)))
         );
@@ -139,15 +138,15 @@ mod tests {
 
     #[test]
     fn test_sub_tokens() {
-        assert_matches!(
+        assert_eq!(
             Token::new(0, 10).sub(Token::new(1, 10)),
             Err(TokenError::MismatchedTokenID)
         );
-        assert_matches!(
+        assert_eq!(
             Token::new(0, 0).sub(Token::new(0, 1)),
             Err(TokenError::Underflow)
         );
-        assert_matches!(
+        assert_eq!(
             Token::new(0, 123).sub(Token::new(0, 23)),
             Ok(Token::Lamports(Lamports(100)))
         );
@@ -155,7 +154,7 @@ mod tests {
 
     #[test]
     fn test_lamports_into_token_strict() {
-        assert_matches!(
+        assert_eq!(
             Lamports(123).into_token_strict(),
             Token::Lamports(Lamports(123))
         );
@@ -163,19 +162,19 @@ mod tests {
 
     #[test]
     fn test_add_lamports() {
-        assert_matches!(
+        assert_eq!(
             Lamports(u64::MAX).add(Lamports(1)),
             Err(TokenError::Overflow)
         );
-        assert_matches!(Lamports(100).add(Lamports(23)), Ok(Lamports(123)));
+        assert_eq!(Lamports(100).add(Lamports(23)), Ok(Lamports(123)));
     }
 
     #[test]
     #[allow(unused_variables)]
     fn test_spl_token_new() {
-        assert_matches!(SPLToken::new(0, 10), Err(TokenError::InvalidTokenID));
+        assert_eq!(SPLToken::new(0, 10), Err(TokenError::InvalidTokenID));
         let id = NonZeroU16::new(1).unwrap();
-        assert_matches!(SPLToken::new(1, 10), Ok(SPLToken { id, amount: 10 }));
+        assert_eq!(SPLToken::new(1, 10), Ok(SPLToken { id, amount: 10 }));
     }
 
     #[test]
@@ -297,7 +296,7 @@ mod tests {
     #[test]
     fn test_token_price_new_lamports() {
         let price = TokenPrice::new_lamports();
-        assert_matches!(
+        assert_eq!(
             price.token_into_lamports(Token::Lamports(Lamports(123))),
             Ok(Lamports(123))
         );

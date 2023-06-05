@@ -25,7 +25,9 @@ const MAX_PUBLIC_INPUTS_COUNT: usize = 14;
 const MAX_PREPARE_INPUTS_INSTRUCTIONS: usize = MAX_PUBLIC_INPUTS_COUNT * 10;
 
 /// Describes the state of the proof-verification initialization and finalization
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, EnumVariantIndex, Debug, Clone)]
+#[derive(
+    BorshDeserialize, BorshSerialize, BorshSerDeSized, EnumVariantIndex, Debug, Clone, PartialEq, Eq,
+)]
 pub enum VerificationState {
     // Init
     None,
@@ -328,10 +330,11 @@ mod tests {
     use super::*;
     use crate::{
         fields::{u256_from_str, u256_from_str_skip_mr},
-        state::program_account::ProgramAccount,
-        types::{InputCommitment, JoinSplitPublicInputs, PublicInputs, SendPublicInputs},
+        state::{metadata::CommitmentMetadata, program_account::ProgramAccount},
+        types::{
+            InputCommitment, JoinSplitPublicInputs, OptionalFee, PublicInputs, SendPublicInputs,
+        },
     };
-    use assert_matches::assert_matches;
     use elusiv_types::SizedAccount;
 
     #[test]
@@ -346,11 +349,13 @@ mod tests {
                     nullifier_hash: RawU256::new(u256_from_str_skip_mr("333")),
                 }],
                 output_commitment: RawU256::new(u256_from_str_skip_mr("44444")),
-                output_commitment_index: 456,
+                recent_commitment_index: 456,
                 fee_version: 55555,
                 amount: 666666,
                 fee: 123,
+                optional_fee: OptionalFee::default(),
                 token_id: 0,
+                metadata: CommitmentMetadata::default(),
             },
             hashed_inputs: u256_from_str_skip_mr("7777777"),
             recipient_is_associated_token_account: true,
@@ -379,7 +384,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_matches!(verification_account.get_state(), VerificationState::None);
+        assert_eq!(verification_account.get_state(), VerificationState::None);
         assert_eq!(verification_account.get_vkey_id(), vkey_id);
 
         assert_eq!(

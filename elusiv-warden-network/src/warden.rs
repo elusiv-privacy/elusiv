@@ -237,16 +237,42 @@ pub struct BasicWardenAttesterMapAccount {
     pub warden_id: ElusivWardenID,
 }
 
-// TODO: import the https://github.com/elusiv-privacy/rust-sgx-remote-attestation/blob/master/ra-common/src/quote.rs types
+const HALF_QUOTE_SIZE: usize = 558;
+const FULL_QUOTE_SIZE: usize = 1116;
 
-#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized)]
-pub struct Quote(pub [u8; 1116]);
+/// An SGX quote.
+/// See [the remote attestation crate](https://github.com/elusiv-privacy/rust-sgx-remote-attestation)
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone)]
+pub struct Quote(pub [u8; FULL_QUOTE_SIZE]);
 
-impl Quote {
+/// The first half of an SGX quote.
+/// Because quotes almost are the maximum size of a transactions, they are split in two.
+///
+/// See also [`QuoteEnd`]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone)]
+pub struct QuoteStart(pub [u8; HALF_QUOTE_SIZE]);
+
+impl QuoteStart {
     pub fn user_data_bytes(&self) -> [u8; 32] {
         self.0[368 + 32..368 + 64].try_into().unwrap()
     }
+
+    pub fn join(&self, end: &QuoteEnd) -> Quote {
+        let mut full_quote = [0u8; FULL_QUOTE_SIZE];
+
+        full_quote[..HALF_QUOTE_SIZE].copy_from_slice(&self.0);
+        full_quote[HALF_QUOTE_SIZE..].copy_from_slice(&end.0);
+
+        Quote(full_quote)
+    }
 }
+
+/// The second half of an SGX quote.
+/// Because quotes almost are the maximum size of a transactions, they are split in two.
+///
+/// See also [`QuoteStart`]
+#[derive(BorshDeserialize, BorshSerialize, BorshSerDeSized, Clone)]
+pub struct QuoteEnd(pub [u8; HALF_QUOTE_SIZE]);
 
 #[elusiv_account]
 pub struct ApaWardenAccount {

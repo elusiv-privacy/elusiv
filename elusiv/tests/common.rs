@@ -7,6 +7,7 @@ use elusiv::{
     proof::verifier::{CombinedMillerLoop, FinalExponentiation},
     state::{
         fee::{BasisPointFee, ProgramFee},
+        metadata::MetadataAccount,
         nullifier::NullifierAccount,
         storage::StorageAccount,
     },
@@ -61,6 +62,7 @@ pub fn initial_single_instance_pdas(payer: Pubkey) -> Vec<Instruction> {
     vec![
         ElusivInstruction::setup_governor_account_instruction(WritableSignerAccount(payer)),
         ElusivInstruction::open_single_instance_accounts_instruction(WritableSignerAccount(payer)),
+        ElusivInstruction::create_new_accounts_v1_instruction(WritableSignerAccount(payer)),
     ]
 }
 
@@ -73,21 +75,36 @@ pub async fn setup_fee(test: &mut ElusivProgramTest, fee_version: u32, program_f
     test.ix_should_succeed_simple(ix).await;
 }
 
-pub async fn setup_storage_account(test: &mut ElusivProgramTest) -> Vec<Pubkey> {
-    let mut instructions = Vec::new();
-    let pubkeys = test
-        .create_parent_account::<StorageAccount>(&elusiv::id())
-        .await;
-    for (i, p) in pubkeys.iter().enumerate() {
-        instructions.push(ElusivInstruction::enable_storage_child_account_instruction(
-            i as u32,
-            WritableUserAccount(*p),
-        ));
-    }
-    test.tx_should_succeed_simple(&instructions).await;
+macro_rules! setup_parent_account {
+    ($fn_id: ident, $ty: ty, $instruction: ident) => {
+        pub async fn $fn_id(test: &mut ElusivProgramTest) -> Vec<Pubkey> {
+            let mut instructions = Vec::new();
+            let pubkeys = test.create_parent_account::<$ty>(&elusiv::id()).await;
 
-    pubkeys
+            for (i, p) in pubkeys.iter().enumerate() {
+                instructions.push(ElusivInstruction::$instruction(
+                    i as u32,
+                    WritableUserAccount(*p),
+                ));
+            }
+            test.tx_should_succeed_simple(&instructions).await;
+
+            pubkeys
+        }
+    };
 }
+
+setup_parent_account!(
+    setup_storage_account,
+    StorageAccount,
+    enable_storage_child_account_instruction
+);
+
+setup_parent_account!(
+    setup_metadata_account,
+    MetadataAccount,
+    enable_metadata_child_account_instruction
+);
 
 pub async fn create_merkle_tree(test: &mut ElusivProgramTest, mt_index: u32) -> Vec<Pubkey> {
     let mut instructions = vec![ElusivInstruction::open_nullifier_account_instruction(
@@ -112,10 +129,17 @@ pub async fn create_merkle_tree(test: &mut ElusivProgramTest, mt_index: u32) -> 
     pubkeys
 }
 
-pub async fn storage_accounts(test: &mut ElusivProgramTest) -> Vec<Pubkey> {
-    let mut data = test.data(&StorageAccount::find(None).0).await;
-    test.child_accounts::<StorageAccount>(&mut data).await
+macro_rules! child_accounts_getter_simple {
+    ($fn_id: ident, $ty: ty) => {
+        pub async fn $fn_id(test: &mut ElusivProgramTest) -> Vec<Pubkey> {
+            let mut data = test.data(&<$ty>::find(None).0).await;
+            test.child_accounts::<$ty>(&mut data).await
+        }
+    };
 }
+
+child_accounts_getter_simple!(storage_accounts, StorageAccount);
+child_accounts_getter_simple!(metadata_accounts, MetadataAccount);
 
 pub async fn nullifier_accounts(test: &mut ElusivProgramTest, mt_index: u32) -> Vec<Pubkey> {
     let mut data = test.data(&NullifierAccount::find(Some(mt_index)).0).await;
@@ -139,21 +163,29 @@ macro_rules! pda_account {
     };
 }
 
-macro_rules! commitment_queue {
-    ($id: ident, $test: expr) => {
-        pda_account!(mut q, CommitmentQueueAccount, None, None, $test);
-        let $id = CommitmentQueue::new(&mut q);
+macro_rules! queue {
+    ($id: ident, $ty: ty, $test: expr) => {
+        pda_account!(
+            mut q,
+            <$ty as elusiv::state::queue::QueueAccount>::T,
+            None,
+            None,
+            $test
+        );
+        let $id = <$ty as elusiv::state::queue::Queue<
+            <$ty as elusiv::state::queue::QueueAccount>::T,
+        >>::new(&mut q);
     };
-    (mut $id: ident, $data: expr) => {
-        let mut q = CommitmentQueueAccount::new($data).unwrap();
-        let mut $id = CommitmentQueue::new(&mut q);
+    (mut $id: ident, $ty: ty, $data: expr) => {
+        let mut q = <$ty as elusiv::state::queue::QueueAccount>::T::new($data).unwrap();
+        let mut $id = <$ty>::new(&mut q);
     };
 }
 
 #[allow(unused_imports)]
-pub(crate) use commitment_queue;
-#[allow(unused_imports)]
 pub(crate) use pda_account;
+#[allow(unused_imports)]
+pub(crate) use queue;
 
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_program_test::processor;
@@ -207,6 +239,7 @@ macro_rules! parent_account {
 
 parent_account!(storage_account, StorageAccount);
 parent_account!(nullifier_account, NullifierAccount);
+parent_account!(metadata_account, MetadataAccount);
 
 pub fn u256_from_str(str: &str) -> U256 {
     fr_to_u256_le(&ark_bn254::Fr::from_str(str).unwrap())

@@ -202,7 +202,6 @@ mod test {
         processor::vkey_account,
         proof::vkey::{TestVKey, VerifyingKeyInfo},
     };
-    use assert_matches::assert_matches;
 
     #[test]
     fn test_create_new_vkey_version() {
@@ -222,45 +221,45 @@ mod test {
         vkey_account.set_child_pubkey(1, Some(*valid_vkey_binary_data_account.key).into());
 
         // Child already exists
-        assert_matches!(
+        assert_eq!(
             create_new_vkey_version(
                 &signer,
                 &mut vkey_account,
                 &valid_vkey_binary_data_account,
                 0
             ),
-            Err(_)
+            Err(ElusivError::InvalidAccountState.into())
         );
 
         vkey_account.set_child_pubkey(1, None.into());
 
         // Invalid size
-        assert_matches!(
+        assert_eq!(
             create_new_vkey_version(
                 &signer,
                 &mut vkey_account,
                 &invalid_vkey_binary_data_account,
                 0
             ),
-            Err(_)
+            Err(ProgramError::InvalidAccountData)
         );
 
         // Child account already in use
         test_account_info!(invalid_vkey_binary_data_account, binary_data_account_size);
         invalid_vkey_binary_data_account.data.borrow_mut()[0] = 1;
-        assert_matches!(
+        assert_eq!(
             create_new_vkey_version(
                 &signer,
                 &mut vkey_account,
                 &invalid_vkey_binary_data_account,
                 0
             ),
-            Err(_)
+            Err(ProgramError::AccountAlreadyInitialized)
         );
 
         vkey_account!(vkey_account, TestVKey);
 
-        assert_matches!(
+        assert_eq!(
             create_new_vkey_version(
                 &signer,
                 &mut vkey_account,
@@ -319,15 +318,15 @@ mod test {
         assert_eq!(vkey_account.get_version(), 0);
         vkey_account.set_authority(&Some(*signer.key).into());
 
-        assert_matches!(
+        assert_eq!(
             update_vkey_version(&signer, &mut vkey_account, &acc, &acc, 0),
-            Err(_)
+            Err(ElusivError::InvalidAccountState.into())
         );
 
         vkey_account.set_child_pubkey(0, None.into());
         vkey_account.set_child_pubkey(1, Some(*vkey_binary_data_account.key).into());
 
-        assert_matches!(
+        assert_eq!(
             update_vkey_version(&signer, &mut vkey_account, &acc, &acc, 0),
             Ok(())
         );
@@ -355,7 +354,10 @@ mod test {
         freeze_vkey(&signer, &mut vkey_account, 0).unwrap();
 
         assert!(vkey_account.get_is_frozen());
-        assert_matches!(freeze_vkey(&signer, &mut vkey_account, 0), Err(_));
+        assert_eq!(
+            freeze_vkey(&signer, &mut vkey_account, 0),
+            Err(ElusivError::InvalidAccountState.into())
+        );
     }
 
     #[test]
@@ -364,24 +366,24 @@ mod test {
         signing_test_account_info!(signer);
         signing_test_account_info!(signer2);
 
-        assert_matches!(
+        assert_eq!(
             change_vkey_authority(&signer, &mut vkey_account, 0, *signer.key),
             Ok(())
         );
 
-        assert_matches!(
+        assert_eq!(
             change_vkey_authority(&signer2, &mut vkey_account, 0, *signer.key),
-            Err(_)
+            Err(ElusivError::InvalidAccount.into())
         );
 
-        assert_matches!(
+        assert_eq!(
             change_vkey_authority(&signer, &mut vkey_account, 0, *signer2.key),
             Ok(())
         );
 
-        assert_matches!(
+        assert_eq!(
             change_vkey_authority(&signer, &mut vkey_account, 0, *signer.key),
-            Err(_)
+            Err(ElusivError::InvalidAccount.into())
         );
     }
 
@@ -392,7 +394,7 @@ mod test {
         signing_test_account_info!(invalid_signer);
 
         // Any signer allowed
-        assert_matches!(
+        assert_eq!(
             verify_vkey_modification(&invalid_signer, &vkey_account),
             Ok(())
         );
@@ -400,23 +402,29 @@ mod test {
         vkey_account.set_authority(&Some(*signer.key).into());
 
         // Valid signer
-        assert_matches!(verify_vkey_modification(&signer, &vkey_account), Ok(()));
+        assert_eq!(verify_vkey_modification(&signer, &vkey_account), Ok(()));
 
         // Invalid authority
-        assert_matches!(
+        assert_eq!(
             verify_vkey_modification(&invalid_signer, &vkey_account),
-            Err(_)
+            Err(ElusivError::InvalidAccount.into())
         );
 
         vkey_account.set_is_frozen(&true);
 
         // Frozen account
-        assert_matches!(verify_vkey_modification(&signer, &vkey_account), Err(_));
+        assert_eq!(
+            verify_vkey_modification(&signer, &vkey_account),
+            Err(ElusivError::InvalidAccountState.into())
+        );
 
         // Valid account is not signer
         vkey_account!(vkey_account, TestVKey);
         test_account_info!(signer);
         vkey_account.set_authority(&Some(*signer.key).into());
-        assert_matches!(verify_vkey_modification(&signer, &vkey_account), Err(_));
+        assert_eq!(
+            verify_vkey_modification(&signer, &vkey_account),
+            Err(ProgramError::MissingRequiredSignature)
+        );
     }
 }

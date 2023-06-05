@@ -1,10 +1,13 @@
-use crate::bytes::{contains, usize_as_u32_safe};
+use super::metadata::CommitmentMetadata;
+use super::queue::{queue_account, RingQueue};
+use crate::buffer::buffer_account;
+use crate::bytes::usize_as_u32_safe;
 use crate::commitment::poseidon_hash::BinarySpongeHashingState;
 use crate::commitment::{commitments_per_batch, MAX_HT_SIZE, MT_HEIGHT};
 use crate::error::ElusivError;
 use crate::fields::{fr_to_u256_le, u256_to_fr_skip_mr};
 use crate::macros::{elusiv_account, guard, two_pow};
-use crate::processor::BaseCommitmentHashRequest;
+use crate::processor::{BaseCommitmentHashRequest, CommitmentHashRequest};
 use crate::state::program_account::PDAAccountData;
 use crate::state::storage::{StorageAccount, HISTORY_ARRAY_SIZE};
 use crate::types::U256;
@@ -29,12 +32,14 @@ pub struct BaseCommitmentHashingAccount {
     token_id: u16,
     pub state: BinarySpongeHashingState,
     pub min_batching_rate: u32,
+    pub metadata: CommitmentMetadata,
 }
 
 impl<'a> BaseCommitmentHashingAccount<'a> {
     pub fn setup(
         &mut self,
         request: BaseCommitmentHashRequest,
+        metadata: CommitmentMetadata,
         fee_payer: U256,
     ) -> Result<(), ProgramError> {
         self.set_is_active(&true);
@@ -45,13 +50,14 @@ impl<'a> BaseCommitmentHashingAccount<'a> {
 
         self.set_min_batching_rate(&request.min_batching_rate);
         self.set_token_id(&request.token_id);
+        self.set_metadata(&metadata);
 
         // Reset hashing state
         self.set_state(&BinarySpongeHashingState::new(
             u256_to_fr_skip_mr(&request.base_commitment.reduce()),
             Fr::from_repr(BigInteger256([
                 request.amount,
-                request.token_id as u64 + ((request.commitment_index as u64) << 16),
+                request.token_id as u64 + ((request.recent_commitment_index as u64) << 16),
                 0,
                 0,
             ]))
@@ -94,7 +100,8 @@ pub struct CommitmentHashingAccount {
 impl<'a> CommitmentHashingAccount<'a> {
     /// Called before reset, sets the siblings
     pub fn setup(&mut self, ordering: u32, siblings: &[U256]) -> Result<(), ProgramError> {
-        guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
+        guard!(!self.get_is_active(), ElusivError::InvalidAccountState);
+
         self.set_setup(&true);
         self.set_instruction(&0);
         self.set_round(&0);
@@ -115,8 +122,8 @@ impl<'a> CommitmentHashingAccount<'a> {
         fee_version: u32,
         commitments: &[U256],
     ) -> Result<(), ProgramError> {
-        guard!(!self.get_is_active(), ElusivError::AccountCannotBeReset);
-        guard!(self.get_setup(), ElusivError::AccountCannotBeReset);
+        guard!(!self.get_is_active(), ElusivError::InvalidAccountState);
+        guard!(self.get_setup(), ElusivError::InvalidAccountState);
 
         self.set_is_active(&true);
         self.set_fee_version(&fee_version);
@@ -167,7 +174,8 @@ impl<'a> CommitmentHashingAccount<'a> {
                 }
                 nodes_below += layer_size;
             }
-            panic!()
+
+            unreachable!()
         } else if hash_index == sub_tree_size {
             // hash with the HT-root and a sibling
             let ordering = self.get_ordering() >> batching_rate;
@@ -260,70 +268,66 @@ impl<'a> CommitmentHashingAccount<'a> {
     }
 }
 
-macro_rules! buffer_account {
-    ($ident: ident, $ty: ty, $size: expr) => {
-        #[allow(dead_code)]
-        #[elusiv_account]
-        pub struct $ident {
-            #[no_getter]
-            #[no_setter]
-            pda_data: PDAAccountData,
+pub const COMMITMENT_BUFFER_LEN: u32 = 128;
 
-            #[no_getter]
-            values: [$ty; $size],
-            len: u32,
-            ptr: u32,
+buffer_account!(
+    BaseCommitmentBufferAccount,
+    U256,
+    COMMITMENT_BUFFER_LEN as usize,
+);
+
+buffer_account!(
+    CommitmentBufferAccount,
+    U256,
+    COMMITMENT_BUFFER_LEN as usize,
+);
+
+pub const COMMITMENT_QUEUE_LEN: usize = 240;
+
+// Queue used for storing commitments that should sequentially inserted into the active MT
+queue_account!(
+    CommitmentQueue,
+    CommitmentQueueAccount,
+    COMMITMENT_QUEUE_LEN,
+    CommitmentHashRequest,
+);
+
+impl<'a, 'b> CommitmentQueue<'a, 'b> {
+    /// Returns the next batch of commitments to be hashed together
+    pub fn next_batch(&self) -> Result<(Vec<CommitmentHashRequest>, u32), ProgramError> {
+        let mut requests = Vec::new();
+        let mut highest_batching_rate = 0;
+        let mut commitment_count: usize = u32::MAX as usize;
+        let mut fee_version = None;
+
+        while requests.len() < commitment_count {
+            let request = self.view(requests.len())?;
+
+            highest_batching_rate = std::cmp::max(highest_batching_rate, request.min_batching_rate);
+            commitment_count = commitments_per_batch(highest_batching_rate);
+
+            // Just a (hopefully always) redundant fee-check (depends on the fee upgrade logic)
+            if let Some(f) = fee_version {
+                guard!(f == request.fee_version, ElusivError::InvalidFeeVersion);
+            }
+            fee_version = Some(request.fee_version);
+
+            requests.push(request);
         }
 
-        #[cfg(test)]
-        const_assert!($size < u32::MAX as usize);
-
-        impl<'a> $ident<'a> {
-            pub const CAPACITY: u32 = $size;
-
-            pub fn contains(&self, value: &$ty) -> bool {
-                let len = self.get_len() as usize;
-                if len == 0 {
-                    return false;
-                }
-
-                contains(
-                    value,
-                    &self.values[..len * <$ty as elusiv_types::bytes::BorshSerDeSized>::SIZE],
-                )
-            }
-
-            pub fn push(&mut self, value: &$ty) {
-                let ptr = self.get_ptr() % $size;
-                self.set_values(ptr as usize, value);
-                self.set_ptr(&((ptr + 1) % $size));
-
-                let len = self.get_len();
-                self.set_len(&std::cmp::min(len + 1, Self::CAPACITY))
-            }
-
-            pub fn try_insert(&mut self, value: &$ty) -> Result<(), ElusivError> {
-                if self.contains(value) {
-                    return Err(ElusivError::DuplicateValue);
-                }
-
-                self.push(value);
-
-                Ok(())
-            }
+        if requests.is_empty() {
+            return Err(ElusivError::QueueIsEmpty.into());
         }
-    };
+
+        Ok((requests, highest_batching_rate))
+    }
 }
-
-buffer_account!(BaseCommitmentBufferAccount, U256, 128);
-
-// buffer_account!(CommitmentBufferAccount, U256, 128);
 
 #[cfg(test)]
 pub fn base_commitment_request(
     base_commitment: &str,
     commitment: &str,
-    commitment_index: u32,
+    recent_commitment_index: u32,
     amount: u64,
     token_id: u16,
     fee_version: u32,
@@ -334,7 +338,7 @@ pub fn base_commitment_request(
     BaseCommitmentHashRequest {
         base_commitment: RawU256::new(u256_from_str_skip_mr(base_commitment)),
         commitment: RawU256::new(u256_from_str_skip_mr(commitment)),
-        commitment_index,
+        recent_commitment_index,
         amount,
         token_id,
         fee_version,
@@ -350,10 +354,11 @@ mod tests {
     };
     use crate::fields::{u64_to_scalar, u64_to_scalar_skip_mr, u64_to_u256_skip_mr};
     use crate::macros::{parent_account, zero_program_account};
+    use crate::state::queue::Queue;
     use crate::types::RawU256;
     use ark_bn254::Fr;
     use ark_ff::Zero;
-    use assert_matches::assert_matches;
+    use elusiv_types::{BorshSerDeSized, ProgramAccount};
     use std::cmp::max;
     use std::str::FromStr;
 
@@ -575,7 +580,7 @@ mod tests {
 
         let request = BaseCommitmentHashRequest {
             base_commitment: RawU256::new([1; 32]),
-            commitment_index: 123,
+            recent_commitment_index: 123,
             amount: 333,
             token_id: 22,
             commitment: RawU256::new([2; 32]),
@@ -584,7 +589,9 @@ mod tests {
         };
         let fee_payer = [6; 32];
 
-        account.setup(request.clone(), fee_payer).unwrap();
+        account
+            .setup(request.clone(), [255; CommitmentMetadata::SIZE], fee_payer)
+            .unwrap();
 
         assert_eq!(
             account.get_state().0,
@@ -598,6 +605,7 @@ mod tests {
         assert_eq!(account.get_fee_version(), request.fee_version);
         assert_eq!(account.get_min_batching_rate(), request.min_batching_rate);
         assert_eq!(account.get_instruction(), 0);
+        assert_eq!(account.get_metadata(), [255; CommitmentMetadata::SIZE]);
         assert!(account.get_is_active());
     }
 
@@ -638,7 +646,10 @@ mod tests {
         assert!(account.get_is_active());
 
         // Second reset should fail
-        assert_matches!(account.setup(ordering, &siblings), Err(_));
+        assert_eq!(
+            account.setup(ordering, &siblings),
+            Err(ElusivError::InvalidAccountState.into())
+        );
 
         // Second reset now allowed
         account.set_is_active(&false);
@@ -649,78 +660,62 @@ mod tests {
     }
 
     #[test]
-    fn test_base_commitment_buffer_account_contains() {
-        zero_program_account!(mut buffer, BaseCommitmentBufferAccount);
+    fn test_commitment_queue_next_batch() {
+        let mut data = vec![0; <CommitmentQueueAccount as elusiv_types::SizedAccount>::SIZE];
+        let mut q = CommitmentQueueAccount::new(&mut data).unwrap();
+        let mut q = CommitmentQueue::new(&mut q);
 
-        assert!(!buffer.contains(&[0; 32]));
+        // Incomplete batch
+        for _ in 0..3 {
+            q.enqueue(CommitmentHashRequest {
+                commitment: [0; 32],
+                fee_version: 0,
+                min_batching_rate: 2,
+            })
+            .unwrap();
+        }
+        assert_eq!(q.next_batch(), Err(ElusivError::InvalidQueueAccess.into()));
 
-        buffer.set_len(&(BaseCommitmentBufferAccount::CAPACITY));
-        for i in 0..BaseCommitmentBufferAccount::CAPACITY {
-            buffer.set_values(i as usize, &u64_to_u256(i as u64));
+        // Complete batches (with variing batching rates)
+        q.clear();
+        for b in 0..=MAX_COMMITMENT_BATCHING_RATE {
+            let c = commitments_per_batch(b as u32);
+            for i in 0..c {
+                q.enqueue(CommitmentHashRequest {
+                    commitment: fr_to_u256_le(&u64_to_scalar(i as u64)),
+                    fee_version: 0,
+                    min_batching_rate: if i == 0 { b as u32 } else { 0 },
+                })
+                .unwrap();
+            }
         }
 
-        for i in 0..BaseCommitmentBufferAccount::CAPACITY {
-            assert!(buffer.contains(&u64_to_u256(i as u64)));
+        for b in 0..=MAX_COMMITMENT_BATCHING_RATE {
+            let (batch, batching_rate) = q.next_batch().unwrap();
+            for _ in 0..commitments_per_batch(batching_rate) {
+                q.dequeue_first().unwrap();
+            }
+
+            assert_eq!(batching_rate as usize, b);
+            for (i, c) in batch.iter().enumerate() {
+                assert_eq!(c.commitment, fr_to_u256_le(&u64_to_scalar(i as u64)));
+            }
         }
 
-        assert!(!buffer.contains(&u64_to_u256(
-            BaseCommitmentBufferAccount::CAPACITY as u64 + 1
-        )));
-    }
-
-    #[test]
-    fn test_base_commitment_buffer_account_push() {
-        zero_program_account!(mut buffer, BaseCommitmentBufferAccount);
-
-        assert_eq!(buffer.get_len(), 0);
-        assert_eq!(buffer.get_ptr(), 0);
-
-        for i in 1..=BaseCommitmentBufferAccount::CAPACITY {
-            buffer.push(&u64_to_u256(i as u64));
-
-            assert_eq!(buffer.get_len(), i);
-            assert_eq!(buffer.get_ptr(), i % BaseCommitmentBufferAccount::CAPACITY);
-        }
-
-        buffer.push(&u64_to_u256(0));
-        assert_eq!(buffer.get_len(), BaseCommitmentBufferAccount::CAPACITY);
-        assert_eq!(buffer.get_ptr(), 1);
-    }
-
-    #[test]
-    fn test_base_commitment_buffer_account_try_insert() {
-        zero_program_account!(mut buffer, BaseCommitmentBufferAccount);
-
-        for i in 1..=BaseCommitmentBufferAccount::CAPACITY {
-            assert_matches!(buffer.try_insert(&u64_to_u256(i as u64)), Ok(()));
-
-            assert_eq!(buffer.get_len(), i);
-            assert_eq!(buffer.get_ptr(), i % BaseCommitmentBufferAccount::CAPACITY);
-        }
-
-        // Duplicates get rejected
-        let values = buffer.values.to_vec();
-        for i in 1..=BaseCommitmentBufferAccount::CAPACITY {
-            assert_matches!(buffer.try_insert(&u64_to_u256(i as u64)), Err(_));
-
-            assert_eq!(buffer.get_len(), BaseCommitmentBufferAccount::CAPACITY);
-            assert_eq!(buffer.get_ptr(), 0);
-            assert_eq!(buffer.values, values);
-        }
-
-        // FIFO
-        for i in 1..=BaseCommitmentBufferAccount::CAPACITY {
-            assert!(buffer.contains(&u64_to_u256(i as u64)));
-            assert_matches!(
-                buffer.try_insert(&u64_to_u256(
-                    (i + BaseCommitmentBufferAccount::CAPACITY) as u64
-                )),
-                Ok(())
-            );
-            assert!(!buffer.contains(&u64_to_u256(i as u64)));
-
-            assert_eq!(buffer.get_len(), BaseCommitmentBufferAccount::CAPACITY);
-            assert_eq!(buffer.get_ptr(), i % BaseCommitmentBufferAccount::CAPACITY);
-        }
+        // Mismatching fee
+        q.clear();
+        q.enqueue(CommitmentHashRequest {
+            commitment: [0; 32],
+            fee_version: 0,
+            min_batching_rate: 1,
+        })
+        .unwrap();
+        q.enqueue(CommitmentHashRequest {
+            commitment: [0; 32],
+            fee_version: 1,
+            min_batching_rate: 1,
+        })
+        .unwrap();
+        assert_eq!(q.next_batch(), Err(ElusivError::InvalidFeeVersion.into()));
     }
 }

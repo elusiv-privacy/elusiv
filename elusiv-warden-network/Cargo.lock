@@ -980,7 +980,6 @@ dependencies = [
 name = "elusiv-test"
 version = "0.1.0"
 dependencies = [
- "assert_matches",
  "elusiv-types",
  "rand 0.8.5",
  "solana-program",
@@ -1019,6 +1018,8 @@ dependencies = [
 name = "elusiv-warden-network"
 version = "0.1.0"
 dependencies = [
+ "assert_matches",
+ "async-trait",
  "borsh",
  "chrono",
  "default-env",

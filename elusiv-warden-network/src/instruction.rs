@@ -7,8 +7,8 @@ use crate::network::{ApaWardenNetworkAccount, BasicWardenNetworkAccount};
 use crate::processor;
 use crate::warden::{
     ApaWardenAccount, BasicWardenAccount, BasicWardenAttesterMapAccount, BasicWardenMapAccount,
-    BasicWardenStatsAccount, ElusivBasicWardenConfig, ElusivWardenID, Identifier, Quote, Timezone,
-    WardenRegion, WardensAccount,
+    BasicWardenStatsAccount, ElusivBasicWardenConfig, ElusivWardenID, Identifier, QuoteEnd,
+    QuoteStart, Timezone, WardenRegion, WardensAccount,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::AccountRepr;
@@ -69,9 +69,17 @@ pub enum ElusivWardenNetworkInstruction {
     #[pda(apa_warden_account, ApaWardenAccount, pda_offset = Some(warden_id), { writable, skip_pda_verification, account_info })]
     #[pda(apa_network, ApaWardenNetworkAccount, { writable })]
     #[sys(system_program, key = system_program::ID, { ignore })]
-    ApplyApaGenesisWarden {
+    StartApaGenesisWardenApplication {
         warden_id: ElusivWardenID,
-        quote: Quote,
+        quote_start: QuoteStart,
+    },
+
+    #[acc(warden, { signer })]
+    #[pda(warden_map_account, BasicWardenMapAccount, pda_pubkey = warden.pubkey())]
+    #[pda(apa_network, ApaWardenNetworkAccount, { writable })]
+    CompleteApaGenesisWardenApplication {
+        warden_id: ElusivWardenID,
+        quote_end: QuoteEnd,
     },
 
     #[acc(exchange_key, { signer })]

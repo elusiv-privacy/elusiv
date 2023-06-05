@@ -36,7 +36,7 @@ pub trait ChildAccount: Sized {
         let mut config = ChildAccountConfig::try_from_slice(config_data)?;
 
         if config.is_in_use {
-            return Err(ProgramError::IllegalOwner);
+            return Err(ProgramError::AccountAlreadyInitialized);
         }
         config.is_in_use = true;
 

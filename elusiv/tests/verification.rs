@@ -15,11 +15,14 @@ use elusiv::proof::verifier::{
     VerificationStep,
 };
 use elusiv::proof::vkey::{SendQuadraVKey, VerifyingKeyInfo};
+use elusiv::state::commitment::CommitmentQueue;
 use elusiv::state::fee::ProgramFee;
 use elusiv::state::governor::{FeeCollectorAccount, PoolAccount};
+use elusiv::state::metadata::{CommitmentMetadata, MetadataQueue};
 use elusiv::state::nullifier::{NullifierAccount, NullifierMap, NULLIFIERS_PER_ACCOUNT};
 use elusiv::state::program_account::{PDAAccount, PDAAccountData, ProgramAccount, SizedAccount};
 use elusiv::state::proof::{VerificationAccount, VerificationState};
+use elusiv::state::queue::RingQueue;
 use elusiv::state::storage::{empty_root_raw, StorageAccount, MT_HEIGHT};
 use elusiv::state::vkey::{VKeyAccount, VKeyAccountEager};
 use elusiv::token::{
@@ -28,8 +31,8 @@ use elusiv::token::{
 };
 use elusiv::types::{
     compute_fee_rec, compute_fee_rec_lamports, generate_hashed_inputs, InputCommitment,
-    JoinSplitPublicInputs, OrdU256, Proof, PublicInputs, RawProof, RawU256, SendPublicInputs,
-    JOIN_SPLIT_MAX_N_ARITY, U256,
+    JoinSplitPublicInputs, OptionalFee, OrdU256, Proof, PublicInputs, RawProof, RawU256,
+    SendPublicInputs, JOIN_SPLIT_MAX_N_ARITY, U256,
 };
 use elusiv_computation::PartialComputation;
 use elusiv_types::tokens::Price;
@@ -109,11 +112,13 @@ fn send_request(index: usize) -> FullSendRequest {
                         }
                     ],
                     output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                    output_commitment_index: 456,
+                    recent_commitment_index: 0,
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
+                    optional_fee: OptionalFee::default(),
                     token_id: 0,
+                    metadata: CommitmentMetadata::default(),
                 },
                 recipient_is_associated_token_account: false,
                 hashed_inputs: default_hashed_inputs,
@@ -135,11 +140,13 @@ fn send_request(index: usize) -> FullSendRequest {
                         },
                     ],
                     output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                    output_commitment_index: 456,
+                    recent_commitment_index: 0,
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
+                    optional_fee: OptionalFee::default(),
                     token_id: 0,
+                    metadata: CommitmentMetadata::default(),
                 },
                 recipient_is_associated_token_account: false,
                 hashed_inputs: default_hashed_inputs,
@@ -161,11 +168,13 @@ fn send_request(index: usize) -> FullSendRequest {
                         },
                     ],
                     output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                    output_commitment_index: 456,
+                    recent_commitment_index: 0,
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
+                    optional_fee: OptionalFee::default(),
                     token_id: 0,
+                    metadata: CommitmentMetadata::default(),
                 },
                 recipient_is_associated_token_account: false,
                 hashed_inputs: default_hashed_inputs,
@@ -191,11 +200,13 @@ fn send_request(index: usize) -> FullSendRequest {
                         },
                     ],
                     output_commitment: RawU256::new(u256_from_str_skip_mr("685960310506634721912121951341598678325833230508240750559904196809564625591")),
-                    output_commitment_index: 456,
+                    recent_commitment_index: 0,
                     fee_version: 0,
                     amount: LAMPORTS_PER_SOL * 123,
                     fee: 0,
+                    optional_fee: OptionalFee::default(),
                     token_id: 0,
+                    metadata: CommitmentMetadata::default(),
                 },
                 recipient_is_associated_token_account: false,
                 hashed_inputs: default_hashed_inputs,
@@ -213,6 +224,8 @@ struct ExtraData {
     encrypted_owner: U256,
     reference: U256,
     is_associated_token_account: bool,
+    metadata: CommitmentMetadata,
+    optional_fee: OptionalFee,
     memo: Option<Vec<u8>>,
 }
 
@@ -227,6 +240,8 @@ impl Default for ExtraData {
             encrypted_owner: u256_from_str_skip_mr("5789489458548458945478235642378"),
             reference: [0; 32],
             is_associated_token_account: false,
+            metadata: CommitmentMetadata::default(),
+            optional_fee: OptionalFee::default(),
             memo: None,
         }
     }
@@ -235,12 +250,14 @@ impl Default for ExtraData {
 impl ExtraData {
     fn hash(&self) -> U256 {
         generate_hashed_inputs(
-            self.recipient,
-            self.identifier,
-            self.iv,
-            self.encrypted_owner,
-            self.reference,
+            &self.recipient,
+            &self.identifier,
+            &self.iv,
+            &self.encrypted_owner,
+            &self.reference,
             self.is_associated_token_account,
+            &self.metadata,
+            &self.optional_fee,
             &self.memo,
         )
     }
@@ -363,6 +380,7 @@ async fn insert_nullifier_hashes(
     let mut nullifier_hashes: Vec<_> = nullifier_hashes.iter().map(|n| OrdU256(*n)).collect();
     nullifier_hashes.sort();
 
+    // Get all NullifierAccount child account data
     let nullifier_accounts = nullifier_accounts(test, mt_index).await;
     let mut nullifier_accounts_data = Vec::with_capacity(NullifierAccount::COUNT);
     for nullifier_account in nullifier_accounts.iter() {
@@ -370,6 +388,7 @@ async fn insert_nullifier_hashes(
     }
 
     {
+        // Modify the child accounts locally
         let mut maps: Vec<_> = nullifier_accounts_data
             .iter_mut()
             .map(|data| NullifierMap::new(&mut data[1..]))
@@ -386,6 +405,7 @@ async fn insert_nullifier_hashes(
             }
         }
 
+        // Update the NullifierAccount parent account data
         let mut data = test.data(&NullifierAccount::find(Some(mt_index)).0).await;
         let mut nullifier_account = NullifierAccount::new(&mut data).unwrap();
         for (i, map) in maps.iter_mut().enumerate() {
@@ -404,6 +424,7 @@ async fn insert_nullifier_hashes(
         .await;
     }
 
+    // Update all of the NullifierAccount child accounts
     for (i, data) in nullifier_accounts_data.iter().enumerate() {
         test.set_account_rent_exempt(&nullifier_accounts[i], data, &elusiv::id())
             .await;
@@ -552,27 +573,40 @@ async fn test_init_proof_lamports() {
         )
         .await;
 
-    let init_verification_instruction = |v_index: u8, skip_nullifier_pda: bool| {
-        ElusivInstruction::init_verification_instruction(
-            v_index,
-            SendQuadraVKey::VKEY_ID,
-            [0, 1],
-            ProofRequest::Send(request.public_inputs.clone()),
-            skip_nullifier_pda,
-            WritableSignerAccount(warden.pubkey),
-            WritableUserAccount(nullifier_duplicate_account),
-            UserAccount(Pubkey::new_unique()),
-            &user_accounts(&[nullifier_accounts[0]]),
-            &[],
-        )
-    };
+    let init_verification_instruction =
+        |v_index: u8, commitment: Option<U256>, skip_nullifier_pda: bool| {
+            let mut request = request.clone();
+            if let Some(commitment) = commitment {
+                request.public_inputs.join_split.output_commitment = RawU256::new(commitment);
+                request.update_fee_lamports(&fee);
+            }
+
+            ElusivInstruction::init_verification_instruction(
+                v_index,
+                SendQuadraVKey::VKEY_ID,
+                [0, 1],
+                ProofRequest::Send(request.public_inputs),
+                skip_nullifier_pda,
+                WritableSignerAccount(warden.pubkey),
+                WritableUserAccount(nullifier_duplicate_account),
+                UserAccount(Pubkey::new_unique()),
+                &user_accounts(&[nullifier_accounts[0]]),
+                &[],
+            )
+        };
 
     // Failure if skip_nullifier_pda := true (and nullifier_pda does not exist)
-    test.ix_should_fail(init_verification_instruction(0, true), &[&warden.keypair])
-        .await;
+    test.ix_should_fail(
+        init_verification_instruction(0, None, true),
+        &[&warden.keypair],
+    )
+    .await;
 
-    test.ix_should_succeed(init_verification_instruction(0, false), &[&warden.keypair])
-        .await;
+    test.ix_should_succeed(
+        init_verification_instruction(0, None, false),
+        &[&warden.keypair],
+    )
+    .await;
 
     assert_eq!(0, warden.lamports(&mut test).await);
 
@@ -582,11 +616,25 @@ async fn test_init_proof_lamports() {
 
     // Testing duplicate verifications (allowed when flag is set)
     // Failure if skip_nullifier_pda := false (and nullifier_pda exists)
-    test.ix_should_fail(init_verification_instruction(1, false), &[&warden.keypair])
-        .await;
-    // Success if skip_nullifier_pda := true (and nullifier_pda exists)
-    test.ix_should_succeed(init_verification_instruction(1, true), &[&warden.keypair])
-        .await;
+    test.ix_should_fail(
+        init_verification_instruction(1, None, false),
+        &[&warden.keypair],
+    )
+    .await;
+
+    // If skip_nullifier_pda := true (and nullifier_pda exists) will fail due to duplicate commitment
+    test.ix_should_fail(
+        init_verification_instruction(1, None, true),
+        &[&warden.keypair],
+    )
+    .await;
+
+    // Success for a different commitment with skip_nullifier_pda := true
+    test.ix_should_succeed(
+        init_verification_instruction(1, Some(u256_from_str("1234")), true),
+        &[&warden.keypair],
+    )
+    .await;
 
     assert_eq!(0, warden.lamports(&mut test).await);
 
@@ -788,12 +836,20 @@ async fn test_finalize_proof() {
 async fn test_finalize_proof_lamports() {
     let mut test = start_verification_test().await;
     let warden = test.new_actor().await;
+    let optional_fee_collector = test.new_actor().await;
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
     let fee = genesis_fee(&mut test).await;
     setup_vkey_account::<SendQuadraVKey>(&mut test).await;
 
     let mut request = send_request(0);
-    let extra_data = ExtraData::default();
+    request.public_inputs.join_split.optional_fee = OptionalFee {
+        collector: optional_fee_collector.pubkey,
+        amount: 1234,
+    };
+    let extra_data = ExtraData {
+        optional_fee: request.public_inputs.join_split.optional_fee.clone(),
+        ..Default::default()
+    };
     request.public_inputs.hashed_inputs = extra_data.hash();
     request.update_fee_lamports(&fee);
 
@@ -905,6 +961,7 @@ async fn test_finalize_proof_lamports() {
             0,
             WritableSignerAccount(warden.pubkey),
             WritableUserAccount(recipient),
+            WritableUserAccount(optional_fee_collector.pubkey),
             WritableUserAccount(nullifier_duplicate_account),
         );
 
@@ -956,9 +1013,18 @@ async fn test_finalize_proof_lamports() {
             + nullifier_duplicate_account_rent.0,
         warden.lamports(&mut test).await
     );
+
+    // recipient hat amount - optional_fee.amount
     assert_eq!(
-        request.public_inputs.join_split.amount,
+        request.public_inputs.join_split.amount
+            - request.public_inputs.join_split.optional_fee.amount,
         test.lamports(&recipient).await.0
+    );
+
+    // optional_fee_collector has optional_fee.amount
+    assert_eq!(
+        request.public_inputs.join_split.optional_fee.amount,
+        optional_fee_collector.lamports(&mut test).await
     );
 
     // fee_collector has network_fee (lamports)
@@ -973,6 +1039,20 @@ async fn test_finalize_proof_lamports() {
     assert_eq!(
         commitment_hash_fee.0,
         test.pda_lamports(&pool, PoolAccount::SIZE).await.0
+    );
+
+    queue!(commitment_queue, CommitmentQueue, test);
+    assert_eq!(commitment_queue.len(), 1);
+    assert_eq!(
+        commitment_queue.view_first().unwrap().commitment,
+        request.public_inputs.join_split.output_commitment.reduce()
+    );
+
+    queue!(metadata_queue, MetadataQueue, test);
+    assert_eq!(metadata_queue.len(), 1);
+    assert_eq!(
+        metadata_queue.view_first().unwrap(),
+        request.public_inputs.join_split.metadata
     );
 }
 
@@ -994,6 +1074,11 @@ async fn test_finalize_proof_token() {
     let mut warden = test.new_actor().await;
     warden.open_token_account(USDC_TOKEN_ID, 0, &mut test).await;
 
+    let mut optional_fee_collector = test.new_actor().await;
+    optional_fee_collector
+        .open_token_account(USDC_TOKEN_ID, 0, &mut test)
+        .await;
+
     let sol_usd_price = Price {
         price: 41,
         conf: 0,
@@ -1013,16 +1098,21 @@ async fn test_finalize_proof_token() {
         .await;
 
     let mut request = send_request(0);
+    request.public_inputs.join_split.optional_fee = OptionalFee {
+        collector: optional_fee_collector.get_token_account(USDC_TOKEN_ID),
+        amount: 1234,
+    };
     request.public_inputs.join_split.token_id = USDC_TOKEN_ID;
     request.public_inputs.join_split.amount = 1_000_000;
-    request.update_fee_token(&fee, &price);
 
     let recipient_token_account = recipient.get_token_account(USDC_TOKEN_ID);
     let extra_data = ExtraData {
+        optional_fee: request.public_inputs.join_split.optional_fee.clone(),
         recipient: recipient_token_account.to_bytes(),
         ..Default::default()
     };
     request.public_inputs.hashed_inputs = extra_data.hash();
+    request.update_fee_token(&fee, &price);
 
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
 
@@ -1148,6 +1238,7 @@ async fn test_finalize_proof_token() {
             UserAccount(recipient_token_account),
             WritableUserAccount(pool_account),
             WritableUserAccount(fee_collector_account),
+            WritableUserAccount(optional_fee_collector.get_token_account(USDC_TOKEN_ID)),
             WritableUserAccount(nullifier_duplicate_account),
             UserAccount(spl_token::id()),
         );
@@ -1179,6 +1270,8 @@ async fn test_finalize_proof_token() {
         finalize_verification_transfer_token_instruction.clone(),
     ])
     .await;
+
+    // TODO: Invalid optional-fee-collector
 
     test.tx_should_succeed(
         &[
@@ -1212,10 +1305,19 @@ async fn test_finalize_proof_token() {
         warden.balance(USDC_TOKEN_ID, &mut test).await
     );
 
-    // recipient has amount (token)
+    // recipient has amount - optional_fee.amount (token)
     assert_eq!(
-        request.public_inputs.join_split.amount,
+        request.public_inputs.join_split.amount
+            - request.public_inputs.join_split.optional_fee.amount,
         recipient.balance(USDC_TOKEN_ID, &mut test).await
+    );
+
+    // optional_fee_collector has optional_fee.amount (token)
+    assert_eq!(
+        request.public_inputs.join_split.optional_fee.amount,
+        optional_fee_collector
+            .balance(USDC_TOKEN_ID, &mut test)
+            .await
     );
 
     // fee_collector has network_fee (token)
@@ -1241,13 +1343,14 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     let recipient = test.new_actor().await;
     let nullifier_accounts = nullifier_accounts(&mut test, 0).await;
 
+    let fee = genesis_fee(&mut test).await;
     let mut request = send_request(0);
     let extra_data = ExtraData {
         recipient: recipient.pubkey.to_bytes(),
         ..Default::default()
     };
     request.public_inputs.hashed_inputs = extra_data.hash();
-    request.update_fee_lamports(&genesis_fee(&mut test).await);
+    request.update_fee_lamports(&fee);
 
     let nullifier_duplicate_account = request.public_inputs.join_split.nullifier_duplicate_pda().0;
     let identifier = Pubkey::new_from_array(extra_data.identifier);
@@ -1261,7 +1364,13 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     test.airdrop_lamports(&PoolAccount::find(None).0, LAMPORTS_PER_SOL * 1000)
         .await;
 
-    let init_instructions = |v_index: u8, skip_nullifier_pda: bool| {
+    let init_instructions = |v_index: u8, commitment: Option<U256>, skip_nullifier_pda: bool| {
+        let mut request = request.clone();
+        if let Some(commitment) = commitment {
+            request.public_inputs.join_split.output_commitment = RawU256::new(commitment);
+            request.update_fee_lamports(&fee);
+        }
+
         [
             ElusivInstruction::init_verification_instruction(
                 v_index,
@@ -1288,12 +1397,21 @@ async fn test_finalize_proof_skip_nullifier_pda() {
     };
 
     // Three verifications of the same proof (the last one is simulated as an invalid proof)
-    test.tx_should_succeed(&init_instructions(0, false), &[&warden.keypair])
-        .await;
-    test.tx_should_succeed(&init_instructions(1, true), &[&warden.keypair])
-        .await;
-    test.tx_should_succeed(&init_instructions(2, true), &[&warden.keypair])
-        .await;
+    test.tx_should_succeed(
+        &init_instructions(0, Some(u256_from_str("1")), false),
+        &[&warden.keypair],
+    )
+    .await;
+    test.tx_should_succeed(
+        &init_instructions(1, Some(u256_from_str("2")), true),
+        &[&warden.keypair],
+    )
+    .await;
+    test.tx_should_succeed(
+        &init_instructions(2, Some(u256_from_str("3")), true),
+        &[&warden.keypair],
+    )
+    .await;
 
     // Skip computations
     for (i, is_valid) in (0..3).zip([true, true, false]) {
@@ -1326,6 +1444,7 @@ async fn test_finalize_proof_skip_nullifier_pda() {
                 v_index,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(recipient.pubkey),
+                WritableUserAccount(Pubkey::new_unique()),
                 WritableUserAccount(nullifier_duplicate_account),
             ),
         ];
@@ -1450,6 +1569,7 @@ async fn test_finalize_proof_commitment_index() {
                 0,
                 WritableSignerAccount(warden.pubkey),
                 WritableUserAccount(recipient.pubkey),
+                WritableUserAccount(Pubkey::new_unique()),
                 WritableUserAccount(nullifier_duplicate_account),
             ),
         ]
@@ -1631,6 +1751,7 @@ async fn test_associated_token_account() {
                 UserAccount(recipient_wallet),
                 WritableUserAccount(pool_account),
                 WritableUserAccount(fee_collector_account),
+                WritableUserAccount(Pubkey::new_unique()),
                 WritableUserAccount(nullifier_duplicate_account),
                 UserAccount(mint),
             ),
@@ -1849,7 +1970,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         test
     );
     assert_eq!(v_acc.get_is_verified().option(), None);
-    assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::CombinedMillerLoop);
+    assert_eq!(v_acc.get_step(), VerificationStep::CombinedMillerLoop);
 
     // Combined miller loop
     for _ in 0..CombinedMillerLoop::TX_COUNT {
@@ -1864,7 +1985,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         test
     );
     assert_eq!(v_acc.get_is_verified().option(), None);
-    assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
+    assert_eq!(v_acc.get_step(), VerificationStep::FinalExponentiation);
 
     // Final exponentiation
     for _ in 0..FinalExponentiation::TX_COUNT {
@@ -1879,7 +2000,7 @@ async fn test_compute_proof_verifcation_invalid_proof() {
         test
     );
     assert_eq!(v_acc.get_is_verified().option(), Some(false));
-    assert_matches::assert_matches!(v_acc.get_step(), VerificationStep::FinalExponentiation);
+    assert_eq!(v_acc.get_step(), VerificationStep::FinalExponentiation);
 }
 
 #[tokio::test]
@@ -1936,6 +2057,7 @@ async fn test_enforced_finalization_order() {
             0,
             WritableSignerAccount(test.payer()),
             WritableUserAccount(extra_data.recipient()),
+            WritableUserAccount(Pubkey::new_unique()),
             WritableUserAccount(nullifier_duplicate_account),
         );
 
@@ -1990,11 +2112,13 @@ async fn nullifier_finalization_test(number_of_start_nullifiers: u64, input_comm
             output_commitment: RawU256::new(u256_from_str_skip_mr(
                 "685960310506634721912121951341598678325833230508240750559904196809564625591",
             )),
-            output_commitment_index: 456,
+            recent_commitment_index: 0,
             fee_version: 0,
             amount: LAMPORTS_PER_SOL * 123,
             fee: 0,
+            optional_fee: OptionalFee::default(),
             token_id: 0,
+            metadata: CommitmentMetadata::default(),
         },
         recipient_is_associated_token_account: false,
         hashed_inputs: extra_data.hash(),
@@ -2079,6 +2203,7 @@ async fn nullifier_finalization_test(number_of_start_nullifiers: u64, input_comm
             0,
             WritableSignerAccount(test.payer()),
             WritableUserAccount(recipient),
+            WritableUserAccount(Pubkey::new_unique()),
             WritableUserAccount(nullifier_duplicate_account),
         ),
     );
@@ -2132,6 +2257,7 @@ async fn finalize_instructions(
             0,
             WritableSignerAccount(*signer),
             WritableUserAccount(extra_data.recipient()),
+            WritableUserAccount(Pubkey::new_unique()),
             WritableUserAccount(request.public_inputs.join_split.nullifier_duplicate_pda().0),
         ),
     ]
@@ -2592,6 +2718,7 @@ async fn test_solana_pay_tokens() {
             UserAccount(recipient_token_account),
             WritableUserAccount(pool_account),
             WritableUserAccount(fee_collector_account),
+            WritableUserAccount(Pubkey::new_unique()),
             WritableUserAccount(nullifier_duplicate_account),
             UserAccount(spl_token::id()),
         ),

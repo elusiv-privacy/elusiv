@@ -2,19 +2,17 @@
 mod poseidon_constants;
 pub mod poseidon_hash;
 
-use elusiv_computation::PartialComputation;
-use elusiv_proc_macros::elusiv_hash_compute_units;
-use elusiv_utils::{guard, two_pow};
-use solana_program::program_error::ProgramError;
-
 use crate::{
     bytes::usize_as_u32_safe,
     commitment::poseidon_hash::{binary_poseidon_hash_partial, TOTAL_POSEIDON_ROUNDS},
     error::ElusivError,
     state::commitment::{BaseCommitmentHashingAccount, CommitmentHashingAccount},
 };
+use elusiv_computation::PartialComputation;
+use elusiv_proc_macros::elusiv_hash_compute_units;
+use elusiv_utils::{guard, two_pow};
+use solana_program::program_error::ProgramError;
 
-/// Partial computation resulting in `commitment = h(base_commitment, amount)`
 pub struct BaseCommitmentHashComputation;
 
 elusiv_hash_compute_units!(BaseCommitmentHashComputation, 1, 100_000);
@@ -194,17 +192,16 @@ pub fn compute_commitment_hash_partial(
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
-    use solana_program::native_token::LAMPORTS_PER_SOL;
-
+    use super::*;
     use crate::{
         fields::{u256_from_str, u256_to_fr_skip_mr},
         macros::zero_program_account,
-        state::{commitment::base_commitment_request, storage::EMPTY_TREE},
+        state::{
+            commitment::base_commitment_request, metadata::CommitmentMetadata, storage::EMPTY_TREE,
+        },
         types::U256,
     };
-
-    use super::*;
+    use solana_program::native_token::LAMPORTS_PER_SOL;
 
     #[test]
     fn test_commitments_per_batch() {
@@ -232,24 +229,40 @@ mod tests {
     fn test_base_commitment_hash_computation() {
         zero_program_account!(mut account, BaseCommitmentHashingAccount);
 
-        let requests = [base_commitment_request(
-            "8337064132573119120838379738103457054645361649757131991036638108422638197362",
-            "139214303935475888711984321184227760578793579443975701453971046059378311483",
-            0,
-            LAMPORTS_PER_SOL,
-            0,
-            0,
-            0,
-        )];
+        let requests = [
+            base_commitment_request(
+                "8337064132573119120838379738103457054645361649757131991036638108422638197362",
+                "139214303935475888711984321184227760578793579443975701453971046059378311483",
+                0,
+                LAMPORTS_PER_SOL,
+                0,
+                0,
+                0,
+            ),
+            base_commitment_request(
+                "18586133768512220936620570745912940619677854269274689475585506675881198879027",
+                "21128387980949076499567732971523903199747404934809414689409667640726053688078",
+                two_pow!(20) as u32 - 1,
+                2,
+                1,
+                0,
+                0,
+            ),
+        ];
 
         for request in requests {
-            account.setup(request.clone(), [0; 32]).unwrap();
+            account
+                .setup(request.clone(), CommitmentMetadata::default(), [0; 32])
+                .unwrap();
 
             while account.get_instruction() < BaseCommitmentHashComputation::IX_COUNT as u32 {
                 compute_base_commitment_hash_partial(&mut account).unwrap();
             }
 
-            assert_matches!(compute_base_commitment_hash_partial(&mut account), Err(_));
+            assert_eq!(
+                compute_base_commitment_hash_partial(&mut account),
+                Err(ElusivError::ComputationIsAlreadyFinished.into())
+            );
             assert_eq!(
                 account.get_state().result(),
                 u256_to_fr_skip_mr(&request.commitment.reduce())
@@ -304,7 +317,10 @@ mod tests {
                 compute_commitment_hash_partial(&mut account).unwrap();
             }
 
-            assert_matches!(compute_commitment_hash_partial(&mut account), Err(_));
+            assert_eq!(
+                compute_commitment_hash_partial(&mut account),
+                Err(ElusivError::ComputationIsAlreadyFinished.into())
+            );
             assert_eq!(
                 account.get_state().result(),
                 u256_to_fr_skip_mr(&request.valid_root)
