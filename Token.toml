@@ -77,7 +77,6 @@ max = 2_000_000_000_000_000 # 2M units
 pyth_usd_price_mainnet = "5wRjzrwWZG3af3FE26ZrRj3s8A3BVNyeJ9Pt9Uf2ogdf"
 pyth_usd_price_devnet = "G7dySNGaxZ8y2E89aX1K6rFeBt2ZnYBqXuCu1k2Y9MEe"
 
-
 [[token]]
 symbol = "stSOL"
 # https://explorer.solana.com/address/7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj
@@ -90,3 +89,16 @@ max = 360_000_000_000
 # https://pyth.network/price-feeds/crypto-stsol-usd
 pyth_usd_price_mainnet = "Bt1hEbY62aMriY1SyQqbeZbm8VmSbQVGBFzSzMuVNWzN"
 pyth_usd_price_devnet = "2LwhbcswZekofMNRtDRMukZJNSRUiKYMFbqtBwqjDfke"
+
+[[token]]
+symbol = "ORCA"
+# https://explorer.solana.com/address/orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE
+mint = "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE"
+mint_devnet = "orcarKHSqC5CDDsGbho8GKvwExejWHxTqGzXgcewB9L"
+active = true
+decimals = 6
+min = 10_000
+max = 15_000_000_000
+# https://pyth.network/price-feeds/crypto-orca-usd
+pyth_usd_price_mainnet = "4ivThkX8uRxBpHsdWSqyXYihzKF3zpRGAUCqyuagnLoV"
+pyth_usd_price_devnet = "A1WttWF7X3Rg6ZRpB2YQUFHCRh1kiXV8sKKLV3S9neJV"
