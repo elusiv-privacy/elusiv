@@ -81,7 +81,7 @@ pyth_usd_price_devnet = "G7dySNGaxZ8y2E89aX1K6rFeBt2ZnYBqXuCu1k2Y9MEe"
 symbol = "stSOL"
 # https://explorer.solana.com/address/7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj
 mint = "7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj"
-mint_devnet = "7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj"
+mint_devnet = "GbPqCRvpc3Ute2Ga5yxSZhmBjguJmzzjHWu5a7qzYjFW"
 active = true
 decimals = 9
 min = 1_000
@@ -94,7 +94,7 @@ pyth_usd_price_devnet = "2LwhbcswZekofMNRtDRMukZJNSRUiKYMFbqtBwqjDfke"
 symbol = "ORCA"
 # https://explorer.solana.com/address/orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE
 mint = "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE"
-mint_devnet = "orcarKHSqC5CDDsGbho8GKvwExejWHxTqGzXgcewB9L"
+mint_devnet = "4TFR2cNVufTTqJodYBNK4dVJLmBChUDCNhRHQPwL1aeL"
 active = true
 decimals = 6
 min = 10_000
@@ -107,7 +107,7 @@ pyth_usd_price_devnet = "A1WttWF7X3Rg6ZRpB2YQUFHCRh1kiXV8sKKLV3S9neJV"
 symbol = "RAY"
 # https://explorer.solana.com/address/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R
 mint = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"
-mint_devnet = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"
+mint_devnet = "Fe6W1j4c7Vtht3neoNJLsGpcM7NaBseWbHDppiQupqDi"
 active = true
 decimals = 6
 min = 1_000_000
