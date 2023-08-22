@@ -102,3 +102,16 @@ max = 15_000_000_000
 # https://pyth.network/price-feeds/crypto-orca-usd
 pyth_usd_price_mainnet = "4ivThkX8uRxBpHsdWSqyXYihzKF3zpRGAUCqyuagnLoV"
 pyth_usd_price_devnet = "A1WttWF7X3Rg6ZRpB2YQUFHCRh1kiXV8sKKLV3S9neJV"
+
+[[token]]
+symbol = "RAY"
+# https://explorer.solana.com/address/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R
+mint = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"
+mint_devnet = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"
+active = true
+decimals = 6
+min = 1_000_000
+max = 50_000_000_000
+# https://pyth.network/price-feeds/crypto-ray-usd
+pyth_usd_price_mainnet = "AnLf8tVYCM816gmBjiy8n53eXKKEDydT5piYjjQDPgTB"
+pyth_usd_price_devnet = "EhgAdTrgxi4ZoVZLQx1n93vULucPpiFi2BQtz9RJr1y6"
