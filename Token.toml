@@ -120,7 +120,7 @@ pyth_usd_price_devnet = "EhgAdTrgxi4ZoVZLQx1n93vULucPpiFi2BQtz9RJr1y6"
 symbol = "PYTH"
 # https://explorer.solana.com/address/HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3
 mint = "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3"
-mint_devnet = "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3"
+mint_devnet = "9ENsS7oDRD37YgimCK78oWBaAr5Nd1JTn3ZjgNc4xRq5"
 active = true
 decimals = 6
 min = 2_000
