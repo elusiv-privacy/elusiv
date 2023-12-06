@@ -115,3 +115,16 @@ max = 50_000_000_000
 # https://pyth.network/price-feeds/crypto-ray-usd
 pyth_usd_price_mainnet = "AnLf8tVYCM816gmBjiy8n53eXKKEDydT5piYjjQDPgTB"
 pyth_usd_price_devnet = "EhgAdTrgxi4ZoVZLQx1n93vULucPpiFi2BQtz9RJr1y6"
+
+[[token]]
+symbol = "PYTH"
+# https://explorer.solana.com/address/HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3
+mint = "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3"
+mint_devnet = "9ENsS7oDRD37YgimCK78oWBaAr5Nd1JTn3ZjgNc4xRq5"
+active = true
+decimals = 6
+min = 2_000
+max = 16_000_000_000
+# https://pyth.network/price-feeds/crypto-pyth-usd
+pyth_usd_price_mainnet = "nrYkQQQur7z8rYTST3G9GqATviK5SxTDkrqd21MW6Ue"
+pyth_usd_price_devnet = "ELF78ZhSr8u4SCixA7YSpjdZHZoSNrAhcyysbavpC2kA"
