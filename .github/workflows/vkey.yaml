@@ -21,7 +21,7 @@ jobs:
       - name: Reconfigure git to use HTTP authentication
         # Fix our git override using the generated token from the create_token step + use the "x-access-token".
         run: |
-          git config --global url."https://x-access-token:${{ steps.create_token.outputs.token }}@github.com".insteadOf ssh://git@github.com
+          git config --global url."https://x-access-token:${{ steps.create_token.outputs.token }}@github.com".insteadOf  https://github.com/
       - name: Fetch and compare vkeys
         run: |
           sh ./vkey.sh send_quadra temp2/send_quadra
