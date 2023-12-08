@@ -12,10 +12,16 @@ jobs:
       - uses: actions/checkout@v2
         with:
           persist-credentials: false
+      - id: create_token
+        uses: tibdex/github-app-token@v2
+        with:
+          # use the private key and app id secret that we created in the Github App section
+          app_id: ${{ secrets.APP_ID }}
+          private_key: ${{ secrets.APP_PRIVATE_KEY }}
       - name: Reconfigure git to use HTTP authentication
-        run: >
-          git config --global url."https://${{ secrets.GH_SECRET }}@github.com/".insteadOf
-          https://github.com/
+        # Fix our git override using the generated token from the create_token step + use the "x-access-token".
+        run: |
+          git config --global url."https://x-access-token:${{ steps.create_token.outputs.token }}@github.com".insteadOf  https://github.com
       - name: Fetch and compare vkeys
         run: |
           sh ./vkey.sh send_quadra temp2/send_quadra
