@@ -128,3 +128,29 @@ max = 16_000_000_000
 # https://pyth.network/price-feeds/crypto-pyth-usd
 pyth_usd_price_mainnet = "nrYkQQQur7z8rYTST3G9GqATviK5SxTDkrqd21MW6Ue"
 pyth_usd_price_devnet = "ELF78ZhSr8u4SCixA7YSpjdZHZoSNrAhcyysbavpC2kA"
+
+[[token]]
+symbol = "JitoSOL"
+# https://explorer.solana.com/address/J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn
+mint = "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn"
+mint_devnet = "9ENsS7oDRD37YgimCK78oWBaAr5Nd1JTn3ZjgNc4xRq5"
+active = true
+decimals = 9
+min = 1_000
+max = 360_000_000_000
+# https://pyth.network/price-feeds/crypto-jitosol-usd
+pyth_usd_price_mainnet = "7yyaeuJ1GGtVBLT2z2xub5ZWYKaNhF28mj1RdV4VDFVk"
+pyth_usd_price_devnet = "3d4eLK2TF6UdpSjKvS5ZUnDY1uZq2sEj9Tk3cujpUaAk"
+
+[[token]]
+symbol = "JTO"
+# https://explorer.solana.com/address/jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL
+mint = "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL"
+mint_devnet = "9ENsS7oDRD37YgimCK78oWBaAr5Nd1JTn3ZjgNc4xRq5"
+active = true
+decimals = 9
+min = 10_000
+max = 15_000_000_000
+# https://pyth.network/price-feeds/crypto-jto-usd
+pyth_usd_price_mainnet = "D8UUgr8a3aR3yUeHLu7v8FWK7E8Y5sSU7qrYBXUJXBQ5"
+pyth_usd_price_devnet = "29xQnTzyyuRtgJ7RtSKEgBWwRzZqtrrKmyQQ5m3x629f"
