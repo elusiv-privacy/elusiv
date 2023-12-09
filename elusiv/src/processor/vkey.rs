@@ -4,9 +4,7 @@ use crate::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use elusiv_types::{BorshSerDeSized, ChildAccountConfig, ElusivOption, ParentAccount};
-use elusiv_utils::{
-    guard, open_pda_account_with_offset, pda_account, transfer_with_system_program,
-};
+use elusiv_utils::{guard, open_pda_account_with_offset, pda_account};
 use solana_program::{
     account_info::AccountInfo, entrypoint::ProgramResult, program_error::ProgramError,
     pubkey::Pubkey,
@@ -106,7 +104,7 @@ pub fn update_vkey_version<'a>(
     signer: &AccountInfo<'a>,
     vkey_account: &mut VKeyAccount,
     old_vkey_binary_data_account: &AccountInfo<'a>,
-    system_program: &AccountInfo<'a>,
+    _system_program: &AccountInfo<'a>,
 
     _vkey_id: u32,
 ) -> ProgramResult {
@@ -124,12 +122,9 @@ pub fn update_vkey_version<'a>(
             ElusivError::InvalidAccount
         );
 
-        transfer_with_system_program(
-            old_vkey_binary_data_account,
-            signer,
-            system_program,
-            old_vkey_binary_data_account.lamports(),
-        )?;
+        **signer.try_borrow_mut_lamports()? +=
+            **old_vkey_binary_data_account.try_borrow_lamports()?;
+        **old_vkey_binary_data_account.try_borrow_mut_lamports()? = 0;
     }
 
     // Swap child accounts
