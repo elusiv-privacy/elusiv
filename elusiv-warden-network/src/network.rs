@@ -35,7 +35,7 @@ macro_rules! warden_network {
     };
 }
 
-warden_network!(ElusivBasicWardenNetwork, NetworkSize::Dynamic(0, 512));
+warden_network!(ElusivBasicWardenNetwork, NetworkSize::Dynamic(0, 32));
 
 #[elusiv_account]
 pub struct BasicWardenNetworkAccount {
